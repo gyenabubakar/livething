@@ -1,7 +1,8 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
+import { wireIdError } from '~/internal/wire-validation.ts';
+import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
   RequestResponseOptions,
@@ -37,14 +38,26 @@ export function requestResponse(
       // Frames for requests made before the socket is open when no buffering is
       // installed to hold them. helpers.send drops while not open, so we keep them
       // here and flush on onOpen — otherwise a request made during the connect
-      // window would be dropped and only fail by timing out.
-      const outbox = new Map<string, WireMessage>();
+      // window would be dropped and only fail by timing out. Each carries its owner
+      // so a serialization failure on flush rejects that exact request.
+      const outbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
+
+      // The owner a buffered/outboxed frame carries: still pending while its entry
+      // is in `pending`, and rejecting it settles the waiting Promise.
+      function ownerFor(correlationId: string): FrameOwner {
+        return {
+          isPending: () => pending.has(correlationId),
+          reject: (error) => pending.get(correlationId)?.reject(error),
+        };
+      }
 
       function sendRequest(
         event: string,
         payload: unknown,
         callOptions: { markers: ScopeMarkers; timeout?: number },
       ): Promise<unknown> {
+        const eventError = wireIdError(event, event, 'event');
+        if (eventError) return Promise.reject(eventError);
         const correlationId = helpers.generateId('req');
         helpers.lazyAcquire();
         helpers.ensureConnected();
@@ -83,16 +96,23 @@ export function requestResponse(
           // race ahead of not-yet-flushed messages. With no buffering, hold it only
           // while a connect is in progress (flushed on onOpen); on a closed socket
           // nothing will flush it, so fail fast instead of hanging to the timeout.
-          const delivered = helpers.send(frame);
-          if (!delivered) {
-            const state = helpers.getState();
-            if (state === 'connecting' || state === 'reconnecting') {
-              outbox.set(correlationId, frame);
-            } else {
-              clearTimeout(timer);
-              done();
-              reject(Disconnected());
-            }
+          const owner = ownerFor(correlationId);
+          let result: SendResult;
+          try {
+            result = helpers.send(frame, { owner });
+          } catch (error) {
+            // A throwing send must still tear down the timer, pending, and hold.
+            clearTimeout(timer);
+            done();
+            reject(error);
+            return;
+          }
+          if (result === 'connecting') {
+            outbox.set(correlationId, { message: frame, owner });
+          } else if (result === 'closed' || result === 'blocked') {
+            clearTimeout(timer);
+            done();
+            reject(Disconnected());
           }
         });
       }
@@ -100,10 +120,15 @@ export function requestResponse(
       return {
         id: 'requestResponse',
         onOpen() {
-          if (outbox.size === 0) return null;
-          const frames = [...outbox.values()];
+          // Flush held request frames once the socket opens. Skip any whose owner
+          // already settled (timed out / disconnected), and let rawSend reject the
+          // owner if its frame can't serialize so a later bad frame can't strand it.
+          const entries = [...outbox.values()];
           outbox.clear();
-          return frames;
+          for (const { message, owner } of entries) {
+            if (owner.isPending()) helpers.rawSend(message, owner);
+          }
+          return null;
         },
         onIncoming(message) {
           const correlationId = message.__wskit?.correlationId;
@@ -148,3 +173,4 @@ export function requestResponse(
     },
   };
 }
+requestResponse.tag = 'requestResponse';

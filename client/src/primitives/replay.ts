@@ -90,3 +90,4 @@ export function replay(): Primitive<EmptyTypeFn> {
     },
   };
 }
+replay.tag = 'replay';

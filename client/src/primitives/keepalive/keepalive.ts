@@ -1,4 +1,5 @@
 import { CloseCodes } from '@wskit/core';
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { ConnectionQuality } from '~/types.ts';
@@ -62,7 +63,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
           // The loop fires this only when the tier actually changes.
           onQualityChange: (next) => {
             quality = next;
-            for (const listener of [...listeners]) listener(next, latency);
+            dispatchToHandlers(listeners, helpers.log, next, latency);
           },
           log: (message) => helpers.log.info(message),
         },
@@ -99,3 +100,4 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
     },
   };
 }
+keepalive.tag = 'keepalive';

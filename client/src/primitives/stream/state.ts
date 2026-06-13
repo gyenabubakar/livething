@@ -16,6 +16,14 @@ export class StreamState {
   resumeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set from `__streamOk__`'s `streamKind`: persistent streams resume on reconnect. */
   resumable = false;
+  /**
+   * Whether this stream currently holds a lazy-consumer hold. Used to make
+   * acquire/release idempotent across a reconnect window: a resumable stream
+   * releases its hold on an unexpected drop and re-acquires on resume, and if
+   * several reconnect attempts each fire onClose, only the first release counts —
+   * otherwise the global lazy count is corrupted for unrelated consumers.
+   */
+  hasLazyHold = false;
 
   constructor(
     readonly streamId: string,

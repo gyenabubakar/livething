@@ -1,6 +1,8 @@
 import { ChannelNotSubscribed } from '@wskit/core';
+import { Disconnected } from '~/errors.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
-import type { PrimitiveHelpers } from '~/internal/runtime.ts';
+import { isReservedEventName, scopeKeyError, wireIdError } from '~/internal/wire-validation.ts';
+import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { ChannelMember } from '~/primitives/channels/types.ts';
@@ -25,7 +27,10 @@ export interface ChannelContext {
 
 /** The routing fields (`__wskit`) that identify this channel on outgoing frames. */
 export function channelMarkers(state: ChannelState): ScopeMarkers {
-  return state.scopeKey
+  // Use an explicit absence check, not truthiness: a supplied scope key is always
+  // included so the frame stays a family-scoped channel. (An empty key is rejected
+  // before a channel is built, so a present key here is real.)
+  return state.scopeKey !== undefined
     ? { channel: state.name, channelScope: state.scopeKey }
     : { channel: state.name };
 }
@@ -63,13 +68,28 @@ export function buildChannelMessaging(
     },
     send(event, payload, options) {
       assertReady();
+      // A reserved protocol name (ping/pong or the __ namespace) can't be a user
+      // event — the server drops it, so don't put it on the wire.
+      if (isReservedEventName(event)) return false;
       const ttl = options?.ttl ?? context.resolveTtl(event);
-      return helpers.send(
+      const result = helpers.send(
         { event, payload, __wskit: markers() },
         ttl !== undefined ? { ttl } : undefined,
       );
+      return result === 'sent' || result === 'buffered';
     },
     subscribe(data?: unknown) {
+      // Reject an empty/over-limit name or scope locally — the server rejects the
+      // frame before it can route a channel error back to settle this Promise.
+      const nameError =
+        wireIdError('__subscribe__', state.name, 'channel') ??
+        scopeKeyError('__subscribe__', state.scopeKey);
+      if (nameError) return Promise.reject(nameError);
+
+      // A deliberate re-subscribe clears any leftover "ignore the server's stale
+      // rejoin" suppression from a previous leave.
+      state.ignoreServerRejoin = false;
+
       helpers.ensureConnected();
 
       if (state.active) return Promise.resolve();
@@ -96,6 +116,17 @@ export function buildChannelMessaging(
       const thisPending = state.pending;
       void promise.catch(() => undefined);
 
+      // Settle and tear down once; the identity guard stops a stale failure (an
+      // old payload promise rejecting after a newer subscribe) clobbering the new one.
+      function failSubscribe(error: unknown): void {
+        if (state.pending !== thisPending) return;
+        thisPending?.reject(error);
+        state.pending = null;
+        state.pendingPromise = null;
+        state.pendingSubscribeFrame = null;
+        state.releaseLazy();
+      }
+
       function sendSubscribe(resolved: unknown): void {
         if (state.pending !== thisPending) return;
         state.resolvedSubscribeData = resolved;
@@ -104,23 +135,32 @@ export function buildChannelMessaging(
           payload: resolved ?? {},
           __wskit: channelMarkers(state),
         };
-        const connectionState = helpers.getState();
-        if (connectionState === 'connecting' || connectionState === 'reconnecting') {
+        let result: SendResult;
+        try {
+          result = helpers.rawSend(frame);
+        } catch (error) {
+          // A non-serializable frame must not leak the installed pending state.
+          failSubscribe(error);
+          return;
+        }
+        if (result === 'connecting') {
           state.pendingSubscribeFrame = frame;
-        } else {
-          helpers.rawSend(frame);
+        } else if (result === 'closed') {
+          // Closed, non-lazy: nothing will flush this — fail fast, don't hang.
+          failSubscribe(Disconnected());
         }
       }
 
       if (typeof data === 'function') {
-        // Call the function to get the payload, then send. Plain values go through
-        // the synchronous path below. If the function throws, reject the subscribe promise.
-        void Promise.resolve((data as () => unknown)()).then(sendSubscribe, (err) => {
-          state.pending?.reject(err);
-          state.pending = null;
-          state.pendingPromise = null;
-          state.releaseLazy();
-        });
+        // A synchronous factory throw escapes Promise.resolve — guard the call too.
+        let factoryResult: unknown;
+        try {
+          factoryResult = (data as () => unknown)();
+        } catch (error) {
+          failSubscribe(error);
+          return promise;
+        }
+        void Promise.resolve(factoryResult).then(sendSubscribe, failSubscribe);
       } else {
         sendSubscribe(data);
       }
@@ -131,7 +171,17 @@ export function buildChannelMessaging(
       // If the channel was never subscribed (and no subscribe is in flight),
       // do nothing — don't send __unsubscribe__ or fire onUnsubscribed.
       if (!state.active && !state.pending) return;
-      helpers.rawSend({ event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) });
+      const frame = { event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) };
+      const result = helpers.rawSend(frame);
+      // While connecting/reconnecting the frame can't go out yet. Hold it and keep
+      // the local subscription so we don't clear state for a leave the server never
+      // saw — otherwise a persistent channel auto-rejoins on reconnect and the
+      // client/server disagree. The held frame flushes (and the membership clears)
+      // on open; onReconnect suppresses the rejoin while it's pending.
+      if (result === 'connecting') {
+        state.pendingUnsubscribeFrame = frame;
+        return;
+      }
       // markUnsubscribed() releases the idle-prevention hold for us.
       state.markUnsubscribed();
       if (state.scopeKey) context.family(state.scopeKey).fireUnsubscribed(state.name);

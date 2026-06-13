@@ -291,6 +291,27 @@ describe('url-function rejection fires close event (no reconnection)', () => {
   });
 });
 
+describe('failed first connection runs primitive close cleanup (#2)', () => {
+  it('runs primitive onClose even when reconnection takes over', async () => {
+    const onClose = vi.fn();
+    const probe = {
+      _tag: 'probe',
+      setup: () => ({ id: 'probe', onClose }),
+    } as unknown as Primitive;
+    const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
+    const socket = c(connect(urlFn), reconnection(), probe);
+    socket.onError(() => undefined);
+
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Reconnection took over (state → reconnecting), but primitive close cleanup
+    // still ran first — so channel/request/ack state isn't left pending.
+    expect(socket.getState()).toBe('reconnecting');
+    expect(onClose).toHaveBeenCalledWith(1006, 'connection failed', false, false);
+  });
+});
+
 describe('url-function rejection surfaces error event (with reconnection)', () => {
   it('onError fires when url function rejects and reconnection is present', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));

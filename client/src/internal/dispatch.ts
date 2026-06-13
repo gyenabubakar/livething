@@ -1,4 +1,29 @@
-import type { PrimitiveLogger } from '~/internal/runtime.ts';
+import { Block } from '@wskit/core';
+import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
+
+/**
+ * Run one message hook (a primitive's `onIncoming` / `onOutgoing`, or a plugin
+ * wrapper) with the one true contract, so every call site behaves the same:
+ *
+ * - returns a message → pass it on (possibly transformed)
+ * - returns `null` → the hook cancelled the message
+ * - throws `Block` → an intentional cancel, same as returning `null`
+ * - throws anything else → a bug: report it and pass the message through
+ *   unchanged, so a broken hook can never silently drop or cancel a message.
+ */
+export function runMessageHook(
+  hook: (message: WireMessage) => WireMessage | null,
+  message: WireMessage,
+  onError: (error: unknown) => void,
+): WireMessage | null {
+  try {
+    return hook(message);
+  } catch (error) {
+    if (error === Block) return null;
+    onError(error);
+    return message;
+  }
+}
 
 /**
  * Call every handler with the given arguments. If one handler throws, it is

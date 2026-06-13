@@ -61,6 +61,44 @@ export interface WireMessage {
 }
 
 /**
+ * Where a send ended up. Returned by the internal send paths so a caller that
+ * owns a Promise can act precisely instead of guessing from a lossy boolean:
+ *
+ * - `sent` — written to the open socket.
+ * - `buffered` — a buffering primitive kept it to flush on the next open.
+ * - `connecting` — not open yet (connecting/reconnecting); a Promise-bearing
+ *   caller should hold the frame and let `onOpen`/`onReconnect` flush it.
+ * - `closed` — the socket is closed with no reconnect coming; a Promise-bearing
+ *   caller must fail fast with `Disconnected` instead of hanging.
+ * - `blocked` — a primitive's `onOutgoing` cancelled the send.
+ *
+ * The public `socket.send()` collapses this back to a boolean (`sent`/`buffered`
+ * → true), so only primitives see the full detail.
+ */
+export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked';
+
+/**
+ * The pending operation that owns a buffered or outboxed frame. A request, ack,
+ * subscribe, stream trigger, resume, or nudge whose frame is held off-wire keeps
+ * an owner so the holding layer can settle it: skip its frame once it has already
+ * settled (timed out, disconnected, resolved), and reject it if the frame can
+ * never be delivered (eviction, TTL expiry, clear, or a serialization failure on
+ * flush). A plain fire-and-forget `send()` has no owner.
+ */
+export interface FrameOwner {
+  /** Still waiting? A frame whose owner is no longer pending is dropped, not sent. */
+  isPending(): boolean;
+  /** Settle the owning Promise with a failure (the frame will never reach the wire). */
+  reject(error: unknown): void;
+}
+
+/** Internal send options: the public `ttl`, plus the owner a Promise-bearing op attaches. */
+export interface InternalSendOptions {
+  ttl?: number;
+  owner?: FrameOwner;
+}
+
+/**
  * A function that sees every incoming message before your `on()` handlers do.
  * Return nothing to pass it through, return a new message to change it, or throw
  * `Block` to drop it.
@@ -87,8 +125,9 @@ export interface PrimitiveLogger {
   error(...args: unknown[]): void;
   /**
    * Surface a value thrown by user code (a handler, listener, or hook) on the
-   * public `error` event so it isn't swallowed. Not gated by debug mode; falls
-   * back to `console.error` when nothing is listening.
+   * public `error` event so it isn't swallowed. Not gated by debug mode; when no
+   * `error` listener is registered it is rethrown out-of-band to the host's
+   * global error handler rather than logged.
    */
   report(error: unknown): void;
 }
@@ -162,8 +201,13 @@ export interface PrimitiveHelpers {
   /** Read-only view of the resolved config. */
   readonly config: Readonly<SocketConfig>;
 
-  /** Send a message straight to the wire, skipping `onOutgoing` (so you don't loop). */
-  rawSend(message: WireMessage): void;
+  /**
+   * Send straight to the wire, skipping `onOutgoing` (so you don't loop). Returns
+   * where it went so a Promise-bearing protocol op can queue or fail fast. Pass an
+   * `owner` to flush a held frame: a serialization throw then rejects that owner
+   * and is reported instead of escaping.
+   */
+  rawSend(message: WireMessage, owner?: FrameOwner): SendResult;
 
   /**
    * Send a bare `"ping"` text frame straight to the wire. Sent as plain text
@@ -173,7 +217,7 @@ export interface PrimitiveHelpers {
   sendPing(): void;
 
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
-  send(message: WireMessage, options?: { ttl?: number }): boolean;
+  send(message: WireMessage, options?: InternalSendOptions): SendResult;
 
   /** Make a unique id. The counter is shared across all primitives, so ids never collide. */
   generateId(prefix?: string): string;
@@ -226,7 +270,9 @@ export interface PrimitiveHelpers {
    * Return `true` if you kept the message (e.g. added it to a buffer), `false` to drop it.
    * If no fallback is registered, those sends are silently dropped.
    */
-  registerOutgoingFallback(handler: (message: WireMessage, ttl?: number) => boolean): void;
+  registerOutgoingFallback(
+    handler: (message: WireMessage, options?: InternalSendOptions) => boolean,
+  ): void;
 
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */
   readonly log: PrimitiveLogger;

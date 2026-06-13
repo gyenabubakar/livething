@@ -1,6 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { ack } from '~/primitives/ack/index.ts';
+import { buffering } from '~/primitives/buffering/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrimitiveHelpers } from '~/internal/runtime.ts';
@@ -26,6 +27,68 @@ beforeEach(() => {
 afterEach(() => {
   restore();
   vi.useRealTimers();
+});
+
+describe('ack — buffered frame ownership', () => {
+  it('does not send a timed-out ack after reconnect', async () => {
+    vi.useFakeTimers();
+    const socket = client<C>()(
+      connect('wss://test'),
+      buffering({ enabled: true }),
+      ack({ timeout: 4000 }),
+    );
+    socket.connect();
+    let ws = MockWebSocket.last();
+    ws.open();
+    ws.serverClose(1006);
+
+    const settled = vi.fn();
+    socket.sendWithAck('chat', { text: 'hi' }).then(
+      () => settled('resolved'),
+      (e: { code?: string }) => settled(e?.code),
+    );
+
+    vi.advanceTimersByTime(4000);
+    await Promise.resolve();
+    expect(settled).toHaveBeenCalledWith('timeout');
+
+    socket.connect();
+    ws = MockWebSocket.last();
+    ws.open();
+    expect(ws.sentFrames().some((f) => f.event === 'chat')).toBe(false);
+  });
+
+  it('rejects the exact ack whose held frame cannot serialize on flush, later acks still flush', async () => {
+    const socket = client<C>()(connect('wss://test', { lazy: true }), ack());
+    socket.onError(() => undefined); // absorb the reported serialization failure
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    const bad = socket.sendWithAck('chat', circular as unknown as { text: string });
+    const good = socket.sendWithAck('chat', { text: 'b' });
+    void bad.catch(() => undefined);
+
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    await expect(bad).rejects.toBeInstanceOf(TypeError);
+    const ackId = ws.sentFrames().at(-1).__wskit.ackId;
+    ws.emit({ event: 'chat', payload: {}, __wskit: { ackId } });
+    await expect(good).resolves.toBeUndefined();
+  });
+});
+
+describe('ack — reserved event names', () => {
+  it('rejects a reserved event name locally with validation-failed and no send', async () => {
+    const { socket, ws } = build();
+    const sendWithAck = socket.sendWithAck as (e: string, p: unknown) => Promise<void>;
+    for (const name of ['ping', 'pong', '__error__']) {
+      await expect(sendWithAck(name, { text: 'x' })).rejects.toMatchObject({
+        code: 'validation-failed',
+      });
+    }
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
 });
 
 describe('ack timeout and disconnect rejection', () => {
@@ -134,7 +197,11 @@ describe('ack ttl option passthrough', () => {
     const sendSpy = vi.spyOn(socket as unknown as WSKitSocket, '_send');
     const promise = socket.sendWithAck('chat', { text: 'hi' }, { ttl: 5000 });
     // helpers.send delegates to socket._send — verify the options arg carries the ttl
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ event: 'chat' }), { ttl: 5000 });
+    // (alongside the owner attached so a buffered/outboxed ack can be settled).
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'chat' }),
+      expect.objectContaining({ ttl: 5000, owner: expect.any(Object) }),
+    );
     const frame = ws.sentFrames().at(-1);
     ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: frame.__wskit.ackId } });
     return expect(promise).resolves.toBeUndefined();
@@ -144,8 +211,12 @@ describe('ack ttl option passthrough', () => {
     const { socket, ws } = build();
     const sendSpy = vi.spyOn(socket as unknown as WSKitSocket, '_send');
     const promise = socket.sendWithAck('chat', { text: 'hi' });
-    // helpers.send delegates to socket._send — verify no options arg is passed when ttl is absent
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ event: 'chat' }), undefined);
+    // helpers.send delegates to socket._send — with no ttl the options still carry
+    // the owner attached so a buffered/outboxed ack can be settled.
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'chat' }),
+      expect.objectContaining({ owner: expect.any(Object) }),
+    );
     const frame = ws.sentFrames().at(-1);
     ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: frame.__wskit.ackId } });
     return expect(promise).resolves.toBeUndefined();
@@ -163,8 +234,8 @@ describe('ack ttl option passthrough', () => {
     const fakePrimitive = {
       _tag: 'fake-buffer' as const,
       setup(helpers: PrimitiveHelpers) {
-        helpers.registerOutgoingFallback((_message, ttl?: number) => {
-          capturedTtl = ttl;
+        helpers.registerOutgoingFallback((_message, options) => {
+          capturedTtl = options?.ttl;
           return true;
         });
         return { id: 'fake-buffer' };
@@ -186,8 +257,8 @@ describe('ack ttl option passthrough', () => {
     const fakePrimitive = {
       _tag: 'fake-buffer' as const,
       setup(helpers: PrimitiveHelpers) {
-        helpers.registerOutgoingFallback((_message, ttl?: number) => {
-          capturedTtl = ttl;
+        helpers.registerOutgoingFallback((_message, options) => {
+          capturedTtl = options?.ttl;
           return true;
         });
         return { id: 'fake-buffer' };

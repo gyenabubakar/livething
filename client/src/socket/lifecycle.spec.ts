@@ -278,7 +278,7 @@ describe('lazy idle window resets on send', () => {
     const raw = socket as unknown as { send(event: string, payload: unknown): boolean };
 
     // No listeners ever — a send is what triggers the lazy connect.
-    raw.send('ping', {});
+    raw.send('echo', {});
     MockWebSocket.last().open();
 
     // Idle timer is armed (zero consumers). Advance most of the window.
@@ -286,7 +286,7 @@ describe('lazy idle window resets on send', () => {
     expect(socket.getState()).toBe('open');
 
     // A fresh send must restart the 10s window.
-    raw.send('ping', {});
+    raw.send('echo', {});
     vi.advanceTimersByTime(8_000); // 16s since open, but only 8s since the last send
     expect(socket.getState()).toBe('open');
 

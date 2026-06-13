@@ -188,3 +188,58 @@ describe('visibility signal routing via onSignal', () => {
     expect(socket.getState()).toBe('open');
   });
 });
+
+describe('signal handler isolation (#20)', () => {
+  it('a throwing signal handler does not block later handlers and is reported', () => {
+    const m = mockEnvironment();
+    const errors: unknown[] = [];
+    const second = makeSignalCapture('online');
+    const thrower: Primitive<EmptyTypeFn> = {
+      _tag: 'signal-thrower',
+      setup(helpers) {
+        helpers.onSignal('online', () => {
+          throw new Error('signal boom');
+        });
+        return { id: 'signal-thrower' };
+      },
+    };
+    // Registration order = primitive order: thrower runs before `second`.
+    const { socket } = build(
+      platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
+      thrower,
+      second.primitive,
+    );
+    socket.onError((error) => errors.push(error));
+
+    m.setOnline(true);
+
+    expect(second.received.length).toBeGreaterThanOrEqual(1);
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('environment cleanup isolation (#21)', () => {
+  it('one throwing cleanup still detaches the other listeners', () => {
+    const visUnsub = vi.fn();
+    // Network cleanup is registered first; make it throw and verify the later
+    // visibility cleanup still runs.
+    const env = environment({
+      onNetworkChange() {
+        return () => {
+          throw new Error('cleanup boom');
+        };
+      },
+      onVisibilityChange() {
+        return visUnsub;
+      },
+    });
+    const errors: unknown[] = [];
+    const { socket } = build(platform({ environment: env, backgroundDisconnectMs: 500 }));
+    socket.onError((error) => errors.push(error));
+
+    socket.disconnect(); // close → unbind runs every cleanup
+
+    expect(visUnsub).toHaveBeenCalled();
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+  });
+});

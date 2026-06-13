@@ -1,4 +1,5 @@
 import { WSKitConfigError } from '@wskit/core';
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import type { ClientEnvironment } from '~/environment.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
@@ -111,7 +112,8 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
 
       function unbind(): void {
         clearHiddenTimer();
-        for (const cleanup of cleanups) cleanup();
+        // Isolate each cleanup so one throw can't leave later listeners attached.
+        dispatchToHandlers(cleanups, helpers.log);
         cleanups.length = 0;
         bound = false;
       }
@@ -140,3 +142,4 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
     },
   };
 }
+platform.tag = 'platform';

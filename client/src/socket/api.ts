@@ -42,9 +42,20 @@ export interface SocketConnection {
 }
 
 /**
+ * Carries the contract on the socket type in a covariant, inferable position so
+ * helpers like `inject()` can recover it from the real (intersection) socket the
+ * builder returns. It's phantom — never present at runtime — and optional so
+ * hand-built socket shapes still satisfy `Socket`.
+ */
+export interface SocketContractBrand<TContract extends SocketContract> {
+  readonly _socketContract?: TContract;
+}
+
+/**
  * The socket type you work with: the connection methods plus typed `on()` and
  * `send()` for your contract. Primitives add their own methods on top through
  * `client()`.
  */
 export type Socket<TContract extends SocketContract = SocketContract> = SocketConnection &
-  Messaging<IncomingOf<TContract> & object, OutgoingOf<TContract> & object>;
+  Messaging<IncomingOf<TContract> & object, OutgoingOf<TContract> & object> &
+  SocketContractBrand<TContract>;

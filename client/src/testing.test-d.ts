@@ -3,6 +3,9 @@
 // never runs them. They prove the helpers reject unknown events, unknown
 // channels, and wrong payload shapes at compile time — the runtime routing is
 // covered separately in testing-routing.spec.ts.
+import { client } from '~/client.ts';
+import { connect } from '~/connect.ts';
+import { channels } from '~/primitives/channels/index.ts';
 import { inject, injectChannel } from '~/testing.ts';
 import type { Socket } from '~/socket/api.ts';
 
@@ -33,3 +36,22 @@ injectChannel(socket, 'general', 'message', { text: 123 });
 injectChannel(socket, 'general', 'nope', { text: 'hi' });
 // @ts-expect-error unknown channel
 injectChannel(socket, 'nope', 'message', { text: 'hi' });
+
+// The real builder return (an intersection of Socket<C> with primitive APIs and
+// stubs) must still infer the contract through inject*/injectChannel — a packed
+// external consumer only ever has this type, not a hand-declared Socket<C>.
+const realSocket = client<C>()(connect('wss://test'), channels());
+
+inject(realSocket, 'ping', { id: 'x' });
+// @ts-expect-error wrong payload shape on the real socket
+inject(realSocket, 'ping', { id: 123 });
+// @ts-expect-error unknown event on the real socket
+inject(realSocket, 'nope', { id: 'x' });
+
+injectChannel(realSocket, 'general', 'message', { text: 'hi' });
+// @ts-expect-error wrong payload shape on the real socket
+injectChannel(realSocket, 'general', 'message', { text: 123 });
+// @ts-expect-error unknown event on a known channel of the real socket
+injectChannel(realSocket, 'general', 'nope', { text: 'hi' });
+// @ts-expect-error unknown channel on the real socket
+injectChannel(realSocket, 'nope', 'message', { text: 'hi' });

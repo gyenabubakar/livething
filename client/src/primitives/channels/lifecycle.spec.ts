@@ -2,6 +2,7 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
+import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -250,6 +251,100 @@ describe('channels-reconnect-skips-persistent', () => {
   });
 });
 
+describe('channels-reconnect-rejoin-before-queued-ops', () => {
+  it('rejoins a channel before flushing a request queued during the reconnect', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test'),
+        channels(),
+        requestResponse(),
+        reconnection(),
+      );
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+
+      // Drop, then queue a scoped request while reconnecting.
+      first.serverClose(1006, 'drop');
+      void (room as unknown as { request(e: string, p: unknown): Promise<unknown> })
+        .request('history', { before: 'x' })
+        .catch(() => undefined);
+
+      // Reconnect: the rejoin __subscribe__ must reach the server BEFORE the queued
+      // request, or the server would answer ChannelNotSubscribed.
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const events = second.sentFrames().map((f) => f.event);
+      const subIdx = events.indexOf('__subscribe__');
+      const reqIdx = events.indexOf('history');
+      expect(subIdx).toBeGreaterThanOrEqual(0);
+      expect(reqIdx).toBeGreaterThanOrEqual(0);
+      expect(subIdx).toBeLessThan(reqIdx);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
+  it('does not rejoin a persistent channel that was unsubscribed while reconnecting', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      const unsubscribed = vi.fn();
+      room.onUnsubscribed(unsubscribed);
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      // Drop the connection; the channel is kept for the reconnect window.
+      first.serverClose(1006, 'drop');
+
+      // Unsubscribe during reconnect — the frame can't go out yet. The local
+      // subscription is kept so we know to suppress the rejoin; it must not clear
+      // membership prematurely or fire onUnsubscribed yet.
+      room.unsubscribe();
+      expect(unsubscribed).not.toHaveBeenCalled();
+
+      // Reconnect: the held unsubscribe flushes, no rejoin/subscribe is sent for it,
+      // and onUnsubscribed fires exactly once.
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const sent = second.sentFrames();
+      expect(
+        sent.some((f) => f.event === '__unsubscribe__' && f.__wskit?.channel === 'general'),
+      ).toBe(true);
+      expect(
+        sent.some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+      ).toBe(false);
+      expect(unsubscribed).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
   it('re-invokes a function subscribe payload on reconnect, sending a fresh value', async () => {
     vi.useFakeTimers();
@@ -286,6 +381,46 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
         token: 'tok-2',
       });
       expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () => {
+  it('reports a throwing subscribe payload refresh via onError', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const errors: unknown[] = [];
+      socket.onError((error) => errors.push(error));
+
+      let calls = 0;
+      const room = socket.channel('general');
+      void room.subscribe(() => {
+        calls++;
+        if (calls > 1) throw new Error('token refresh boom');
+        return {};
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+
+      first.serverClose(1006, 'drop');
+      await vi.advanceTimersByTimeAsync(1500);
+      MockWebSocket.last().open();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toBe('token refresh boom');
     } finally {
       vi.useRealTimers();
     }

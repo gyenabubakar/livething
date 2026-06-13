@@ -1,25 +1,22 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
-import { Block, WSKitConfigError } from '@wskit/core';
+import { WSKitConfigError } from '@wskit/core';
+import { runMessageHook } from '~/internal/dispatch.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { PluginDef, PluginFactory, PluginHooks, PrimitiveFactory } from '~/plugins/types.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
- * Get the tag string from a primitive factory so we can check dependencies.
- * Reads the static `tag` property if present; otherwise creates a throwaway
- * instance and reads `_tag` from it. Throws a clear error if neither works,
- * so a bad dependency is caught when the plugin is defined, not at runtime.
+ * Read a dependency's tag from the factory's static `tag` without running it.
+ * Calling a configured factory with no args could throw or fire side effects,
+ * so a dependency must expose `tag`. A bad dependency is caught here, when the
+ * plugin is defined, not at runtime.
  */
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
-  try {
-    return factory()._tag;
-  } catch {
-    throw new WSKitConfigError(
-      `[wskit] could not resolve a plugin dependency to a primitive tag. Dependencies must be primitive factories (e.g. [ack, channels]).`,
-    );
-  }
+  throw new WSKitConfigError(
+    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [ack, channels]).`,
+  );
 }
 
 /**
@@ -180,28 +177,23 @@ export function plugin<TArgs = void, TApi = unknown>(
 
           onIncoming: (message) => {
             if (!incoming) return message;
-            try {
-              const result = incoming(message);
-              return result ?? message;
-            } catch (error) {
-              if (error !== Block) {
-                helpers.log.report(error);
-              }
-              return null;
-            }
+            // Only Block consumes the message; any other throw is reported and passes through.
+            const run = incoming;
+            return runMessageHook(
+              (m) => run(m) ?? m,
+              message,
+              (error) => helpers.log.report(error),
+            );
           },
 
           onOutgoing: (message) => {
             if (!outgoing) return message;
-            try {
-              const result = outgoing(message);
-              return result ?? message;
-            } catch (error) {
-              if (error !== Block) {
-                helpers.log.report(error);
-              }
-              return null;
-            }
+            const run = outgoing;
+            return runMessageHook(
+              (m) => run(m) ?? m,
+              message,
+              (error) => helpers.log.report(error),
+            );
           },
 
           onOpen: () => {

@@ -282,7 +282,7 @@ describe('getLatency() after disconnect', () => {
 });
 
 interface RequestContract {
-  requests: { ping: { payload: null; response: null } };
+  requests: { echo: { payload: null; response: null } };
 }
 
 describe('idle timer armed during close must not fire during reconnect', () => {
@@ -297,7 +297,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
 
       // Make a request — this is the only lazy consumer (_lazyConsumers = 1).
       // The promise will reject when the socket drops, releasing the lazy hold.
-      const pending = socket.request('ping', null);
+      const pending = socket.request('echo', null);
 
       // The lazy connect triggered by request() opens the socket.
       MockWebSocket.last().open();

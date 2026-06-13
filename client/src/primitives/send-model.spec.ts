@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // (it is NOT raced onto the wire ahead of buffered messages, and NOT dropped).
 interface C {
   outgoing: { typing: { id: string } };
-  requests: { ping: { payload: { id: string }; response: { ok: boolean } } };
+  requests: { echo: { payload: { id: string }; response: { ok: boolean } } };
   streams: {
     feed: { payload: { id: string }; chunk: { text: string }; kind: 'ephemeral'; nudges: never };
   };
@@ -49,14 +49,14 @@ describe('send-and-await frames respect the buffering flush order', () => {
     ws = MockWebSocket.last();
     ws.open(); // onOpen flush: 'a' now, 'b' scheduled +100ms (isFlushing = true)
 
-    void socket.request('ping', { id: 'r' }); // must NOT jump ahead of 'b'
+    void socket.request('echo', { id: 'r' }); // must NOT jump ahead of 'b'
 
     vi.advanceTimersByTime(300);
     const order = ws
       .sentFrames()
       .map((f: { event: string }) => f.event)
-      .filter((e: string) => e === 'typing' || e === 'ping');
-    expect(order).toEqual(['typing', 'typing', 'ping']);
+      .filter((e: string) => e === 'typing' || e === 'echo');
+    expect(order).toEqual(['typing', 'typing', 'echo']);
   });
 
   it('a stream trigger fired during a staggered flush lands behind the not-yet-flushed messages', () => {
@@ -109,18 +109,18 @@ describe('send-and-await frames are held (not dropped) before open without buffe
 
   it('holds a request made before open and flushes it when the socket opens', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
-    const pending = socket.request('ping', { id: 'r' });
+    const pending = socket.request('echo', { id: 'r' });
     void pending.catch(() => undefined);
 
     const ws = MockWebSocket.last();
     expect(ws.sentFrames()).toEqual([]); // held
 
     ws.open();
-    const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'ping');
+    const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'echo');
     expect(sent).toBeDefined();
 
     const correlationId = sent.__wskit.correlationId as string;
-    ws.emit({ event: 'ping', payload: { ok: true }, __wskit: { correlationId } });
+    ws.emit({ event: 'echo', payload: { ok: true }, __wskit: { correlationId } });
     await expect(pending).resolves.toEqual({ ok: true });
   });
 });
@@ -151,7 +151,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
     try {
       const socket = client<C>()(connect('wss://test'), requestResponse({ timeout: 10_000 }));
       const settled = vi.fn();
-      socket.request('ping', { id: 'r' }).then(
+      socket.request('echo', { id: 'r' }).then(
         () => settled('resolved'),
         (e: { code?: string }) => settled(e?.code),
       );

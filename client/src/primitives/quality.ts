@@ -20,3 +20,4 @@ export function quality(options?: QualityOptions): Primitive<EmptyTypeFn> {
     },
   };
 }
+quality.tag = 'quality';

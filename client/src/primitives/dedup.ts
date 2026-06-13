@@ -50,3 +50,4 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
     },
   };
 }
+dedup.tag = 'dedup';

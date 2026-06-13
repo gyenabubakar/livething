@@ -1,7 +1,8 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
+import { wireIdError } from '~/internal/wire-validation.ts';
+import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { AckOptions, AckTypeFn } from '~/primitives/ack/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
@@ -33,14 +34,24 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
       const pending = new Map<string, Pending>();
       // Frames for acks made before the socket is open (lazy connect / reconnect)
       // when no buffering is installed to hold them. Flushed on onOpen — same as
-      // request() — so a sendWithAck() started before open isn't dropped.
-      const outbox = new Map<string, WireMessage>();
+      // request() — so a sendWithAck() started before open isn't dropped. Each
+      // carries its owner so a serialization failure on flush rejects that ack.
+      const outbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
+
+      function ownerFor(ackId: string): FrameOwner {
+        return {
+          isPending: () => pending.has(ackId),
+          reject: (error) => pending.get(ackId)?.reject(error),
+        };
+      }
 
       function sendWithAck(
         event: string,
         payload: unknown,
         callOptions: AckOptionsArg & { markers: ScopeMarkers },
       ): Promise<void> {
+        const eventError = wireIdError(event, event, 'event');
+        if (eventError) return Promise.reject(eventError);
         const ackId = helpers.generateId('ack');
         helpers.lazyAcquire();
         helpers.ensureConnected();
@@ -70,23 +81,27 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           });
 
           const frame: WireMessage = { event, payload, __wskit: { ackId, ...callOptions.markers } };
-          const delivered = helpers.send(
-            frame,
-            callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : undefined,
-          );
-          if (!delivered) {
-            // helpers.send declined. Hold the frame only while a connect is
-            // actually in progress, to flush it on open (lazy/reconnect, no
-            // buffering). On a closed socket — or an open one whose send a
-            // primitive cancelled — nothing will ever flush it, so fail fast.
-            const state = helpers.getState();
-            if (state === 'connecting' || state === 'reconnecting') {
-              outbox.set(ackId, frame);
-            } else {
-              clearTimeout(timer);
-              done();
-              reject(Disconnected());
-            }
+          const owner = ownerFor(ackId);
+          let result: SendResult;
+          try {
+            result = helpers.send(frame, {
+              owner,
+              ...(callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : {}),
+            });
+          } catch (error) {
+            // A throwing send must still tear down the timer, pending, and hold.
+            clearTimeout(timer);
+            done();
+            reject(error);
+            return;
+          }
+          // connecting holds the frame to flush on open; closed/blocked fails fast.
+          if (result === 'connecting') {
+            outbox.set(ackId, { message: frame, owner });
+          } else if (result === 'closed' || result === 'blocked') {
+            clearTimeout(timer);
+            done();
+            reject(Disconnected());
           }
         });
       }
@@ -94,10 +109,12 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
       return {
         id: 'ack',
         onOpen() {
-          if (outbox.size === 0) return null;
-          const frames = [...outbox.values()];
+          const entries = [...outbox.values()];
           outbox.clear();
-          return frames;
+          for (const { message, owner } of entries) {
+            if (owner.isPending()) helpers.rawSend(message, owner);
+          }
+          return null;
         },
         onIncoming(message) {
           const ackId = message.__wskit?.ackId;
@@ -137,3 +154,4 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
     },
   };
 }
+ack.tag = 'ack';

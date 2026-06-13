@@ -150,7 +150,7 @@ export interface StreamHandlers<TChunk> {
   onChunk(chunk: TChunk, streamId: string): void;
   /** The stream finished. `finalSeq` is the last `seq`, to detect missed chunks. */
   onEnd?(streamId: string, finalSeq?: number): void;
-  /** The stream errored (only the triggering client sees this on a broadcast). */
+  /** The stream errored. Every subscriber on a broadcast stream is notified. */
   onError?(error: WSKitError, streamId: string): void;
   /** No chunk arrived within the per-chunk timeout. */
   onTimeout?(streamId: string): void;

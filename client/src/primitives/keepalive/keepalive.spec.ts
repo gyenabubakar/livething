@@ -575,3 +575,23 @@ describe('keepalive — latency cleared on missed pong', () => {
     expect(socket.getLatency()).toBeNull();
   });
 });
+
+describe('keepalive — quality listener isolation (#20)', () => {
+  it('a throwing onQualityChange listener does not block the others and is reported', () => {
+    vi.useFakeTimers();
+    const errors: unknown[] = [];
+    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 5 }));
+    socket.onError((error) => errors.push(error));
+    const second = vi.fn();
+    socket.onQualityChange(() => {
+      throw new Error('listener boom');
+    });
+    socket.onQualityChange(second);
+
+    vi.advanceTimersByTime(1000); // ping sent
+    vi.advanceTimersByTime(1000); // missed pong → quality drops → fires listeners
+
+    expect(second).toHaveBeenCalled();
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+  });
+});

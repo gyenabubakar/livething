@@ -1,7 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { installMockWebSocket } from '~/test-helpers.ts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 let restore: () => void;
@@ -64,24 +64,29 @@ describe('onSignal / emitSignal', () => {
 });
 
 describe('generateId', () => {
-  it('returns a plain counter string when no prefix is given', () => {
+  // Ids carry a per-socket random scope segment before the counter so two fresh
+  // sockets never collide (#1): `<scope>-<n>` with no prefix, `<prefix>-<scope>-<n>` with one.
+  it('returns scope-counter when no prefix is given', () => {
     const helpers = makeHelpers();
     const id = helpers.generateId();
     expect(typeof id).toBe('string');
-    expect(id).toMatch(/^\d+$/);
+    expect(id).toMatch(/^.+-\d+$/);
   });
 
-  it('returns prefix-N when a prefix is given', () => {
+  it('returns prefix-scope-N when a prefix is given', () => {
     const helpers = makeHelpers();
     const id = helpers.generateId('ack');
-    expect(id).toMatch(/^ack-\d+$/);
+    expect(id).toMatch(/^ack-.+-\d+$/);
   });
 
   it('successive calls produce strictly increasing counters', () => {
     const helpers = makeHelpers();
-    const first = Number(helpers.generateId());
-    const second = Number(helpers.generateId());
-    const third = Number(helpers.generateId());
+    function counter(id: string): number {
+      return Number(id.split('-').at(-1));
+    }
+    const first = counter(helpers.generateId());
+    const second = counter(helpers.generateId());
+    const third = counter(helpers.generateId());
     expect(second).toBeGreaterThan(first);
     expect(third).toBeGreaterThan(second);
   });
@@ -106,5 +111,67 @@ describe('generateId', () => {
     const ackN = ackId.replace('ack-', '');
     const reqN = reqId.replace('req-', '');
     expect(ackN).not.toBe(reqN);
+  });
+});
+
+describe('id scope fallback (#17)', () => {
+  /** The per-socket scope segment of `<scope>-<n>` (no prefix). */
+  function scopeOf(socket: WSKitSocket): string {
+    const id = socket._helpers().generateId();
+    return id.slice(0, id.lastIndexOf('-'));
+  }
+
+  let originalCrypto: Crypto;
+  beforeEach(() => {
+    originalCrypto = globalThis.crypto;
+  });
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'crypto', { value: originalCrypto, configurable: true });
+    vi.restoreAllMocks();
+  });
+
+  function setCrypto(value: unknown): void {
+    Object.defineProperty(globalThis, 'crypto', { value, configurable: true });
+  }
+
+  it('two fresh sockets get different scopes', () => {
+    const a = client()(connect('wss://test')) as WSKitSocket;
+    const b = client()(connect('wss://test')) as WSKitSocket;
+    expect(scopeOf(a)).not.toBe(scopeOf(b));
+  });
+
+  it('falls back to getRandomValues when randomUUID is unavailable', () => {
+    let counter = 0;
+    setCrypto({
+      // No randomUUID — force the getRandomValues path.
+      getRandomValues: (array: Uint8Array) => {
+        for (let i = 0; i < array.length; i++) array[i] = (counter + i) % 256;
+        counter += 7;
+        return array;
+      },
+    });
+    const a = client()(connect('wss://test')) as WSKitSocket;
+    const b = client()(connect('wss://test')) as WSKitSocket;
+    // Distinct secure-random bytes per socket → distinct scopes, with no dependence
+    // on Math.random.
+    expect(scopeOf(a)).not.toBe(scopeOf(b));
+    expect(scopeOf(a)).toMatch(/^[0-9a-f]{32}/); // 16 bytes hex
+  });
+
+  it('a frozen weak RNG cannot make two sockets collide because the scope uses getRandomValues', () => {
+    // Math.random pinned to a constant — if the scope relied on it, two sockets
+    // would collide. getRandomValues still varies, so they must not.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    let nonce = 100;
+    setCrypto({
+      getRandomValues: (array: Uint8Array) => {
+        for (let i = 0; i < array.length; i++) array[i] = (nonce * (i + 1)) % 256;
+        nonce += 13;
+        return array;
+      },
+    });
+    const a = client()(connect('wss://test')) as WSKitSocket;
+    const b = client()(connect('wss://test')) as WSKitSocket;
+    expect(scopeOf(a)).not.toBe(scopeOf(b));
   });
 });

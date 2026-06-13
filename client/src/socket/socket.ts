@@ -1,13 +1,18 @@
 import { Block } from '@wskit/core';
-import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
+import { isThenable } from '~/internal/thenable.ts';
+import { isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
+  FrameOwner,
   InterceptFn,
+  InternalSendOptions,
   PrimitiveHelpers,
   PrimitiveLogger,
   PrimitiveRuntime,
+  SendResult,
   WireMessage,
   WSKitEnvelope,
 } from '~/internal/runtime.ts';
@@ -34,6 +39,25 @@ type SocketEvents = {
   close: [event: CloseEvent];
   error: [error: unknown];
 };
+
+/**
+ * A unique per-socket token mixed into every generated id. `randomUUID` is ideal;
+ * when it's missing (older runtimes) fall back to 16 bytes from `getRandomValues`,
+ * which is just as collision-resistant — crucially it does NOT share a seeded
+ * counter the way a weak RNG might, so two fresh sockets can't mint the same
+ * token. Only with no secure RNG at all does it drop to `Math.random`.
+ */
+function makeIdScope(): string {
+  const crypto = globalThis.crypto;
+  if (crypto?.randomUUID) return crypto.randomUUID();
+  if (crypto?.getRandomValues) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    let hex = '';
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+    return hex;
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
 
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
@@ -121,13 +145,27 @@ export class WSKitSocket {
   // Filled in by add-on modules through _helpers().
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
+  // One reconnect decision per close: stream cleanup (willReconnect) and the
+  // reconnection module must not re-evaluate a stateful policy and disagree.
+  private _reconnectDecision: { code: number; reason: string; result: boolean | undefined } | null =
+    null;
+
   private _pongHandlers: (() => void)[] = [];
 
-  private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
+  private _outgoingFallback:
+    | ((message: WireMessage, options?: InternalSendOptions) => boolean)
+    | null = null;
 
   private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
 
   private _idCounter = 0;
+
+  // A collision-resistant per-socket token in every generated id, so two fresh
+  // clients (both counting from 0) can't mint the same id — stream ids key a
+  // shared server map, where a collision is a real cross-client failure.
+  // Prefer randomUUID; else 16 secure-random bytes from getRandomValues (still
+  // collision-resistant); Math.random is only a last resort with no secure RNG.
+  private readonly _idScope = makeIdScope();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
@@ -256,7 +294,14 @@ export class WSKitSocket {
   }
 
   send(event: string, payload: unknown, options?: SendOptions): boolean {
-    return this._send({ event, payload }, options);
+    // A reserved protocol name (ping/pong or the __ namespace) can't be a user
+    // event — the server drops it, so don't put it on the wire. Drop it locally.
+    if (isReservedEventName(event)) {
+      this._log(`send('${event}') dropped — reserved event name`);
+      return false;
+    }
+    const result = this._send({ event, payload }, options);
+    return result === 'sent' || result === 'buffered';
   }
 
   /** Runs on every open — the first connect and every reconnect. */
@@ -283,7 +328,8 @@ export class WSKitSocket {
    * An error worth knowing about: a WebSocket-level `Event`, a typed server error
    * (`WSKitError`) that no request or stream claimed, or any value thrown by one of
    * your handlers, listeners, or a plugin/primitive hook — surfaced here instead of
-   * swallowed. With no listener attached, thrown values fall back to `console.error`.
+   * swallowed. With no listener attached, the value is rethrown out of band (via
+   * `queueMicrotask`) so it surfaces to the global error handler.
    */
   onError(callback: (error: unknown) => void): () => void {
     return this._emitter.on('error', callback);
@@ -300,7 +346,7 @@ export class WSKitSocket {
 
       log: this._logger,
 
-      rawSend: (message) => this._rawSend(message),
+      rawSend: (message, owner) => this._rawSend(message, owner),
 
       sendPing: () => this.ws?.send('ping'),
 
@@ -308,7 +354,7 @@ export class WSKitSocket {
 
       generateId: (prefix) => {
         const id = ++this._idCounter;
-        return prefix ? `${prefix}-${id}` : `${id}`;
+        return prefix ? `${prefix}-${this._idScope}-${id}` : `${this._idScope}-${id}`;
       },
 
       getState: () => this._state,
@@ -348,7 +394,7 @@ export class WSKitSocket {
 
       emitSignal: (name, value) => {
         const set = this._signalHandlers.get(name);
-        if (set) for (const handler of [...set]) handler(value);
+        if (set) dispatchToHandlers(set, this._logger, value);
       },
 
       onSignal: (name, handler) => {
@@ -434,8 +480,30 @@ export class WSKitSocket {
   }
 
   private _runShouldReconnect(code: number, reason: string): boolean | undefined {
+    if (
+      this._reconnectDecision &&
+      this._reconnectDecision.code === code &&
+      this._reconnectDecision.reason === reason
+    ) {
+      return this._reconnectDecision.result;
+    }
+
+    const result = this._evaluateShouldReconnect(code, reason);
+    this._reconnectDecision = { code, reason, result };
+    return result;
+  }
+
+  private _evaluateShouldReconnect(code: number, reason: string): boolean | undefined {
     for (const primitive of this._primitives) {
-      const result = primitive.shouldReconnect?.(code, reason);
+      if (!primitive.shouldReconnect) continue;
+      // Isolate each vote so a throwing policy can't abort the close flow.
+      let result: boolean | void;
+      try {
+        result = primitive.shouldReconnect(code, reason);
+      } catch (error) {
+        this._logger.report(error);
+        continue;
+      }
       if (result === true || result === false) return result;
     }
     return undefined;
@@ -465,7 +533,7 @@ export class WSKitSocket {
       for (const primitive of this._primitives) {
         if (!primitive.resolveUrl) continue;
         const result = primitive.resolveUrl(finalUrl);
-        if (result instanceof Promise) {
+        if (isThenable<string>(result)) {
           finalUrl = await result;
           if (attemptId !== this._connectAttemptId) return;
         } else {
@@ -511,24 +579,30 @@ export class WSKitSocket {
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
-        // Add-on modules run first (e.g. replay, re-subscribe), then your callbacks.
-        for (const primitive of this._primitives) {
-          try {
-            const messages = primitive.onOpen?.();
-            if (messages) for (const message of messages) this._rawSend(message);
-          } catch (error) {
-            this._reportError(error);
-          }
-        }
-
+        // On a reconnect, restore membership state BEFORE flushing queued ops:
+        // channels rejoin and durable streams resume in onReconnect, so a request,
+        // ack, scoped send, stream trigger, or nudge queued during the drop reaches
+        // the server only after its channel is rejoined and its stream resumed.
+        // Otherwise a queued channel op races ahead of the rejoin and the server
+        // answers ChannelNotSubscribed or it times out.
         if (isReconnect) {
           for (const primitive of this._primitives) {
             try {
-              const messages = primitive.onReconnect?.();
-              if (messages) for (const message of messages) this._rawSend(message);
+              this._flushPrimitiveFrames(primitive.onReconnect?.());
             } catch (error) {
               this._reportError(error);
             }
+          }
+        }
+
+        // Then the flush phase: replay, the request/ack/stream outboxes, the
+        // subscribe/unsubscribe flush, and the buffered messages — now ordered
+        // after the rejoin/resume above.
+        for (const primitive of this._primitives) {
+          try {
+            this._flushPrimitiveFrames(primitive.onOpen?.());
+          } catch (error) {
+            this._reportError(error);
           }
         }
 
@@ -545,6 +619,7 @@ export class WSKitSocket {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
+        this._reconnectDecision = null;
 
         for (const primitive of this._primitives) {
           try {
@@ -589,17 +664,21 @@ export class WSKitSocket {
 
       this._log('connection failed', error);
       this._reportError(toWSKitError(error));
+      this._reconnectDecision = null;
+
+      // Run primitive close cleanup first (same order as ws.onclose), so a failed
+      // first connect doesn't leave channel/request/ack state pending.
+      for (const primitive of this._primitives) {
+        try {
+          primitive.onClose?.(1006, 'connection failed', false, false);
+        } catch (closeError) {
+          this._reportError(closeError);
+        }
+      }
 
       if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
-        for (const primitive of this._primitives) {
-          try {
-            primitive.onClose?.(1006, 'connection failed', false, false);
-          } catch (closeError) {
-            this._reportError(closeError);
-          }
-        }
         this._setState('closed');
         this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
       }
@@ -617,7 +696,7 @@ export class WSKitSocket {
 
     if (raw === 'pong') {
       this._log('pong received');
-      for (const handler of this._pongHandlers) handler();
+      dispatchToHandlers(this._pongHandlers, this._logger);
       return;
     }
 
@@ -759,32 +838,42 @@ export class WSKitSocket {
    * adjust or cancel the message, then either write it, hand it to the outgoing
    * buffer, or drop it.
    */
-  _send(message: WireMessage, options?: SendOptions): boolean {
+  _send(message: WireMessage, options?: InternalSendOptions): SendResult {
     this._ensureConnected();
 
     let outgoing: WireMessage | null = message;
     for (const primitive of this._primitives) {
       if (!primitive.onOutgoing) continue;
 
-      outgoing = primitive.onOutgoing(outgoing!);
+      // Block cancels the send; any other throw is reported and the message
+      // passes through unchanged.
+      const onOutgoing = primitive.onOutgoing;
+      outgoing = runMessageHook(
+        (m) => onOutgoing(m),
+        outgoing!,
+        (error) => this._reportError(error),
+      );
 
       if (outgoing === null) {
         this._log('a primitive cancelled the send');
-        return false;
+        return 'blocked';
       }
     }
 
     // Offer to the outgoing fallback (buffering) first: it takes the message
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
-    if (this._outgoingFallback?.(outgoing, options?.ttl)) {
+    if (this._outgoingFallback?.(outgoing, options)) {
       this._log(`send('${outgoing.event}') buffered`);
-      return true;
+      return 'buffered';
     }
 
     if (this._state !== 'open' || !this.ws) {
-      this._log(`send('${outgoing.event}') dropped — not connected`);
-      return false;
+      this._log(`send('${outgoing.event}') not sent — not connected`);
+      // connecting/reconnecting still has a flush coming; closed does not.
+      return this._state === 'connecting' || this._state === 'reconnecting'
+        ? 'connecting'
+        : 'closed';
     }
 
     this.ws.send(this._serialize(outgoing));
@@ -796,13 +885,51 @@ export class WSKitSocket {
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
       this._startLazyIdleTimer();
     }
-    return true;
+    return 'sent';
   }
 
-  /** @internal — write a message straight to the wire, skipping outgoing hooks. */
-  _rawSend(message: WireMessage): void {
-    if (!this.ws || this._state !== 'open') return;
-    this.ws.send(this._serialize(message));
+  /**
+   * Send each frame a primitive returned from `onOpen`/`onReconnect`, isolating
+   * every frame so one that won't serialize is reported without stranding the rest.
+   */
+  private _flushPrimitiveFrames(messages: WireMessage[] | null | undefined): void {
+    if (!messages) return;
+    for (const message of messages) {
+      try {
+        this._rawSend(message);
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+  }
+
+  /**
+   * @internal — write straight to the wire, skipping outgoing hooks. Returns
+   * where it went so a Promise-bearing protocol op can queue or fail fast.
+   *
+   * When an `owner` is given (a Promise-bearing op flushing a held frame), a
+   * serialization throw rejects that owner and is reported, instead of escaping
+   * to the caller — so a flush of one bad frame can't strand the owner or the
+   * frames queued behind it.
+   */
+  _rawSend(message: WireMessage, owner?: FrameOwner): SendResult {
+    if (this._state === 'open' && this.ws) {
+      if (owner) {
+        let serialized: string;
+        try {
+          serialized = this._serialize(message);
+        } catch (error) {
+          owner.reject(error);
+          this._reportError(error);
+          return 'sent';
+        }
+        this.ws.send(serialized);
+        return 'sent';
+      }
+      this.ws.send(this._serialize(message));
+      return 'sent';
+    }
+    return this._state === 'connecting' || this._state === 'reconnecting' ? 'connecting' : 'closed';
   }
 
   /** @internal — call every handler listening for this event. */

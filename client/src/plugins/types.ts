@@ -3,11 +3,14 @@ import type { WireMessage } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { ConnectionState } from '~/types.ts';
 
-/** A primitive factory you can name as a plugin dependency, e.g. `dependencies: [ack]`. */
+/**
+ * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [ack]`.
+ * The static `tag` is required: dependency resolution reads it without running the
+ * factory, so a factory that needs options can't throw or fire side effects here.
+ */
 export type PrimitiveFactory = {
   (...args: any[]): Primitive<any, any>;
-  /** Optional static tag. When present, the tag is read from here instead of creating a throwaway instance. */
-  readonly tag?: string;
+  readonly tag: string;
 };
 
 /**

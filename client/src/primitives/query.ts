@@ -1,3 +1,4 @@
+import { isThenable } from '~/internal/thenable.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 /** A function that returns query params; it runs on every connect and reconnect. */
@@ -27,11 +28,12 @@ export function query(getParams: QueryFn): Primitive<EmptyTypeFn> {
         id: 'query',
         resolveUrl(baseUrl) {
           const params = getParams();
-          return params instanceof Promise
-            ? params.then((resolved) => append(baseUrl, resolved))
+          return isThenable<Record<string, string>>(params)
+            ? Promise.resolve(params).then((resolved) => append(baseUrl, resolved))
             : append(baseUrl, params);
         },
       };
     },
   };
 }
+query.tag = 'query';

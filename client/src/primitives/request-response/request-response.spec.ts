@@ -1,5 +1,7 @@
+import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { buffering } from '~/primitives/buffering/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,7 +28,100 @@ afterEach(() => {
   restore();
 });
 
+describe('requestResponse — buffered frame ownership', () => {
+  it('does not send a timed-out request after reconnect', async () => {
+    vi.useFakeTimers();
+    const socket = client<C>()(
+      connect('wss://test'),
+      buffering({ enabled: true }),
+      requestResponse({ timeout: 5000 }),
+    );
+    socket.connect();
+    let ws = MockWebSocket.last();
+    ws.open();
+    ws.serverClose(1006); // offline — the request frame is buffered
+
+    const settled = vi.fn();
+    socket.request('get-balance', { user: 'a' }).then(
+      () => settled('resolved'),
+      (e: { code?: string }) => settled(e?.code),
+    );
+
+    // The request times out while still buffered.
+    vi.advanceTimersByTime(5000);
+    await Promise.resolve();
+    expect(settled).toHaveBeenCalledWith('timeout');
+
+    // Reconnect: the timed-out frame must NOT be put on the wire.
+    socket.connect();
+    ws = MockWebSocket.last();
+    ws.open();
+    expect(ws.sentFrames().some((f) => f.event === 'get-balance')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('rejects the exact request whose held frame cannot serialize on flush, later requests still flush', async () => {
+    const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
+    socket.onError(() => undefined); // absorb the reported serialization failure
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    // Both requests are held in the outbox while the lazy socket connects.
+    const bad = socket.request('get-balance', circular as unknown as { user: string });
+    const good = socket.request('get-balance', { user: 'b' });
+    void bad.catch(() => undefined);
+
+    const ws = MockWebSocket.last();
+    ws.open(); // onOpen flushes the outbox: the bad frame rejects, the good one flushes
+
+    await expect(bad).rejects.toBeInstanceOf(TypeError);
+    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    ws.emit({ event: 'get-balance', payload: { balance: 9 }, __wskit: { correlationId: cid } });
+    await expect(good).resolves.toEqual({ balance: 9 });
+  });
+});
+
 describe('requestResponse', () => {
+  it('rejects and cleans up timer/pending when the payload will not serialize (#15)', async () => {
+    vi.useFakeTimers();
+    const { socket, ws } = build();
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    await expect(
+      socket.request('get-balance', circular as { user: string }),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    // No leaked timer or pending entry: advancing past the timeout fires nothing,
+    // and a fresh request still resolves on its own correlationId.
+    vi.advanceTimersByTime(60_000);
+    const promise = socket.request('get-balance', { user: 'b' });
+    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    ws.emit({ event: 'get-balance', payload: { balance: 5 }, __wskit: { correlationId: cid } });
+    await expect(promise).resolves.toEqual({ balance: 5 });
+    vi.useRealTimers();
+  });
+
+  it('rejects a reserved event name locally with validation-failed and no send', async () => {
+    const { socket, ws } = build();
+    const request = socket.request as (e: string, p: unknown) => Promise<unknown>;
+    for (const name of ['ping', 'pong', '__error__']) {
+      await expect(request(name, { user: 'a' })).rejects.toMatchObject({
+        code: 'validation-failed',
+      });
+    }
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
+
+  it('rejects an over-limit event name locally with validation-failed, no send (#3)', async () => {
+    const { socket, ws } = build();
+    const longEvent = 'e'.repeat(WIRE_LIMITS.event + 1);
+    await expect(
+      (socket.request as (e: string, p: unknown) => Promise<unknown>)(longEvent, { user: 'a' }),
+    ).rejects.toMatchObject({ code: 'validation-failed' });
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
+
   it('resolves with the matching response', async () => {
     const { socket, ws } = build();
     const promise = socket.request('get-balance', { user: 'a' });

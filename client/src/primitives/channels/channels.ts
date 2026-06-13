@@ -118,6 +118,15 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 (message.payload as { source?: unknown })?.source === 'server'
                   ? 'server'
                   : 'client';
+              // A stale server auto-rejoin confirmation for a channel the user
+              // intentionally left during the reconnect — drop it so we don't
+              // re-activate a channel the server has already removed us from.
+              if (source === 'server' && state.ignoreServerRejoin) {
+                helpers.log.info(
+                  `channel '${name}' ignoring stale server re-subscribe after leave`,
+                );
+                return null;
+              }
               helpers.log.info(`channel '${name}' subscribed (${source})`);
               state.persistent = wskit?.channelPersistent === true;
               state.markSubscribed(source);
@@ -183,13 +192,35 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
         },
         onOpen() {
-          const pending: WireMessage[] = [];
+          // Flush an unsubscribe held while the socket was connecting BEFORE any
+          // subscribe flush — a queued leave wins over a rejoin. Once it's on the
+          // wire the local membership clears and onUnsubscribed fires.
           for (const state of states.values()) {
-            if (!state.pendingSubscribeFrame) continue;
-            pending.push(state.pendingSubscribeFrame);
-            state.pendingSubscribeFrame = null;
+            const leaveFrame = state.pendingUnsubscribeFrame;
+            if (!leaveFrame) continue;
+            state.pendingUnsubscribeFrame = null;
+            helpers.rawSend(leaveFrame);
+            state.markUnsubscribed();
+            // The server may already have queued an auto-rejoin __subscribeOk__
+            // before it saw this leave; ignore that stale confirmation.
+            state.ignoreServerRejoin = true;
+            if (state.scopeKey) familyFor(state.scopeKey).fireUnsubscribed(state.name);
           }
-          return pending.length ? pending : null;
+
+          // Flush subscribe frames held while the socket was connecting. Each goes
+          // with an owner so a frame that can't serialize rejects that exact pending
+          // subscribe() (and releases its hold) instead of only being logged.
+          for (const state of states.values()) {
+            const frame = state.pendingSubscribeFrame;
+            if (!frame) continue;
+            state.pendingSubscribeFrame = null;
+            const sub = state;
+            helpers.rawSend(frame, {
+              isPending: () => sub.hasPendingSubscribe,
+              reject: (error) => sub.failPendingSubscribe(error),
+            });
+          }
+          return null;
         },
         onBeforeReopen() {
           // Re-run function payloads (e.g. a token factory) before reconnecting, so
@@ -210,6 +241,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                   `channel '${state.name}' subscribe payload refresh threw; re-subscribing with the last value`,
                   error,
                 );
+                helpers.log.report(error);
               }
             }
           })();
@@ -223,6 +255,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           const resubscribes: WireMessage[] = [];
           for (const state of states.values()) {
             if (!state.active) continue;
+            // A queued unsubscribe wins: the user asked to leave, so don't rejoin —
+            // onOpen flushes the unsubscribe and clears the membership instead.
+            if (state.pendingUnsubscribeFrame) continue;
             // Mark the channel as waiting for its subscribe confirmation after
             // reconnect. Persistent channels wait for the server's auto-rejoin;
             // others wait for the client's re-subscribe reply. A failure clears this.
@@ -304,3 +339,4 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
     },
   };
 }
+channels.tag = 'channels';

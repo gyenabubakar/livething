@@ -128,6 +128,25 @@ describe('query params', () => {
     expect(ws.url).toContain('token=abc');
     expect(ws.url).toContain('client=web');
   });
+
+  it('awaits a thenable that is not instanceof Promise (cross-realm) (#23)', async () => {
+    // A foreign-realm Promise: a thenable whose prototype is not this realm's
+    // Promise, so `instanceof Promise` is false.
+    const foreign = {
+      then(onFulfilled: (value: Record<string, string>) => unknown) {
+        return Promise.resolve(onFulfilled({ token: 'xrealm' }));
+      },
+    };
+    expect(foreign instanceof Promise).toBe(false);
+
+    const socket = client<TestContract>()(
+      connect('wss://test'),
+      query(() => foreign as unknown as Record<string, string>),
+    );
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(MockWebSocket.last().url).toContain('token=xrealm');
+  });
 });
 
 describe('reconnection config', () => {

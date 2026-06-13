@@ -1,3 +1,4 @@
+import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { ack } from '~/primitives/ack/index.ts';
@@ -354,6 +355,28 @@ describe('dynamic families and scope handles', () => {
     expect(socket.channel('rooms', 'room-1')).toBe(socket.channel.scope('rooms')('room-1'));
   });
 
+  it('an absent scope subscribes as a static channel (no channelScope marker)', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general'); // no scope
+    void room.subscribe();
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'general' });
+  });
+
+  it('a supplied family key is carried in the channelScope marker', () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('rooms', 'room-9');
+    void room.subscribe();
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelScope: 'rooms' });
+  });
+
+  it('rejects an empty family key locally with validation-failed and sends nothing', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('rooms', ''); // empty supplied scope
+    const before = ws.sentFrames().length;
+    await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
+    expect(ws.sentFrames().length).toBe(before); // no subscribe frame went out
+  });
+
   it('family-level on() fires with the channel name', async () => {
     const { socket, ws } = build(channels());
     const family = socket.channel.scope('rooms');
@@ -412,6 +435,49 @@ describe('server-initiated subscriptions and reconnection', () => {
         payload: {},
         __wskit: { channel: 'general' },
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores a stale server auto-rejoin confirmation after an intentional leave during reconnect', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      // Drop, then leave while reconnecting — the unsubscribe is held.
+      first.serverClose(1006, 'drop');
+      room.unsubscribe();
+
+      // Reconnect: onOpen flushes the held unsubscribe and marks the channel left.
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(second.sentFrames()).toContainEqual({
+        event: '__unsubscribe__',
+        payload: {},
+        __wskit: { channel: 'general' },
+      });
+
+      // The server's already-queued auto-rejoin __subscribeOk__ arrives late — it
+      // must NOT re-activate a channel the user left (the server already removed it).
+      second.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'server' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      expect(() => room.send('send-message', { text: 'hi' })).toThrow();
     } finally {
       vi.useRealTimers();
     }
@@ -539,5 +605,87 @@ describe('lazy hold lifecycle (no leak)', () => {
     vi.advanceTimersByTime(1000);
     expect(socket.getState()).toBe('closed');
     vi.useRealTimers();
+  });
+});
+
+describe('subscribe wire-limit validation', () => {
+  it('rejects an over-limit channel name without holding the socket open', async () => {
+    const { socket, ws } = build(channels());
+    const before = ws.sentFrames().length;
+    const tooLong = 'x'.repeat(WIRE_LIMITS.channel + 1);
+    const room = socket.channel('rooms', tooLong);
+
+    await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
+
+    // Caught before any state, lazy hold, or __subscribe__ frame.
+    expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
+    expect(ws.sentFrames().length).toBe(before);
+  });
+
+  it('accepts a channel name exactly at the limit', () => {
+    const { socket, ws } = build(channels());
+    const atLimit = 'x'.repeat(WIRE_LIMITS.channel);
+    const room = socket.channel('rooms', atLimit);
+    void room.subscribe().catch(() => undefined);
+    expect(ws.sentFrames().at(-1)).toMatchObject({ event: '__subscribe__' });
+  });
+
+  it('rejects an empty channel name with validation-failed (#3)', async () => {
+    const { socket } = build(channels());
+    const room = socket.channel('rooms', '');
+    await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
+  });
+});
+
+describe('subscribe before connect (#12)', () => {
+  it('rejects with Disconnected on a closed non-lazy socket', async () => {
+    // Built but never connected: state is 'closed' and non-lazy, so the frame
+    // can't go out and no flush is coming. It must fail fast, not hang.
+    const socket = client<C>()(connect('wss://test'), channels());
+    await expect(socket.channel('general').subscribe()).rejects.toMatchObject({
+      code: 'disconnected',
+    });
+  });
+});
+
+describe('subscribe setup failure cleanup (#13)', () => {
+  it('rejects and releases the lazy hold when the payload factory throws synchronously', async () => {
+    const { socket } = build(channels());
+    const room = socket.channel('general');
+
+    await expect(
+      room.subscribe(() => {
+        throw new Error('factory boom');
+      }),
+    ).rejects.toThrow('factory boom');
+
+    // Pending state and the lazy hold are torn down, not leaked.
+    expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
+  });
+});
+
+describe('stale payload rejection guard (#14)', () => {
+  it('a stale payload rejection does not reject a newer subscribe', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+
+    let rejectFirst!: (error: unknown) => void;
+    const firstPayload = new Promise<unknown>((_, reject) => {
+      rejectFirst = reject;
+    });
+    const first = room.subscribe(() => firstPayload);
+    void first.catch(() => undefined);
+
+    // Cancel the first subscribe, then start a fresh one (a new pending object).
+    room.unsubscribe();
+    const second = room.subscribe({ token: 'fresh' });
+
+    // The first payload now rejects late — it must not touch the newer subscribe.
+    rejectFirst(new Error('stale'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    ws.emit({ event: '__subscribeOk__', payload: {}, __wskit: { channel: 'general' } });
+    await expect(second).resolves.toBeUndefined();
   });
 });

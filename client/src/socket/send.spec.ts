@@ -41,6 +41,60 @@ function openedSocket<const P extends readonly Primitive<any, any>[]>(
   return { socket, ws };
 }
 
+describe('send rejects reserved event names', () => {
+  it('drops a reserved event name locally (returns false, nothing on the wire)', () => {
+    const { socket, ws } = openedSocket();
+    const send = socket.send.bind(socket) as (e: string, p: unknown) => boolean;
+    for (const name of ['ping', 'pong', '__error__', '']) {
+      expect(send(name, { id: 1 })).toBe(false);
+    }
+    expect(ws.sentFrames()).toHaveLength(0);
+  });
+
+  it('a channel send drops a reserved event name locally', async () => {
+    const { socket, ws } = openedSocket(channels());
+    const room = (socket as unknown as { channel(name: string): unknown }).channel('room') as {
+      subscribe(): Promise<void>;
+      send(e: string, p: unknown): boolean;
+    };
+    void room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'room' },
+    });
+    const before = ws.sentFrames().length;
+    expect(room.send('ping', { value: 'x' })).toBe(false);
+    expect(ws.sentFrames().length).toBe(before);
+  });
+});
+
+describe('queued frame isolation on open (#10)', () => {
+  it('isolates a bad queued frame so valid frames behind it still send', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const framePrimitive: PrimitiveRuntime = {
+      id: 'frames',
+      onOpen: () => [
+        { event: 'bad', payload: circular },
+        { event: 'good', payload: { ok: 1 } },
+      ],
+    };
+    const errors: unknown[] = [];
+    const socket = buildSocket();
+    socket.onError((error) => errors.push(error));
+    socket._setPrimitives([framePrimitive]);
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    // The valid frame queued behind the unserializable one still goes out, and
+    // the bad frame is reported rather than stranding the rest.
+    expect(ws.sentFrames().some((f) => f.event === 'good')).toBe(true);
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('_send: onOutgoing null cancels before buffering fallback', () => {
   it('returns false immediately when onOutgoing cancels — does not queue the message', () => {
     const cancellingPrimitive: PrimitiveRuntime = {
@@ -197,7 +251,7 @@ describe('dropped send debug log uses the renamed event name', () => {
     console.log = origLog;
 
     const dropCalls = captured.filter((args) =>
-      args.some((a) => typeof a === 'string' && a.includes('dropped')),
+      args.some((a) => typeof a === 'string' && a.includes('not sent')),
     );
     expect(dropCalls.length).toBeGreaterThan(0);
 

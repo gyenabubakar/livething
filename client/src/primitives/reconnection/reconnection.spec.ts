@@ -298,6 +298,32 @@ describe('shouldReconnect precedence', () => {
   });
 });
 
+describe('reconnect policy error isolation (#18)', () => {
+  it('reports a throwing user shouldReconnect and still reconnects by default', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const errors: unknown[] = [];
+    const socket = client<C>()(
+      connect('wss://test'),
+      reconnection({
+        shouldReconnect: () => {
+          throw new Error('policy boom');
+        },
+      }),
+    );
+    socket.onError((error) => errors.push(error));
+    socket.connect();
+    MockWebSocket.last().open();
+
+    MockWebSocket.last().serverClose(1006);
+    vi.advanceTimersByTime(1000);
+
+    // The throw is reported, not swallowed, and the close flow continues to the
+    // default policy — so the socket still reconnects.
+    expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+    expect(errors).toHaveLength(1);
+  });
+});
+
 function socket_instanceCount() {
   return MockWebSocket.instances.length;
 }

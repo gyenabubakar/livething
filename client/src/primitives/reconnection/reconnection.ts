@@ -34,7 +34,14 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
         const fromHooks = helpers.runShouldReconnect(code, reason);
         if (fromHooks === true || fromHooks === false) return fromHooks;
 
-        const fromCallback = options.shouldReconnect?.(code, reason);
+        // Report a throwing callback and fall through to the default policy.
+        let fromCallback: boolean | void;
+        try {
+          fromCallback = options.shouldReconnect?.(code, reason);
+        } catch (error) {
+          helpers.log.report(error);
+          fromCallback = undefined;
+        }
         if (fromCallback === true || fromCallback === false) return fromCallback;
 
         if (nonRetryable.has(code)) return false;
@@ -115,6 +122,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
     },
   };
 }
+reconnection.tag = 'reconnection';
 
 /**
  * The wait before the next try, doubling each time (1s, 2s, 4s, …) up to

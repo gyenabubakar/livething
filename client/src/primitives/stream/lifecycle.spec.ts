@@ -96,6 +96,121 @@ describe('durable stream survives unexpected drop', () => {
   });
 });
 
+describe('cancel during reconnect', () => {
+  it('holds the cancel until reconnect, then sends it and suppresses resume', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const { handle, sid } = await start(socket, first, { streamKind: 'persistent' });
+
+      // Drop the connection: the stream is kept for the reconnect window.
+      first.serverClose(1006, 'drop');
+
+      // Cancel while reconnecting — the frame can't go out yet, so it's held and the
+      // local handle must NOT be torn down (its durable row is still alive server-side).
+      handle.cancel();
+      expect(handle.active).toBe(true);
+
+      // Reconnect: the held cancel flushes and no __resumeStream__ is sent.
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const sent = second.sentFrames();
+      expect(sent.some((f) => f.event === '__streamCancel__' && f.__wskit.streamId === sid)).toBe(
+        true,
+      );
+      expect(sent.some((f) => f.event === '__resumeStream__' && f.__wskit.streamId === sid)).toBe(
+        false,
+      );
+
+      // The stream loop ends cleanly (cancel ends without throwing) and the lazy
+      // hold is released exactly once.
+      expect(await collect(handle)).toEqual([]);
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles once when cancel() is called several times during reconnect', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const { handle } = await start(socket, first, { streamKind: 'persistent' });
+
+      first.serverClose(1006, 'drop');
+      handle.cancel();
+      handle.cancel();
+      handle.cancel();
+
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const cancels = second.sentFrames().filter((f) => f.event === '__streamCancel__');
+      expect(cancels).toHaveLength(1);
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('resumable stream lazy hold across failed reconnects', () => {
+  it('releases exactly the hold it owns once, leaving unrelated consumers untouched', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      // An unrelated lazy consumer (a broadcast-stream subscriber) holds a count.
+      const unrelated = socket.onStream('ask-ai', { onChunk: () => undefined });
+
+      // Two durable streams start, each taking a hold.
+      const a = await start(socket, first, { streamKind: 'persistent' });
+      const b = await start(socket, first, { streamKind: 'persistent' });
+      const baseline = (socket as unknown as WSKitSocket)._lazyConsumers;
+      expect(baseline).toBe(3); // unrelated + 2 streams
+
+      // Drop, then several failed reconnect attempts each fire onClose before opening.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      MockWebSocket.last().serverClose(1006, 'still down');
+      vi.advanceTimersByTime(3000);
+      MockWebSocket.last().serverClose(1006, 'still down');
+
+      // After repeated closes, each kept stream released its single hold exactly
+      // once — the count dropped by 2 (the streams), not more.
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1); // only unrelated remains
+
+      // A successful reconnect re-acquires both stream holds.
+      vi.advanceTimersByTime(6000);
+      const reopened = MockWebSocket.last();
+      reopened.open();
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(3);
+
+      // End both streams; the unrelated consumer keeps its count.
+      reopened.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: a.sid } });
+      reopened.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: b.sid } });
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
+
+      unrelated();
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('hibernation-wake resume', () => {
   it('re-sends __resumeStream__ on stream-aborted/hibernation-wake without ending the stream', async () => {
     const { socket, ws } = build();

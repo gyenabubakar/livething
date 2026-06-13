@@ -70,6 +70,20 @@ export class ChannelState {
   pendingPromise: Promise<void> | null = null;
   /** A subscribe frame waiting for a connecting socket to open. */
   pendingSubscribeFrame: WireMessage | null = null;
+  /**
+   * An `__unsubscribe__` frame that couldn't be sent because the socket was
+   * connecting/reconnecting. Held here and flushed on open. While set, the local
+   * subscription is kept (so the server still sees us as a member) and any
+   * automatic rejoin is suppressed — the user asked to leave, and that wins.
+   */
+  pendingUnsubscribeFrame: WireMessage | null = null;
+  /**
+   * Set when an intentional leave is flushed on reopen. The server may have
+   * already queued an auto-rejoin `__subscribeOk__` (`source: 'server'`) before it
+   * saw our `__unsubscribe__`; that stale confirmation must not re-activate a
+   * channel the user just left. Cleared by a deliberate `subscribe()`.
+   */
+  ignoreServerRejoin = false;
   /** Releases the idle-prevention hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
   /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
@@ -171,11 +185,31 @@ export class ChannelState {
     this.subscribed.each((callback) => callback(source));
   }
 
+  /** True while a `subscribe()` is waiting for its confirmation. */
+  get hasPendingSubscribe(): boolean {
+    return this.pending !== null;
+  }
+
+  /**
+   * Fail a `subscribe()` whose held frame could never be sent (e.g. it can't
+   * serialize on flush). Rejects the waiting promise and releases the hold so the
+   * subscription doesn't sit pending forever.
+   */
+  failPendingSubscribe(error: unknown): void {
+    if (!this.pending) return;
+    this.pending.reject(error);
+    this.pending = null;
+    this.pendingPromise = null;
+    this.pendingSubscribeFrame = null;
+    this.releaseLazy();
+  }
+
   /** Mark inactive, clear members, and tell `onUnsubscribed` listeners. */
   markUnsubscribed(): void {
     this.active = false;
     this.rejoining = false;
     this.pendingSubscribeFrame = null;
+    this.pendingUnsubscribeFrame = null;
     this.clearRejoinTimer();
     this.members.clear();
     this.priorMembers = null;

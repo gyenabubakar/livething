@@ -34,9 +34,9 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
       // must queue behind the not-yet-flushed messages so order is preserved,
       // not race ahead of them onto the wire. Decline otherwise (open and idle),
       // so normal sends go straight to the wire.
-      helpers.registerOutgoingFallback((message, ttl) => {
+      helpers.registerOutgoingFallback((message, options) => {
         if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
-        const buffered = buffer.enqueue(message, ttl);
+        const buffered = buffer.enqueue(message, options?.ttl, options?.owner);
         if (buffered) helpers.log.info(`buffered '${message.event}'`);
         return buffered;
       });
@@ -45,7 +45,11 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
         id: 'buffering',
         onOpen() {
           helpers.log.info('flushing buffered messages');
-          buffer.flush((message) => helpers.rawSend(message));
+          buffer.flush(
+            (message) => helpers.rawSend(message),
+            undefined,
+            (error) => helpers.log.report(error),
+          );
           return null;
         },
         onClose(_code, _reason, intentional) {
@@ -60,3 +64,4 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
     },
   };
 }
+buffering.tag = 'buffering';

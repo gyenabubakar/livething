@@ -1,3 +1,4 @@
+import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -337,7 +338,7 @@ describe('scoped streams', () => {
 });
 
 describe('lazy consumer leak on failed send', () => {
-  it('lazyConsumers returns to 0 when the trigger send throws', () => {
+  it('lazyConsumers returns to 0 when the trigger send fails, and stream() rejects', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true, idleTimeout: 0 }), stream());
     socket.connect();
     const ws = MockWebSocket.last();
@@ -352,11 +353,208 @@ describe('lazy consumer leak on failed send', () => {
       original(data);
     };
 
-    // socket.stream() calls lazyAcquire then helpers.send — the send throws, so the
-    // Promise (and its lazyRelease) is never created. The correct behavior is
-    // that lazyAcquire is rolled back and _lazyConsumers stays at 0.
-    expect(() => socket.stream('ask-ai', { prompt: 'hi' })).toThrow('network error');
+    // socket.stream() must never throw synchronously: it returns a rejected Promise
+    // and rolls back the lazy hold it acquired, so _lazyConsumers stays at 0.
+    let promise: Promise<unknown>;
+    expect(() => {
+      promise = socket.stream('ask-ai', { prompt: 'hi' });
+    }).not.toThrow();
+    await expect(promise!).rejects.toThrow('network error');
 
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+  });
+});
+
+describe('stream() never throws synchronously on a bad payload', () => {
+  it('returns a rejected Promise (not a throw) when the payload will not serialize', async () => {
+    const { socket } = buildStream();
+    const before = (socket as unknown as WSKitSocket)._lazyConsumers;
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    let promise: Promise<unknown>;
+    expect(() => {
+      promise = socket.stream('ask-ai', circular as unknown as { prompt: string });
+    }).not.toThrow();
+    await expect(promise!).rejects.toBeInstanceOf(TypeError);
+
+    // No leaked trigger, timer, or lazy hold.
+    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
+  });
+});
+
+describe('stream trigger and nudge reject reserved event names', () => {
+  it('rejects a reserved trigger event name locally with validation-failed and no send', async () => {
+    const { socket, ws } = buildStream();
+    const trigger = socket.stream as (e: string, p: unknown) => Promise<unknown>;
+    for (const name of ['ping', 'pong', '__error__']) {
+      await expect(trigger(name, { prompt: 'hi' })).rejects.toMatchObject({
+        code: 'validation-failed',
+      });
+    }
+    expect(ws.sentFrames().some((f) => f.event === 'ping')).toBe(false);
+  });
+
+  it('rejects a reserved nudge event name locally with validation-failed and no send', async () => {
+    const { socket, ws } = buildStream();
+    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+    const before = ws.sentFrames().length;
+    await expect(
+      (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
+    ).rejects.toMatchObject({ code: 'validation-failed' });
+    expect(ws.sentFrames().length).toBe(before); // nothing sent
+  });
+
+  it('nudge returns a rejected Promise when its payload will not serialize', async () => {
+    const { socket, ws } = buildStream();
+    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await expect(
+      (handle.nudge as (e: string, p: unknown) => Promise<void>)('add-context', circular),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+describe('stream wire-limit validation', () => {
+  it('rejects an over-limit custom streamId without acquiring a lazy hold', async () => {
+    const { socket } = buildStream();
+    const before = (socket as unknown as WSKitSocket)._lazyConsumers;
+    const tooLong = 'x'.repeat(WIRE_LIMITS.streamId + 1);
+
+    await expect(
+      socket.stream('ask-ai', { prompt: 'hi' }, { streamId: tooLong }),
+    ).rejects.toMatchObject({ code: 'validation-failed' });
+
+    // No hold acquired, no frame sent — the over-limit id is caught before any
+    // state or socket work, so nothing is left to clean up.
+    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
+  });
+
+  it('accepts a custom streamId exactly at the limit', async () => {
+    const { socket, ws } = buildStream();
+    const atLimit = 'x'.repeat(WIRE_LIMITS.streamId);
+    void socket.stream('ask-ai', { prompt: 'hi' }, { streamId: atLimit }).catch(() => undefined);
+    expect(ws.sentFrames().at(-1).__wskit.streamId).toBe(atLimit);
+  });
+});
+
+describe('stream id uniqueness across clients (#1)', () => {
+  it('two fresh sockets do not generate the same streamId', () => {
+    const a = buildStream();
+    const b = buildStream();
+    void a.socket.stream('ask-ai', { prompt: 'hi' }).catch(() => undefined);
+    void b.socket.stream('ask-ai', { prompt: 'hi' }).catch(() => undefined);
+    // Both counters start at 1; only the per-socket random scope keeps them apart,
+    // so a shared server stream map can't have one client clobber the other.
+    expect(a.ws.sentFrames().at(-1).__wskit.streamId).not.toBe(
+      b.ws.sentFrames().at(-1).__wskit.streamId,
+    );
+  });
+});
+
+describe('one reconnect decision per close (#19)', () => {
+  it('evaluates a primitive shouldReconnect hook once per close even with an active durable stream', async () => {
+    let calls = 0;
+    // A stateful hook that flips on the second call: a double evaluation would
+    // let the stream cleanup and the reconnection module disagree.
+    const flaky = {
+      _tag: 'flaky',
+      setup: () => ({
+        id: 'flaky',
+        shouldReconnect: (_code: number, _reason: string): boolean | void => {
+          calls++;
+          return calls === 1 ? true : false;
+        },
+      }),
+    };
+
+    const socket = client<C>()(connect('wss://test'), stream(), reconnection(), flaky);
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const promise = socket.stream('ask-ai', { prompt: 'hi' });
+    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    ws.emit({
+      event: '__streamOk__',
+      payload: {},
+      __wskit: { streamId: sid, streamKind: 'persistent' },
+    });
+    const handle = await promise;
+
+    ws.serverClose(1006);
+
+    expect(calls).toBe(1);
+    // The single decision (true) governs both paths: the socket reconnects and
+    // the durable stream is kept alive rather than finished.
+    expect(socket.getState()).toBe('reconnecting');
+    expect(handle.active).toBe(true);
+  });
+});
+
+describe('stream control frames while not open (#24)', () => {
+  it('nudge rejects with Disconnected immediately while reconnecting, not after the timeout', async () => {
+    // A persistent stream stays active across a drop, so the handle reaches the
+    // nudge send path while the socket is reconnecting (an ephemeral stream would
+    // just finish on disconnect and no-op the nudge).
+    const socket = client<C>()(connect('wss://test'), stream(), reconnection());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const promise = socket.stream('ask-ai', { prompt: 'hi' });
+    const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
+    ws.emit({
+      event: '__streamOk__',
+      payload: {},
+      __wskit: { streamId: sid, streamKind: 'persistent' },
+    });
+    const handle = await promise;
+
+    ws.serverClose(1006); // → reconnecting; the persistent stream stays active
+    expect(socket.getState()).toBe('reconnecting');
+    expect(handle.active).toBe(true);
+
+    // With real timers and no advance, a fast Disconnected reject proves it does
+    // not sit on the nudge timeout before failing.
+    await expect(handle.nudge('add-context', { context: 'x' })).rejects.toMatchObject({
+      code: 'disconnected',
+    });
+  });
+
+  it('resumeStream on a closed non-lazy socket settles the handle with Disconnected', async () => {
+    const socket = client<C>()(connect('wss://test'), stream());
+    // Never connected: closed, non-lazy. The resume frame can't go out and no
+    // reconnect is coming, so the handle must settle rather than hang.
+    const handle = socket.resumeStream('ask-ai', 'feed-x', { lastKnownSeq: 0 });
+    await expect(collect(handle)).rejects.toMatchObject({ code: 'disconnected' });
+  });
+});
+
+describe('stream wire-id and nudge validation', () => {
+  it('nudge with an unserializable payload rejects instead of throwing (#6)', async () => {
+    const { socket, ws } = buildStream();
+    const { handle } = await start(socket, ws);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    await expect(
+      handle.nudge('add-context', circular as unknown as { context: string }),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('resumeStream with an empty id settles the handle with validation-failed (#3)', async () => {
+    const { socket } = buildStream();
+    const handle = socket.resumeStream('ask-ai', '', { lastKnownSeq: 0 });
+    await expect(collect(handle)).rejects.toMatchObject({ code: 'validation-failed' });
+  });
+
+  it('rejects an over-limit event name on trigger before any send (#3)', async () => {
+    const { socket, ws } = buildStream();
+    const longEvent = 'e'.repeat(WIRE_LIMITS.event + 1);
+    const before = ws.sentFrames().length;
+    await expect(
+      socket.stream(longEvent as unknown as 'ask-ai', { prompt: 'hi' }),
+    ).rejects.toMatchObject({ code: 'validation-failed' });
+    expect(ws.sentFrames().length).toBe(before);
   });
 });

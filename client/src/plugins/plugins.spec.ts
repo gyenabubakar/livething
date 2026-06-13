@@ -115,7 +115,7 @@ describe('plugin() definition', () => {
       },
     });
     client<C>()(connect('wss://test'), Probe());
-    expect(captured.id).toMatch(/^p-\d+$/);
+    expect(captured.id).toMatch(/^p-.+-\d+$/);
     expect(captured.state).toBe('closed');
   });
 });
@@ -134,6 +134,46 @@ describe('plugin() dependencies (assertions)', () => {
 
   it('builds when the required primitive is registered', () => {
     expect(() => client<C>()(connect('wss://test'), ack(), Needs())).not.toThrow();
+  });
+
+  it('reads a dependency tag without executing the factory (#29)', () => {
+    let calls = 0;
+    // A configured factory that needs its options: running it with no args would
+    // throw, and even a benign one must not run during dependency discovery.
+    const needsOptions = ((options: { url: string }) => {
+      calls++;
+      if (!options) throw new Error('factory needs options');
+      return { _tag: 'needs-options' };
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- minimal PrimitiveFactory stand-in
+    }) as any;
+
+    expect(() =>
+      plugin({
+        id: 'test:bad-dep',
+        key: Symbol('test:bad-dep'),
+        dependencies: [needsOptions],
+        setup: () => () => ({}),
+      }),
+    ).toThrow(/static 'tag'/);
+    expect(calls).toBe(0);
+  });
+
+  it('accepts a dependency with a static tag (#29)', () => {
+    const tagged = ((_options: { url: string }) => ({ _tag: 'tagged' })) as unknown as {
+      (options: { url: string }): unknown;
+      tag: string;
+    };
+    tagged.tag = 'tagged';
+
+    expect(() =>
+      plugin({
+        id: 'test:good-dep',
+        key: Symbol('test:good-dep'),
+        // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- minimal PrimitiveFactory stand-in
+        dependencies: [tagged as any],
+        setup: () => () => ({}),
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -220,6 +260,85 @@ describe('plugin() hooks', () => {
     const ok = socket.send('typing', { channelId: 'x' });
     expect(ok).toBe(false);
     expect(ws.sent).toHaveLength(0);
+  });
+
+  it('onOutgoing throwing a real error is reported but the message still sends (#17)', () => {
+    const errors: unknown[] = [];
+    const Boom = plugin({
+      id: 'test:boom-out',
+      key: Symbol('test:boom-out'),
+      setup(_args, hooks) {
+        hooks.onOutgoing(() => {
+          throw new Error('hook bug');
+        });
+        return () => ({});
+      },
+    });
+
+    const { socket, ws } = build(Boom());
+    socket.onError((error) => errors.push(error));
+    const ok = socket.send('typing', { channelId: 'x' });
+
+    expect(ok).toBe(true); // a bug must not cancel the send
+    expect(ws.sentFrames()).toHaveLength(1); // message passes through unchanged
+    expect(errors).toHaveLength(1); // and the bug is reported
+  });
+
+  it('onIncoming throwing a real error is reported but the message still delivers (#17)', () => {
+    const errors: unknown[] = [];
+    const Boom = plugin({
+      id: 'test:boom-in',
+      key: Symbol('test:boom-in'),
+      setup(_args, hooks) {
+        hooks.onIncoming(() => {
+          throw new Error('hook bug');
+        });
+        return () => ({});
+      },
+    });
+
+    const { socket, ws } = build(Boom());
+    socket.onError((error) => errors.push(error));
+    const handler = vi.fn();
+    socket.on('message', handler);
+
+    ws.emit({ event: 'message', payload: { text: 'hi' } });
+
+    expect(handler).toHaveBeenCalledWith({ text: 'hi' }); // not swallowed
+    expect(errors).toHaveLength(1);
+  });
+
+  it('a throwing onOutgoing still runs a later primitive hook and sends (#16)', () => {
+    const errors: unknown[] = [];
+    const Boom = plugin({
+      id: 'test:boom-chain',
+      key: Symbol('test:boom-chain'),
+      setup(_args, hooks) {
+        hooks.onOutgoing(() => {
+          throw new Error('hook bug');
+        });
+        return () => ({});
+      },
+    });
+    const Tagger = plugin({
+      id: 'test:tagger-chain',
+      key: Symbol('test:tagger-chain'),
+      setup(_args, hooks) {
+        hooks.onOutgoing((m) => ({
+          ...m,
+          payload: { ...(m.payload as Record<string, unknown>), tagged: true },
+        }));
+        return () => ({});
+      },
+    });
+
+    const { socket, ws } = build(Boom(), Tagger());
+    socket.onError((error) => errors.push(error));
+    socket.send('typing', { channelId: 'x' });
+
+    // The later hook still transformed the frame and it still went out.
+    expect(ws.sentFrames()[0].payload).toMatchObject({ tagged: true });
+    expect(errors).toHaveLength(1);
   });
 
   it('onOpen returns messages that are sent on open', () => {

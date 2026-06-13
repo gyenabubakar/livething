@@ -1,10 +1,17 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
+import { wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
 import type { WSKitError } from '@wskit/core';
-import type { PrimitiveLogger, WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type {
+  FrameOwner,
+  PrimitiveLogger,
+  SendResult,
+  WireMessage,
+  WSKitEnvelope,
+} from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { StreamHandleDependencies } from '~/primitives/stream/handle.ts';
 import type {
@@ -103,8 +110,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // while not open, so they are held here and flushed on open — otherwise the
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
-      const triggerOutbox = new Map<string, WireMessage>();
+      const triggerOutbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
       const resumeOutbox = new Map<string, WireMessage>();
+      // Cancel frames for streams cancelled while the socket was connecting/
+      // reconnecting (rawSend can't send them yet), keyed by streamId. Held here
+      // and flushed on open; the stream stays alive until then so its durable row
+      // isn't left orphaned server-side, and a pending cancel suppresses resume.
+      const cancelOutbox = new Map<string, WireMessage>();
       // Warn at most once: a resumable stream relies on detecting a dead socket,
       // which only keepalive can do for a half-open connection (no close event).
       let warnedNoKeepalive = false;
@@ -119,9 +131,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       }
 
       // `error` undefined means a clean end (the loop exits); an error makes it throw.
-      // `releaseHold` is false only when the kept stream already released its lazy
-      // hold on the drop (see onClose) — finishing it later must not double-release.
-      function finishStream(state: StreamState, error?: unknown, releaseHold = true): void {
+      // The lazy hold is released through the idempotent helper, so finishing a
+      // stream that already released its hold on a drop can't double-release.
+      function finishStream(state: StreamState, error?: unknown): void {
         if (!state.active) return;
         state.active = false;
         if (state.timer) clearTimeout(state.timer);
@@ -130,9 +142,38 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         state.resumeTimer = null;
         streams.delete(state.streamId);
         resumeOutbox.delete(state.streamId);
-        if (releaseHold) helpers.lazyRelease();
+        cancelOutbox.delete(state.streamId);
+        releaseStreamHold(state);
         if (error) state.queue.abort(error);
         else state.queue.end();
+      }
+
+      // Idempotent per-stream lazy hold. A resumable stream releases its hold on a
+      // drop and re-acquires on resume; if several failed reconnect attempts each
+      // fire onClose, only the first release counts, so the global lazy count can't
+      // be corrupted for unrelated consumers.
+      function acquireStreamHold(state: StreamState): void {
+        if (state.hasLazyHold) return;
+        state.hasLazyHold = true;
+        helpers.lazyAcquire();
+      }
+      function releaseStreamHold(state: StreamState): void {
+        if (!state.hasLazyHold) return;
+        state.hasLazyHold = false;
+        helpers.lazyRelease();
+      }
+
+      // Fail a pending trigger and tear it down once: clear its timer, drop it from
+      // the trigger map and outbox, release the hold it took, then reject. Shared by
+      // the timeout, a server error, a disconnect, and a buffered-frame owner.
+      function failTrigger(streamId: string, error: unknown): void {
+        const trigger = triggers.get(streamId);
+        if (!trigger) return;
+        if (trigger.timer) clearTimeout(trigger.timer);
+        triggers.delete(streamId);
+        triggerOutbox.delete(streamId);
+        helpers.lazyRelease();
+        trigger.reject(error);
       }
 
       // Settle a pending nudge by its id (resolve on __nudgeOk__, reject on error).
@@ -157,12 +198,23 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       const handleDependencies: StreamHandleDependencies = {
         nudge(state, details) {
           const { event, payload } = details;
+          const eventError = wireIdError(event, event, 'event');
+          if (eventError) return Promise.reject(eventError);
           const streamNudgeId = helpers.generateId('nudge');
-          helpers.rawSend({
-            event,
-            payload,
-            __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
-          });
+          let result: SendResult;
+          try {
+            result = helpers.rawSend({
+              event,
+              payload,
+              __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
+            });
+          } catch (error) {
+            // Serialization happens inside rawSend, before the Promise exists —
+            // turn a throw into a rejection so nudge() always returns a Promise.
+            return Promise.reject(error);
+          }
+          // Not open: fail fast rather than drop the frame and wait out the timeout.
+          if (result !== 'sent') return Promise.reject(Disconnected());
           const timeoutMs = details.timeout ?? nudgeTimeout;
           return new Promise<void>((resolve, reject) => {
             const timer =
@@ -176,11 +228,18 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           });
         },
         cancel(state) {
-          helpers.rawSend({
+          const frame: WireMessage = {
             event: '__streamCancel__',
             payload: {},
             __wskit: { streamId: state.streamId, ...state.markers },
-          });
+          };
+          const result = helpers.rawSend(frame);
+          // Connecting/reconnecting: hold the cancel and keep the stream alive so its
+          // durable row isn't orphaned. It flushes (and the stream finishes) on open.
+          if (result === 'connecting') {
+            cancelOutbox.set(state.streamId, frame);
+            return;
+          }
           finishStream(state); // a cancel ends the loop without throwing
         },
       };
@@ -191,40 +250,41 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
       ): Promise<StreamHandle<unknown>> {
         const streamId = context.options?.streamId ?? helpers.generateId('stream');
+        // Reject a bad event or streamId locally — the server rejects such a frame
+        // before it can route the error back to settle this Promise.
+        const idError =
+          wireIdError(event, event, 'event') ?? wireIdError(event, streamId, 'streamId');
+        if (idError) return Promise.reject(idError);
         helpers.ensureConnected();
         helpers.lazyAcquire();
         const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
+        const owner: FrameOwner = {
+          isPending: () => triggers.has(streamId),
+          reject: (error) => failTrigger(streamId, error),
+        };
         // Send through the normal path so buffering can take it — queued while
         // offline, or held behind a draining staggered flush so it keeps order. With
         // no buffering, hold it only while a connect is in progress (flushed on
         // open); on a closed socket nothing will flush it, so fail fast.
-        let delivered: boolean;
+        let result: SendResult;
         try {
-          delivered = helpers.send(frame);
+          result = helpers.send(frame, { owner });
         } catch (error) {
           helpers.lazyRelease(); // roll back the hold the trigger acquired above
-          throw error;
+          // Return a rejected Promise rather than throwing so socket.stream() never
+          // throws synchronously — its contract is to always return a Promise.
+          return Promise.reject(error);
         }
-        if (!delivered) {
-          const state = helpers.getState();
-          if (state === 'connecting' || state === 'reconnecting') {
-            triggerOutbox.set(streamId, frame);
-          } else {
-            helpers.lazyRelease();
-            return Promise.reject(Disconnected());
-          }
+        if (result === 'connecting') {
+          triggerOutbox.set(streamId, { message: frame, owner });
+        } else if (result === 'closed' || result === 'blocked') {
+          helpers.lazyRelease();
+          return Promise.reject(Disconnected());
         }
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {
           const timer =
-            timeout > 0
-              ? setTimeout(() => {
-                  triggers.delete(streamId);
-                  triggerOutbox.delete(streamId);
-                  helpers.lazyRelease();
-                  reject(Timeout());
-                }, timeout)
-              : null;
+            timeout > 0 ? setTimeout(() => failTrigger(streamId, Timeout()), timeout) : null;
           triggers.set(streamId, {
             resolve,
             reject,
@@ -240,20 +300,38 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         streamId: string,
         context: { markers: ScopeMarkers; options?: { lastKnownSeq?: number } },
       ): StreamHandle<unknown> {
+        const idError = wireIdError(event, streamId, 'streamId');
+        if (idError) {
+          // Can't resume an unroutable id — settle the handle instead of sending
+          // a frame the server rejects before it can route the error back.
+          const errored = new StreamState(streamId, event, context.markers);
+          finishStream(errored, idError);
+          return buildStreamHandle(errored, handleDependencies);
+        }
         let state = streams.get(streamId);
         if (!state) {
           state = new StreamState(streamId, event, context.markers);
           state.resumable = true;
           streams.set(streamId, state);
-          helpers.lazyAcquire();
+          acquireStreamHold(state);
         }
         startChunkTimer(state);
         const frame = resumeFrame(state, context.options?.lastKnownSeq);
-        const connectionState = helpers.getState();
-        if (connectionState === 'open') {
-          helpers.rawSend(frame);
-        } else if (connectionState === 'connecting' || connectionState === 'reconnecting') {
+        let result: SendResult;
+        try {
+          result = helpers.rawSend(frame);
+        } catch (error) {
+          // A resume frame that can't serialize ends the stream with the error
+          // (the queue buffers it for a late iterator) rather than throwing out of
+          // resumeStream — its contract is to always return a handle.
+          finishStream(state, error);
+          return buildStreamHandle(state, handleDependencies);
+        }
+        if (result === 'connecting') {
           resumeOutbox.set(streamId, frame);
+        } else if (result === 'closed') {
+          // Closed, non-lazy: settle now; the queue buffers the abort for a late iterator.
+          finishStream(state, Disconnected());
         }
         return buildStreamHandle(state, handleDependencies);
       }
@@ -362,6 +440,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               triggers.delete(streamId);
               triggerOutbox.delete(streamId);
               const state = new StreamState(streamId, trigger.event, trigger.markers);
+              // The hold the trigger took in triggerStream now belongs to the
+              // running stream — adopt it rather than acquiring a second one.
+              state.hasLazyHold = true;
               // The server tells us whether this stream is resumable.
               state.resumable = envelope?.streamKind === 'persistent';
               if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
@@ -401,13 +482,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               // An error before __streamOk__ (e.g. stream-id-collision,
               // stream-already-active) means the trigger never started — reject
               // the pending stream() promise instead of leaving it to time out.
-              const trigger = triggers.get(streamId);
-              if (trigger) {
-                if (trigger.timer) clearTimeout(trigger.timer);
-                triggers.delete(streamId);
-                triggerOutbox.delete(streamId);
-                helpers.lazyRelease();
-                trigger.reject(error);
+              if (triggers.has(streamId)) {
+                failTrigger(streamId, error);
                 return null;
               }
               const state = streams.get(streamId);
@@ -450,19 +526,41 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
         },
         onOpen() {
+          // Flush held cancels first and finish those streams — a cancel queued
+          // during reconnect must reach the server (deleting its durable row) and
+          // wins over any resume.
+          const cancelled = [...cancelOutbox.entries()];
+          cancelOutbox.clear();
+          for (const [streamId, frame] of cancelled) {
+            helpers.rawSend(frame);
+            const state = streams.get(streamId);
+            if (state) finishStream(state);
+          }
+
           // Flush trigger frames for streams started while the socket was still
-          // connecting; rawSend would have dropped them before open.
-          if (triggerOutbox.size === 0 && resumeOutbox.size === 0) return null;
-          const frames = [...triggerOutbox.values(), ...resumeOutbox.values()];
+          // connecting; rawSend would have dropped them before open. Each trigger
+          // carries its owner so a frame that can't serialize rejects that exact
+          // stream() Promise (and a later frame still flushes), and a trigger that
+          // already settled is skipped.
+          const triggerEntries = [...triggerOutbox.values()];
           triggerOutbox.clear();
+          for (const { message, owner } of triggerEntries) {
+            if (owner.isPending()) helpers.rawSend(message, owner);
+          }
+
+          if (resumeOutbox.size === 0) return null;
+          const frames = [...resumeOutbox.values()];
           resumeOutbox.clear();
           return frames;
         },
         onReconnect() {
           const frames: WireMessage[] = [];
           for (const state of streams.values()) {
+            // A queued cancel wins over resume — don't revive a stream the user
+            // already asked to cancel; onOpen flushes the cancel instead.
+            if (cancelOutbox.has(state.streamId)) continue;
             if (state.active && state.resumable) {
-              helpers.lazyAcquire();
+              acquireStreamHold(state);
               frames.push(resumeFrame(state));
               // Bound the resume: if no resumed chunk arrives, the deadline ends
               // the stream rather than leaving it (and its lazy hold) hung. The
@@ -510,7 +608,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               !intentional &&
               (suspended || helpers.willReconnect(code, reason))
             ) {
-              helpers.lazyRelease();
+              // Keep the stream for the reconnect window but release its hold. The
+              // idempotent release means a second onClose (a failed first reconnect
+              // attempt) can't double-release and corrupt the global lazy count.
+              releaseStreamHold(state);
             } else {
               finishStream(state, Disconnected());
             }
@@ -529,10 +630,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           triggerOutbox.clear();
 
           // Reconnection is abandoned — the resume that would revive a kept stream
-          // never comes. Each kept resumable stream already released its lazy hold
-          // on the drop (onClose), so finish it without releasing the hold again,
-          // making the for-await loop throw Disconnected instead of hanging forever.
-          for (const state of [...streams.values()]) finishStream(state, Disconnected(), false);
+          // never comes. finishStream releases the hold idempotently, so a stream
+          // that already released on the drop won't release twice; the for-await
+          // loop throws Disconnected instead of hanging forever.
+          for (const state of [...streams.values()]) finishStream(state, Disconnected());
         },
         install(socket) {
           // @ts-expect-error — install adds stream() to the socket dynamically
@@ -582,3 +683,4 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
     },
   };
 }
+stream.tag = 'stream';

@@ -1,4 +1,6 @@
-import type { WireMessage } from '~/internal/runtime.ts';
+import { WSKitConfigError } from '@wskit/core';
+import { Disconnected, Dropped } from '~/errors.ts';
+import type { FrameOwner, WireMessage } from '~/internal/runtime.ts';
 
 /** Settings for the buffer. */
 export interface MessageBufferOptions {
@@ -12,6 +14,7 @@ interface BufferedMessage {
   message: WireMessage;
   ttl: number | null;
   queuedAt: number;
+  owner?: FrameOwner;
 }
 
 /**
@@ -36,6 +39,11 @@ export class MessageBuffer {
   constructor(options: MessageBufferOptions) {
     this.enabled = options.enabled ?? false;
     this.maxSize = options.maxSize ?? 50;
+    if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
+      throw new WSKitConfigError(
+        `[wskit] buffering maxSize must be a positive integer, got ${this.maxSize}.`,
+      );
+    }
     this.ttlConfig = options.ttl;
     this.flushInterval = options.flushInterval ?? 0;
     this.ring = new Array(this.maxSize).fill(null);
@@ -45,16 +53,21 @@ export class MessageBuffer {
    * Add a message. Returns `true` if it was taken, `false` if buffering is off.
    * If the buffer is full the oldest message is dropped to make room.
    */
-  enqueue(message: WireMessage, perCallTtl?: number): boolean {
+  enqueue(message: WireMessage, perCallTtl?: number, owner?: FrameOwner): boolean {
     if (!this.enabled) return false;
 
     const ttl = this.resolveTTL(message.event, perCallTtl);
     const tail = (this.head + this.count) % this.maxSize;
-    this.ring[tail] = { message, ttl, queuedAt: Date.now() };
 
     if (this.count >= this.maxSize) {
+      // The ring is full: the oldest entry is overwritten. Reject its owner so a
+      // Promise-bearing op whose frame was evicted fails instead of hanging.
+      const evicted = this.ring[tail];
+      evicted?.owner?.reject(Dropped());
+      this.ring[tail] = { message, ttl, queuedAt: Date.now(), owner };
       this.head = (this.head + 1) % this.maxSize;
     } else {
+      this.ring[tail] = { message, ttl, queuedAt: Date.now(), owner };
       this.count++;
     }
 
@@ -70,9 +83,27 @@ export class MessageBuffer {
    * up front. So if the socket drops mid-flush, `stopFlush()` leaves the
    * not-yet-sent messages in the buffer and they go out on the next flush.
    */
-  flush(send: (message: WireMessage) => void, onComplete?: () => void): void {
+  flush(
+    send: (message: WireMessage) => void,
+    onComplete?: () => void,
+    onError?: (error: unknown) => void,
+  ): void {
     this.stopFlush();
     this.dropExpired();
+
+    // Isolate each send. A frame whose owner already settled (timed out, was
+    // disconnected, or resolved by another path) is dropped, not sent — its op no
+    // longer wants it on the wire. A send that throws (serialization failure)
+    // rejects the owner so the op fails instead of hanging, and is also reported.
+    function sendOne(buffered: BufferedMessage): void {
+      if (buffered.owner && !buffered.owner.isPending()) return;
+      try {
+        send(buffered.message);
+      } catch (error) {
+        buffered.owner?.reject(error);
+        onError?.(error);
+      }
+    }
 
     if (this.count === 0) {
       onComplete?.();
@@ -82,7 +113,7 @@ export class MessageBuffer {
     if (this.flushInterval <= 0) {
       let buffered = this.dequeue();
       while (buffered) {
-        send(buffered.message);
+        sendOne(buffered);
         buffered = this.dequeue();
       }
       onComplete?.();
@@ -96,17 +127,24 @@ export class MessageBuffer {
         onComplete?.();
         return;
       }
-      send(buffered.message);
+      sendOne(buffered);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
 
     tick();
   }
 
-  /** Throw away everything and stop any in-progress flush. */
+  /**
+   * Throw away everything and stop any in-progress flush. A pending owner whose
+   * frame is discarded is rejected, so an intentional clear (e.g. `disconnect()`)
+   * fails its buffered ops instead of leaving them to hang.
+   */
   clear(): void {
     for (let i = 0; i < this.count; i++) {
-      this.ring[(this.head + i) % this.maxSize] = null;
+      const index = (this.head + i) % this.maxSize;
+      const buffered = this.ring[index];
+      if (buffered?.owner?.isPending()) buffered.owner.reject(Disconnected());
+      this.ring[index] = null;
     }
     this.head = 0;
     this.count = 0;
@@ -144,13 +182,16 @@ export class MessageBuffer {
     return buffered;
   }
 
-  /** Drop messages past their TTL, keeping the rest in order. */
+  /** Drop messages past their TTL, keeping the rest in order. An expired frame's
+   * pending owner is rejected so its op fails instead of waiting out its timeout. */
   private dropExpired(): void {
     const now = Date.now();
-    const kept = this.drain().filter(
-      (buffered) =>
-        buffered.ttl === null || buffered.ttl <= 0 || now - buffered.queuedAt < buffered.ttl,
-    );
+    const kept = this.drain().filter((buffered) => {
+      const alive =
+        buffered.ttl === null || buffered.ttl <= 0 || now - buffered.queuedAt < buffered.ttl;
+      if (!alive && buffered.owner?.isPending()) buffered.owner.reject(Dropped());
+      return alive;
+    });
     for (const buffered of kept) {
       const tail = (this.head + this.count) % this.maxSize;
       this.ring[tail] = buffered;

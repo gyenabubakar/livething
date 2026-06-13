@@ -23,3 +23,4 @@ export function intercept(interceptor: InterceptFn): Primitive<EmptyTypeFn> {
     },
   };
 }
+intercept.tag = 'intercept';
