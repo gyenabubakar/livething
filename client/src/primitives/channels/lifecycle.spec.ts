@@ -319,14 +319,13 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
       // Drop the connection; the channel is kept for the reconnect window.
       first.serverClose(1006, 'drop');
 
-      // Unsubscribe during reconnect — the frame can't go out yet. The local
-      // subscription is kept so we know to suppress the rejoin; it must not clear
-      // membership prematurely or fire onUnsubscribed yet.
+      // Unsubscribe during reconnect — the channel leaves locally at once (so
+      // onUnsubscribed fires now), and the leave is held to resend on reopen.
       room.unsubscribe();
-      expect(unsubscribed).not.toHaveBeenCalled();
+      expect(unsubscribed).toHaveBeenCalledTimes(1);
 
-      // Reconnect: the held unsubscribe flushes, no rejoin/subscribe is sent for it,
-      // and onUnsubscribed fires exactly once.
+      // Reconnect: the held leave is resent, no rejoin/subscribe goes out for it,
+      // and onUnsubscribed does not fire a second time.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -564,11 +563,9 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     room.onUnsubscribed(onUnsub);
     room.unsubscribe();
 
-    expect(ws.sentFrames()).toContainEqual({
-      event: '__unsubscribe__',
-      payload: {},
-      __wskit: { channel: 'general' },
-    });
+    const leaveFrame = ws.sentFrames().find((f) => f.event === '__unsubscribe__');
+    expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
+    expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
     expect(onUnsub).toHaveBeenCalled();
   });
 });

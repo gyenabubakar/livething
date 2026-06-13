@@ -118,12 +118,15 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 (message.payload as { source?: unknown })?.source === 'server'
                   ? 'server'
                   : 'client';
-              // A stale server auto-rejoin confirmation for a channel the user
-              // intentionally left during the reconnect — drop it so we don't
-              // re-activate a channel the server has already removed us from.
-              if (source === 'server' && state.ignoreServerRejoin) {
+              // While a leave is outstanding, ignore EVERY subscribe confirmation —
+              // a server auto-rejoin OR a late client-source ack from a subscribe
+              // that overlapped the leave. Either would wrongly re-activate a channel
+              // the user has asked to leave. A deliberate re-subscribe queued behind
+              // the leave only sends its frame after the leave is confirmed (and
+              // pendingLeave is cleared), so it is never blocked here.
+              if (state.pendingLeave !== null) {
                 helpers.log.info(
-                  `channel '${name}' ignoring stale server re-subscribe after leave`,
+                  `channel '${name}' ignoring a subscribe confirmation while a leave is pending`,
                 );
                 return null;
               }
@@ -131,6 +134,13 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.persistent = wskit?.channelPersistent === true;
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));
+              return null;
+            }
+            case '__unsubscribeOk__': {
+              // Settle the matching leave op. A non-matching id (a stale ack from
+              // an earlier connection) is ignored inside confirmLeave.
+              const id = wskit?.unsubscribeId;
+              if (typeof id === 'string') state.confirmLeave(id);
               return null;
             }
             case '__memberSync__': {
@@ -192,19 +202,21 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
         },
         onOpen() {
-          // Flush an unsubscribe held while the socket was connecting BEFORE any
-          // subscribe flush — a queued leave wins over a rejoin. Once it's on the
-          // wire the local membership clears and onUnsubscribed fires.
+          // Resend any outstanding leave BEFORE the subscribe flush — a leave wins
+          // over a rejoin. A leave that didn't reach the server before a drop is
+          // resent here (same id) until its __unsubscribeOk__ confirms it. While a
+          // leave is pending the channel is already inactive, so onReconnect skips
+          // its rejoin and a server auto-rejoin __subscribeOk__ is ignored.
           for (const state of states.values()) {
-            const leaveFrame = state.pendingUnsubscribeFrame;
-            if (!leaveFrame) continue;
-            state.pendingUnsubscribeFrame = null;
-            helpers.rawSend(leaveFrame);
-            state.markUnsubscribed();
-            // The server may already have queued an auto-rejoin __subscribeOk__
-            // before it saw this leave; ignore that stale confirmation.
-            state.ignoreServerRejoin = true;
-            if (state.scopeKey) familyFor(state.scopeKey).fireUnsubscribed(state.name);
+            if (!state.pendingLeave) continue;
+            helpers.rawSend({
+              event: '__unsubscribe__',
+              payload: {},
+              __wskit: {
+                ...channelMarkers(state),
+                unsubscribeId: state.pendingLeave.unsubscribeId,
+              },
+            });
           }
 
           // Flush subscribe frames held while the socket was connecting. Each goes
@@ -254,10 +266,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // a client subscribe on top would run the subscribe flow twice.
           const resubscribes: WireMessage[] = [];
           for (const state of states.values()) {
+            // A leaving channel is already inactive, so this skip also keeps a
+            // pending leave from rejoining — onOpen resends the leave instead.
             if (!state.active) continue;
-            // A queued unsubscribe wins: the user asked to leave, so don't rejoin —
-            // onOpen flushes the unsubscribe and clears the membership instead.
-            if (state.pendingUnsubscribeFrame) continue;
             // Mark the channel as waiting for its subscribe confirmation after
             // reconnect. Persistent channels wait for the server's auto-rejoin;
             // others wait for the client's re-subscribe reply. A failure clears this.
@@ -287,31 +298,46 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         onClose(_code, _reason, intentional) {
           for (const state of states.values()) {
             state.clearRejoinTimer();
-            if (state.pending) {
+
+            // A subscribe queued behind a reliable leave must survive a retryable
+            // drop: the leave is resent on reopen and the queued subscribe runs
+            // (with a freshly-resolved payload) once it confirms. Only an intentional
+            // close or a permanent failure (failLeave, below) clears it.
+            const queuedBehindLeave =
+              state.deferredSubscribe !== null && state.pendingLeave !== null;
+            if (state.pending && !(queuedBehindLeave && !intentional)) {
               state.pending.reject(Disconnected());
               state.pending = null;
               state.pendingPromise = null;
               state.pendingSubscribeFrame = null;
+              state.deferredSubscribe = null;
               // A channel that never became active won't be re-subscribed on
               // reconnect, so release its idle-prevention hold here or it leaks.
               if (!state.active) state.releaseLazy();
             }
 
             if (intentional) {
-              if (state.active) state.markUnsubscribed();
+              // An intentional disconnect ends everything — a leave will never be
+              // confirmed, so reject it (and any queued re-subscribe) instead of
+              // leaving its promise hanging.
+              if (state.pendingLeave) state.failLeave(Disconnected());
+              else if (state.active) state.markUnsubscribed();
               continue;
             }
 
+            // A transient drop keeps any pending leave (and the subscribe queued
+            // behind it): onOpen resends the leave on reopen.
             state.clearMembersForReconnect();
           }
         },
         onReconnectFailed() {
-          // Reconnection is abandoned — active channels won't be revived by a
-          // reconnect, so release the idle-prevention holds they kept across the
-          // drop (else the lazy count leaks) and give them a terminal signal.
+          // Reconnection is abandoned. Active channels won't be revived, so release
+          // their idle-prevention holds and give them a terminal signal; an
+          // outstanding leave can never be confirmed now, so reject it.
           for (const state of states.values()) {
             state.clearRejoinTimer();
-            if (state.active) state.markUnsubscribed();
+            if (state.pendingLeave) state.failLeave(Disconnected());
+            else if (state.active) state.markUnsubscribed();
             else state.releaseLazy();
           }
         },

@@ -31,8 +31,13 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
       ? [data: P | (() => P | Promise<P>)]
       : [data?: unknown]
   ): Promise<void>;
-  /** Leave the channel. Fire-and-forget — there's no server confirmation. */
-  unsubscribe(): void;
+  /**
+   * Leave the channel. The channel goes inactive right away (a `send()` then
+   * throws), but the returned promise resolves only when the server confirms the
+   * leave with `__unsubscribeOk__` — the leave is resent across reconnects until
+   * then. Rejects if the connection is abandoned before it can confirm.
+   */
+  unsubscribe(): Promise<void>;
 
   /** Who's in the room right now, keyed by connection id. */
   readonly members: ReadonlyMap<string, ChannelMember>;

@@ -71,19 +71,24 @@ export class ChannelState {
   /** A subscribe frame waiting for a connecting socket to open. */
   pendingSubscribeFrame: WireMessage | null = null;
   /**
-   * An `__unsubscribe__` frame that couldn't be sent because the socket was
-   * connecting/reconnecting. Held here and flushed on open. While set, the local
-   * subscription is kept (so the server still sees us as a member) and any
-   * automatic rejoin is suppressed — the user asked to leave, and that wins.
+   * An outstanding leave waiting for the server's `__unsubscribeOk__`. Carries
+   * the `unsubscribeId` the confirmation must echo. While set it is resent on
+   * every reopen (so a leave lost to a drop still completes) and any server
+   * auto-rejoin `__subscribeOk__` is ignored — the user asked to leave, and that
+   * wins until the server confirms.
    */
-  pendingUnsubscribeFrame: WireMessage | null = null;
+  pendingLeave: {
+    unsubscribeId: string;
+    resolve: () => void;
+    reject: (err: unknown) => void;
+  } | null = null;
+  /** The in-flight `unsubscribe()` promise, reused so overlapping calls share one. */
+  pendingLeavePromise: Promise<void> | null = null;
   /**
-   * Set when an intentional leave is flushed on reopen. The server may have
-   * already queued an auto-rejoin `__subscribeOk__` (`source: 'server'`) before it
-   * saw our `__unsubscribe__`; that stale confirmation must not re-activate a
-   * channel the user just left. Cleared by a deliberate `subscribe()`.
+   * A `subscribe()` issued while a leave is still pending: held here and run once
+   * the leave is confirmed, so the re-join lands after the leave on the wire.
    */
-  ignoreServerRejoin = false;
+  deferredSubscribe: (() => void) | null = null;
   /** Releases the idle-prevention hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
   /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
@@ -204,12 +209,59 @@ export class ChannelState {
     this.releaseLazy();
   }
 
+  /**
+   * Open a leave op, or return the promise of one already in flight. Repeat
+   * `unsubscribe()` calls share the same promise and reuse the same id.
+   */
+  beginLeave(unsubscribeId: string): Promise<void> {
+    if (this.pendingLeavePromise) return this.pendingLeavePromise;
+    const promise = new Promise<void>((resolve, reject) => {
+      this.pendingLeave = { unsubscribeId, resolve, reject };
+    });
+    this.pendingLeavePromise = promise;
+    // Pre-attach a no-op catch so an unobserved rejection (caller ignored the
+    // returned promise) never surfaces as an unhandled rejection.
+    void promise.catch(() => undefined);
+    return promise;
+  }
+
+  /**
+   * Settle the leave when the matching `__unsubscribeOk__` arrives, then run a
+   * `subscribe()` that was queued behind it. A confirmation whose id doesn't
+   * match the outstanding leave (a stale one from an earlier connection) is
+   * ignored.
+   */
+  confirmLeave(unsubscribeId: string): void {
+    const leave = this.pendingLeave;
+    if (!leave || leave.unsubscribeId !== unsubscribeId) return;
+    this.pendingLeave = null;
+    this.pendingLeavePromise = null;
+    leave.resolve();
+    const deferred = this.deferredSubscribe;
+    this.deferredSubscribe = null;
+    deferred?.();
+  }
+
+  /**
+   * Abandon an outstanding leave (and any subscribe queued behind it) because
+   * the socket will never confirm it — a permanent reconnect failure or an
+   * intentional disconnect.
+   */
+  failLeave(error: unknown): void {
+    const leave = this.pendingLeave;
+    this.pendingLeave = null;
+    this.pendingLeavePromise = null;
+    this.deferredSubscribe = null;
+    leave?.reject(error);
+    // A subscribe queued behind the leave can't proceed either.
+    this.failPendingSubscribe(error);
+  }
+
   /** Mark inactive, clear members, and tell `onUnsubscribed` listeners. */
   markUnsubscribed(): void {
     this.active = false;
     this.rejoining = false;
     this.pendingSubscribeFrame = null;
-    this.pendingUnsubscribeFrame = null;
     this.clearRejoinTimer();
     this.members.clear();
     this.priorMembers = null;

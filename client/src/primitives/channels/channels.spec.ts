@@ -106,13 +106,23 @@ describe('subscribe / unsubscribe', () => {
     await p;
     const onUnsub = vi.fn();
     room.onUnsubscribed(onUnsub);
-    room.unsubscribe();
-    expect(ws.sentFrames().at(-1)).toEqual({
+    const leave = room.unsubscribe();
+    const frame = ws.sentFrames().at(-1);
+    expect(frame).toMatchObject({
       event: '__unsubscribe__',
       payload: {},
       __wskit: { channel: 'general' },
     });
+    const unsubscribeId = frame.__wskit.unsubscribeId;
+    expect(typeof unsubscribeId).toBe('string');
+    // The channel goes inactive at once, but the promise resolves only on confirm.
     expect(onUnsub).toHaveBeenCalled();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId },
+    });
+    await expect(leave).resolves.toBeUndefined();
   });
 
   it('rejects a pending subscribe with Disconnected on disconnect', async () => {
@@ -194,7 +204,22 @@ describe('subscribe / unsubscribe', () => {
     }
     const before = countSubscribeFrames();
 
-    const retry = room.subscribe(); // must NOT reuse the dead attempt
+    // The re-subscribe is queued behind the pending leave — it must wait for the
+    // leave's confirmation so it lands after the leave on the wire, never reusing
+    // the dead attempt.
+    const retry = room.subscribe();
+    expect(countSubscribeFrames()).toBe(before);
+
+    const unsubscribeId = ws
+      .sentFrames()
+      .filter((f) => f.event === '__unsubscribe__')
+      .at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId },
+    });
+    // Confirmed leave releases the queued subscribe: exactly one fresh frame.
     expect(countSubscribeFrames()).toBe(before + 1);
 
     ws.emit({
@@ -455,19 +480,17 @@ describe('server-initiated subscriptions and reconnection', () => {
         __wskit: { channel: 'general', channelPersistent: true },
       });
 
-      // Drop, then leave while reconnecting — the unsubscribe is held.
+      // Drop, then leave while reconnecting — the leave is held and resent on open.
       first.serverClose(1006, 'drop');
       room.unsubscribe();
 
-      // Reconnect: onOpen flushes the held unsubscribe and marks the channel left.
+      // Reconnect: onOpen resends the leave; the channel is already inactive.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
-      expect(second.sentFrames()).toContainEqual({
-        event: '__unsubscribe__',
-        payload: {},
-        __wskit: { channel: 'general' },
-      });
+      const leaveFrame = second.sentFrames().find((f) => f.event === '__unsubscribe__');
+      expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
+      expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
 
       // The server's already-queued auto-rejoin __subscribeOk__ arrives late — it
       // must NOT re-activate a channel the user left (the server already removed it).
@@ -481,6 +504,300 @@ describe('server-initiated subscriptions and reconnection', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('reliable leave', () => {
+  function leaveId(ws: MockWebSocket): string {
+    return ws
+      .sentFrames()
+      .filter((f) => f.event === '__unsubscribe__')
+      .at(-1).__wskit.unsubscribeId;
+  }
+
+  it('resends the leave on every reopen until the server confirms it', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      const leave = room.unsubscribe();
+      const id = leaveId(first);
+
+      // Drop before the ack — the leave must resend on reopen with the same id.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      expect(
+        second
+          .sentFrames()
+          .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
+      ).toBe(true);
+
+      // Drop AGAIN before the ack — still resent, same id, and no rejoin for it.
+      second.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(3000);
+      const third = MockWebSocket.last();
+      third.open();
+      expect(
+        third
+          .sentFrames()
+          .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
+      ).toBe(true);
+      expect(
+        third
+          .sentFrames()
+          .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+      ).toBe(false);
+
+      // The server finally confirms — the promise resolves.
+      third.emit({
+        event: '__unsubscribeOk__',
+        payload: {},
+        __wskit: { channel: 'general', unsubscribeId: id },
+      });
+      await expect(leave).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects the leave promise when reconnection is permanently abandoned', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test'),
+        channels(),
+        reconnection({ maxAttempts: 1 }),
+      );
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      const leave = room.unsubscribe();
+      // Drop, then exhaust the single retry without a successful open.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(60_000);
+      MockWebSocket.last().serverClose(1006, 'still down');
+
+      await expect(leave).rejects.toMatchObject({ code: 'disconnected' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores a confirmation with a mismatched id, then settles on the matching one', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await p;
+
+    const leave = room.unsubscribe();
+    const id = leaveId(ws);
+
+    let settled = false;
+    void leave.then(() => {
+      settled = true;
+    });
+    // A confirmation for a different id (a stale one) must not settle this leave.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: 'stale-id' },
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    // The matching id settles it; a second (duplicate) confirmation is a no-op.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: id },
+    });
+    await expect(leave).resolves.toBeUndefined();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: id },
+    });
+  });
+
+  it('shares one promise while a leave is pending and resolves at once once already left', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await p;
+
+    const leave1 = room.unsubscribe();
+    const leave2 = room.unsubscribe(); // pending leave → same promise, no second frame
+    expect(leave2).toBe(leave1);
+    expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
+
+    const id = leaveId(ws);
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: id },
+    });
+    await expect(leave1).resolves.toBeUndefined();
+
+    // Already left with nothing pending → resolves without a new frame.
+    await expect(room.unsubscribe()).resolves.toBeUndefined();
+    expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
+  });
+
+  it('ignores a late client subscribe ack that overlapped the leave', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+
+    // subscribe then unsubscribe before the server's __subscribeOk__ arrives.
+    room.subscribe();
+    const leave = room.unsubscribe();
+
+    // The server's confirmation for the earlier subscribe lands late, while the
+    // leave is still pending. It must NOT re-activate the channel.
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
+
+    // After the leave confirms, the channel stays inactive — no split-brain.
+    const id = leaveId(ws);
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: id },
+    });
+    await expect(leave).resolves.toBeUndefined();
+    expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
+  });
+
+  it('keeps a re-subscribe queued behind a leave alive across a transient drop', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+
+      // Leave, then immediately ask to rejoin — the rejoin is queued behind the leave.
+      const leave = room.unsubscribe();
+      const rejoin = room.subscribe();
+      void leave.then(undefined, () => undefined);
+      void rejoin.then(undefined, () => undefined);
+
+      // The socket drops before the leave is confirmed. The queued rejoin must
+      // survive the retryable drop, not reject.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      // On reopen the leave is resent; confirm it — the queued rejoin then sends
+      // a fresh __subscribe__, which the server confirms, resolving the rejoin.
+      const id = second
+        .sentFrames()
+        .filter((f) => f.event === '__unsubscribe__')
+        .at(-1).__wskit.unsubscribeId;
+      second.emit({
+        event: '__unsubscribeOk__',
+        payload: {},
+        __wskit: { channel: 'general', unsubscribeId: id },
+      });
+      expect(
+        second
+          .sentFrames()
+          .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
+      ).toBe(true);
+      second.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+
+      await expect(leave).resolves.toBeUndefined();
+      await expect(rejoin).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-runs a function payload for a re-subscribe queued behind a leave', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+    room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+
+    const leave = room.unsubscribe();
+    void leave.then(undefined, () => undefined);
+
+    // Queue a rejoin with a function payload (a rotating token). It must not be
+    // evaluated until the leave confirms — and then run fresh.
+    let calls = 0;
+    const rejoin = room.subscribe(() => {
+      calls += 1;
+      return { token: `t${calls}` };
+    });
+    void rejoin.then(undefined, () => undefined);
+    expect(calls).toBe(0);
+
+    const id = leaveId(ws);
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: id },
+    });
+
+    // The deferred rejoin ran the factory exactly once, now. The payload is sent
+    // on a microtask (it flows through Promise.resolve), so settle that first.
+    expect(calls).toBe(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    const sub = ws
+      .sentFrames()
+      .filter((f) => f.event === '__subscribe__')
+      .at(-1);
+    expect(sub.payload).toEqual({ token: 't1' });
   });
 });
 
@@ -676,7 +993,8 @@ describe('stale payload rejection guard (#14)', () => {
     const first = room.subscribe(() => firstPayload);
     void first.catch(() => undefined);
 
-    // Cancel the first subscribe, then start a fresh one (a new pending object).
+    // Cancel the first subscribe, then start a fresh one. The new subscribe is
+    // queued behind the leave until it confirms.
     room.unsubscribe();
     const second = room.subscribe({ token: 'fresh' });
 
@@ -685,6 +1003,16 @@ describe('stale payload rejection guard (#14)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    // Confirm the leave so the queued subscribe sends, then confirm the subscribe.
+    const unsubscribeId = ws
+      .sentFrames()
+      .filter((f) => f.event === '__unsubscribe__')
+      .at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId },
+    });
     ws.emit({ event: '__subscribeOk__', payload: {}, __wskit: { channel: 'general' } });
     await expect(second).resolves.toBeUndefined();
   });

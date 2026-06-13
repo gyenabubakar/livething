@@ -86,10 +86,6 @@ export function buildChannelMessaging(
         scopeKeyError('__subscribe__', state.scopeKey);
       if (nameError) return Promise.reject(nameError);
 
-      // A deliberate re-subscribe clears any leftover "ignore the server's stale
-      // rejoin" suppression from a previous leave.
-      state.ignoreServerRejoin = false;
-
       helpers.ensureConnected();
 
       if (state.active) return Promise.resolve();
@@ -151,40 +147,67 @@ export function buildChannelMessaging(
         }
       }
 
-      if (typeof data === 'function') {
-        // A synchronous factory throw escapes Promise.resolve — guard the call too.
-        let factoryResult: unknown;
-        try {
-          factoryResult = (data as () => unknown)();
-        } catch (error) {
-          failSubscribe(error);
-          return promise;
+      // Resolve the payload (running a function payload fresh each time) and send.
+      // Re-runnable so it can be deferred behind a leave and replayed after a
+      // reconnect with a freshly-produced payload (e.g. a rotating auth token).
+      function resolveAndSend(): void {
+        if (typeof data === 'function') {
+          // A synchronous factory throw escapes Promise.resolve — guard the call too.
+          let factoryResult: unknown;
+          try {
+            factoryResult = (data as () => unknown)();
+          } catch (error) {
+            failSubscribe(error);
+            return;
+          }
+          void Promise.resolve(factoryResult).then(sendSubscribe, failSubscribe);
+        } else {
+          sendSubscribe(data);
         }
-        void Promise.resolve(factoryResult).then(sendSubscribe, failSubscribe);
+      }
+
+      // A subscribe issued while a leave is still in flight waits for the leave's
+      // confirmation, so the re-join lands after the leave on the wire — and is
+      // re-run then, picking up a fresh payload.
+      if (state.pendingLeave !== null) {
+        state.deferredSubscribe = resolveAndSend;
       } else {
-        sendSubscribe(data);
+        resolveAndSend();
       }
 
       return promise;
     },
-    unsubscribe() {
-      // If the channel was never subscribed (and no subscribe is in flight),
-      // do nothing — don't send __unsubscribe__ or fire onUnsubscribed.
-      if (!state.active && !state.pending) return;
-      const frame = { event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) };
-      const result = helpers.rawSend(frame);
-      // While connecting/reconnecting the frame can't go out yet. Hold it and keep
-      // the local subscription so we don't clear state for a leave the server never
-      // saw — otherwise a persistent channel auto-rejoins on reconnect and the
-      // client/server disagree. The held frame flushes (and the membership clears)
-      // on open; onReconnect suppresses the rejoin while it's pending.
-      if (result === 'connecting') {
-        state.pendingUnsubscribeFrame = frame;
-        return;
+    unsubscribe(): Promise<void> {
+      // Already gone with nothing in flight — a no-op that still resolves.
+      if (!state.active && !state.pending && !state.pendingLeave) return Promise.resolve();
+
+      // A leave is already outstanding: the latest intent is to leave, so drop
+      // any re-subscribe queued behind it and share the same promise.
+      if (state.pendingLeave) {
+        if (state.deferredSubscribe) {
+          state.deferredSubscribe = null;
+          state.failPendingSubscribe(new Error('[wskit] re-subscribe superseded by unsubscribe()'));
+        }
+        return state.beginLeave(state.pendingLeave.unsubscribeId);
       }
-      // markUnsubscribed() releases the idle-prevention hold for us.
+
+      // Leave locally right away: the channel goes inactive (so send() throws),
+      // members clear, any in-flight subscribe() rejects, and onUnsubscribed fires.
+      // The leave op below confirms the leave actually reached the server.
       state.markUnsubscribed();
       if (state.scopeKey) context.family(state.scopeKey).fireUnsubscribed(state.name);
+
+      const unsubscribeId = helpers.generateId('unsub');
+      const promise = state.beginLeave(unsubscribeId);
+      const result = helpers.rawSend({
+        event: '__unsubscribe__',
+        payload: {},
+        __wskit: { ...channelMarkers(state), unsubscribeId },
+      });
+      // Closed with no reconnect coming — the leave can never be confirmed.
+      if (result === 'closed') state.failLeave(Disconnected());
+      // 'connecting' keeps the leave pending; onOpen resends it on reopen.
+      return promise;
     },
     get members(): ReadonlyMap<string, ChannelMember> {
       return state.members;

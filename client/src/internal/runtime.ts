@@ -24,6 +24,9 @@ export interface WSKitEnvelope {
   /** The dynamic channel-family key, paired with `channel`. */
   channelScope?: string;
 
+  /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
+  unsubscribeId?: string;
+
   /** Set to `true` on `__subscribeOk__` when the server manages rejoining the channel on reconnect, so the client should not re-subscribe it. */
   channelPersistent?: boolean;
 
