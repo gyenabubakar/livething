@@ -1,4 +1,4 @@
-import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { channel, contract, implement, incoming, outgoing, request, t } from '@wskit/server';
 import { Disconnect } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -24,6 +24,16 @@ export const persistenceContract = contract('persistence', {
     // subscribe flow runs across a reconnect (auto-rejoin vs client re-subscribe).
     incoming('server-drop', v.object({})),
     outgoing('subscribe-flow-ran', v.object({ channel: v.string(), username: v.string() })),
+
+    // Test support for buffered-op ownership: `record-exec` increments a durable
+    // counter when the server actually runs it, and `read-exec-count` reads it
+    // back. Proves a buffered request that already timed out is NOT executed after
+    // a reconnect (the counter stays 0).
+    request('record-exec', { payload: v.object({}), response: v.object({ count: v.number() }) }),
+    request('read-exec-count', {
+      payload: v.object({}),
+      response: v.object({ count: v.number() }),
+    }),
 
     channel('archive-room', {
       definitions: [
@@ -69,6 +79,16 @@ export const persistenceHandler = implement(persistenceContract)
 
   .on('server-drop', () => {
     throw Disconnect(4500, 'test drop');
+  })
+
+  .request('record-exec', async (ctx) => {
+    const next = Number((await ctx.kv.get('exec-count')) ?? '0') + 1;
+    await ctx.kv.set('exec-count', String(next));
+    ctx.respond({ count: next });
+  })
+
+  .request('read-exec-count', async (ctx) => {
+    ctx.respond({ count: Number((await ctx.kv.get('exec-count')) ?? '0') });
   })
 
   .channel('archive-room', (ch) =>

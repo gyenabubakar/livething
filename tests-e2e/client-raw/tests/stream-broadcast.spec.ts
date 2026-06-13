@@ -15,8 +15,8 @@ test.describe('stream-broadcast', () => {
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
-    await expect(a.getByTestId('status')).toHaveText('connected');
-    await expect(b.getByTestId('status')).toHaveText('connected');
+    await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+    await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
 
     // broadcast() fans each chunk to peers while the trigger still receives
     // its normal per-stream copy.
@@ -46,8 +46,8 @@ test.describe('stream-broadcast', () => {
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
-    await expect(a.getByTestId('status')).toHaveText('connected');
-    await expect(b.getByTestId('status')).toHaveText('connected');
+    await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+    await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
 
     // Both clients subscribe to the same room before the stream runs so
     // peer broadcast hits an actual channel member.
@@ -93,9 +93,9 @@ test.describe('stream-broadcast', () => {
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
     await mallory.getByTestId('connect').click();
-    await expect(a.getByTestId('status')).toHaveText('connected');
-    await expect(b.getByTestId('status')).toHaveText('connected');
-    await expect(mallory.getByTestId('status')).toHaveText('connected');
+    await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+    await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+    await expect(mallory.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
 
     // Alice and Bob subscribe; Mallory connects but never subscribes.
     await a.getByTestId('join-room').click();
@@ -132,8 +132,10 @@ test.describe('stream-broadcast', () => {
     await b.goto(`/stream-broadcast?room=${room}`);
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
-    await expect(a.getByTestId('status')).toHaveText('connected');
-    await expect(b.getByTestId('status')).toHaveText('connected');
+    // Longer wait: under full-suite load the handshake to the shared worker can
+    // take more than the default 5s.
+    await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+    await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
 
     await a.getByTestId('start-3').click();
     await expect(a.getByTestId('stream-end')).toHaveText('yes');

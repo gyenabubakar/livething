@@ -100,8 +100,10 @@ describe('PersistenceClient — channels', () => {
 });
 
 describe('PersistenceClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof PersistenceClient['requests']>().toBeNever();
+  it('exposes the exec-counter requests', () => {
+    expectTypeOf<keyof PersistenceClient['requests']>().toEqualTypeOf<
+      'record-exec' | 'read-exec-count'
+    >();
   });
 
   it('streams is empty', () => {
