@@ -21,6 +21,8 @@ export default defineConfig({
         index: resolve(__dirname, 'src/index.ts'),
         '_adapters/index': resolve(__dirname, 'src/_adapters/index.ts'),
         errors: resolve(__dirname, 'src/errors/index.ts'),
+        requests: resolve(__dirname, 'src/request/capability.ts'),
+        scheduled: resolve(__dirname, 'src/scheduled/capability.ts'),
       },
       formats: ['es'],
     },

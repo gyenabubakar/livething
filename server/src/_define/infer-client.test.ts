@@ -2,6 +2,7 @@ import { t } from '~/_api/definitions.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
+import { requests } from '~/request/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
@@ -17,7 +18,15 @@ const base = define({
     emits({ welcome: t<{ username: string }>() }),
     emits({ goodbye: t<{ username: string }>() }),
     errors([NotFound, Forbidden]),
+    requests(),
   ],
+});
+
+const handleGetTime = base.request('get-time', {
+  input: v.object({ zone: v.string() }),
+  run() {
+    return { now: 'noon' };
+  },
 });
 
 const handleEcho = base.on('echo', {
@@ -29,7 +38,7 @@ const handleAnything = base.on('anything', {
   run() {},
 });
 
-const handler = base.assemble(handleEcho, handleAnything);
+const handler = base.assemble(handleEcho, handleAnything, handleGetTime);
 type C = InferClient<typeof handler>;
 
 describe('InferClient for define()', () => {
@@ -51,10 +60,16 @@ describe('InferClient for define()', () => {
     expectTypeOf<C['errors']['forbidden']>().toEqualTypeOf<{ reason: string }>();
   });
 
+  it('maps a base.request handler to a client request with inferred payload and response', () => {
+    expectTypeOf<C['requests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
+    expectTypeOf<C['requests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
+  });
+
   it('rejects a builder method whose capability was not listed', () => {
+    const bare = define({ env: t<{ SECRET: string }>() });
     // `requests()` is not in capabilities, so `base.request` does not exist.
     // @ts-expect-error base.request requires the requests() capability
-    base.request;
+    bare.request;
   });
 
   it('rejects a send to an undeclared event', () => {

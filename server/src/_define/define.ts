@@ -11,21 +11,26 @@ import {
   onUpgrade,
   onValidationError,
 } from '~/lifecycle/lifecycle.ts';
+import { request as requestFactory } from '~/request/request.ts';
+import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
-import type { InitContext, ShutdownContext } from '~/context.ts';
+import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { RequestPrimitive } from '~/request/request.ts';
+import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import type { AppCtx } from './app-ctx.ts';
 import type {
-  Capability,
+  AnyCapability,
+  BrandsOf,
   Contribution,
   MergeSlots,
+  SlotOr,
   SlotsOf,
-  UnionToIntersection,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
 
@@ -54,7 +59,7 @@ export type UpgradeFn<TMeta> = (
 export interface DefineConfig<
   TEnv = unknown,
   TMeta = unknown,
-  TCaps extends readonly Capability[] = readonly Capability[],
+  TCaps extends readonly AnyCapability[] = readonly AnyCapability[],
 > {
   /** The platform env bindings type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;
@@ -81,22 +86,103 @@ export interface OnConfig<TSlots, TEnv, TMeta, TSchema extends Validator | undef
   run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): void | Promise<void>;
 }
 
-/** Builder methods a capability adds to `base`, merged across every listed capability. */
-type MethodsOf<TCaps extends readonly Capability[]> = UnionToIntersection<
-  NonNullable<TCaps[number]['__methods']>
->;
+/** The value `base.request(...)` returns — a handler primitive that declares its request slot. */
+export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = RequestPrimitive<
+  TEvent,
+  TPayload,
+  TResponse
+> &
+  Contribution<{ requests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
+
+/** Configuration object for `base.request(...)`. */
+export interface RequestConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TSchema extends Validator | undefined,
+  TResponse,
+> {
+  /** Optional schema validating the request payload. Omit to accept any payload (typed `unknown`). */
+  readonly input?: TSchema;
+  /** Runs the request and returns the reply. The reply type is inferred from the return. */
+  run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): TResponse | Promise<TResponse>;
+}
+
+/** Builder method granted by the `requests()` capability. */
+export interface RequestMethods<TSlots, TEnv, TMeta> {
+  /**
+   * Register a handler for one client→server request. Like `base.on`, but the
+   * client awaits a reply: whatever the handler returns becomes the response,
+   * and its type is inferred from the return. Returning nothing rejects the
+   * client's pending request.
+   */
+  request<
+    TEvent extends string,
+    TSchema extends Validator | undefined = undefined,
+    TResponse = void,
+  >(
+    event: TEvent,
+    config: RequestConfig<TSlots, TEnv, TMeta, TSchema, TResponse>,
+  ): RequestHandlerValue<TEvent, InferInput<TSchema>, Awaited<TResponse>>;
+}
+
+/** The scheduled-task map (task id → payload type), read off the merged contract slots. */
+type ScheduledMap<TSlots> = SlotOr<TSlots, 'scheduled'>;
+
+/** The value `base.scheduled(...)` returns — a carrier matched to its declaration at assembly. */
+export interface ScheduledHandlerValue<TTaskId extends string> extends Contribution<{}> {
+  /** Marks this value as a scheduled-task body for `assemble(...)` to merge. @internal */
+  readonly __wskitScheduledHandler: true;
+  /** The task id this body runs. @internal */
+  readonly taskId: TTaskId;
+  /** The task body. @internal */
+  readonly run: (ctx: TaskContext, data?: unknown) => void | Promise<void>;
+}
+
+/** Configuration object for `base.scheduled(...)`. */
+export interface ScheduledConfig<TEnv, TMeta, TData> {
+  /** Runs when the task fires. Receives the typed payload for tasks that declare one. */
+  run: TData extends undefined
+    ? (ctx: TaskContext<TEnv, TMeta>) => void | Promise<void>
+    : (ctx: TaskContext<TEnv, TMeta>, data: TData) => void | Promise<void>;
+}
+
+/** Builder method granted by the `scheduled()` capability. */
+export interface ScheduledMethods<TSlots, TEnv, TMeta> {
+  /**
+   * Register the body for one declared scheduled task. The task id and its
+   * payload type come from the `scheduled(...)` capability; binding an
+   * undeclared task is a type error.
+   */
+  scheduled<TTaskId extends keyof ScheduledMap<TSlots> & string>(
+    taskId: TTaskId,
+    config: ScheduledConfig<TEnv, TMeta, ScheduledMap<TSlots>[TTaskId]>,
+  ): ScheduledHandlerValue<TTaskId>;
+}
+
+/**
+ * The builder methods the listed capabilities grant `base`, selected by each
+ * capability's brand. A capability with no brand grants nothing.
+ */
+export type CapabilityMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TBrand extends string,
+> = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta> : {}) &
+  ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {});
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
  * (`on`, the lifecycle hooks, `intercept`, `assemble`) plus any methods the
- * listed capabilities add.
+ * listed capabilities grant through their brands.
  */
-export type Base<TSlots, TEnv, TMeta, TCaps extends readonly Capability[]> = CoreBase<
+export type Base<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> = CoreBase<
   TSlots,
   TEnv,
   TMeta
 > &
-  MethodsOf<TCaps>;
+  CapabilityMethods<TSlots, TEnv, TMeta, BrandsOf<TCaps>>;
 
 /** The methods present on every `base`, whatever capabilities are listed. */
 export interface CoreBase<TSlots, TEnv, TMeta> {
@@ -162,20 +248,32 @@ export interface CoreBase<TSlots, TEnv, TMeta> {
 /** A value `assemble(...)` accepts — a handler, never a capability. */
 export type AssembleInput = Contribution & { readonly __wskitCapability?: never };
 
+function isScheduledCarrier(value: Contribution): value is ScheduledHandlerValue<string> {
+  return (value as { __wskitScheduledHandler?: unknown }).__wskitScheduledHandler === true;
+}
+
 /**
- * Reject a capability passed to `assemble(...)` and refuse two handlers that
- * bind the same event. Both are build-time mistakes (§21) better caught here,
- * with a clear message, than deep in engine boot.
+ * The primitive kinds that route by event name. An event name can belong to at
+ * most one of these across a scope, so two of them sharing a name collide.
  */
-function assertValidHandlers(handlers: readonly Primitive[]): void {
+const ROUTING_KINDS = new Set([
+  'incoming',
+  'request',
+  'stream-generate',
+  'resumable-stream-generate',
+  'recorded-stream-generate',
+]);
+
+/**
+ * Refuse two handlers that bind the same event. Compile catches this at engine
+ * boot too, but catching it here gives a clearer, earlier build error (§21) —
+ * including a collision across different kinds (for example `base.on('x')` and
+ * `base.request('x')`), which the per-kind identity check alone would miss.
+ */
+function assertUniqueHandlers(handlers: readonly Primitive[]): void {
   const seen = new Map<symbol, Set<string>>();
+  const routedEvents = new Map<string, string>();
   for (const handler of handlers) {
-    if ((handler as { __wskitCapability?: unknown }).__wskitCapability) {
-      throw new Error(
-        '[wskit] A capability was passed to assemble(). List capabilities in ' +
-          'define({ capabilities: [...] }) and pass only handlers (base.on, ...) to assemble().',
-      );
-    }
     const [key, registrationId] = handler.__identity;
     let registered = seen.get(key);
     if (!registered) {
@@ -191,7 +289,53 @@ function assertValidHandlers(handlers: readonly Primitive[]): void {
       );
     }
     registered.add(id);
+
+    if (ROUTING_KINDS.has(handler.__wskit)) {
+      const event = (handler as { event?: string }).event;
+      if (event !== undefined) {
+        const owner = routedEvents.get(event);
+        if (owner !== undefined && owner !== handler.__wskit) {
+          throw new Error(
+            `[wskit] Event name '${event}' is bound by both a ${owner} handler and a ` +
+              `${handler.__wskit} handler passed to assemble(). An event name can only be one ` +
+              'kind within a scope — pick a different name.',
+          );
+        }
+        routedEvents.set(event, handler.__wskit);
+      }
+    }
   }
+}
+
+/**
+ * Pair every declared scheduled task with its body and build the task
+ * primitives. A declared task with no body, or a body with no declaration, is a
+ * build error (§21).
+ */
+function mergeScheduled(
+  declarations: ReadonlyMap<string, ScheduledDeclaration>,
+  bodies: ReadonlyMap<string, (ctx: TaskContext, data?: unknown) => void | Promise<void>>,
+): Primitive[] {
+  const primitives: Primitive[] = [];
+  for (const [taskId, declaration] of declarations) {
+    const body = bodies.get(taskId);
+    if (!body) {
+      throw new Error(
+        `[wskit] No handler for scheduled task '${taskId}'. ` +
+          `Add base.scheduled('${taskId}', ...) and pass it to assemble().`,
+      );
+    }
+    primitives.push(makeScheduledPrimitive(taskId, declaration, body));
+  }
+  for (const taskId of bodies.keys()) {
+    if (!declarations.has(taskId)) {
+      throw new Error(
+        `[wskit] base.scheduled('${taskId}') has no matching declaration. ` +
+          `Declare it in the scheduled({ ... }) capability.`,
+      );
+    }
+  }
+  return primitives;
 }
 
 /** Wrap a bootstrap `upgrade(...)` function as the engine's builder upgrade hook. */
@@ -232,7 +376,7 @@ function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
 export function define<
   TEnv = unknown,
   TMeta = unknown,
-  const TCaps extends readonly Capability[] = readonly [],
+  const TCaps extends readonly AnyCapability[] = readonly [],
 >(
   config: DefineConfig<TEnv, TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps> {
@@ -257,6 +401,24 @@ export function define<
         config.input ? { validator: config.input } : undefined,
       );
     },
+    request(event: string, config: { input?: Validator; run: (ctx: any, input: any) => unknown }) {
+      const run = config.run;
+      return requestFactory(
+        event,
+        async (ctx: { respond(value: unknown): void }, payload: unknown) => {
+          const result = await run(ctx, payload);
+          if (result !== undefined && result !== null) ctx.respond(result);
+        },
+        config.input ? { validator: config.input } : undefined,
+      );
+    },
+    scheduled(taskId: string, config: { run: (ctx: any, data?: unknown) => void | Promise<void> }) {
+      return {
+        __wskitScheduledHandler: true as const,
+        taskId,
+        run: config.run,
+      };
+    },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));
     },
@@ -278,14 +440,50 @@ export function define<
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));
     },
-    assemble(...handlers: readonly Contribution[]) {
-      assertValidHandlers(handlers as readonly Primitive[]);
+    assemble(...items: readonly Contribution[]) {
+      const handlerPrimitives: Primitive[] = [];
+      const scheduledBodies = new Map<
+        string,
+        (ctx: TaskContext, data?: unknown) => void | Promise<void>
+      >();
+      for (const item of items) {
+        if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
+          throw new Error(
+            '[wskit] A capability was passed to assemble(). List capabilities in ' +
+              'define({ capabilities: [...] }) and pass only handlers (base.on, ...) to assemble().',
+          );
+        }
+        if (isScheduledCarrier(item)) {
+          if (scheduledBodies.has(item.taskId)) {
+            throw new Error(
+              `[wskit] Duplicate scheduled handler for '${item.taskId}' passed to assemble(). ` +
+                'A task can only be bound once — drop the duplicate.',
+            );
+          }
+          scheduledBodies.set(item.taskId, item.run);
+          continue;
+        }
+        handlerPrimitives.push(item as Primitive);
+      }
+      assertUniqueHandlers(handlerPrimitives);
+
+      const scheduledDeclarations = new Map<string, ScheduledDeclaration>();
+      for (const cap of config.capabilities ?? []) {
+        const declared = (cap as Partial<ScheduledCapability>).__scheduled;
+        if (declared) {
+          for (const [taskId, declaration] of declared)
+            scheduledDeclarations.set(taskId, declaration);
+        }
+      }
+      const scheduledPrimitives = mergeScheduled(scheduledDeclarations, scheduledBodies);
+
       const primitives: Primitive[] = [];
       if (config.upgrade) primitives.push(onUpgrade(adaptUpgrade(config.upgrade)));
       if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
       primitives.push(...lifecyclePrimitives);
-      primitives.push(...(handlers as readonly Primitive[]));
+      primitives.push(...handlerPrimitives);
+      primitives.push(...scheduledPrimitives);
 
       const features = new Set<string>();
       for (const cap of config.capabilities ?? []) {

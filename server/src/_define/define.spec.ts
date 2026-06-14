@@ -3,6 +3,7 @@ import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
+import { requests } from '~/request/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { define } from './define.ts';
@@ -124,5 +125,14 @@ describe('define() send/receive core', () => {
     const base = makeBase();
     const cap = emits({ extra: t<{ ok: boolean }>() });
     expect(() => base.assemble(cap as never)).toThrow(/capability was passed to assemble/);
+  });
+
+  it('throws when one event name is bound by both an on and a request handler', () => {
+    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const asEvent = base.on('shared', { input: v.object({}), run() {} });
+    const asRequest = base.request('shared', { input: v.object({}), run() {} });
+    expect(() => base.assemble(asEvent, asRequest)).toThrow(
+      /Event name 'shared' is bound by both a incoming handler and a request handler/,
+    );
   });
 });

@@ -19,6 +19,16 @@
       "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./requests": {
+      "wskit-dev": "./src/request/capability.ts",
+      "types": "./dist/request/capability.d.ts",
+      "import": "./dist/requests.js"
+    },
+    "./scheduled": {
+      "wskit-dev": "./src/scheduled/capability.ts",
+      "types": "./dist/scheduled/capability.d.ts",
+      "import": "./dist/scheduled.js"
     }
   },
   "publishConfig": {

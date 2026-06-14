@@ -250,3 +250,42 @@ export function scheduled<
 
 /** Symbol key used to reference this primitive in dependency declarations. */
 scheduled.__key = SCHEDULED_KEY;
+
+/**
+ * Build a scheduled-task primitive directly from a declaration and a handler.
+ *
+ * The fluent `ScheduledBuilder` requires a Standard Schema to mark a task as
+ * carrying data, which also validates it at enqueue time. This factory accepts
+ * a separate `hasData` flag so a task can declare a data *type* (via `t<...>()`)
+ * without a runtime validator — the server-side data is trusted and not
+ * validated. It keeps the same identity and storage requirement as the builder.
+ *
+ * @internal
+ */
+export function makeScheduledPrimitive<TCtx = TaskContext>(
+  taskId: string,
+  declaration: { hasData: boolean; dataSchema?: Validator; options?: ScheduledOptions },
+  handler: (ctx: TCtx, data?: unknown) => void | Promise<void>,
+): ScheduledPrimitive<string, unknown, boolean, TCtx> {
+  if (declaration.dataSchema !== undefined && declaration.options?.every !== undefined) {
+    throw new Error(
+      `[wskit] scheduled("${taskId}") cannot combine data with every. Recurring tasks have no caller to supply the payload.`,
+    );
+  }
+  return {
+    __wskit: 'scheduled',
+    __kind: 'infrastructure',
+    __identity: [SCHEDULED_KEY, taskId],
+    __requires: { storage: true },
+    taskId,
+    handler: handler as ScheduledHandler<TCtx, unknown, boolean>,
+    hasData: declaration.hasData,
+    dataSchema: declaration.dataSchema as ScheduledPrimitive<
+      string,
+      unknown,
+      boolean,
+      TCtx
+    >['dataSchema'],
+    options: declaration.options,
+  };
+}

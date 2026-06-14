@@ -26,25 +26,27 @@ export interface Contribution<TSlots = {}> {
  *
  * You never build a capability by hand — call a capability factory such as
  * `emits(...)` or `errors(...)` and place the result in `capabilities`. Each
- * factory decides the runtime primitives it adds, the builder methods it grants
- * `base`, and the contract slots it declares.
+ * factory decides the runtime primitives it adds, the contract slots it
+ * declares, and the brand of any builder methods it grants `base`.
  *
  * @template TSlots   The client-contract slots this capability declares.
- * @template TMethods The builder methods this capability adds to `base`.
  * @template TFeature The build-time feature flags this capability turns on.
+ * @template TBrand   The builder-method group this capability grants `base`
+ *   (for example `'requests'` grants `base.request`). `never` for a capability
+ *   that grants no method, such as `emits` or `errors`.
  */
 export interface Capability<
   TSlots = {},
-  TMethods = {},
   TFeature extends string = never,
+  TBrand extends string = never,
 > extends Contribution<TSlots> {
   readonly __wskitCapability: true;
   /** Runtime primitives this capability contributes to the assembled server. @internal */
   readonly __primitives: readonly Primitive[];
-  /** @internal phantom — builder methods this capability adds to `base`; never set at runtime. */
-  readonly __methods?: TMethods;
   /** Feature flags this capability turns on, surfaced for build-time checks. @internal */
   readonly __features: readonly TFeature[];
+  /** @internal phantom — the builder-method group this capability grants; never set at runtime. */
+  readonly __brand?: TBrand;
 }
 
 /**
@@ -55,16 +57,32 @@ export interface Capability<
  *
  * @internal
  */
-export function capability<TSlots = {}, TMethods = {}, TFeature extends string = never>(
+export function capability<
+  TSlots = {},
+  TFeature extends string = never,
+  TBrand extends string = never,
+>(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
-): Capability<TSlots, TMethods, TFeature> {
+): Capability<TSlots, TFeature, TBrand> {
   return {
     __wskitCapability: true,
     __primitives: primitives,
     __features: features,
-  } as Capability<TSlots, TMethods, TFeature>;
+  } as Capability<TSlots, TFeature, TBrand>;
 }
+
+/**
+ * A capability of any shape. Use this in constraint positions (`extends
+ * readonly AnyCapability[]`) — the default `Capability` narrows the brand to
+ * `never`, which would reject any capability that grants a builder method.
+ */
+export type AnyCapability = Capability<any, string, string>;
+
+/** The union of builder-method brands granted across a list of capabilities. @internal */
+export type BrandsOf<TCaps extends readonly AnyCapability[]> = NonNullable<
+  TCaps[number]['__brand']
+>;
 
 /** Collapse a union of slot records into one merged record. @internal */
 export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (

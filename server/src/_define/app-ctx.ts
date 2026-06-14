@@ -62,6 +62,26 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
   setAlarm(time: number): void;
 
   /**
+   * Queue a scheduled task to run once at `time` (unix ms). The body bound with
+   * `base.scheduled(taskId, ...)` runs then, receiving `data`. Only tasks
+   * declared by the `scheduled(...)` capability are accepted.
+   */
+  schedule<TTaskId extends keyof Scheduled<TSlots> & string>(
+    taskId: TTaskId,
+    options: Scheduled<TSlots>[TTaskId] extends undefined
+      ? { time: number; data?: undefined }
+      : { time: number; data: Scheduled<TSlots>[TTaskId] },
+  ): void;
+  /**
+   * Cancel pending runs of a scheduled task. With no filter it cancels every
+   * pending run; with a filter it cancels runs whose `data` matches its keys.
+   */
+  cancelScheduled<TTaskId extends keyof Scheduled<TSlots> & string>(
+    taskId: TTaskId,
+    filter?: Record<string, unknown>,
+  ): void;
+
+  /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with
    * `inject`. Each dispatch starts with an empty store.
@@ -88,3 +108,6 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
+
+/** The scheduled-task map (task id → payload type), read off the merged contract slots. */
+type Scheduled<TSlots> = SlotOr<TSlots, 'scheduled'>;
