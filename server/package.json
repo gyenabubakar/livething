@@ -69,6 +69,11 @@
       "wskit-dev": "./src/streams.ts",
       "types": "./dist/streams.d.ts",
       "import": "./dist/streams.js"
+    },
+    "./channels": {
+      "wskit-dev": "./src/channel/capability.ts",
+      "types": "./dist/channel/capability.d.ts",
+      "import": "./dist/channels.js"
     }
   },
   "publishConfig": {

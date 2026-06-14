@@ -14,7 +14,16 @@ import {
 import { request as requestFactory } from '~/request/request.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
-import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
+import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
+import type { ExtractParams } from '~/channel/channel.ts';
+import type {
+  ConnectionInfo,
+  ConnectionRef,
+  InitContext,
+  ShutdownContext,
+  TagRef,
+  TaskContext,
+} from '~/context.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
@@ -354,6 +363,262 @@ export interface RecordedStreamMethods<TSlots, TEnv, TMeta> {
   >;
 }
 
+/** The payload type one channel emit declaration carries. */
+type EmitPayloadOf<T> =
+  T extends TypeMarker<infer U> ? U : T extends Validator<infer U> ? U : unknown;
+
+/** The map of a channel's emit declarations → payload types. */
+type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
+
+/** The channel's server→client emit map, read off its config. */
+type EmitsOfConfig<TConfig> = TConfig extends { outgoing: { emits: infer E } } ? EmitMap<E> : {};
+
+/** The channel's subscribe-payload type, read off its config. */
+type SubscribeOfConfig<TConfig> = TConfig extends { subscribe: infer S }
+  ? S extends Validator<infer U>
+    ? U
+    : never
+  : never;
+
+/** A channel handle inside a channel handler — sends are typed to the channel's emits. */
+interface ChannelHandle<TParams, TOutgoing, TMeta> {
+  /** The matched channel name, e.g. `'lobby'` or `'rooms:abc'`. */
+  readonly name: string;
+  /** The family key for a dynamic channel, or `null` for a static one. */
+  readonly family: string | null;
+  /** The `{name}` captures from a dynamic pattern. */
+  readonly params: TParams;
+  /** Send a channel event to the calling connection. */
+  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
+  /** Broadcast a channel event to its members. */
+  broadcast<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    options?: { excludeSelf?: boolean },
+  ): void;
+  /** Snapshot of the channel's members. */
+  members(): ConnectionInfo<TMeta>[];
+  /** Server-side subscribe a connection to this channel. */
+  subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
+  /** Remove a connection (or everyone holding a tag) from this channel. */
+  kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
+  /** Remove a durable membership by identity. */
+  removeMember(identity: string): Promise<void>;
+}
+
+/** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
+export type ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing> = AppCtx<TSlots, TEnv, TMeta> & {
+  readonly channel: ChannelHandle<TParams, TOutgoing, TMeta>;
+};
+
+/** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
+export type ChannelGateCtx<TSlots, TEnv, TMeta> = AppCtx<TSlots, TEnv, TMeta> & {
+  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
+};
+
+/** The `ctx` a channel `check` gate receives — adds the validated subscribe payload. */
+export type ChannelCheckCtx<TSlots, TEnv, TMeta> = ChannelGateCtx<TSlots, TEnv, TMeta> & {
+  /** The validated subscribe payload. */
+  readonly check: unknown;
+};
+
+/** Configuration object for `base.channel(...)`. */
+export interface ChannelConfig<TSlots, TEnv, TMeta> {
+  /** Server→client events this channel emits. */
+  readonly outgoing?: { readonly emits?: Record<string, TypeMarker<any> | Validator> };
+  /** Schema validating the payload a client sends on subscribe. */
+  readonly subscribe?: Validator;
+  /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
+  check?: (ctx: ChannelCheckCtx<TSlots, TEnv, TMeta>) => unknown | Promise<unknown>;
+  /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
+  commit?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>, checkResult: any) => void;
+  /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
+  revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>;
+  /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
+  readonly persistent?: boolean;
+  /** Per-channel built-in replay cascade — `true`/`false` or a replay config. */
+  readonly replay?: boolean;
+}
+
+/**
+ * A channel handler's return value. It declares the channel's own slice (emits,
+ * subscribe payload, addressing) **and** this handler's slice under the channel,
+ * and carries a reference to the channel — so passing a single handler to
+ * `assemble()` gives `InferClient` the whole channel surface.
+ */
+export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
+  Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
+
+/** The channel's own contract slice — declared from its config and pattern. */
+type ChannelOwnSlice<TParams, TOutgoing, TAddressing extends string, TSubscribe> = {
+  outgoing: TOutgoing;
+  params: TParams;
+  __addressing: TAddressing;
+} & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe });
+
+/** Configuration object for a channel `stream` / `recordedStream`. */
+interface ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges> {
+  readonly input?: TInput;
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly nudges?: TNudges;
+  readonly broadcast?: boolean;
+  readonly allowConcurrent?: boolean;
+  run(
+    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing> & {
+      stream: NudgesHandle<TNudges>;
+    },
+    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/**
+ * The accumulating channel object returned by `base.channel(...)`. Its handler
+ * methods register onto the channel and return a value carrying both the
+ * client-contract type and a reference back to the channel; its gate and
+ * lifecycle methods mutate and return void. Pass any handler value — or the
+ * channel itself — to `assemble()`; the whole channel is pulled in once.
+ */
+export interface ChannelObject<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+>
+  extends
+    ChannelBuilder,
+    Contribution<{
+      channels: { [K in TKey]: ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe> };
+    }> {
+  /** Register a client→server event handler scoped to this channel. */
+  on<TEvent extends string, TInput extends Validator | undefined = undefined>(
+    event: TEvent,
+    config: {
+      input?: TInput;
+      run(
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing>,
+        input: InferInput<TInput>,
+      ): void | Promise<void>;
+    },
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    { incoming: Record<TEvent, InferInput<TInput>> }
+  >;
+
+  /** Register a client→server request handler scoped to this channel. */
+  request<
+    TEvent extends string,
+    TInput extends Validator | undefined = undefined,
+    TResponse = void,
+  >(
+    event: TEvent,
+    config: {
+      input?: TInput;
+      run(
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing>,
+        input: InferInput<TInput>,
+      ): TResponse | Promise<TResponse>;
+    },
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
+  >;
+
+  /** Register a plain stream scoped to this channel. */
+  stream<
+    TEvent extends string,
+    TChunk = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges>,
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    {
+      streams: Record<
+        TEvent,
+        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+      >;
+    }
+  >;
+
+  /** Register a recorded stream scoped to this channel. */
+  recordedStream<
+    TEvent extends string,
+    TChunk = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges>,
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    {
+      recordedStreams: Record<
+        TEvent,
+        { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
+      >;
+    }
+  >;
+
+  /** Runs after a client subscribes to this channel. */
+  subscribe(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
+  unsubscribe(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  /** Runs on every session end, including a plain disconnect. */
+  sessionEnd(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  /** Inspect every incoming frame in this channel before routing. One per channel. */
+  intercept(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>, frame: InterceptFrame) => unknown | void,
+  ): void;
+  /** Register a custom replay strategy scoped to this channel. */
+  replay(hooks: CustomReplayHooks): void;
+}
+
+/** Builder method granted by the `channels()` capability. */
+export interface ChannelMethods<TSlots, TEnv, TMeta> {
+  /** Declare a static channel. */
+  channel<TName extends string, const TConfig extends ChannelConfig<TSlots, TEnv, TMeta>>(
+    name: TName,
+    config?: TConfig,
+  ): ChannelObject<
+    TSlots,
+    TEnv,
+    TMeta,
+    TName,
+    {},
+    EmitsOfConfig<TConfig>,
+    'static',
+    SubscribeOfConfig<TConfig>
+  >;
+  /** Declare a dynamic channel family from `[familyKey, pattern]`. */
+  channel<
+    TFamily extends string,
+    TPattern extends string,
+    const TConfig extends ChannelConfig<TSlots, TEnv, TMeta>,
+  >(
+    pattern: readonly [TFamily, TPattern],
+    config?: TConfig,
+  ): ChannelObject<
+    TSlots,
+    TEnv,
+    TMeta,
+    TFamily,
+    ExtractParams<TPattern>,
+    EmitsOfConfig<TConfig>,
+    'dynamic',
+    SubscribeOfConfig<TConfig>
+  >;
+}
+
 /** Builder method granted by the `replay.custom()` capability. */
 export interface ReplayMethods {
   /**
@@ -378,7 +643,8 @@ export type CapabilityMethods<
   ('replay-custom' extends TBrand ? ReplayMethods : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TEnv, TMeta> : {}) &
   ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TEnv, TMeta> : {}) &
-  ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta> : {});
+  ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta> : {}) &
+  ('channels' extends TBrand ? ChannelMethods<TSlots, TEnv, TMeta> : {});
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
@@ -672,6 +938,16 @@ export function define<
     recordedStream(event: string, streamConfig: unknown) {
       return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
     },
+    channel(pattern: unknown, channelConfig?: unknown) {
+      for (const cap of config.capabilities ?? []) {
+        const factory = (cap as { __channelFactory?: (p: unknown, c: unknown) => unknown })
+          .__channelFactory;
+        if (factory) return factory(pattern, channelConfig);
+      }
+      throw new Error(
+        '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
+      );
+    },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));
     },
@@ -718,12 +994,18 @@ export function define<
         string,
         (ctx: TaskContext, data?: unknown) => void | Promise<void>
       >();
+      const channelObjects = new Set<{ __build(): Primitive }>();
       for (const item of items) {
         if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
           throw new Error(
             '[wskit] A capability was passed to assemble(). List capabilities in ' +
               'define({ capabilities: [...] }) and pass only handlers (base.on, ...) to assemble().',
           );
+        }
+        const channel = (item as { __channel?: { __build(): Primitive } }).__channel;
+        if (channel) {
+          channelObjects.add(channel);
+          continue;
         }
         if (isScheduledCarrier(item)) {
           if (scheduledBodies.has(item.taskId)) {
@@ -738,6 +1020,8 @@ export function define<
         handlerPrimitives.push(item as Primitive);
       }
       assertUniqueHandlers(handlerPrimitives);
+
+      const channelPrimitives = [...channelObjects].map((ch) => ch.__build());
 
       const scheduledDeclarations = new Map<string, ScheduledDeclaration>();
       for (const cap of config.capabilities ?? []) {
@@ -783,6 +1067,7 @@ export function define<
       primitives.push(...lifecyclePrimitives);
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
+      primitives.push(...channelPrimitives);
 
       const builtinReplayCount = primitives.filter(
         (p) => p.__wskit === 'replay' && !(p as { disabled?: boolean }).disabled,

@@ -1,5 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ConnectionInfo, ConnectionRef, KVProvider, Logger, SQLProvider } from '~/context.ts';
+import type {
+  ChannelHandle,
+  ConnectionInfo,
+  ConnectionRef,
+  KVProvider,
+  Logger,
+  SQLProvider,
+} from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { SlotOr } from './capability.ts';
 
@@ -98,6 +105,15 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
    * `ack()` capability; calling it without that capability throws at runtime.
    */
   ack(): void;
+
+  /**
+   * Look up a channel by name (or family + name) to send into it or read its
+   * members from outside a channel handler. Requires the `channels()` capability.
+   */
+  readonly channels: {
+    get(name: string): ChannelHandle<Record<string, unknown>, TMeta>;
+    get(family: string, name: string): ChannelHandle<Record<string, unknown>, TMeta>;
+  };
 
   /** Send an event to the current connection. Returns false if the socket can't accept it. */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;

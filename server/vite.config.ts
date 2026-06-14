@@ -31,6 +31,7 @@ export default defineConfig({
         persistence: resolve(__dirname, 'src/persistence/capability.ts'),
         replay: resolve(__dirname, 'src/replay/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
+        channels: resolve(__dirname, 'src/channel/capability.ts'),
       },
       formats: ['es'],
     },
