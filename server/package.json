@@ -6,82 +6,66 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "wskit-dev": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./adapters": {
-      "wskit-dev": "./src/_adapters/index.ts",
       "types": "./dist/_adapters/index.d.ts",
       "import": "./dist/_adapters/index.js"
     },
     "./errors": {
-      "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
     },
     "./requests": {
-      "wskit-dev": "./src/request/capability.ts",
       "types": "./dist/request/capability.d.ts",
       "import": "./dist/requests.js"
     },
     "./scheduled": {
-      "wskit-dev": "./src/scheduled/capability.ts",
       "types": "./dist/scheduled/capability.d.ts",
       "import": "./dist/scheduled.js"
     },
     "./ack": {
-      "wskit-dev": "./src/ack/capability.ts",
       "types": "./dist/ack/capability.d.ts",
       "import": "./dist/ack.js"
     },
     "./dedup": {
-      "wskit-dev": "./src/dedup/capability.ts",
       "types": "./dist/dedup/capability.d.ts",
       "import": "./dist/dedup.js"
     },
     "./sequence": {
-      "wskit-dev": "./src/sequence/capability.ts",
       "types": "./dist/sequence/capability.d.ts",
       "import": "./dist/sequence.js"
     },
     "./keepalive": {
-      "wskit-dev": "./src/keepalive/capability.ts",
       "types": "./dist/keepalive/capability.d.ts",
       "import": "./dist/keepalive.js"
     },
     "./rate-limit": {
-      "wskit-dev": "./src/rate-limit/capability.ts",
       "types": "./dist/rate-limit/capability.d.ts",
       "import": "./dist/rate-limit.js"
     },
     "./persistence": {
-      "wskit-dev": "./src/persistence/capability.ts",
       "types": "./dist/persistence/capability.d.ts",
       "import": "./dist/persistence.js"
     },
     "./replay": {
-      "wskit-dev": "./src/replay/capability.ts",
       "types": "./dist/replay/capability.d.ts",
       "import": "./dist/replay.js"
     },
     "./streams": {
-      "wskit-dev": "./src/streams.ts",
       "types": "./dist/streams.d.ts",
       "import": "./dist/streams.js"
     },
     "./channels": {
-      "wskit-dev": "./src/channel/capability.ts",
       "types": "./dist/channel/capability.d.ts",
       "import": "./dist/channels.js"
     },
     "./tags": {
-      "wskit-dev": "./src/tags/capability.ts",
       "types": "./dist/tags/capability.d.ts",
       "import": "./dist/tags.js"
     },
     "./plugin": {
-      "wskit-dev": "./src/_define/plugin.ts",
       "types": "./dist/_define/plugin.d.ts",
       "import": "./dist/plugin.js"
     }

@@ -1,4 +1,5 @@
-import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -12,38 +13,45 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const HelloPayload = v.object({ family: v.string(), text: v.string() });
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
-export const channelKeyCollisionContract = contract('channel-key-collision', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    incoming('broadcast-a', BroadcastPayload),
-    incoming('broadcast-b', BroadcastPayload),
-
-    channel(scope('rooms', 'private-{id}'), {
-      definitions: [outgoing('hello', HelloPayload)],
-    }),
-    channel(scope('rooms-private', '{id}'), {
-      definitions: [outgoing('hello', HelloPayload)],
-    }),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [channels()],
 });
 
-export const channelKeyCollisionHandler = implement(channelKeyCollisionContract)
-  .onUpgrade((request) => requireUsername(request))
+const rooms = base.channel(['rooms', 'private-{id}'], {
+  outgoing: { emits: { hello: HelloPayload } },
+});
 
-  .on('broadcast-a', (ctx, payload) => {
+const roomsPrivate = base.channel(['rooms-private', '{id}'], {
+  outgoing: { emits: { hello: HelloPayload } },
+});
+
+const handleBroadcastA = base.on('broadcast-a', {
+  input: BroadcastPayload,
+  run(ctx, payload) {
     ctx.channels.get('rooms', payload.name).broadcast('hello', {
       family: 'rooms',
       text: payload.text,
     });
-  })
-  .on('broadcast-b', (ctx, payload) => {
+  },
+});
+
+const handleBroadcastB = base.on('broadcast-b', {
+  input: BroadcastPayload,
+  run(ctx, payload) {
     ctx.channels.get('rooms-private', payload.name).broadcast('hello', {
       family: 'rooms-private',
       text: payload.text,
     });
-  })
+  },
+});
 
-  .build();
+export const channelKeyCollisionHandler = base.assemble(
+  handleBroadcastA,
+  handleBroadcastB,
+  rooms,
+  roomsPrivate,
+);
 
 export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionHandler>;

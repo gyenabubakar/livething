@@ -1,5 +1,5 @@
-import { contract, error, implement, incoming, t } from '@wskit/server';
-import { WSKitError } from '@wskit/server/errors';
+import { define, errors, t } from '@wskit/server';
+import { error, WSKitError } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
@@ -13,41 +13,58 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 
-export const errorsFactoryContract = contract('errors-factory', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  errors: [NotFound, Forbidden, SimpleError, BigIntDetail],
-  definitions: [
-    incoming('trigger-not-found', v.object({})),
-    incoming('trigger-forbidden', v.object({})),
-    incoming('trigger-simple', v.object({})),
-    incoming('trigger-unregistered', v.object({})),
-    incoming('trigger-bigint', v.object({})),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
 });
 
-export const errorsFactoryHandler = implement(errorsFactoryContract)
-  .onUpgrade((request) => requireUsername(request))
-  .on('trigger-not-found', () => {
+const handleTriggerNotFound = base.on('trigger-not-found', {
+  input: v.object({}),
+  run() {
     throw NotFound({ id: 'test-123' });
-  })
-  .on('trigger-forbidden', () => {
+  },
+});
+
+const handleTriggerForbidden = base.on('trigger-forbidden', {
+  input: v.object({}),
+  run() {
     throw Forbidden({ reason: 'Access denied' });
-  })
-  .on('trigger-simple', () => {
+  },
+});
+
+const handleTriggerSimple = base.on('trigger-simple', {
+  input: v.object({}),
+  run() {
     // Code-only error: error('simple-error') returns a factory; call it to get
     // the WSKitError. (Throwing the bare factory would normalize to
     // internal-error since a function is not a WSKitError.)
     throw SimpleError();
-  })
-  .on('trigger-unregistered', () => {
+  },
+});
+
+const handleTriggerUnregistered = base.on('trigger-unregistered', {
+  input: v.object({}),
+  run() {
     throw Unregistered({ msg: 'this error is not registered' });
-  })
-  .on('trigger-bigint', () => {
+  },
+});
+
+const handleTriggerBigint = base.on('trigger-bigint', {
+  input: v.object({}),
+  run() {
     // Build a WSKitError whose detail is non-serializable. The engine
     // must not let JSON.stringify crash the dispatcher.
     throw new WSKitError('bigint-detail', { amount: 1n });
-  })
-  .build();
+  },
+});
+
+export const errorsFactoryHandler = base.assemble(
+  handleTriggerNotFound,
+  handleTriggerForbidden,
+  handleTriggerSimple,
+  handleTriggerUnregistered,
+  handleTriggerBigint,
+);
 
 export type ErrorsFactoryClient = InferClient<typeof errorsFactoryHandler>;

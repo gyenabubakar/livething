@@ -1,17 +1,14 @@
-import {
-  channel,
-  contract,
-  implement,
-  incoming,
-  outgoing,
-  request,
-  scope,
-  stream,
-  t,
-} from '@wskit/server';
-import { Disconnect, RejectUpgrade } from '@wskit/server/errors';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { Disconnect } from '@wskit/server/errors';
+import { replay } from '@wskit/server/replay';
+import { requests } from '@wskit/server/requests';
+import { sequence } from '@wskit/server/sequence';
+import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
+import { requireUsername } from '../_shared/upgrade.ts';
 import {
   ChatMsg,
   Cursor,
@@ -26,94 +23,95 @@ import {
   SendRoomMsg,
   StartTinyStream,
   TinyChunk,
-  TokenResponse,
   TriggerBadReplay,
   TriggerBigIntReplay,
 } from './events.ts';
 
-export const replayContract = contract('replay-test', {
+const base = define({
   env: t<Env>(),
-  sequence: { persist: true },
-  dedup: true,
-  replay: {
-    exclude: ['cursor'],
-    retention: { maxMessages: 100, maxAgeMs: 1_000 },
-    durability: 'strict',
-  },
-  meta: t<{ username: string }>(),
-  errors: [],
-  definitions: [
-    incoming('send-msg', SendMsg),
-    incoming('send-cursor', SendCursor),
-    incoming('request-history', RequestHistory),
-    incoming('trigger-bad-replay', TriggerBadReplay),
-    incoming('inject-family-replay', InjectFamilyReplay),
-    incoming('trigger-bigint-replay', TriggerBigIntReplay),
-    // Test support: a server-initiated retryable close so the client reconnects
-    // in-session and replay() fires.
-    incoming('server-drop', v.object({})),
-
-    outgoing('chat-msg', ChatMsg),
-    outgoing('cursor', Cursor),
-    outgoing('room-msg', RoomMsg),
-    outgoing('replay-guard-error', ReplayGuardError),
-
-    request('get-token', { payload: GetToken, response: TokenResponse }),
-    stream('start-tiny-stream', { payload: StartTinyStream, chunk: TinyChunk }),
-
-    channel('replay-room', {
-      replay: true,
-      definitions: [
-        outgoing('room-msg', RoomMsg),
-        incoming('send-room-msg', SendRoomMsg),
-        incoming('request-room-history', RequestRoomHistory),
-      ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    emits({
+      'chat-msg': ChatMsg,
+      cursor: Cursor,
+      'room-msg': RoomMsg,
+      'replay-guard-error': ReplayGuardError,
     }),
-
-    channel(scope('fams', 'fam-{id}'), {
-      definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
+    requests(),
+    dedup(),
+    sequence({ persist: true }),
+    replay.history({
+      exclude: ['cursor'],
+      retention: { maxMessages: 100, maxAgeMs: 1_000 },
+      durability: 'strict',
     }),
-
-    channel('optout-room', {
-      replay: false,
-      definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
-    }),
+    channels(),
+    stream(),
   ],
 });
 
-export const replayHandler = implement(replayContract)
-  .onError((_ctx, error, event) => {
-    console.error(`[replay] error in ${event}:`, error);
-  })
-  .onUpgrade((request) => {
-    const url = new URL(request.url);
-    const username = url.searchParams.get('username');
-    if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { identity: username, meta: { username } };
-  })
-  .on('send-msg', (ctx, payload) => {
+base.error((_ctx, error, event) => {
+  console.error(`[replay] error in ${event}:`, error);
+});
+
+/**
+ * Manual replay injection. The new `AppCtx` / channel handle do not type
+ * `sendReplay` (it is documented only for custom replay, §12), but the runtime
+ * still exposes it under built-in history replay — these handlers exist to
+ * exercise that. We reach it through a narrow local type rather than `any`.
+ */
+type ReplayWire = {
+  seq: number;
+  messageId: string;
+  channel?: string;
+  channelScope?: string | null;
+};
+type SendReplay = (event: string, payload: unknown, wire: ReplayWire) => void;
+function asReplay(sink: unknown): { sendReplay: SendReplay } {
+  return sink as { sendReplay: SendReplay };
+}
+
+export const handleSendMsg = base.on('send-msg', {
+  input: SendMsg,
+  run(ctx, payload) {
     const msg = { text: payload.text, from: ctx.meta.username };
     ctx.send('chat-msg', msg);
     ctx.broadcast('chat-msg', msg);
-  })
-  .on('send-cursor', (ctx, payload) => {
+  },
+});
+
+export const handleSendCursor = base.on('send-cursor', {
+  input: SendCursor,
+  run(ctx, payload) {
     ctx.send('cursor', { x: payload.x, y: payload.y });
     ctx.broadcast('cursor', { x: payload.x, y: payload.y });
-  })
-  .on('request-history', (ctx) => {
-    ctx.sendReplay(
+  },
+});
+
+export const handleRequestHistory = base.on('request-history', {
+  input: RequestHistory,
+  run(ctx) {
+    asReplay(ctx).sendReplay(
       'chat-msg',
       { text: 'injected-history', from: 'system' },
       { seq: 0, messageId: 'manual-001' },
     );
-  })
-  .request('get-token', (ctx) => {
-    ctx.respond({ token: `secret-for-${ctx.meta.username}` });
-  })
-  .on('trigger-bad-replay', (ctx) => {
+  },
+});
+
+export const handleGetToken = base.request('get-token', {
+  input: GetToken,
+  run(ctx) {
+    return { token: `secret-for-${ctx.meta.username}` };
+  },
+});
+
+export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
+  input: TriggerBadReplay,
+  run(ctx) {
     let undeclared = '';
     try {
-      (ctx.sendReplay as (e: string, p: unknown, w: unknown) => void)(
+      asReplay(ctx).sendReplay(
         'not-declared-event',
         { text: 'x', from: 'system' },
         { seq: 0, messageId: 'bad-1' },
@@ -122,16 +120,25 @@ export const replayHandler = implement(replayContract)
       undeclared = err instanceof Error ? err.message : String(err);
     }
     ctx.send('replay-guard-error', { undeclared });
-  })
-  .on('inject-family-replay', (ctx) => {
-    ctx.sendReplay(
+  },
+});
+
+export const handleInjectFamilyReplay = base.on('inject-family-replay', {
+  input: InjectFamilyReplay,
+  run(ctx) {
+    asReplay(ctx).sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
       { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
     );
-  })
-  .on('trigger-bigint-replay', (ctx) => {
-    ctx.sendReplay(
+  },
+});
+
+export const handleTriggerBigIntReplay = base.on('trigger-bigint-replay', {
+  input: TriggerBigIntReplay,
+  run(ctx) {
+    const sink = asReplay(ctx);
+    sink.sendReplay(
       'chat-msg',
       { text: 'bigint-row', from: 'system', reactions: 7n } as unknown as {
         text: string;
@@ -139,49 +146,107 @@ export const replayHandler = implement(replayContract)
       },
       { seq: 1, messageId: 'bigint-row-1' },
     );
-    ctx.sendReplay(
+    sink.sendReplay(
       'chat-msg',
       { text: 'after-bigint-row', from: 'system' },
       { seq: 2, messageId: 'after-bigint-row' },
     );
-  })
-  .on('server-drop', () => {
+  },
+});
+
+export const handleServerDrop = base.on('server-drop', {
+  input: v.object({}),
+  run() {
     throw Disconnect(4500, 'test drop');
-  })
-  .stream('start-tiny-stream', async function* () {
+  },
+});
+
+export const handleStartTinyStream = base.stream('start-tiny-stream', {
+  input: StartTinyStream,
+  chunk: TinyChunk,
+  async *run() {
     yield { value: 'one' };
-  })
-  .channel('replay-room', (ch) =>
-    ch
-      .on('send-room-msg', (ctx, payload) => {
-        const from = ctx.meta.username;
-        const msg = { text: payload.text, from };
-        ctx.channel.send('room-msg', msg);
-        ctx.channel.broadcast('room-msg', msg);
-      })
-      .on('request-room-history', (ctx) => {
-        ctx.channel.sendReplay!(
-          'room-msg',
-          { text: 'injected-room-history', from: 'system' },
-          { seq: 0, messageId: 'room-manual-001' },
-        );
-      }),
-  )
-  .channel('fams', (ch) =>
-    ch.on('send-room-msg', (ctx, payload) => {
-      const from = ctx.meta.username;
-      const msg = { text: payload.text, from };
-      ctx.channel.broadcast('room-msg', msg);
-    }),
-  )
-  .channel('optout-room', (ch) =>
-    ch.on('send-room-msg', (ctx, payload) => {
-      const from = ctx.meta.username;
-      const msg = { text: payload.text, from };
-      ctx.channel.send('room-msg', msg);
-      ctx.channel.broadcast('room-msg', msg);
-    }),
-  )
-  .build();
+  },
+});
+
+const replayRoom = base.channel('replay-room', {
+  outgoing: {
+    emits: {
+      'room-msg': RoomMsg,
+    },
+  },
+});
+
+export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
+  input: SendRoomMsg,
+  run(ctx, payload) {
+    const from = ctx.meta.username;
+    const msg = { text: payload.text, from };
+    ctx.channel.send('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg);
+  },
+});
+
+export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
+  input: RequestRoomHistory,
+  run(ctx) {
+    asReplay(ctx.channel).sendReplay(
+      'room-msg',
+      { text: 'injected-room-history', from: 'system' },
+      { seq: 0, messageId: 'room-manual-001' },
+    );
+  },
+});
+
+const fams = base.channel(['fams', 'fam-{id}'], {
+  outgoing: {
+    emits: {
+      'room-msg': RoomMsg,
+    },
+  },
+});
+
+export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
+  input: SendRoomMsg,
+  run(ctx, payload) {
+    const from = ctx.meta.username;
+    const msg = { text: payload.text, from };
+    ctx.channel.broadcast('room-msg', msg);
+  },
+});
+
+const optoutRoom = base.channel('optout-room', {
+  outgoing: {
+    emits: {
+      'room-msg': RoomMsg,
+    },
+  },
+});
+
+export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
+  input: SendRoomMsg,
+  run(ctx, payload) {
+    const from = ctx.meta.username;
+    const msg = { text: payload.text, from };
+    ctx.channel.send('room-msg', msg);
+    ctx.channel.broadcast('room-msg', msg);
+  },
+});
+
+export const replayHandler = base.assemble(
+  handleSendMsg,
+  handleSendCursor,
+  handleRequestHistory,
+  handleGetToken,
+  handleTriggerBadReplay,
+  handleInjectFamilyReplay,
+  handleTriggerBigIntReplay,
+  handleServerDrop,
+  handleStartTinyStream,
+  handleSendRoomMsg,
+  handleRequestRoomHistory,
+  handleFamsSendRoomMsg,
+  handleOptoutSendRoomMsg,
+);
 
 export type ReplayClient = InferClient<typeof replayHandler>;

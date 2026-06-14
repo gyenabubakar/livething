@@ -1,20 +1,22 @@
-import { contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const sequenceContract = contract('sequence', {
+const base = define({
   env: t<Env>(),
-  sequence: true,
-  meta: t<{ username: string }>(),
-  definitions: [incoming('tick', v.object({})), outgoing('tock', v.object({}))],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [sequence(), emits({ tock: t<{}>() })],
 });
 
-export const sequenceHandler = implement(sequenceContract)
-  .onUpgrade((request) => requireUsername(request))
-  .on('tick', (ctx) => {
+const handleTick = base.on('tick', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('tock', {});
-  })
-  .build();
+  },
+});
+
+export const sequenceHandler = base.assemble(handleTick);
 
 export type SequenceClient = InferClient<typeof sequenceHandler>;

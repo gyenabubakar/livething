@@ -3,7 +3,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
 import { resumableStream as resumableStreamDef } from '~/stream-resumable/definition.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/capability.ts';
+import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 

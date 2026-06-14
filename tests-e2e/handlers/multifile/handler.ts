@@ -1,20 +1,17 @@
-// Coverage: multi-file composition. The contract lives in setup.ts, the room
-// channel handlers live in rooms.ts as a group, and this file mounts the group
-// via `.use()` plus an inline lifecycle hook. If primitives or type state
-// didn't survive the file boundary, either the channel wouldn't dispatch or
-// this file would stop type-checking.
-import { implement } from '@wskit/server';
+// Coverage: multi-file composition (spec §10 assembly). The base lives in
+// setup.ts, the lobby channel and its handler live in rooms.ts, and this file
+// assembles the channel handler (which drags the whole channel in) plus an
+// inline connect lifecycle hook. If primitives or type state didn't survive the
+// file boundary, either the channel wouldn't dispatch or this file would stop
+// type-checking.
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
-import { rooms } from './rooms.ts';
-import { multifileContract } from './setup.ts';
+import { base } from './setup.ts';
+import { handleSendRoomMessage } from './rooms.ts';
 
-export const multifileHandler = implement(multifileContract)
-  .onUpgrade((request) => requireUsername(request))
-  .use(rooms)
-  .onConnect((ctx) => {
-    ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
-  })
-  .build();
+base.connect((ctx) => {
+  ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
+});
+
+export const multifileHandler = base.assemble(handleSendRoomMessage);
 
 export type MultifileClient = InferClient<typeof multifileHandler>;

@@ -1,19 +1,13 @@
-// The shared contract. Other files import it to attach handler groups, and
-// the top-level handler imports it to add inline lifecycle handlers and call
-// `.build()`. The split contract + implement composition fans out from here.
-import { channel, contract, incoming, outgoing, t } from '@wskit/server';
-import { NotificationPayload, RoomMessagePayload, SendRoomMessagePayload } from './events.ts';
+// The shared base. Other files import it to attach channel handlers, and the
+// top-level handler imports it to add inline lifecycle hooks and call
+// `.assemble()`. The split define + assemble composition fans out from here.
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { requireUsername } from '../_shared/upgrade.ts';
+import { NotificationPayload } from './events.ts';
 
-export const multifileContract = contract('multifile', {
+export const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    outgoing('notification', NotificationPayload),
-    channel('lobby', {
-      definitions: [
-        outgoing('room-message', RoomMessagePayload),
-        incoming('send-room-message', SendRoomMessagePayload),
-      ],
-    }),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [emits({ notification: NotificationPayload }), channels()],
 });

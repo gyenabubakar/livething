@@ -1,53 +1,71 @@
-import { contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const incomingContract = contract('incoming', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    incoming('echo-ping', v.object({ text: v.string() })),
-    incoming('async-ping', v.object({ delay: v.number() })),
-    // Schemaless incoming — no validator, so any payload is accepted.
-    incoming('echo-anything'),
-    incoming('trigger-send-undeclared'),
-    incoming('trigger-send-bad-payload'),
-    outgoing('echo-pong', v.object({ text: v.string() })),
-    outgoing('async-done', v.object({ message: v.string() })),
-    outgoing('validation-error-fired', v.object({ event: v.string() })),
-    outgoing('anything-echo', v.object({ got: v.unknown() })),
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    emits({
+      'echo-pong': t<{ text: string }>(),
+      'async-done': t<{ message: string }>(),
+      'validation-error-fired': t<{ event: string }>(),
+      'anything-echo': t<{ got: unknown }>(),
+    }),
   ],
 });
 
-export const incomingHandler = implement(incomingContract)
-  .onUpgrade((request) => requireUsername(request))
-  .onValidationError((ctx, evt) => {
-    ctx.send('validation-error-fired', { event: evt });
-  })
-  .on('echo-ping', (ctx, payload) => {
-    ctx.send('echo-pong', { text: payload.text });
-  })
-  .on('async-ping', async (ctx, payload) => {
-    await new Promise((resolve) => setTimeout(resolve, payload.delay));
+base.validationError((ctx, evt) => {
+  ctx.send('validation-error-fired', { event: evt });
+});
+
+const handleEchoPing = base.on('echo-ping', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
+    ctx.send('echo-pong', { text: input.text });
+  },
+});
+
+const handleAsyncPing = base.on('async-ping', {
+  input: v.object({ delay: v.number() }),
+  async run(ctx, input) {
+    await new Promise((resolve) => setTimeout(resolve, input.delay));
     ctx.send('async-done', { message: 'async-done' });
-  })
-  // Schemaless incoming echoes whatever payload it was given.
-  .on('echo-anything', (ctx, payload) => {
-    ctx.send('anything-echo', { got: payload });
-  })
-  // Deliberately send an outgoing event that was never declared — the engine
-  // must reject it and surface internal-error on the wire (cast needed because
-  // the typed surface only allows declared events).
-  .on('trigger-send-undeclared', (ctx) => {
+  },
+});
+
+// Schemaless incoming echoes whatever payload it was given.
+const handleEchoAnything = base.on('echo-anything', {
+  run(ctx, input) {
+    ctx.send('anything-echo', { got: input });
+  },
+});
+
+// Deliberately send an outgoing event that was never declared — the engine
+// must reject it and surface internal-error on the wire (cast needed because
+// the typed surface only allows declared events).
+const handleTriggerSendUndeclared = base.on('trigger-send-undeclared', {
+  run(ctx) {
     const send = ctx.send as unknown as (event: string, payload: unknown) => boolean;
     send('totally-undeclared', { x: 1 });
-  })
-  // Deliberately send a declared event with a non-object payload — rejected.
-  .on('trigger-send-bad-payload', (ctx) => {
+  },
+});
+
+// Deliberately send a declared event with a non-object payload — rejected.
+const handleTriggerSendBadPayload = base.on('trigger-send-bad-payload', {
+  run(ctx) {
     const send = ctx.send as unknown as (event: string, payload: unknown) => boolean;
     send('echo-pong', 12345);
-  })
-  .build();
+  },
+});
+
+export const incomingHandler = base.assemble(
+  handleEchoPing,
+  handleAsyncPing,
+  handleEchoAnything,
+  handleTriggerSendUndeclared,
+  handleTriggerSendBadPayload,
+);
 
 export type IncomingClient = InferClient<typeof incomingHandler>;

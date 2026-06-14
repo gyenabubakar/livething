@@ -2,39 +2,13 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
-import { adaptStreamContext } from '~/stream/ctx-adapter.ts';
-import { nudge, stream as streamDef } from '~/stream/definition.ts';
+import { stream as streamDef } from '~/stream/definition.ts';
+import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { NudgeDef } from '~/stream/definition.ts';
-import type { Validator } from '~/types.ts';
 
-/** The nudge map a stream config accepts: event name → schema, or `null` for no payload. @internal */
-export type NudgeMap = Record<string, Validator | null>;
-
-/**
- * Turn the new authoring API's nudge map into the definition-side nudge array.
- * A `null` value means "no payload"; any other value is treated as a schema.
- *
- * @internal
- */
-export function toNudgeDefs(nudges?: NudgeMap): NudgeDef[] {
-  if (!nudges) return [];
-  return Object.entries(nudges).map(([name, schema]) =>
-    schema ? nudge(name, schema as any) : nudge(name),
-  );
-}
-
-/**
- * Wrap a user generator so it receives the unified `ctx.stream` handle.
- *
- * @internal
- */
-export function wrapStreamGenerator(
-  run: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>,
-): (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown> {
-  return (ctx, payload) => run(adaptStreamContext(ctx), payload);
-}
+export type { NudgeMap } from '~/stream/shared.ts';
+export { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 
 /** A `stream()` capability, carrying the builder that turns a config into a primitive. */
 export interface StreamCapability extends Capability<{}, never, 'stream'> {

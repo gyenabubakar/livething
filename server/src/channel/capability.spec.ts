@@ -192,7 +192,10 @@ describe('channels() capability', () => {
   it('throws when a channel stream is used without the stream() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', {});
-    expect(() => room.stream('feed', { input: v.object({}), async *run() {} })).toThrow(
+    // stream() is type-gated off this channel; reach it through an escape hatch
+    // to prove the runtime guard still fires as defense in depth.
+    const escapeHatch = room as unknown as { stream(event: string, config: any): unknown };
+    expect(() => escapeHatch.stream('feed', { input: v.object({}), async *run() {} })).toThrow(
       /uses stream\(\) but the stream\(\) capability is not listed/,
     );
   });

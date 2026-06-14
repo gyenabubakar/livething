@@ -17,6 +17,7 @@ import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import { persistentMarker } from '~/persistence/channel-marker.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
@@ -76,6 +77,10 @@ export class ChannelBuilder {
   readonly __channel: ChannelBuilder = this;
   /** The channel's unique key (static name or family key). @internal */
   readonly __key: string;
+  /** The channel-level rate-limit rule, if the config set one. @internal */
+  readonly __rateLimit?: RateLimitConfig;
+  /** Per-handler rate-limit overrides for this channel, keyed by event. @internal */
+  readonly __rateLimitOverrides = new Map<string, RateLimitConfig>();
 
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
   private readonly children: Primitive[] = [];
@@ -94,6 +99,7 @@ export class ChannelBuilder {
     }
 
     const cfg = config ?? {};
+    if (cfg.rateLimit) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
     const emits = cfg.outgoing?.emits as Record<string, unknown> | undefined;
     if (emits) {
       for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
@@ -116,6 +122,7 @@ export class ChannelBuilder {
   }
 
   on(event: string, config: any): ChannelHandlerValue {
+    this.recordRateLimit(event, config);
     this.children.push(
       incomingFactory(
         event,
@@ -134,6 +141,7 @@ export class ChannelBuilder {
           'listed. Add requests() to capabilities.',
       );
     }
+    this.recordRateLimit(event, config);
     const run = config.run;
     this.children.push(
       build(event, {
@@ -202,6 +210,7 @@ export class ChannelBuilder {
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
+    this.recordRateLimit(event, config);
     const run = config.run;
     const channelConfig = {
       ...config,
@@ -209,6 +218,13 @@ export class ChannelBuilder {
     };
     this.children.push(build(event, channelConfig));
     return this.handlerValue();
+  }
+
+  /** Stash a handler's `rateLimit` override so assembly can fold it into the plan. */
+  private recordRateLimit(event: string, config: any): void {
+    if (config?.rateLimit) {
+      this.__rateLimitOverrides.set(event, config.rateLimit as RateLimitConfig);
+    }
   }
 
   private registerOnce(slot: string, primitive: Primitive): void {

@@ -539,6 +539,12 @@ export interface ChannelConfig<
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
   /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
   readonly persistent?: boolean;
+  /**
+   * Channel-level rate-limit rule. Caps every event in this channel against one
+   * bucket; a per-handler `rateLimit` tightens or loosens it. Needs the
+   * `rateLimit()` capability listed.
+   */
+  readonly rateLimit?: RateLimitConfig;
 }
 
 /**
@@ -557,7 +563,7 @@ type ChannelOwnSlice<TParams, TOutgoing, TAddressing extends string, TSubscribe>
   __addressing: TAddressing;
 } & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe });
 
-/** Configuration object for a channel `stream` / `recordedStream`. */
+/** Configuration object for a channel `stream`. */
 interface ChannelStreamConfig<
   TSlots,
   TEnv,
@@ -574,9 +580,75 @@ interface ChannelStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Per-handler rate-limit override for this channel stream. */
+  readonly rateLimit?: RateLimitConfig;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
       stream: NudgesHandle<TNudges>;
+    },
+    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/** Configuration object for a channel `recordedStream` — adds the durable retention options. */
+interface ChannelRecordedStreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TParams,
+  TOutgoing,
+  TInput,
+  TChunk,
+  TNudges,
+  TCaps extends readonly AnyCapability[],
+> extends DurableStreamOptions {
+  readonly input?: TInput;
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly nudges?: TNudges;
+  readonly broadcast?: boolean;
+  readonly allowConcurrent?: boolean;
+  /** Per-handler rate-limit override for this channel stream. */
+  readonly rateLimit?: RateLimitConfig;
+  run(
+    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
+      stream: NudgesHandle<TNudges>;
+    },
+    input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/** Configuration object for a channel `resumableStream` — adds cursor controls and retention. */
+interface ChannelResumableStreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TParams,
+  TOutgoing,
+  TInput,
+  TChunk,
+  TCursor,
+  TNudges,
+  TCaps extends readonly AnyCapability[],
+> extends DurableStreamOptions {
+  readonly input?: TInput;
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
+  readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
+  readonly nudges?: TNudges;
+  readonly broadcast?: boolean;
+  readonly allowConcurrent?: boolean;
+  /** Per-handler rate-limit override for this channel stream. */
+  readonly rateLimit?: RateLimitConfig;
+  run(
+    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
+      stream: NudgesHandle<TNudges> & {
+        /** The cursor recorded on the last run, or `null` on the first run. */
+        cursor: TCursor | null;
+        /** 1 on the first run, 2+ on each resume. */
+        attempt: number;
+        /** Attach a cursor to a chunk so the framework can resume from it. */
+        withCursor(chunk: TChunk, cursor: TCursor): TChunk;
+      };
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
@@ -589,7 +661,7 @@ interface ChannelStreamConfig<
  * lifecycle methods mutate and return void. Pass any handler value — or the
  * channel itself — to `assemble()`; the whole channel is pulled in once.
  */
-export interface ChannelObject<
+interface ChannelStreamMethod<
   TSlots,
   TEnv,
   TMeta,
@@ -598,49 +670,8 @@ export interface ChannelObject<
   TOutgoing,
   TAddressing extends string,
   TSubscribe,
-  TCaps extends readonly AnyCapability[] = readonly [],
->
-  extends
-    ChannelBuilder,
-    Contribution<{
-      channels: { [K in TKey]: ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe> };
-    }> {
-  /** Register a client→server event handler scoped to this channel. */
-  on<TEvent extends string, TInput extends Validator | undefined = undefined>(
-    event: TEvent,
-    config: {
-      input?: TInput;
-      run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
-        input: InferInput<TInput>,
-      ): void | Promise<void>;
-    },
-  ): ChannelHandlerContribution<
-    TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
-    { incoming: Record<TEvent, InferInput<TInput>> }
-  >;
-
-  /** Register a client→server request handler scoped to this channel. */
-  request<
-    TEvent extends string,
-    TInput extends Validator | undefined = undefined,
-    TResponse = void,
-  >(
-    event: TEvent,
-    config: {
-      input?: TInput;
-      run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
-        input: InferInput<TInput>,
-      ): TResponse | Promise<TResponse>;
-    },
-  ): ChannelHandlerContribution<
-    TKey,
-    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
-    { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
-  >;
-
+  TCaps extends readonly AnyCapability[],
+> {
   /** Register a plain stream scoped to this channel. */
   stream<
     TEvent extends string,
@@ -670,7 +701,68 @@ export interface ChannelObject<
       >;
     }
   >;
+}
 
+interface ChannelResumableStreamMethod<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[],
+> {
+  /** Register a resumable stream scoped to this channel. */
+  resumableStream<
+    TEvent extends string,
+    TChunk = unknown,
+    TCursor = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: ChannelResumableStreamConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TInput,
+      TChunk,
+      TCursor,
+      TNudges,
+      TCaps
+    >,
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    {
+      resumableStreams: Record<
+        TEvent,
+        {
+          payload: InferInput<TInput>;
+          chunk: TChunk;
+          cursor: TCursor;
+          nudges: NudgesContract<TNudges>;
+        }
+      >;
+    }
+  >;
+}
+
+interface ChannelRecordedStreamMethod<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[],
+> {
   /** Register a recorded stream scoped to this channel. */
   recordedStream<
     TEvent extends string,
@@ -679,7 +771,7 @@ export interface ChannelObject<
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ChannelStreamConfig<
+    config: ChannelRecordedStreamConfig<
       TSlots,
       TEnv,
       TMeta,
@@ -699,6 +791,183 @@ export interface ChannelObject<
         { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> }
       >;
     }
+  >;
+}
+
+/**
+ * The stream methods a channel exposes, each present only when its matching
+ * stream capability is listed — mirroring the top-level brand gating.
+ */
+export type ChannelStreamMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TBrand extends string,
+  TCaps extends readonly AnyCapability[],
+> = ('stream' extends TBrand
+  ? ChannelStreamMethod<
+      TSlots,
+      TEnv,
+      TMeta,
+      TKey,
+      TParams,
+      TOutgoing,
+      TAddressing,
+      TSubscribe,
+      TCaps
+    >
+  : {}) &
+  ('resumableStream' extends TBrand
+    ? ChannelResumableStreamMethod<
+        TSlots,
+        TEnv,
+        TMeta,
+        TKey,
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TCaps
+      >
+    : {}) &
+  ('recordedStream' extends TBrand
+    ? ChannelRecordedStreamMethod<
+        TSlots,
+        TEnv,
+        TMeta,
+        TKey,
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TCaps
+      >
+    : {});
+
+export type ChannelObject<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = ChannelObjectCore<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey,
+  TParams,
+  TOutgoing,
+  TAddressing,
+  TSubscribe,
+  TCaps
+> &
+  ChannelStreamMethods<
+    TSlots,
+    TEnv,
+    TMeta,
+    TKey,
+    TParams,
+    TOutgoing,
+    TAddressing,
+    TSubscribe,
+    BrandsOf<TCaps>,
+    TCaps
+  >;
+
+/**
+ * The channel methods present whatever stream capabilities are listed. It drops
+ * the runtime builder's loosely-typed handler and lifecycle methods so the
+ * precisely-typed versions here (and the brand-gated stream methods in
+ * `ChannelStreamMethods`) are the only source — that is what makes the typing
+ * and gating real.
+ */
+export type ChannelObjectCore<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = Omit<
+  ChannelBuilder,
+  | 'on'
+  | 'request'
+  | 'stream'
+  | 'resumableStream'
+  | 'recordedStream'
+  | 'subscribe'
+  | 'unsubscribe'
+  | 'sessionEnd'
+  | 'intercept'
+  | 'replay'
+> &
+  Contribution<{
+    channels: { [K in TKey]: ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe> };
+  }> &
+  ChannelCoreMethods<TSlots, TEnv, TMeta, TKey, TParams, TOutgoing, TAddressing, TSubscribe, TCaps>;
+
+/** The `on` / `request` / lifecycle methods every channel object carries. */
+export interface ChannelCoreMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> {
+  /** Register a client→server event handler scoped to this channel. */
+  on<TEvent extends string, TInput extends Validator | undefined = undefined>(
+    event: TEvent,
+    config: {
+      input?: TInput;
+      /** Per-handler rate-limit override for this channel event. */
+      rateLimit?: RateLimitConfig;
+      run(
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
+        input: InferInput<TInput>,
+      ): void | Promise<void>;
+    },
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    { incoming: Record<TEvent, InferInput<TInput>> }
+  >;
+
+  /** Register a client→server request handler scoped to this channel. */
+  request<
+    TEvent extends string,
+    TInput extends Validator | undefined = undefined,
+    TResponse = void,
+  >(
+    event: TEvent,
+    config: {
+      input?: TInput;
+      /** Per-handler rate-limit override for this channel request. */
+      rateLimit?: RateLimitConfig;
+      run(
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
+        input: InferInput<TInput>,
+      ): TResponse | Promise<TResponse>;
+    },
+  ): ChannelHandlerContribution<
+    TKey,
+    ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
+    { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
   >;
 
   /** Runs after a client subscribes to this channel. */
@@ -866,6 +1135,13 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
 
 /** A value `assemble(...)` accepts — a handler, never a capability. */
 export type AssembleInput = Contribution & { readonly __wskitCapability?: never };
+
+/** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
+interface ChannelRateLimitSource {
+  readonly __key: string;
+  readonly __rateLimit?: RateLimitConfig;
+  readonly __rateLimitOverrides?: ReadonlyMap<string, RateLimitConfig>;
+}
 
 function isScheduledCarrier(value: Contribution): value is ScheduledHandlerValue<string> {
   return (value as { __wskitScheduledHandler?: unknown }).__wskitScheduledHandler === true;
@@ -1265,19 +1541,42 @@ export function define(config: any): Base<any, any, any, any> {
           buildRateLimit = build;
         }
       }
-      const rateLimitOverrides = new Map<string, RateLimitConfig>();
+      const overrides = new Map<string, Map<string, RateLimitConfig>>();
+      const channelRules = new Map<string, RateLimitConfig>();
+      let hasRateLimitConfig = false;
+
+      const topOverrides = new Map<string, RateLimitConfig>();
       for (const handler of handlerPrimitives) {
         const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
         const event = (handler as { event?: string }).event;
-        if (override && event !== undefined) rateLimitOverrides.set(event, override);
+        if (override && event !== undefined) topOverrides.set(event, override);
       }
-      if (!buildRateLimit && rateLimitOverrides.size > 0) {
+      if (topOverrides.size > 0) {
+        overrides.set('top', topOverrides);
+        hasRateLimitConfig = true;
+      }
+
+      for (const channel of channelObjects) {
+        const ch = channel as unknown as ChannelRateLimitSource;
+        if (ch.__rateLimit) {
+          channelRules.set(ch.__key, ch.__rateLimit);
+          hasRateLimitConfig = true;
+        }
+        if (ch.__rateLimitOverrides && ch.__rateLimitOverrides.size > 0) {
+          overrides.set(`channel:${ch.__key}`, new Map(ch.__rateLimitOverrides));
+          hasRateLimitConfig = true;
+        }
+      }
+
+      if (!buildRateLimit && hasRateLimitConfig) {
         throw new Error(
           '[wskit] a per-handler rateLimit override needs the rateLimit() capability. ' +
             'Add rateLimit() to capabilities.',
         );
       }
-      const rateLimitPrimitive = buildRateLimit ? buildRateLimit(rateLimitOverrides) : null;
+      const rateLimitPrimitive = buildRateLimit
+        ? buildRateLimit({ overrides, channelRules })
+        : null;
 
       const primitives: Primitive[] = [];
       if (config.upgrade) {

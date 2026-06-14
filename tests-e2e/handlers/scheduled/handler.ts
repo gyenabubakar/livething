@@ -1,4 +1,6 @@
-import { contract, implement, incoming, outgoing, scheduled, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { scheduled } from '@wskit/server/scheduled';
+import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -6,121 +8,96 @@ import { requireUsername } from '../_shared/upgrade.ts';
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
-export const scheduledContract = contract('scheduled', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())],
-  definitions: [
-    incoming('schedule-cleanup', v.object({ delayMs: v.number() })),
-    incoming('cancel-cleanup', v.object({})),
-    incoming('start-heartbeat', v.object({})),
-    incoming('cancel-heartbeat', v.object({})),
-    incoming('trigger-flaky-task', v.object({})),
-    incoming('trigger-default-retry-task', v.object({})),
-    incoming('trigger-always-fail', v.object({})),
-    incoming('trigger-bigint-throw', v.object({})),
-    incoming('query-dead-letter', v.object({})),
-    incoming('schedule-filtered-tasks', v.object({})),
-    incoming('cancel-filtered-task', v.object({ label: v.string() })),
-    incoming('cancel-nothing', v.object({})),
-    incoming('trigger-invalid-cleanup-data', v.object({})),
-    incoming('trigger-invalid-schedule-time', v.object({})),
-    incoming('schedule-send-to-conn', v.object({ connectionId: v.string(), text: v.string() })),
-    incoming('who-am-i', v.object({})),
-    incoming('trigger-empty-backoff', v.object({})),
-    incoming('schedule-broadcast-task', v.object({})),
-    incoming('schedule-send-to-tag', v.object({})),
-    incoming('tag-vip', v.object({})),
-    incoming('cancel-nonexistent', v.object({})),
-    incoming('trigger-schedule-unknown-task', v.object({})),
-
-    outgoing('cleanup-done', v.object({ at: v.number() })),
-    outgoing('cleanup-cancelled', v.object({})),
-    outgoing('heartbeat-tick', v.object({ count: v.number() })),
-    outgoing('flaky-task-result', v.object({ attempts: v.number() })),
-    outgoing('default-retry-result', v.object({ attempts: v.number() })),
-    outgoing(
-      'dead-letter-result',
-      v.object({
-        taskId: v.string(),
-        attempts: v.number(),
-        error: v.string(),
-      }),
-    ),
-    outgoing('filtered-task-result', v.object({ label: v.string() })),
-    outgoing('cancel-nothing-ok', v.object({})),
-    outgoing('schedule-guard-error', v.object({ message: v.string() })),
-    outgoing('schedule-send-to-conn-delivery', v.object({ text: v.string() })),
-    outgoing(
-      'schedule-send-to-conn-status',
-      v.object({
-        connectionId: v.string(),
-        delivered: v.boolean(),
-      }),
-    ),
-    outgoing('who-am-i-result', v.object({ connectionId: v.string() })),
-    outgoing('broadcast-result', v.object({ text: v.string() })),
-    outgoing('send-to-tag-result', v.object({ text: v.string() })),
-    outgoing('cancel-nonexistent-ok', v.object({})),
-    outgoing(
-      'schedule-unknown-task-result',
-      v.object({
-        rejected: v.boolean(),
-        message: v.string(),
-      }),
-    ),
-
-    scheduled('cleanup'),
-    scheduled('heartbeat-tick', { every: 300 }),
-    scheduled('flaky-task', { retry: [50, 100, 200] }),
-    scheduled('default-retry-task', { retry: true }),
-    scheduled('always-fail-task', { retry: [25, 50] }),
-    scheduled('bigint-throw-task', { retry: false }),
-    scheduled('filtered-cleanup', {
-      data: v.object({ label: v.string() }),
-      retry: false,
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
+    scheduled({
+      cleanup: null,
+      'heartbeat-tick': { every: 300 },
+      'flaky-task': { retry: [50, 100, 200] },
+      'default-retry-task': { retry: true },
+      'always-fail-task': { retry: [25, 50] },
+      'bigint-throw-task': { retry: false },
+      'filtered-cleanup': { data: t<{ label: string }>(), retry: false },
+      'send-to-conn-task': { data: t<{ connectionId: string; text: string }>() },
+      'empty-backoff-task': { retry: false },
+      'broadcast-task': null,
+      'send-to-tag-task': null,
     }),
-    scheduled('send-to-conn-task', {
-      data: v.object({ connectionId: v.string(), text: v.string() }),
+    emits({
+      'cleanup-done': t<{ at: number }>(),
+      'cleanup-cancelled': t<{}>(),
+      'heartbeat-tick': t<{ count: number }>(),
+      'flaky-task-result': t<{ attempts: number }>(),
+      'default-retry-result': t<{ attempts: number }>(),
+      'dead-letter-result': t<{ taskId: string; attempts: number; error: string }>(),
+      'filtered-task-result': t<{ label: string }>(),
+      'cancel-nothing-ok': t<{}>(),
+      'schedule-guard-error': t<{ message: string }>(),
+      'schedule-send-to-conn-delivery': t<{ text: string }>(),
+      'schedule-send-to-conn-status': t<{ connectionId: string; delivered: boolean }>(),
+      'who-am-i-result': t<{ connectionId: string }>(),
+      'broadcast-result': t<{ text: string }>(),
+      'send-to-tag-result': t<{ text: string }>(),
+      'cancel-nonexistent-ok': t<{}>(),
+      'schedule-unknown-task-result': t<{ rejected: boolean; message: string }>(),
     }),
-    scheduled('empty-backoff-task', { retry: false }),
-    scheduled('broadcast-task'),
-    scheduled('send-to-tag-task'),
   ],
 });
 
-export const scheduledHandler = implement(scheduledContract)
-  .onUpgrade((req, helpers) => requireUsername(req, helpers))
-
-  .scheduled('cleanup', (ctx) => {
+const handleCleanupTask = base.scheduled('cleanup', {
+  run(ctx) {
     ctx.broadcast('cleanup-done', { at: Date.now() });
-  })
-  .scheduled('heartbeat-tick', (ctx) => {
+  },
+});
+
+const handleHeartbeatTask = base.scheduled('heartbeat-tick', {
+  run(ctx) {
     ctx.broadcast('heartbeat-tick', { count: Date.now() });
-  })
-  .scheduled('flaky-task', (ctx) => {
+  },
+});
+
+const handleFlakyTask = base.scheduled('flaky-task', {
+  run(ctx) {
     flakyAttempts += 1;
     if (flakyAttempts < 3) throw new Error('flaky');
     ctx.broadcast('flaky-task-result', { attempts: flakyAttempts });
     flakyAttempts = 0;
-  })
-  .scheduled('default-retry-task', (ctx) => {
+  },
+});
+
+const handleDefaultRetryTask = base.scheduled('default-retry-task', {
+  run(ctx) {
     defaultRetryAttempts += 1;
     if (defaultRetryAttempts < 2) throw new Error('retry-once');
     ctx.broadcast('default-retry-result', { attempts: defaultRetryAttempts });
     defaultRetryAttempts = 0;
-  })
-  .scheduled('always-fail-task', () => {
+  },
+});
+
+const handleAlwaysFailTask = base.scheduled('always-fail-task', {
+  run() {
     throw new Error('permanent failure');
-  })
-  .scheduled('bigint-throw-task', () => {
+  },
+});
+
+const handleBigintThrowTask = base.scheduled('bigint-throw-task', {
+  run() {
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw 1n;
-  })
-  .scheduled('filtered-cleanup', (ctx, data) => {
+  },
+});
+
+const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
+  run(ctx, data) {
     ctx.broadcast('filtered-task-result', { label: data.label });
-  })
-  .scheduled('send-to-conn-task', (ctx, data) => {
+  },
+});
+
+const handleSendToConnTask = base.scheduled('send-to-conn-task', {
+  run(ctx, data) {
     const delivered = ctx.sendToConnection(data.connectionId, 'schedule-send-to-conn-delivery', {
       text: data.text,
     });
@@ -128,55 +105,94 @@ export const scheduledHandler = implement(scheduledContract)
       connectionId: data.connectionId,
       delivered,
     });
-  })
-  .scheduled('empty-backoff-task', () => {
+  },
+});
+
+const handleEmptyBackoffTask = base.scheduled('empty-backoff-task', {
+  run() {
     throw new Error('always fails with no retry');
-  })
-  .scheduled('broadcast-task', (ctx) => {
+  },
+});
+
+const handleBroadcastTask = base.scheduled('broadcast-task', {
+  run(ctx) {
     ctx.broadcast('broadcast-result', { text: 'from-task' });
-  })
-  .scheduled('send-to-tag-task', (ctx) => {
+  },
+});
+
+const handleSendToTagTask = base.scheduled('send-to-tag-task', {
+  run(ctx) {
     for (const conn of ctx.getConnections()) {
-      if (
-        conn.tags.some(
-          (r: { kind: string; group: string; key: string }) =>
-            r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip',
-        )
-      ) {
+      if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
         ctx.sendToConnection(conn.id, 'send-to-tag-result', { text: 'tagged-from-task' });
       }
     }
-  })
+  },
+});
 
-  .on('schedule-cleanup', (ctx, payload) => {
-    ctx.schedule('cleanup', { time: Date.now() + payload.delayMs });
-  })
-  .on('cancel-cleanup', (ctx) => {
+const handleScheduleCleanup = base.on('schedule-cleanup', {
+  input: v.object({ delayMs: v.number() }),
+  run(ctx, input) {
+    ctx.schedule('cleanup', { time: Date.now() + input.delayMs });
+  },
+});
+
+const handleCancelCleanup = base.on('cancel-cleanup', {
+  input: v.object({}),
+  run(ctx) {
     ctx.cancelScheduled('cleanup');
     ctx.send('cleanup-cancelled', {});
-  })
-  .on('start-heartbeat', (ctx) => {
+  },
+});
+
+const handleStartHeartbeat = base.on('start-heartbeat', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('heartbeat-tick', { time: Date.now() + 100 });
-  })
-  .on('cancel-heartbeat', (ctx) => {
+  },
+});
+
+const handleCancelHeartbeat = base.on('cancel-heartbeat', {
+  input: v.object({}),
+  run(ctx) {
     ctx.cancelScheduled('heartbeat-tick');
     ctx.send('cleanup-cancelled', {});
-  })
-  .on('trigger-flaky-task', (ctx) => {
+  },
+});
+
+const handleTriggerFlakyTask = base.on('trigger-flaky-task', {
+  input: v.object({}),
+  run(ctx) {
     flakyAttempts = 0;
     ctx.schedule('flaky-task', { time: Date.now() + 50 });
-  })
-  .on('trigger-default-retry-task', (ctx) => {
+  },
+});
+
+const handleTriggerDefaultRetryTask = base.on('trigger-default-retry-task', {
+  input: v.object({}),
+  run(ctx) {
     defaultRetryAttempts = 0;
     ctx.schedule('default-retry-task', { time: Date.now() + 50 });
-  })
-  .on('trigger-always-fail', (ctx) => {
+  },
+});
+
+const handleTriggerAlwaysFail = base.on('trigger-always-fail', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('always-fail-task', { time: Date.now() + 50 });
-  })
-  .on('trigger-bigint-throw', (ctx) => {
+  },
+});
+
+const handleTriggerBigintThrow = base.on('trigger-bigint-throw', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('bigint-throw-task', { time: Date.now() + 50 });
-  })
-  .on('query-dead-letter', (ctx) => {
+  },
+});
+
+const handleQueryDeadLetter = base.on('query-dead-letter', {
+  input: v.object({}),
+  run(ctx) {
     const rows = ctx.sql
       .exec<{
         taskId: string;
@@ -192,20 +208,36 @@ export const scheduledHandler = implement(scheduledContract)
       attempts: row.attempts,
       error: parsed.message,
     });
-  })
-  .on('schedule-filtered-tasks', (ctx) => {
+  },
+});
+
+const handleScheduleFilteredTasks = base.on('schedule-filtered-tasks', {
+  input: v.object({}),
+  run(ctx) {
     const time = Date.now() + 300;
     ctx.schedule('filtered-cleanup', { time, data: { label: 'drop' } });
     ctx.schedule('filtered-cleanup', { time, data: { label: 'keep' } });
-  })
-  .on('cancel-filtered-task', (ctx, payload) => {
-    ctx.cancelScheduled('filtered-cleanup', { label: payload.label });
-  })
-  .on('cancel-nothing', (ctx) => {
+  },
+});
+
+const handleCancelFilteredTask = base.on('cancel-filtered-task', {
+  input: v.object({ label: v.string() }),
+  run(ctx, input) {
+    ctx.cancelScheduled('filtered-cleanup', { label: input.label });
+  },
+});
+
+const handleCancelNothing = base.on('cancel-nothing', {
+  input: v.object({}),
+  run(ctx) {
     ctx.cancelScheduled('filtered-cleanup', { label: '__never__' });
     ctx.send('cancel-nothing-ok', {});
-  })
-  .on('trigger-invalid-cleanup-data', (ctx) => {
+  },
+});
+
+const handleTriggerInvalidCleanupData = base.on('trigger-invalid-cleanup-data', {
+  input: v.object({}),
+  run(ctx) {
     try {
       (ctx.schedule as (taskId: string, options: { time: number; data?: unknown }) => void)(
         'cleanup',
@@ -219,8 +251,12 @@ export const scheduledHandler = implement(scheduledContract)
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  })
-  .on('trigger-invalid-schedule-time', (ctx) => {
+  },
+});
+
+const handleTriggerInvalidScheduleTime = base.on('trigger-invalid-schedule-time', {
+  input: v.object({}),
+  run(ctx) {
     try {
       ctx.schedule('cleanup', { time: Number.NaN });
     } catch (error) {
@@ -228,33 +264,65 @@ export const scheduledHandler = implement(scheduledContract)
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  })
-  .on('schedule-send-to-conn', (ctx, payload) => {
+  },
+});
+
+const handleScheduleSendToConn = base.on('schedule-send-to-conn', {
+  input: v.object({ connectionId: v.string(), text: v.string() }),
+  run(ctx, input) {
     ctx.schedule('send-to-conn-task', {
       time: Date.now() + 50,
-      data: { connectionId: payload.connectionId, text: payload.text },
+      data: { connectionId: input.connectionId, text: input.text },
     });
-  })
-  .on('who-am-i', (ctx) => {
+  },
+});
+
+const handleWhoAmI = base.on('who-am-i', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('who-am-i-result', { connectionId: ctx.id });
-  })
-  .on('trigger-empty-backoff', (ctx) => {
+  },
+});
+
+const handleTriggerEmptyBackoff = base.on('trigger-empty-backoff', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('empty-backoff-task', { time: Date.now() + 50 });
-  })
-  .on('schedule-broadcast-task', (ctx) => {
+  },
+});
+
+const handleScheduleBroadcastTask = base.on('schedule-broadcast-task', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('broadcast-task', { time: Date.now() + 50 });
-  })
-  .on('schedule-send-to-tag', (ctx) => {
+  },
+});
+
+const handleScheduleSendToTag = base.on('schedule-send-to-tag', {
+  input: v.object({}),
+  run(ctx) {
     ctx.schedule('send-to-tag-task', { time: Date.now() + 50 });
-  })
-  .on('tag-vip', (ctx) => {
+  },
+});
+
+const handleTagVip = base.on('tag-vip', {
+  input: v.object({}),
+  run(ctx) {
     ctx.tags.ephemeral('role').add('vip');
-  })
-  .on('cancel-nonexistent', (ctx) => {
+  },
+});
+
+const handleCancelNonexistent = base.on('cancel-nonexistent', {
+  input: v.object({}),
+  run(ctx) {
     (ctx.cancelScheduled as (id: string) => void)('nonexistent-task-id');
     ctx.send('cancel-nonexistent-ok', {});
-  })
-  .on('trigger-schedule-unknown-task', (ctx) => {
+  },
+});
+
+const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task', {
+  input: v.object({}),
+  run(ctx) {
     let rejected = false;
     let message = '';
     try {
@@ -269,7 +337,43 @@ export const scheduledHandler = implement(scheduledContract)
       message = (err as Error).message;
     }
     ctx.send('schedule-unknown-task-result', { rejected, message });
-  })
-  .build();
+  },
+});
+
+export const scheduledHandler = base.assemble(
+  handleCleanupTask,
+  handleHeartbeatTask,
+  handleFlakyTask,
+  handleDefaultRetryTask,
+  handleAlwaysFailTask,
+  handleBigintThrowTask,
+  handleFilteredCleanupTask,
+  handleSendToConnTask,
+  handleEmptyBackoffTask,
+  handleBroadcastTask,
+  handleSendToTagTask,
+  handleScheduleCleanup,
+  handleCancelCleanup,
+  handleStartHeartbeat,
+  handleCancelHeartbeat,
+  handleTriggerFlakyTask,
+  handleTriggerDefaultRetryTask,
+  handleTriggerAlwaysFail,
+  handleTriggerBigintThrow,
+  handleQueryDeadLetter,
+  handleScheduleFilteredTasks,
+  handleCancelFilteredTask,
+  handleCancelNothing,
+  handleTriggerInvalidCleanupData,
+  handleTriggerInvalidScheduleTime,
+  handleScheduleSendToConn,
+  handleWhoAmI,
+  handleTriggerEmptyBackoff,
+  handleScheduleBroadcastTask,
+  handleScheduleSendToTag,
+  handleTagVip,
+  handleCancelNonexistent,
+  handleTriggerScheduleUnknownTask,
+);
 
 export type ScheduledClient = InferClient<typeof scheduledHandler>;

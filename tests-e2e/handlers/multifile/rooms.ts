@@ -1,17 +1,20 @@
-// A channel handler group defined in its own file. handler.ts imports this and
-// mounts it with `.use()`. The channel's ctx is correctly typed against the
-// contract (which includes ctx.meta.username) — proving type state survives
-// the file boundary.
-import { group } from '@wskit/server';
-import { multifileContract } from './setup.ts';
+// The lobby channel and its handler, defined in its own file. handler.ts
+// imports the handler and passes it to `assemble()`, which drags the whole
+// channel in by reference. The channel's ctx is typed against the base (which
+// includes ctx.meta.username) — proving type state survives the file boundary.
+import { base } from './setup.ts';
+import { RoomMessagePayload, SendRoomMessagePayload } from './events.ts';
 
-export const rooms = group(multifileContract, (g) =>
-  g.channel('lobby', (ch) =>
-    ch.on('send-room-message', (ctx, payload) => {
-      ctx.channel.broadcast('room-message', {
-        text: payload.text,
-        from: ctx.meta.username,
-      });
-    }),
-  ),
-);
+const lobby = base.channel('lobby', {
+  outgoing: { emits: { 'room-message': RoomMessagePayload } },
+});
+
+export const handleSendRoomMessage = lobby.on('send-room-message', {
+  input: SendRoomMessagePayload,
+  run(ctx, input) {
+    ctx.channel.broadcast('room-message', {
+      text: input.text,
+      from: ctx.meta.username,
+    });
+  },
+});

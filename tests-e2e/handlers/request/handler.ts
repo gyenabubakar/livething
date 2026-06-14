@@ -1,75 +1,87 @@
-import { channel, contract, implement, request, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
+import { requests } from '@wskit/server/requests';
+import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const TimeResponseSchema = v.object({ now: v.string() });
-const ChannelInfoSchema = v.object({ channel: v.string() });
-const NoResponseSchema = v.object({ ok: v.boolean() });
-const DoubleResponseSchema = v.object({ count: v.number() });
-const StrictEchoResponseSchema = v.strictObject({ echoed: v.string() });
-const ThrowingRequestResponseSchema = v.object({ never: v.string() });
-
-export const requestContract = contract('request', {
+export const requestContract = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    request('get-time', { payload: v.object({}), response: TimeResponseSchema }),
-    request('no-response', { payload: v.object({}), response: NoResponseSchema }),
-    request('double-response', { payload: v.object({}), response: DoubleResponseSchema }),
-    request('strict-echo', {
-      payload: v.strictObject({ id: v.string() }),
-      response: StrictEchoResponseSchema,
-    }),
-    request('throwing-request', {
-      payload: v.object({}),
-      response: ThrowingRequestResponseSchema,
-    }),
-    // Schemaless request — no payload/response validators, accepts anything.
-    request('echo-anything-req'),
-    // Test support: a request the server never answers (the handler hangs), so a
-    // client can observe disconnect() rejecting a still-pending request.
-    request('hang', { payload: v.object({}), response: v.object({ never: v.string() }) }),
-
-    channel('room', {
-      definitions: [
-        request('get-channel-info', { payload: v.object({}), response: ChannelInfoSchema }),
-      ],
-    }),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [requests(), channels()],
 });
 
-export const requestHandler = implement(requestContract)
-  .onUpgrade((req) => requireUsername(req))
-  .request('get-time', (ctx) => {
-    ctx.respond({ now: 'fixed-now-string' });
-  })
-  .request('no-response', () => {
-    // Intentionally never call ctx.respond - server should surface a
-    // correlated __error__ with code "request-no-response" so the
-    // client's pending promise rejects instead of hanging.
-  })
-  .request('double-response', (ctx) => {
-    ctx.respond({ count: 1 });
-    ctx.respond({ count: 2 });
-  })
-  .request('strict-echo', (ctx, payload) => {
-    ctx.respond({ echoed: payload.id });
-  })
-  .request('throwing-request', () => {
+const handleGetTime = requestContract.request('get-time', {
+  input: v.object({}),
+  run() {
+    return { now: 'fixed-now-string' };
+  },
+});
+
+const handleNoResponse = requestContract.request('no-response', {
+  input: v.object({}),
+  // Intentionally never produce a value - the server surfaces a correlated
+  // __error__ with code "request-no-response" so the client's pending promise
+  // rejects instead of hanging. The annotated return type keeps the client
+  // contract { ok: boolean } even though nothing is returned at runtime.
+  run(): { ok: boolean } {
+    return undefined as unknown as { ok: boolean };
+  },
+});
+
+const handleDoubleResponse = requestContract.request('double-response', {
+  input: v.object({}),
+  run() {
+    return { count: 1 };
+  },
+});
+
+const handleStrictEcho = requestContract.request('strict-echo', {
+  input: v.strictObject({ id: v.string() }),
+  run(_ctx, input) {
+    return { echoed: input.id };
+  },
+});
+
+const handleThrowingRequest = requestContract.request('throwing-request', {
+  input: v.object({}),
+  run(): { never: string } {
     throw new Error('intentional handler throw');
-  })
-  .request('echo-anything-req', (ctx, payload) => {
-    ctx.respond({ got: payload });
-  })
-  .request('hang', async () => {
+  },
+});
+
+const handleEchoAnything = requestContract.request('echo-anything-req', {
+  run(_ctx, input) {
+    return { got: input };
+  },
+});
+
+const handleHang = requestContract.request('hang', {
+  input: v.object({}),
+  async run(): Promise<{ never: string }> {
     await new Promise<void>(() => {});
-  })
-  .channel('room', (ch) =>
-    ch.request('get-channel-info', (ctx) => {
-      ctx.respond({ channel: ctx.channel.name });
-    }),
-  )
-  .build();
+    return { never: '' };
+  },
+});
+
+const room = requestContract.channel('room');
+
+const handleGetChannelInfo = room.request('get-channel-info', {
+  input: v.object({}),
+  run(ctx) {
+    return { channel: ctx.channel.name };
+  },
+});
+
+export const requestHandler = requestContract.assemble(
+  handleGetTime,
+  handleNoResponse,
+  handleDoubleResponse,
+  handleStrictEcho,
+  handleThrowingRequest,
+  handleEchoAnything,
+  handleHang,
+  handleGetChannelInfo,
+);
 
 export type RequestClient = InferClient<typeof requestHandler>;

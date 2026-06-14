@@ -3,7 +3,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { recordedStream as recordedStreamDef } from '~/stream-recorded/definition.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/capability.ts';
+import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 

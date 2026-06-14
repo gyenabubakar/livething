@@ -1,15 +1,13 @@
-import { contract, implement, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const protocolPingsContract = contract('protocol-pings', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [],
 });
 
-export const protocolPingsHandler = implement(protocolPingsContract)
-  .onUpgrade((request) => requireUsername(request))
-  .build();
+export const protocolPingsHandler = base.assemble();
 
 export type ProtocolPingsClient = InferClient<typeof protocolPingsHandler>;

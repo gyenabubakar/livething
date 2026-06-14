@@ -97,10 +97,10 @@ type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TCont
 
 /**
  * Drop fields a stream never declared. A stream with no `cursor` validator
- * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as an
- * open `{ [name: string]: unknown }` map. Neither carries information, so the
- * client entry omits them — only streams that declare a real cursor or real
- * nudges keep those fields.
+ * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as
+ * either an open `{ [name: string]: unknown }` map or an empty `{}`. None of
+ * these carry information, so the client entry omits them — only streams that
+ * declare a real cursor or real nudges keep those fields.
  */
 type TidyStreamEntry<TEntry> = Omit<
   TEntry,
@@ -108,7 +108,9 @@ type TidyStreamEntry<TEntry> = Omit<
   | ('nudges' extends keyof TEntry
       ? string extends keyof TEntry['nudges']
         ? 'nudges'
-        : never
+        : keyof TEntry['nudges'] extends never
+          ? 'nudges'
+          : never
       : never)
 >;
 
