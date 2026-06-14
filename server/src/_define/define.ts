@@ -436,8 +436,6 @@ export interface ChannelConfig<TSlots, TEnv, TMeta> {
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>;
   /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
   readonly persistent?: boolean;
-  /** Per-channel built-in replay cascade — `true`/`false` or a replay config. */
-  readonly replay?: boolean;
 }
 
 /**
@@ -939,14 +937,26 @@ export function define<
       return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
     },
     channel(pattern: unknown, channelConfig?: unknown) {
+      let factory: ((p: unknown, c: unknown, deps: unknown) => unknown) | undefined;
+      const streamBuilders: Record<string, unknown> = {};
+      let buildCustomReplay: unknown;
       for (const cap of config.capabilities ?? []) {
-        const factory = (cap as { __channelFactory?: (p: unknown, c: unknown) => unknown })
-          .__channelFactory;
-        if (factory) return factory(pattern, channelConfig);
+        const candidate = (
+          cap as { __channelFactory?: (p: unknown, c: unknown, deps: unknown) => unknown }
+        ).__channelFactory;
+        if (candidate) factory = candidate;
+        const streamBuild = (cap as { __streamBuild?: { kind: string; build: unknown } })
+          .__streamBuild;
+        if (streamBuild) streamBuilders[streamBuild.kind] = streamBuild.build;
+        const customReplay = (cap as { __buildCustomReplay?: unknown }).__buildCustomReplay;
+        if (customReplay) buildCustomReplay = customReplay;
       }
-      throw new Error(
-        '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
-      );
+      if (!factory) {
+        throw new Error(
+          '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
+        );
+      }
+      return factory(pattern, channelConfig, { streamBuilders, buildCustomReplay });
     },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));

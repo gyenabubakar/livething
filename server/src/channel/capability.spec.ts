@@ -2,6 +2,7 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { channels } from './capability.ts';
@@ -150,7 +151,7 @@ describe('channels() capability', () => {
   });
 
   it('runs a channel stream generator with both the stream and channel handles', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
     const room = base.channel('room', {});
     room.stream('feed', {
       input: v.object({}),
@@ -177,6 +178,22 @@ describe('channels() capability', () => {
     const room = base.channel('room', {});
     room.subscribe(() => {});
     expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
+  });
+
+  it('throws when a channel stream is used without the stream() capability', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const room = base.channel('room', {});
+    expect(() => room.stream('feed', { input: v.object({}), async *run() {} })).toThrow(
+      /uses stream\(\) but the stream\(\) capability is not listed/,
+    );
+  });
+
+  it('throws when a custom channel replay is used without the replay.custom() capability', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const room = base.channel('room', {});
+    expect(() => room.replay({ replay() {} })).toThrow(
+      /replay\.custom\(\) capability is\s+not listed/,
+    );
   });
 
   it('throws when base.channel() is used without the channels() capability', () => {

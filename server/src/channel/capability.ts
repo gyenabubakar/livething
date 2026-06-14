@@ -14,18 +14,40 @@ import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import { persistentMarker } from '~/persistence/channel-marker.ts';
-import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
-import { replay as replayFactory } from '~/replay/replay.ts';
 import { request as requestFactory } from '~/request/request.ts';
-import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
-import { recordedStream as recordedStreamDef } from '~/stream-recorded/definition.ts';
-import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
-import { resumableStream as resumableStreamDef } from '~/stream-resumable/definition.ts';
-import { toNudgeDefs, wrapStreamGenerator } from '~/stream/capability.ts';
-import { compileStreamDef } from '~/stream/compile.ts';
-import { stream as streamDef } from '~/stream/definition.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
+
+/** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
+type StreamBuild = (event: string, config: unknown) => Primitive;
+
+/** The capability name a channel stream of each kind needs listed. */
+const CHANNEL_STREAM_CAPABILITY = {
+  plain: 'stream()',
+  resumable: 'resumableStream()',
+  recorded: 'recordedStream()',
+} as const;
+
+/**
+ * The cross-capability builders a channel borrows so the channel module never
+ * imports the stream or replay engines itself. `assemble`-time wiring fills
+ * these from the capabilities the server actually lists, so a channels-only app
+ * pays for neither.
+ */
+export interface ChannelDeps {
+  /** Stream builders by kind, present only for the stream capabilities that are listed. */
+  readonly streamBuilders: {
+    plain?: StreamBuild;
+    resumable?: StreamBuild;
+    recorded?: StreamBuild;
+  };
+  /** Custom-replay builder, present only when `replay.custom()` is listed. */
+  readonly buildCustomReplay?: (hooks: {
+    beforeSend?: unknown;
+    afterSend?: unknown;
+    replay: unknown;
+  }) => Primitive;
+}
 
 /** Compose the channel-context alias onto whatever a handler already adapts. */
 function withChannelCtx(
@@ -34,20 +56,16 @@ function withChannelCtx(
   return (ctx, payload) => run(adaptChannelContext(ctx), payload);
 }
 
-/** Wrap a stream generator with both the stream handle and the channel alias. */
-function wrapChannelStream(
-  run: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>,
-): (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown> {
-  const streamWrapped = wrapStreamGenerator(run);
-  return (ctx, payload) => streamWrapped(adaptChannelContext(ctx), payload);
-}
-
 /**
  * The accumulating channel object returned by `base.channel(...)`. Its handler
- * methods register onto the channel and return a value that carries both the
- * client-contract type and a reference back here; its lifecycle and gate methods
- * just mutate. `assemble()` reaches the channel through any of those values (or
- * the channel itself) and builds it once.
+ * methods register onto the channel and return a value carrying both the
+ * client-contract type and a reference back to the channel; its gate and
+ * lifecycle methods mutate and return void. `assemble()` reaches the channel
+ * through any of those values (or the channel itself) and builds it once.
+ *
+ * Stream and custom-replay handlers delegate to the matching capability's
+ * builder (passed in as `deps`), so a channel only pulls in those engines when
+ * the app also lists `stream()` / `replay.custom()` / etc.
  */
 export class ChannelBuilder {
   /** Marks this value for `assemble()` to collect as a channel. @internal */
@@ -60,8 +78,10 @@ export class ChannelBuilder {
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
   private readonly children: Primitive[] = [];
   private readonly once = new Set<string>();
+  private readonly deps: ChannelDeps;
 
-  constructor(pattern: unknown, config: any) {
+  constructor(pattern: unknown, config: any, deps: ChannelDeps) {
+    this.deps = deps;
     if (Array.isArray(pattern)) {
       const [family, template] = pattern as [string, string];
       this.pattern = scopeFactory(family, template);
@@ -77,7 +97,6 @@ export class ChannelBuilder {
       for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
     }
     if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
-    if (cfg.replay !== undefined) this.children.push(buildBuiltinReplay(cfg.replay));
     if (cfg.check) {
       this.children.push(
         checkFactory(
@@ -121,53 +140,15 @@ export class ChannelBuilder {
   }
 
   stream(event: string, config: any): ChannelHandlerValue {
-    const def = streamDef(event, {
-      payload: config.input,
-      nudges: toNudgeDefs(config.nudges),
-      broadcast: config.broadcast,
-      allowConcurrent: config.allowConcurrent,
-    });
-    this.children.push(compileStreamDef(def, new Map([[event, wrapChannelStream(config.run)]])));
-    return this.handlerValue();
+    return this.delegateStream('plain', event, config);
   }
 
   resumableStream(event: string, config: any): ChannelHandlerValue {
-    const cursor =
-      config.cursor && (config.cursor as { __wskit_t?: unknown }).__wskit_t === 't'
-        ? undefined
-        : config.cursor;
-    const def = resumableStreamDef(event, {
-      payload: config.input,
-      cursor,
-      nudges: toNudgeDefs(config.nudges),
-      broadcast: config.broadcast,
-      allowConcurrent: config.allowConcurrent,
-      onDisconnect: config.onDisconnect,
-      maxChunks: config.maxChunks,
-      maxAgeMs: config.maxAgeMs,
-      retentionAfterEndMs: config.retentionAfterEndMs,
-    });
-    this.children.push(
-      compileResumableStreamDef(def, new Map([[event, wrapChannelStream(config.run)]])),
-    );
-    return this.handlerValue();
+    return this.delegateStream('resumable', event, config);
   }
 
   recordedStream(event: string, config: any): ChannelHandlerValue {
-    const def = recordedStreamDef(event, {
-      payload: config.input,
-      nudges: toNudgeDefs(config.nudges),
-      broadcast: config.broadcast,
-      allowConcurrent: config.allowConcurrent,
-      onDisconnect: config.onDisconnect,
-      maxChunks: config.maxChunks,
-      maxAgeMs: config.maxAgeMs,
-      retentionAfterEndMs: config.retentionAfterEndMs,
-    });
-    this.children.push(
-      compileRecordedStreamDef(def, new Map([[event, wrapChannelStream(config.run)]])),
-    );
-    return this.handlerValue();
+    return this.delegateStream('recorded', event, config);
   }
 
   subscribe(handler: (ctx: any) => void | Promise<void>): void {
@@ -187,19 +168,42 @@ export class ChannelBuilder {
   }
 
   replay(hooks: { beforeSend?: any; afterSend?: any; replay: any }): void {
-    this.registerOnce(
-      'replay',
-      customReplayFactory({
-        onBeforeSend: hooks.beforeSend,
-        onAfterSend: hooks.afterSend,
-        onReplay: hooks.replay,
-      }),
-    );
+    const build = this.deps.buildCustomReplay;
+    if (!build) {
+      throw new Error(
+        `[wskit] channel '${this.__key}' uses replay() but the replay.custom() capability is ` +
+          'not listed. Add replay.custom() to capabilities.',
+      );
+    }
+    this.registerOnce('replay', build(hooks));
   }
 
   /** Build the channel primitive from everything registered so far. @internal */
   __build(): Primitive {
     return channelFactory(this.pattern as any, ...(this.children as any[]));
+  }
+
+  /** Borrow a stream capability's builder, adapting the generator to the channel ctx. */
+  private delegateStream(
+    kind: 'plain' | 'resumable' | 'recorded',
+    event: string,
+    config: any,
+  ): ChannelHandlerValue {
+    const build = this.deps.streamBuilders[kind];
+    if (!build) {
+      const capabilityName = CHANNEL_STREAM_CAPABILITY[kind];
+      throw new Error(
+        `[wskit] channel '${this.__key}' uses ${capabilityName} but the ${capabilityName} ` +
+          `capability is not listed. Add ${capabilityName} to capabilities.`,
+      );
+    }
+    const run = config.run;
+    const channelConfig = {
+      ...config,
+      run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
+    };
+    this.children.push(build(event, channelConfig));
+    return this.handlerValue();
   }
 
   private registerOnce(slot: string, primitive: Primitive): void {
@@ -223,24 +227,22 @@ export interface ChannelHandlerValue {
   readonly __channel: ChannelBuilder;
 }
 
-/** Build the built-in channel replay primitive from the cascade flag/config. */
-function buildBuiltinReplay(replay: unknown): Primitive {
-  if (replay === false) return replayFactory(false);
-  if (replay === true) return replayFactory();
-  return replayFactory(replay as any);
-}
-
 /** A `channels()` capability, carrying the factory that builds channel objects. */
 export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
-  /** Build a channel object from a pattern and config. @internal */
-  readonly __channelFactory: (pattern: unknown, config: unknown) => ChannelBuilder;
+  /** Build a channel object from a pattern, config, and the borrowed builders. @internal */
+  readonly __channelFactory: (
+    pattern: unknown,
+    config: unknown,
+    deps: ChannelDeps,
+  ) => ChannelBuilder;
 }
 
 /**
  * Enable channels — subscription scopes with their own events, gates, and
  * lifecycle. Listing this grants `base.channel(...)` and the `ctx.channels`
  * accessor. Persistent membership additionally needs the `persistence()`
- * capability.
+ * capability; channel streams need the matching stream capability, and a custom
+ * channel replay needs `replay.custom()`.
  *
  * @example
  * ```ts
@@ -262,6 +264,7 @@ export function channels(): ChannelsCapability {
   (cap as { __channelFactory: ChannelsCapability['__channelFactory'] }).__channelFactory = (
     pattern,
     config,
-  ) => new ChannelBuilder(pattern, config);
+    deps,
+  ) => new ChannelBuilder(pattern, config, deps);
   return cap;
 }
