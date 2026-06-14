@@ -96,4 +96,15 @@ describe('scheduled() capability', () => {
     await primitive.handler(ctx);
     expect(run).toHaveBeenCalledWith(ctx);
   });
+
+  it('throws when a scheduled body is assembled without the scheduled() capability', () => {
+    const base = define({ env: t<Env>() });
+    const escapeHatch = base as unknown as {
+      scheduled(taskId: string, config: { run: () => void }): unknown;
+    };
+    const orphan = escapeHatch.scheduled('cleanup', { run() {} });
+    expect(() => base.assemble(orphan as never)).toThrow(
+      /base\.scheduled\('cleanup'\) has no matching declaration/,
+    );
+  });
 });

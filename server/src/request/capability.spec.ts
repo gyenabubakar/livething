@@ -60,4 +60,14 @@ describe('requests() capability — client to server', () => {
     await requestPrimitive(base.assemble(handleCount).primitives).handler({ respond } as never, {});
     expect(respond).toHaveBeenCalledWith(0);
   });
+
+  it('throws when base.request is used without the requests() capability', () => {
+    const base = define({ env: t<Env>() });
+    const escapeHatch = base as unknown as {
+      request(event: string, config: { run: () => unknown }): unknown;
+    };
+    expect(() => escapeHatch.request('get-time', { run: () => ({}) })).toThrow(
+      /base\.request\(\) needs the requests\(\) capability/,
+    );
+  });
 });
