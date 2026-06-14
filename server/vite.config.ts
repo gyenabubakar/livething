@@ -30,6 +30,7 @@ export default defineConfig({
         'rate-limit': resolve(__dirname, 'src/rate-limit/capability.ts'),
         persistence: resolve(__dirname, 'src/persistence/capability.ts'),
         replay: resolve(__dirname, 'src/replay/capability.ts'),
+        streams: resolve(__dirname, 'src/streams.ts'),
       },
       formats: ['es'],
     },

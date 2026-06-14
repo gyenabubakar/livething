@@ -167,6 +167,193 @@ export interface ScheduledMethods<TSlots, TEnv, TMeta> {
   ): ScheduledHandlerValue<TTaskId>;
 }
 
+/** A stream's nudge map: event name → schema, or `null` for a no-payload nudge. */
+export type StreamNudgeMap = Record<string, Validator | null>;
+
+/** The payload type one nudge declaration carries, or `undefined` for a no-payload nudge. */
+type NudgePayloadOf<T> = T extends Validator<infer U> ? U : undefined;
+
+/** The union of `{ event, payload }` shapes a stream's nudges can produce. */
+type NudgeMessageUnion<TNudges> = {
+  [K in keyof TNudges & string]: { event: K; payload: NudgePayloadOf<TNudges[K]> };
+}[keyof TNudges & string];
+
+/** The `nudges()` reader on a stream handle — present only when the stream declares nudges. */
+type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
+  ? {}
+  : { nudges(yielded: unknown): NudgeMessageUnion<TNudges>[] };
+
+/** The contract slot shape for a stream's declared nudges. */
+type NudgesContract<TNudges> = { [K in keyof TNudges & string]: NudgePayloadOf<TNudges[K]> };
+
+/** The value the stream builders return — a primitive that declares its stream slot. */
+export type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends string> = Primitive &
+  Contribution<{ [K in TSlot]: Record<TEvent, TEntry> }>;
+
+/** The `ctx` a plain stream generator receives — `ctx.stream` carries nudges. */
+type StreamCtx<TSlots, TEnv, TMeta, TNudges> = AppCtx<TSlots, TEnv, TMeta> & {
+  stream: NudgesHandle<TNudges>;
+};
+
+/** Configuration object for `base.stream(...)`. */
+export interface StreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TInput extends Validator | undefined,
+  TChunk,
+  TNudges extends StreamNudgeMap,
+> {
+  /** Schema validating the start payload the client sends. */
+  readonly input?: TInput;
+  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  /** Client→server steering signals delivered into the running generator. */
+  readonly nudges?: TNudges;
+  /** Fan the stream out to every connection (or channel member) instead of one. */
+  readonly broadcast?: boolean;
+  /** Permit overlapping streams of the same event on one connection (default false). */
+  readonly allowConcurrent?: boolean;
+  /** The async generator — each yielded value is sent to the client as a chunk. */
+  run(
+    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges>,
+    input: InferInput<TInput>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/** Builder method granted by the `stream()` capability. */
+export interface StreamMethods<TSlots, TEnv, TMeta> {
+  /** Register a plain server-pushed stream. */
+  stream<
+    TEvent extends string,
+    TChunk = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: StreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges>,
+  ): StreamHandlerValue<
+    TEvent,
+    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    'streams'
+  >;
+}
+
+/** Retention and disconnect options shared by the durable stream kinds. */
+interface DurableStreamOptions {
+  /** Behavior when the owning client drops. */
+  readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+  /** Hard cap on buffered chunks. */
+  readonly maxChunks?: number;
+  /** How long a suspended stream is kept after the client drops. */
+  readonly maxAgeMs?: number;
+  /** How long an ended stream is kept so a quick reconnect can still resume. */
+  readonly retentionAfterEndMs?: number;
+}
+
+/** The `ctx` a resumable stream generator receives — `ctx.stream` adds cursor controls. */
+type ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges> = AppCtx<
+  TSlots,
+  TEnv,
+  TMeta
+> & {
+  stream: NudgesHandle<TNudges> & {
+    /** The cursor recorded on the last run, or `null` on the first run. */
+    cursor: TCursor | null;
+    /** 1 on the first run, 2+ on each resume. */
+    attempt: number;
+    /** Attach a cursor to a chunk so the framework can resume from it. */
+    withCursor(chunk: TChunk, cursor: TCursor): TChunk;
+  };
+};
+
+/** Configuration object for `base.resumableStream(...)`. */
+export interface ResumableStreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TInput extends Validator | undefined,
+  TChunk,
+  TCursor,
+  TNudges extends StreamNudgeMap,
+> extends DurableStreamOptions {
+  readonly input?: TInput;
+  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
+  readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
+  readonly nudges?: TNudges;
+  readonly broadcast?: boolean;
+  readonly allowConcurrent?: boolean;
+  run(
+    ctx: ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges>,
+    input: InferInput<TInput>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/** Builder method granted by the `resumableStream()` capability. */
+export interface ResumableStreamMethods<TSlots, TEnv, TMeta> {
+  /** Register a resumable server-pushed stream. */
+  resumableStream<
+    TEvent extends string,
+    TChunk = unknown,
+    TCursor = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: ResumableStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TCursor, TNudges>,
+  ): StreamHandlerValue<
+    TEvent,
+    {
+      payload: InferInput<TInput>;
+      chunk: TChunk;
+      cursor: TCursor;
+      nudges: NudgesContract<TNudges>;
+    },
+    'resumableStreams'
+  >;
+}
+
+/** Configuration object for `base.recordedStream(...)`. */
+export interface RecordedStreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TInput extends Validator | undefined,
+  TChunk,
+  TNudges extends StreamNudgeMap,
+> extends DurableStreamOptions {
+  readonly input?: TInput;
+  /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
+  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly nudges?: TNudges;
+  readonly broadcast?: boolean;
+  readonly allowConcurrent?: boolean;
+  run(
+    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges>,
+    input: InferInput<TInput>,
+  ): AsyncGenerator<TChunk, void, unknown>;
+}
+
+/** Builder method granted by the `recordedStream()` capability. */
+export interface RecordedStreamMethods<TSlots, TEnv, TMeta> {
+  /** Register a recorded server-pushed stream. */
+  recordedStream<
+    TEvent extends string,
+    TChunk = unknown,
+    TInput extends Validator | undefined = undefined,
+    const TNudges extends StreamNudgeMap = {},
+  >(
+    event: TEvent,
+    config: RecordedStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges>,
+  ): StreamHandlerValue<
+    TEvent,
+    { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
+    'recordedStreams'
+  >;
+}
+
 /** Builder method granted by the `replay.custom()` capability. */
 export interface ReplayMethods {
   /**
@@ -188,7 +375,10 @@ export type CapabilityMethods<
   TBrand extends string,
 > = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta> : {}) &
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {}) &
-  ('replay-custom' extends TBrand ? ReplayMethods : {});
+  ('replay-custom' extends TBrand ? ReplayMethods : {}) &
+  ('stream' extends TBrand ? StreamMethods<TSlots, TEnv, TMeta> : {}) &
+  ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TEnv, TMeta> : {}) &
+  ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta> : {});
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
@@ -411,6 +601,23 @@ export function define<
     lifecyclePrimitives.push(primitive);
   }
 
+  type StreamBuild = (event: string, streamConfig: unknown) => Primitive;
+
+  function streamBuilder(
+    kind: 'plain' | 'resumable' | 'recorded',
+    method: string,
+    capabilityName: string,
+  ): StreamBuild {
+    for (const cap of config.capabilities ?? []) {
+      const built = (cap as { __streamBuild?: { kind: string; build: StreamBuild } }).__streamBuild;
+      if (built?.kind === kind) return built.build;
+    }
+    throw new Error(
+      `[wskit] base.${method}() needs the ${capabilityName} capability. ` +
+        `Add ${capabilityName} to capabilities.`,
+    );
+  }
+
   const base = {
     on(event: string, config: OnConfig<any, any, any, any>) {
       const primitive = incomingFactory(
@@ -451,6 +658,19 @@ export function define<
         taskId,
         run: config.run,
       };
+    },
+    stream(event: string, streamConfig: unknown) {
+      return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
+    },
+    resumableStream(event: string, streamConfig: unknown) {
+      return streamBuilder(
+        'resumable',
+        'resumableStream',
+        'resumableStream()',
+      )(event, streamConfig);
+    },
+    recordedStream(event: string, streamConfig: unknown) {
+      return streamBuilder('recorded', 'recordedStream', 'recordedStream()')(event, streamConfig);
     },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));
@@ -586,6 +806,17 @@ export function define<
         for (const feature of cap.__features) features.add(feature);
       }
       if (config.hibernation?.enabled) features.add('hibernation');
+
+      const hasDurableStream = primitives.some(
+        (p) =>
+          p.__wskit === 'resumable-stream-generate' || p.__wskit === 'recorded-stream-generate',
+      );
+      if (hasDurableStream && !features.has('persistence')) {
+        throw new Error(
+          '[wskit] resumableStream / recordedStream require the persistence() capability. ' +
+            'Add persistence() to capabilities.',
+        );
+      }
 
       return Object.freeze({
         __wskit: 'server' as const,

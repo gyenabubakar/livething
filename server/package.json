@@ -64,6 +64,11 @@
       "wskit-dev": "./src/replay/capability.ts",
       "types": "./dist/replay/capability.d.ts",
       "import": "./dist/replay.js"
+    },
+    "./streams": {
+      "wskit-dev": "./src/streams.ts",
+      "types": "./dist/streams.d.ts",
+      "import": "./dist/streams.js"
     }
   },
   "publishConfig": {
