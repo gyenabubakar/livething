@@ -14,7 +14,6 @@ import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import { persistentMarker } from '~/persistence/channel-marker.ts';
-import { request as requestFactory } from '~/request/request.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -47,6 +46,8 @@ export interface ChannelDeps {
     afterSend?: unknown;
     replay: unknown;
   }) => Primitive;
+  /** Request builder, present only when the `requests()` capability is listed. */
+  readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
 }
 
 /** Compose the channel-context alias onto whatever a handler already adapts. */
@@ -125,16 +126,19 @@ export class ChannelBuilder {
   }
 
   request(event: string, config: any): ChannelHandlerValue {
+    const build = this.deps.buildRequest;
+    if (!build) {
+      throw new Error(
+        `[wskit] channel '${this.__key}' uses request() but the requests() capability is not ` +
+          'listed. Add requests() to capabilities.',
+      );
+    }
     const run = config.run;
     this.children.push(
-      requestFactory(
-        event,
-        withChannelCtx(async (ctx: { respond(value: unknown): void }, payload: unknown) => {
-          const result = await run(ctx, payload);
-          if (result !== undefined && result !== null) ctx.respond(result);
-        }) as any,
-        config.input ? { validator: config.input } : undefined,
-      ),
+      build(event, {
+        input: config.input,
+        run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
+      }),
     );
     return this.handlerValue();
   }

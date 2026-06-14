@@ -1,7 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { capability } from '~/_define/capability.ts';
+import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
+import type { Primitive } from '~/primitive.ts';
 import type { ScheduledOptions } from '~/scheduled/scheduled.ts';
 import type { Validator } from '~/types.ts';
 
@@ -43,12 +45,18 @@ export interface ScheduledDeclaration {
   readonly options?: ScheduledOptions;
 }
 
-/** A `scheduled(...)` capability, carrying its resolved declarations for assembly. */
+/** A `scheduled(...)` capability, carrying its declarations and primitive builder for assembly. */
 export interface ScheduledCapability<
   TDefs extends ScheduledDefs = ScheduledDefs,
 > extends Capability<ScheduledSlot<TDefs>, never, 'scheduled'> {
   /** Resolved task declarations, keyed by task id. @internal */
   readonly __scheduled: ReadonlyMap<string, ScheduledDeclaration>;
+  /** Build a task primitive from a declaration and its body, so the core never imports it. @internal */
+  readonly __buildScheduled: (
+    taskId: string,
+    declaration: ScheduledDeclaration,
+    body: (ctx: any, data?: unknown) => void | Promise<void>,
+  ) => Primitive;
 }
 
 /** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
@@ -117,6 +125,12 @@ export function scheduled<const TDefs extends ScheduledDefs>(
   const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>(
     [],
   ) as ScheduledCapability<TDefs>;
-  (cap as { __scheduled: ReadonlyMap<string, ScheduledDeclaration> }).__scheduled = declarations;
+  const writable = cap as {
+    __scheduled: ReadonlyMap<string, ScheduledDeclaration>;
+    __buildScheduled: ScheduledCapability['__buildScheduled'];
+  };
+  writable.__scheduled = declarations;
+  writable.__buildScheduled = (taskId, declaration, body) =>
+    makeScheduledPrimitive(taskId, declaration, body);
   return cap;
 }

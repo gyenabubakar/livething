@@ -2,6 +2,7 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { requests } from '~/request/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -133,7 +134,7 @@ describe('channels() capability', () => {
   });
 
   it('responds to a channel request with the return value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
     const room = base.channel('room', {});
     room.request('info', {
       input: v.object({}),
@@ -178,6 +179,14 @@ describe('channels() capability', () => {
     const room = base.channel('room', {});
     room.subscribe(() => {});
     expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
+  });
+
+  it('throws when a channel request is used without the requests() capability', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const room = base.channel('room', {});
+    expect(() => room.request('info', { input: v.object({}), run: () => ({}) })).toThrow(
+      /uses request\(\) but the requests\(\) capability is not/,
+    );
   });
 
   it('throws when a channel stream is used without the stream() capability', () => {

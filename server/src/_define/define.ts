@@ -11,8 +11,6 @@ import {
   onUpgrade,
   onValidationError,
 } from '~/lifecycle/lifecycle.ts';
-import { request as requestFactory } from '~/request/request.ts';
-import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
@@ -787,6 +785,7 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
 function mergeScheduled(
   declarations: ReadonlyMap<string, ScheduledDeclaration>,
   bodies: ReadonlyMap<string, (ctx: TaskContext, data?: unknown) => void | Promise<void>>,
+  build: ScheduledCapability['__buildScheduled'] | undefined,
 ): Primitive[] {
   const primitives: Primitive[] = [];
   for (const [taskId, declaration] of declarations) {
@@ -797,7 +796,7 @@ function mergeScheduled(
           `Add base.scheduled('${taskId}', ...) and pass it to assemble().`,
       );
     }
-    primitives.push(makeScheduledPrimitive(taskId, declaration, body));
+    primitives.push(build!(taskId, declaration, body));
   }
   for (const taskId of bodies.keys()) {
     if (!declarations.has(taskId)) {
@@ -896,23 +895,29 @@ export function define<
     },
     request(
       event: string,
-      config: {
+      requestConfig: {
         input?: Validator;
         rateLimit?: RateLimitConfig;
         run: (ctx: any, input: any) => unknown;
       },
     ) {
-      const run = config.run;
-      const primitive = requestFactory(
-        event,
-        async (ctx: { respond(value: unknown): void }, payload: unknown) => {
-          const result = await run(ctx, payload);
-          if (result !== undefined && result !== null) ctx.respond(result);
-        },
-        config.input ? { validator: config.input } : undefined,
-      );
-      if (config.rateLimit) {
-        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
+      type Build = (
+        e: string,
+        c: { input?: Validator; run: typeof requestConfig.run },
+      ) => Primitive;
+      let build: Build | undefined;
+      for (const cap of config.capabilities ?? []) {
+        const candidate = (cap as { __buildRequest?: Build }).__buildRequest;
+        if (candidate) build = candidate;
+      }
+      if (!build) {
+        throw new Error(
+          '[wskit] base.request() needs the requests() capability. Add requests() to capabilities.',
+        );
+      }
+      const primitive = build(event, { input: requestConfig.input, run: requestConfig.run });
+      if (requestConfig.rateLimit) {
+        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
       }
       return primitive;
     },
@@ -940,6 +945,7 @@ export function define<
       let factory: ((p: unknown, c: unknown, deps: unknown) => unknown) | undefined;
       const streamBuilders: Record<string, unknown> = {};
       let buildCustomReplay: unknown;
+      let buildRequest: unknown;
       for (const cap of config.capabilities ?? []) {
         const candidate = (
           cap as { __channelFactory?: (p: unknown, c: unknown, deps: unknown) => unknown }
@@ -950,13 +956,15 @@ export function define<
         if (streamBuild) streamBuilders[streamBuild.kind] = streamBuild.build;
         const customReplay = (cap as { __buildCustomReplay?: unknown }).__buildCustomReplay;
         if (customReplay) buildCustomReplay = customReplay;
+        const request = (cap as { __buildRequest?: unknown }).__buildRequest;
+        if (request) buildRequest = request;
       }
       if (!factory) {
         throw new Error(
           '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
         );
       }
-      return factory(pattern, channelConfig, { streamBuilders, buildCustomReplay });
+      return factory(pattern, channelConfig, { streamBuilders, buildCustomReplay, buildRequest });
     },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));
@@ -1034,14 +1042,20 @@ export function define<
       const channelPrimitives = [...channelObjects].map((ch) => ch.__build());
 
       const scheduledDeclarations = new Map<string, ScheduledDeclaration>();
+      let buildScheduled: ScheduledCapability['__buildScheduled'] | undefined;
       for (const cap of config.capabilities ?? []) {
         const declared = (cap as Partial<ScheduledCapability>).__scheduled;
         if (declared) {
           for (const [taskId, declaration] of declared)
             scheduledDeclarations.set(taskId, declaration);
+          buildScheduled = (cap as Partial<ScheduledCapability>).__buildScheduled;
         }
       }
-      const scheduledPrimitives = mergeScheduled(scheduledDeclarations, scheduledBodies);
+      const scheduledPrimitives = mergeScheduled(
+        scheduledDeclarations,
+        scheduledBodies,
+        buildScheduled,
+      );
 
       let buildRateLimit: RateLimitCapability['__buildRateLimit'] | undefined;
       for (const cap of config.capabilities ?? []) {
