@@ -21,6 +21,7 @@ import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+import type { CustomReplayHooks, ReplayCustomCapability } from '~/replay/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -166,6 +167,16 @@ export interface ScheduledMethods<TSlots, TEnv, TMeta> {
   ): ScheduledHandlerValue<TTaskId>;
 }
 
+/** Builder method granted by the `replay.custom()` capability. */
+export interface ReplayMethods {
+  /**
+   * Register a custom replay strategy: your own storage and resend. The
+   * `replay` hook (the resend) is required; `beforeSend` / `afterSend` are
+   * optional. One registration per server.
+   */
+  replay(hooks: CustomReplayHooks): void;
+}
+
 /**
  * The builder methods the listed capabilities grant `base`, selected by each
  * capability's brand. A capability with no brand grants nothing.
@@ -176,7 +187,8 @@ export type CapabilityMethods<
   TMeta,
   TBrand extends string,
 > = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta> : {}) &
-  ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {});
+  ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {}) &
+  ('replay-custom' extends TBrand ? ReplayMethods : {});
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
@@ -461,6 +473,25 @@ export function define<
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));
     },
+    replay(hooks: CustomReplayHooks) {
+      let build: ReplayCustomCapability['__buildCustomReplay'] | undefined;
+      for (const cap of config.capabilities ?? []) {
+        const candidate = (cap as Partial<ReplayCustomCapability>).__buildCustomReplay;
+        if (candidate) {
+          if (build) {
+            throw new Error('[wskit] replay.custom() is listed more than once. List it once.');
+          }
+          build = candidate;
+        }
+      }
+      if (!build) {
+        throw new Error(
+          '[wskit] base.replay() needs the replay.custom() capability. ' +
+            'Add replay.custom() to capabilities.',
+        );
+      }
+      registerOnce('replay', build(hooks));
+    },
     assemble(...items: readonly Contribution[]) {
       const handlerPrimitives: Primitive[] = [];
       const scheduledBodies = new Map<
@@ -532,6 +563,23 @@ export function define<
       primitives.push(...lifecyclePrimitives);
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
+
+      const builtinReplayCount = primitives.filter(
+        (p) => p.__wskit === 'replay' && !(p as { disabled?: boolean }).disabled,
+      ).length;
+      const hasCustomReplay = primitives.some((p) => p.__wskit === 'replayCustom');
+      if (builtinReplayCount > 1) {
+        throw new Error(
+          '[wskit] built-in replay (replay.history() / replay.snapshot()) is listed more than ' +
+            'once. Use one replay strategy per scope.',
+        );
+      }
+      if (builtinReplayCount > 0 && hasCustomReplay) {
+        throw new Error(
+          '[wskit] built-in replay and custom base.replay() are both configured. ' +
+            'Use one or the other.',
+        );
+      }
 
       const features = new Set<string>();
       for (const cap of config.capabilities ?? []) {

@@ -29,6 +29,7 @@ export default defineConfig({
         keepalive: resolve(__dirname, 'src/keepalive/capability.ts'),
         'rate-limit': resolve(__dirname, 'src/rate-limit/capability.ts'),
         persistence: resolve(__dirname, 'src/persistence/capability.ts'),
+        replay: resolve(__dirname, 'src/replay/capability.ts'),
       },
       formats: ['es'],
     },

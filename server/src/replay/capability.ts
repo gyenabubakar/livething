@@ -1,0 +1,121 @@
+import { capability } from '~/_define/capability.ts';
+import { handleReplay } from '~/replay/custom/custom.ts';
+import { replay as replayFactory } from '~/replay/replay.ts';
+import type { Capability } from '~/_define/capability.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
+import type { ReplayOptions } from '~/replay/types.ts';
+
+/** Built-in history-mode replay settings — every replayable message is kept as its own row. */
+export type HistoryConfig = Pick<ReplayOptions, 'durability' | 'retention' | 'exclude'>;
+
+/** Built-in snapshot-mode replay settings — only the latest row per logical key is kept. */
+export type SnapshotConfig = Pick<
+  ReplayOptions,
+  'durability' | 'retention' | 'exclude' | 'snapshotKey' | 'reduce'
+>;
+
+/**
+ * The hooks you pass to `base.replay({ ... })`. You own the storage and the
+ * resend: `replay` (the resend, required) reads your store on reconnect and
+ * calls `ctx.sendReplay(...)`; `beforeSend` / `afterSend` (optional) write each
+ * outgoing message into your store.
+ */
+export interface CustomReplayHooks {
+  /** Store a message before it is sent (strict durability). */
+  readonly beforeSend?: CustomReplayOptions<'top'>['onBeforeSend'];
+  /** Store a message after it is sent (best-effort durability). */
+  readonly afterSend?: CustomReplayOptions<'top'>['onAfterSend'];
+  /** Resend stored messages newer than `since` on reconnect. Required. */
+  readonly replay: CustomReplayOptions<'top'>['onReplay'];
+}
+
+/** A `replay.custom()` capability, carrying the builder that turns hooks into a primitive. */
+export interface ReplayCustomCapability extends Capability<{}, never, 'replay-custom'> {
+  /** Build the custom-replay primitive from `base.replay(...)` hooks. @internal */
+  readonly __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive;
+}
+
+/**
+ * Record outgoing messages and resend the missing tail when a client reconnects,
+ * with no handler code. History mode keeps every message. Requires the `dedup()`
+ * and `sequence({ persist: true })` capabilities (and storage) — the build fails
+ * without them.
+ *
+ * @example
+ * ```ts
+ * import { define, t } from '@wskit/server';
+ * import { replay } from '@wskit/server/replay';
+ * import { dedup } from '@wskit/server/dedup';
+ * import { sequence } from '@wskit/server/sequence';
+ *
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [
+ *     dedup(),
+ *     sequence({ persist: true }),
+ *     replay.history({ retention: { maxAgeMs: 60_000 } }),
+ *   ],
+ * });
+ * ```
+ */
+function history(config?: HistoryConfig): Capability<{}, 'replay'> {
+  return capability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']);
+}
+
+/**
+ * Record outgoing messages and resend the latest state per key on reconnect.
+ * Snapshot mode keeps only the most recent message for each `snapshotKey`. Same
+ * requirements as {@link history}: `dedup()` and `sequence({ persist: true })`.
+ *
+ * @example
+ * ```ts
+ * replay.snapshot({ snapshotKey: (event, payload) => String(payload.roomId) });
+ * ```
+ */
+function snapshot(config?: SnapshotConfig): Capability<{}, 'replay'> {
+  return capability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']);
+}
+
+/**
+ * Enable custom replay, where you own the storage and the resend. Listing this
+ * lets you register `base.replay({ ... })` with your own `replay` hook (and
+ * optional `beforeSend` / `afterSend`). Unlike built-in replay, custom replay
+ * does not require `dedup` or `sequence`.
+ *
+ * @example
+ * ```ts
+ * import { define, t } from '@wskit/server';
+ * import { replay } from '@wskit/server/replay';
+ *
+ * const base = define({ env: t<Env>(), capabilities: [replay.custom()] });
+ *
+ * base.replay({
+ *   beforeSend(ctx, msg) {
+ *     ctx.sql.exec('INSERT INTO log (seq, event) VALUES (?, ?)', msg.wire.seq, msg.event);
+ *   },
+ *   replay(ctx, since) {
+ *     for (const row of loadRows(ctx.sql, since)) ctx.sendReplay(row.event, row.payload, row.wire);
+ *   },
+ * });
+ * ```
+ */
+function custom(): ReplayCustomCapability {
+  const cap = capability<{}, never, 'replay-custom'>([]) as ReplayCustomCapability;
+  (cap as { __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive }).__buildCustomReplay = (
+    hooks,
+  ) =>
+    handleReplay({
+      onBeforeSend: hooks.beforeSend,
+      onAfterSend: hooks.afterSend,
+      onReplay: hooks.replay,
+    });
+  return cap;
+}
+
+/**
+ * Replay capabilities. List `replay.history(...)` or `replay.snapshot(...)` for
+ * built-in replay, or `replay.custom()` to enable a `base.replay({ ... })` hook
+ * with your own storage. The two are mutually exclusive at the same scope.
+ */
+export const replay = { history, snapshot, custom };

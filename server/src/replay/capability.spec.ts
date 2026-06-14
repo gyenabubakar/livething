@@ -1,0 +1,102 @@
+import { t } from '~/_api/definitions.ts';
+import { define } from '~/_define/define.ts';
+import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { dedup } from '~/dedup/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
+import { describe, expect, it } from 'vitest';
+import { replay } from './capability.ts';
+import type { ReplayPrimitive } from './replay.ts';
+
+interface Env {
+  SECRET: string;
+}
+
+/** Built-in replay needs dedup + persistent sequence, so include them together. */
+function replayReady() {
+  return [dedup(), sequence({ persist: true })];
+}
+
+describe('replay capabilities', () => {
+  it('installs built-in history replay with the replay feature flag', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [...replayReady(), replay.history({ retention: { maxAgeMs: 60_000 } })],
+    });
+    const handler = base.assemble();
+    const primitive = handler.primitives.find((p) => p.__wskit === 'replay') as unknown as
+      | ReplayPrimitive
+      | undefined;
+    expect(primitive?.options.type).toBe('history');
+    expect(handler.__features?.has('replay')).toBe(true);
+  });
+
+  it('installs built-in snapshot replay', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [...replayReady(), replay.snapshot({})],
+    });
+    const primitive = base
+      .assemble()
+      .primitives.find((p) => p.__wskit === 'replay') as unknown as ReplayPrimitive;
+    expect(primitive.options.type).toBe('snapshot');
+  });
+
+  it('refuses to boot built-in replay without dedup and persistent sequence', () => {
+    const base = define({ env: t<Env>(), capabilities: [replay.history()] });
+    expect(() => compileHandlerDefinition(base.assemble())).toThrow(/replay/);
+  });
+
+  it('registers a custom replay strategy with replay.custom() and base.replay()', () => {
+    const base = define({ env: t<Env>(), capabilities: [replay.custom()] });
+    base.replay({ replay() {} });
+    const handler = base.assemble();
+    expect(handler.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
+  });
+
+  it('throws when base.replay() is used without the replay.custom() capability', () => {
+    const base = define({ env: t<Env>() });
+    const escapeHatch = base as unknown as { replay(hooks: { replay(): void }): void };
+    expect(() => escapeHatch.replay({ replay() {} })).toThrow(
+      /base\.replay\(\) needs the replay\.custom\(\) capability/,
+    );
+  });
+
+  it('throws when base.replay() is registered twice', () => {
+    const base = define({ env: t<Env>(), capabilities: [replay.custom()] });
+    base.replay({ replay() {} });
+    expect(() => base.replay({ replay() {} })).toThrow(/Duplicate replay hook/);
+  });
+
+  it('throws when replay.custom() is listed more than once', () => {
+    const base = define({ env: t<Env>(), capabilities: [replay.custom(), replay.custom()] });
+    expect(() => base.replay({ replay() {} })).toThrow(
+      /replay\.custom\(\) is listed more than once/,
+    );
+  });
+
+  it('throws when more than one built-in replay strategy is listed', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [...replayReady(), replay.history(), replay.snapshot()],
+    });
+    expect(() => base.assemble()).toThrow(/more than once/);
+  });
+
+  it('throws when built-in history replay and custom base.replay() are both configured', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [...replayReady(), replay.history(), replay.custom()],
+    });
+    base.replay({ replay() {} });
+    expect(() => base.assemble()).toThrow(/both/);
+  });
+
+  it('throws when built-in snapshot replay and custom base.replay() are both configured', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [...replayReady(), replay.snapshot(), replay.custom()],
+    });
+    base.replay({ replay() {} });
+    expect(() => base.assemble()).toThrow(/both/);
+  });
+});

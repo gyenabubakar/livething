@@ -59,6 +59,11 @@
       "wskit-dev": "./src/persistence/capability.ts",
       "types": "./dist/persistence/capability.d.ts",
       "import": "./dist/persistence.js"
+    },
+    "./replay": {
+      "wskit-dev": "./src/replay/capability.ts",
+      "types": "./dist/replay/capability.d.ts",
+      "import": "./dist/replay.js"
     }
   },
   "publishConfig": {
