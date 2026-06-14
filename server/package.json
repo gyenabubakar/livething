@@ -29,6 +29,36 @@
       "wskit-dev": "./src/scheduled/capability.ts",
       "types": "./dist/scheduled/capability.d.ts",
       "import": "./dist/scheduled.js"
+    },
+    "./ack": {
+      "wskit-dev": "./src/ack/capability.ts",
+      "types": "./dist/ack/capability.d.ts",
+      "import": "./dist/ack.js"
+    },
+    "./dedup": {
+      "wskit-dev": "./src/dedup/capability.ts",
+      "types": "./dist/dedup/capability.d.ts",
+      "import": "./dist/dedup.js"
+    },
+    "./sequence": {
+      "wskit-dev": "./src/sequence/capability.ts",
+      "types": "./dist/sequence/capability.d.ts",
+      "import": "./dist/sequence.js"
+    },
+    "./keepalive": {
+      "wskit-dev": "./src/keepalive/capability.ts",
+      "types": "./dist/keepalive/capability.d.ts",
+      "import": "./dist/keepalive.js"
+    },
+    "./rate-limit": {
+      "wskit-dev": "./src/rate-limit/capability.ts",
+      "types": "./dist/rate-limit/capability.d.ts",
+      "import": "./dist/rate-limit.js"
+    },
+    "./persistence": {
+      "wskit-dev": "./src/persistence/capability.ts",
+      "types": "./dist/persistence/capability.d.ts",
+      "import": "./dist/persistence.js"
     }
   },
   "publishConfig": {

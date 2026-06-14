@@ -19,6 +19,8 @@ import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { RateLimitCapability } from '~/rate-limit/capability.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -82,6 +84,8 @@ export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrim
 export interface OnConfig<TSlots, TEnv, TMeta, TSchema extends Validator | undefined> {
   /** Optional schema validating the incoming payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
+  /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
+  readonly rateLimit?: RateLimitConfig;
   /** Runs each time the client sends this event, with the validated payload. */
   run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): void | Promise<void>;
 }
@@ -104,6 +108,8 @@ export interface RequestConfig<
 > {
   /** Optional schema validating the request payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
+  /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this request. */
+  readonly rateLimit?: RateLimitConfig;
   /** Runs the request and returns the reply. The reply type is inferred from the return. */
   run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): TResponse | Promise<TResponse>;
 }
@@ -395,15 +401,26 @@ export function define<
 
   const base = {
     on(event: string, config: OnConfig<any, any, any, any>) {
-      return incomingFactory(
+      const primitive = incomingFactory(
         event,
         config.run as any,
         config.input ? { validator: config.input } : undefined,
       );
+      if (config.rateLimit) {
+        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
+      }
+      return primitive;
     },
-    request(event: string, config: { input?: Validator; run: (ctx: any, input: any) => unknown }) {
+    request(
+      event: string,
+      config: {
+        input?: Validator;
+        rateLimit?: RateLimitConfig;
+        run: (ctx: any, input: any) => unknown;
+      },
+    ) {
       const run = config.run;
-      return requestFactory(
+      const primitive = requestFactory(
         event,
         async (ctx: { respond(value: unknown): void }, payload: unknown) => {
           const result = await run(ctx, payload);
@@ -411,6 +428,10 @@ export function define<
         },
         config.input ? { validator: config.input } : undefined,
       );
+      if (config.rateLimit) {
+        (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
+      }
+      return primitive;
     },
     scheduled(taskId: string, config: { run: (ctx: any, data?: unknown) => void | Promise<void> }) {
       return {
@@ -477,10 +498,37 @@ export function define<
       }
       const scheduledPrimitives = mergeScheduled(scheduledDeclarations, scheduledBodies);
 
+      let buildRateLimit: RateLimitCapability['__buildRateLimit'] | undefined;
+      for (const cap of config.capabilities ?? []) {
+        const build = (cap as Partial<RateLimitCapability>).__buildRateLimit;
+        if (build) {
+          if (buildRateLimit) {
+            throw new Error(
+              '[wskit] rateLimit() is listed more than once. Set one global rule, or none.',
+            );
+          }
+          buildRateLimit = build;
+        }
+      }
+      const rateLimitOverrides = new Map<string, RateLimitConfig>();
+      for (const handler of handlerPrimitives) {
+        const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
+        const event = (handler as { event?: string }).event;
+        if (override && event !== undefined) rateLimitOverrides.set(event, override);
+      }
+      if (!buildRateLimit && rateLimitOverrides.size > 0) {
+        throw new Error(
+          '[wskit] a per-handler rateLimit override needs the rateLimit() capability. ' +
+            'Add rateLimit() to capabilities.',
+        );
+      }
+      const rateLimitPrimitive = buildRateLimit ? buildRateLimit(rateLimitOverrides) : null;
+
       const primitives: Primitive[] = [];
       if (config.upgrade) primitives.push(onUpgrade(adaptUpgrade(config.upgrade)));
       if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
+      if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);
       primitives.push(...lifecyclePrimitives);
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);

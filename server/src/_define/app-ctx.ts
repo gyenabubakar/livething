@@ -93,6 +93,12 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
    */
   inject<T>(key: LocalKey<T>): T | undefined;
 
+  /**
+   * Confirm receipt of a client message that was sent with an ack. Requires the
+   * `ack()` capability; calling it without that capability throws at runtime.
+   */
+  ack(): void;
+
   /** Send an event to the current connection. Returns false if the socket can't accept it. */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
   /**
