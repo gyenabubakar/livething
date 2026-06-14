@@ -8,6 +8,7 @@ import type {
   SQLProvider,
 } from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
+import type { TagsApi } from '~/tags/types.ts';
 import type { SlotOr } from './capability.ts';
 
 /**
@@ -107,6 +108,18 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
   ack(): void;
 
   /**
+   * Tag groups for this connection. `ephemeral(group)` / `persistent(group)`
+   * return a handle to add, remove, count, and address connections by tag; only
+   * groups declared by the `tags(...)` capability are accepted. Requires the
+   * `tags()` capability; using it without that capability throws at runtime.
+   */
+  readonly tags: TagsApi<
+    keyof EphemeralTags<TSlots> & string,
+    keyof PersistentTags<TSlots> & string,
+    TMeta
+  >;
+
+  /**
    * Look up a channel by name (or family + name) to send into it or read its
    * members from outside a channel handler. Requires the `channels()` capability.
    */
@@ -133,3 +146,9 @@ type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
 
 /** The scheduled-task map (task id → payload type), read off the merged contract slots. */
 type Scheduled<TSlots> = SlotOr<TSlots, 'scheduled'>;
+
+/** The ephemeral tag-group map (group name → value type), read off the merged contract slots. */
+type EphemeralTags<TSlots> = SlotOr<TSlots, 'ephemeralTags'>;
+
+/** The persistent tag-group map (group name → value type), read off the merged contract slots. */
+type PersistentTags<TSlots> = SlotOr<TSlots, 'persistentTags'>;

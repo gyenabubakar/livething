@@ -74,6 +74,11 @@
       "wskit-dev": "./src/channel/capability.ts",
       "types": "./dist/channel/capability.d.ts",
       "import": "./dist/channels.js"
+    },
+    "./tags": {
+      "wskit-dev": "./src/tags/capability.ts",
+      "types": "./dist/tags/capability.d.ts",
+      "import": "./dist/tags.js"
     }
   },
   "publishConfig": {

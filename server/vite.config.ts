@@ -32,6 +32,7 @@ export default defineConfig({
         replay: resolve(__dirname, 'src/replay/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
         channels: resolve(__dirname, 'src/channel/capability.ts'),
+        tags: resolve(__dirname, 'src/tags/capability.ts'),
       },
       formats: ['es'],
     },

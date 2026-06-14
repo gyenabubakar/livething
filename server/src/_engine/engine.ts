@@ -105,6 +105,7 @@ export class Engine {
         upgradeHooks: this.core.hooks.upgrade,
         builderUpgradeHook: this.core.hooks.builderUpgrade,
         upgradeHelpers: this.buildUpgradeHelpers(),
+        isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
       },
       request,
     );

@@ -594,6 +594,12 @@ export async function handleUpgrade(
      * empty object.
      */
     upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+    /**
+     * Whether a tag group of the given kind was declared. Guards tag refs an
+     * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
+     * which builds refs without going through the declaration-checked helper.
+     */
+    isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
@@ -624,6 +630,11 @@ export async function handleUpgrade(
           if (ref.kind === 'persistent') {
             throw new Error(
               `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
+            );
+          }
+          if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
+            throw new Error(
+              `[wskit] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
             );
           }
           mergedTags.push(ref);

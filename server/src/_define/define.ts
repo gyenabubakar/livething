@@ -48,18 +48,32 @@ import type { BuildContract, InferInput } from './contract.ts';
  * What an `upgrade(...)` function returns to accept a connection. Return an
  * `identity` (the stable per-user key) and optional `meta`. Throw
  * `RejectUpgrade(code, reason)` to refuse the handshake.
+ *
+ * `tags.ephemeral` seeds initial ephemeral tags before any handler runs — the
+ * keys are the ephemeral group names declared by the `tags(...)` capability.
+ * Persistent tags cannot be set here; add them at runtime with
+ * `ctx.tags.persistent(group).add(key)`.
  */
-export interface UpgradeReturn<TMeta> {
+export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> {
   /** Stable key for the user behind this socket — used as the row key for durable state. */
   readonly identity: string;
   /** Per-connection metadata, surfaced as `ctx.meta` in every handler. */
   readonly meta?: TMeta;
+  /** Initial ephemeral tags to attach: `{ ephemeral: { group: key } }`. */
+  readonly tags?: { readonly ephemeral?: Partial<Record<TEphemeralGroups, string>> };
 }
 
 /** The `upgrade(...)` function shape. Receives the raw upgrade request. */
-export type UpgradeFn<TMeta> = (
+export type UpgradeFn<TMeta, TEphemeralGroups extends string = string> = (
   request: Request,
-) => UpgradeReturn<TMeta> | Promise<UpgradeReturn<TMeta>>;
+) => UpgradeReturn<TMeta, TEphemeralGroups> | Promise<UpgradeReturn<TMeta, TEphemeralGroups>>;
+
+/** The ephemeral tag-group names declared across a list of capabilities. */
+type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
+  MergeSlots<SlotsOf<TCaps[number]>>,
+  'ephemeralTags'
+> &
+  string;
 
 /**
  * The configuration passed to `define(...)`. Holds only bootstrap — the things
@@ -74,7 +88,7 @@ export interface DefineConfig<
   /** The platform env bindings type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;
   /** Auth gate. Return `{ identity, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
-  readonly upgrade?: UpgradeFn<TMeta>;
+  readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: { readonly enabled: boolean };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
@@ -809,11 +823,26 @@ function mergeScheduled(
   return primitives;
 }
 
+/** Turn the `upgrade` ephemeral-tag sugar `{ group: key }` into the engine's tag refs. */
+function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | undefined): TagRef[] {
+  if (!ephemeral) return [];
+  const refs: TagRef[] = [];
+  for (const [group, key] of Object.entries(ephemeral)) {
+    if (key !== undefined) refs.push({ __wskit: 'tag-ref', kind: 'ephemeral', group, key });
+  }
+  return refs;
+}
+
 /** Wrap a bootstrap `upgrade(...)` function as the engine's builder upgrade hook. */
 function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
   return async (request: Request): Promise<UpgradeResult> => {
     const result = await fn(request);
-    return { identity: result.identity, meta: result.meta };
+    const tags = toEphemeralTagRefs(result.tags?.ephemeral);
+    return {
+      identity: result.identity,
+      meta: result.meta,
+      ...(tags.length > 0 ? { tags } : {}),
+    };
   };
 }
 
@@ -1124,6 +1153,16 @@ export function define<
         throw new Error(
           '[wskit] resumableStream / recordedStream require the persistence() capability. ' +
             'Add persistence() to capabilities.',
+        );
+      }
+
+      const hasPersistentTags = primitives.some(
+        (p) => p.__wskit === 'tag-groups' && (p as { kind?: string }).kind === 'persistent',
+      );
+      if (hasPersistentTags && !features.has('persistence')) {
+        throw new Error(
+          '[wskit] persistent tag groups require the persistence() capability. ' +
+            'Add persistence() to capabilities, or declare the groups as ephemeral.',
         );
       }
 

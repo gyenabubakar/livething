@@ -115,6 +115,7 @@ describe('handleUpgrade', () => {
           },
         ],
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -131,6 +132,7 @@ describe('handleUpgrade', () => {
           },
         ],
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -140,7 +142,7 @@ describe('handleUpgrade', () => {
 
   it('returns empty decision when no hooks are registered', async () => {
     const result = await handleUpgrade(
-      { upgradeHooks: [], upgradeHelpers: {} },
+      { upgradeHooks: [], upgradeHelpers: {}, isTagGroupDeclared: () => true },
       new Request('https://example.com/'),
     );
     expect(result).toEqual({});
@@ -157,6 +159,7 @@ describe('handleUpgrade', () => {
           meta: { region: 'ap', user_id: 'u_42' },
         }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -178,6 +181,7 @@ describe('handleUpgrade', () => {
         ],
         builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -196,6 +200,7 @@ describe('handleUpgrade', () => {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -210,12 +215,29 @@ describe('handleUpgrade', () => {
         upgradeHooks: [async () => ({})],
         builderUpgradeHook: async () => ({}),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
 
     expect(result.meta).toBeUndefined();
     expect(result.tags).toBeUndefined();
+  });
+
+  it('rejects an ephemeral tag whose group is not declared', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [],
+        builderUpgradeHook: async () => ({
+          tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+        }),
+        upgradeHelpers: {},
+        isTagGroupDeclared: (_kind, group) => group === 'role',
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
   });
 });
 
