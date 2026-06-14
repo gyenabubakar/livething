@@ -481,6 +481,8 @@ export function runConnectionLifecycle(
       asyncContext: core.asyncContext,
       connectHooks: core.hooks.connect,
       disconnectHooks: core.hooks.disconnect,
+      pluginConnectHooks: core.hooks.pluginLifecycle.connect,
+      pluginDisconnectHooks: core.hooks.pluginLifecycle.disconnect,
       createPluginScopedContext: (pluginId, targetCtx) =>
         EngineContexts.createPluginScopedContext(pluginId, targetCtx),
     },

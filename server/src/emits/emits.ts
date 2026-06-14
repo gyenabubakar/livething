@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -39,7 +40,9 @@ type EmitSlot<TDefs extends EmitDefs> = {
  * });
  * ```
  */
-export function emits<const TDefs extends EmitDefs>(defs: TDefs): Capability<EmitSlot<TDefs>> {
+export const emits = withCapabilityKind(function emits<const TDefs extends EmitDefs>(
+  defs: TDefs,
+): Capability<EmitSlot<TDefs>> {
   const primitives = Object.keys(defs).map((name) => outgoingFactory(name));
-  return capability<EmitSlot<TDefs>>(primitives);
-}
+  return stampKind(capability<EmitSlot<TDefs>>(primitives), CAPABILITY_KIND.emits);
+}, CAPABILITY_KIND.emits);

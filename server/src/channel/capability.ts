@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
 import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
 import {
@@ -263,12 +264,12 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  * });
  * ```
  */
-export function channels(): ChannelsCapability {
+export const channels = withCapabilityKind(function channels(): ChannelsCapability {
   const cap = capability<{}, never, 'channels'>([]) as ChannelsCapability;
   (cap as { __channelFactory: ChannelsCapability['__channelFactory'] }).__channelFactory = (
     pattern,
     config,
     deps,
   ) => new ChannelBuilder(pattern, config, deps);
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.channels);
+}, CAPABILITY_KIND.channels);

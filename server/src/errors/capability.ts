@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { errors as errorsPrimitive } from '~/errors/primitive.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { ErrorSlot } from '~/_define/contract.ts';
@@ -29,8 +30,11 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
  * // throw NotFound({ id: 'missing' });
  * ```
  */
-export function errors<
+export const errors = withCapabilityKind(function errors<
   const TDefs extends readonly [ErrorDef<string, any>, ...ErrorDef<string, any>[]],
 >(defs: TDefs): Capability<ErrorsSlot<TDefs>> {
-  return capability<ErrorsSlot<TDefs>>([errorsPrimitive(...defs)]);
-}
+  return stampKind(
+    capability<ErrorsSlot<TDefs>>([errorsPrimitive(...defs)]),
+    CAPABILITY_KIND.errors,
+  );
+}, CAPABILITY_KIND.errors);

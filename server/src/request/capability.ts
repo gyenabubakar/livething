@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { request as requestFactory } from '~/request/request.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -39,7 +40,7 @@ export interface RequestsCapability extends Capability<{}, never, 'requests'> {
  * });
  * ```
  */
-export function requests(): RequestsCapability {
+export const requests = withCapabilityKind(function requests(): RequestsCapability {
   const cap = capability<{}, never, 'requests'>([]) as RequestsCapability;
   (cap as { __buildRequest: RequestsCapability['__buildRequest'] }).__buildRequest = (
     event,
@@ -55,5 +56,5 @@ export function requests(): RequestsCapability {
       config.input ? { validator: config.input } : undefined,
     );
   };
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.requests);
+}, CAPABILITY_KIND.requests);

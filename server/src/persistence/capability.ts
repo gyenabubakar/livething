@@ -1,4 +1,5 @@
-import { hostCapability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 
@@ -15,6 +16,12 @@ import type { HostCapability } from '~/_define/capability.ts';
  * const base = define({ env: t<Env>(), capabilities: [persistence()] });
  * ```
  */
-export function persistence(): HostCapability<{}, 'persistence'> {
-  return hostCapability<{}, 'persistence'>([persistenceFactory()], ['persistence']);
-}
+export const persistence = withCapabilityKind(function persistence(): HostCapability<
+  {},
+  'persistence'
+> {
+  return stampKind(
+    hostCapability<{}, 'persistence'>([persistenceFactory()], ['persistence']),
+    CAPABILITY_KIND.persistence,
+  );
+}, CAPABILITY_KIND.persistence);

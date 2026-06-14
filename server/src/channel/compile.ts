@@ -132,6 +132,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
+    __plugin: (primitive as { __plugin?: string }).__plugin,
   };
 
   const scopeLabel = `channel "${key}"`;

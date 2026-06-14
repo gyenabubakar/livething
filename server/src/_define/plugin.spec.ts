@@ -3,8 +3,13 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
+import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { keepalive } from '~/keepalive/capability.ts';
+import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
+import { resumableStream } from '~/stream-resumable/capability.ts';
+import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { plugin } from './plugin.ts';
@@ -98,11 +103,17 @@ describe('plugin() — scoped handler + manifest', () => {
     );
   });
 
-  it('throws when a plugin contributes an unsupported primitive', () => {
+  it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
     const h = define({ scoped: true });
     h.connect(() => {});
-    expect(() => plugin('acme:presence', { handler: h.assemble() })).toThrow(
-      /uses 'onConnect', which a plugin cannot contribute yet/,
+    const { __primitives } = plugin('acme:presence', { handler: h.assemble() });
+    const connectPrimitive = findPrimitive(__primitives, 'onConnect');
+    const registerPluginLifecycle = vi.fn();
+    connectPrimitive.__setup({ registerPluginLifecycle });
+    expect(registerPluginLifecycle).toHaveBeenCalledWith(
+      'connect',
+      'acme:presence',
+      expect.any(Function),
     );
   });
 
@@ -165,5 +176,85 @@ describe('plugin() — scoped handler + manifest', () => {
     });
 
     expect(send).toHaveBeenCalledWith('__acme:presence::user-online', { id: 'conn_1' });
+  });
+
+  it('passes assemble() when every dependsOn prerequisite is listed', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble(tick),
+      dependsOn: [channels, persistence],
+    });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [channels(), persistence(), Dep],
+    });
+    expect(() => base.assemble()).not.toThrow();
+  });
+
+  it('throws at assemble() when a dependsOn prerequisite is missing', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble(tick),
+      dependsOn: [channels, persistence],
+    });
+    const base = define({ env: t<Env>(), capabilities: [channels(), Dep] });
+    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+  });
+
+  it('does not satisfy a brand-only channels() dependency with another brand-only capability', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
+    // requests() is brand-only like channels(); it must NOT count as channels().
+    const base = define({ env: t<Env>(), capabilities: [requests(), Dep] });
+    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+  });
+
+  it('satisfies a brand-only channels() dependency when channels() is listed', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), Dep] });
+    expect(() => base.assemble()).not.toThrow();
+  });
+
+  it('does not satisfy a resumableStream dependency with only stream() listed', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
+    const base = define({ env: t<Env>(), capabilities: [stream(), Dep] });
+    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+  });
+
+  it('satisfies a resumableStream dependency when resumableStream() is listed', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [persistence(), resumableStream(), Dep],
+    });
+    expect(() => base.assemble()).not.toThrow();
+  });
+
+  it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
+    const base = define({ env: t<Env>(), capabilities: [Dep] });
+    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+  });
+
+  it('satisfies a keepalive dependency when keepalive(...) is listed', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Dep],
+    });
+    expect(() => base.assemble()).not.toThrow();
   });
 });

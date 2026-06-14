@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { recordedStream as recordedStreamDef } from '~/stream-recorded/definition.ts';
 import { toNudgeDefs, wrapStreamGenerator } from '~/stream/capability.ts';
@@ -36,24 +37,27 @@ export interface RecordedStreamCapability extends Capability<{}, never, 'recorde
  * });
  * ```
  */
-export function recordedStream(): RecordedStreamCapability {
-  const cap = capability<{}, never, 'recordedStream'>([]) as RecordedStreamCapability;
-  (cap as { __streamBuild: RecordedStreamCapability['__streamBuild'] }).__streamBuild = {
-    kind: 'recorded',
-    build(event, config) {
-      const def = recordedStreamDef(event, {
-        payload: config.input,
-        nudges: toNudgeDefs(config.nudges),
-        broadcast: config.broadcast,
-        allowConcurrent: config.allowConcurrent,
-        onDisconnect: config.onDisconnect,
-        maxChunks: config.maxChunks,
-        maxAgeMs: config.maxAgeMs,
-        retentionAfterEndMs: config.retentionAfterEndMs,
-      });
-      const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
-      return compileRecordedStreamDef(def, handlers);
-    },
-  };
-  return cap;
-}
+export const recordedStream = withCapabilityKind(
+  function recordedStream(): RecordedStreamCapability {
+    const cap = capability<{}, never, 'recordedStream'>([]) as RecordedStreamCapability;
+    (cap as { __streamBuild: RecordedStreamCapability['__streamBuild'] }).__streamBuild = {
+      kind: 'recorded',
+      build(event, config) {
+        const def = recordedStreamDef(event, {
+          payload: config.input,
+          nudges: toNudgeDefs(config.nudges),
+          broadcast: config.broadcast,
+          allowConcurrent: config.allowConcurrent,
+          onDisconnect: config.onDisconnect,
+          maxChunks: config.maxChunks,
+          maxAgeMs: config.maxAgeMs,
+          retentionAfterEndMs: config.retentionAfterEndMs,
+        });
+        const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
+        return compileRecordedStreamDef(def, handlers);
+      },
+    };
+    return stampKind(cap, CAPABILITY_KIND.recordedStream);
+  },
+  CAPABILITY_KIND.recordedStream,
+);

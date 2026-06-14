@@ -7,23 +7,24 @@ import type {
   Logger,
   SQLProvider,
 } from '~/context.ts';
+import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { TagsApi } from '~/tags/types.ts';
-import type { SlotOr } from './capability.ts';
+import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
 
 /**
- * The `ctx` object every connection-scoped handler receives — the handlers you
- * register with `base.on(...)` and the connect/disconnect lifecycle hooks.
- *
- * `send` and `broadcast` are typed against the server's `emits(...)` events, so
- * a typo or wrong payload is a compile error. The identity, metadata, storage,
- * and logging surfaces are always present.
+ * The connection-scoped surface present on **every** server, whatever
+ * capabilities are listed. Identity, metadata, storage, messaging, and logging
+ * always exist. Capability-owned surfaces (`ctx.tags`, `ctx.channels`,
+ * `ctx.schedule`, `ctx.ack`, `ctx.latency`/`ctx.quality`, `ctx.plugin`) are NOT
+ * here — each is added by `CtxExtensionsOf` only when its capability is listed,
+ * so reading one without its capability is a compile error.
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
  * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  */
-export type AppCtx<TSlots, TEnv, TMeta> = {
+export type CoreCtx<TSlots, TEnv, TMeta> = {
   /** Unique id of this connection. Stable for the lifetime of the socket. */
   readonly id: string;
   /** The identity string returned from `upgrade(...)`. Stable until disconnect. */
@@ -39,10 +40,6 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
 
   /** Bytes currently buffered on the socket. A rising value signals a slow client. */
   readonly bufferedAmount: number;
-  /** Last measured round-trip latency in ms, or `null` if not known yet. */
-  readonly latency: number | null;
-  /** Coarse health bucket from latency. `null` when hibernation is on (no server ping). */
-  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
   /** The socket close code — set only inside the disconnect hook. */
   readonly closeCode?: number;
   /** The socket close reason — set only inside the disconnect hook. */
@@ -70,6 +67,42 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
   setAlarm(time: number): void;
 
   /**
+   * Store a typed value for the current message dispatch. Every downstream
+   * intercept and the final handler sharing this dispatch can read it back with
+   * `inject`. Each dispatch starts with an empty store.
+   */
+  provide<T>(key: LocalKey<T>, value: T): void;
+  /**
+   * Read a value stored earlier in this dispatch with `provide`. Returns
+   * `undefined` when nothing was stored for the key.
+   */
+  inject<T>(key: LocalKey<T>): T | undefined;
+
+  /** Send an event to the current connection. Returns false if the socket can't accept it. */
+  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+  /**
+   * Send an event to every other connection on this server. The calling
+   * connection is excluded by default; pass `excludeSelf: false` to include it.
+   */
+  broadcast<E extends keyof Outgoing<TSlots> & string>(
+    event: E,
+    payload: Outgoing<TSlots>[E],
+    options?: { excludeSelf?: boolean },
+  ): void;
+};
+
+/** The `ctx.ack()` surface — owned by the `ack()` capability. */
+export interface AckCtx {
+  /**
+   * Confirm receipt of a client message that was sent with an ack. Present only
+   * when the `ack()` capability is listed.
+   */
+  ack(): void;
+}
+
+/** The `ctx.schedule` / `ctx.cancelScheduled` surface — owned by `scheduled()`. */
+export interface ScheduleCtx<TSlots> {
+  /**
    * Queue a scheduled task to run once at `time` (unix ms). The body bound with
    * `base.scheduled(taskId, ...)` runs then, receiving `data`. Only tasks
    * declared by the `scheduled(...)` capability are accepted.
@@ -88,66 +121,98 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
     taskId: TTaskId,
     filter?: Record<string, unknown>,
   ): void;
+}
 
-  /**
-   * Store a typed value for the current message dispatch. Every downstream
-   * intercept and the final handler sharing this dispatch can read it back with
-   * `inject`. Each dispatch starts with an empty store.
-   */
-  provide<T>(key: LocalKey<T>, value: T): void;
-  /**
-   * Read a value stored earlier in this dispatch with `provide`. Returns
-   * `undefined` when nothing was stored for the key.
-   */
-  inject<T>(key: LocalKey<T>): T | undefined;
-
-  /**
-   * Confirm receipt of a client message that was sent with an ack. Requires the
-   * `ack()` capability; calling it without that capability throws at runtime.
-   */
-  ack(): void;
-
-  /**
-   * Reach a registered plugin's per-connection API by its id. The plugin must be
-   * listed in `define({ capabilities: [...] })`; calling it for an unknown id
-   * throws at runtime. Pass the api type to get a typed result:
-   * `ctx.plugin<PresenceApi>('acme:presence')`.
-   */
-  plugin<TApi = unknown>(id: string): TApi;
-
+/** The `ctx.tags` surface — owned by the `tags()` capability. */
+export interface TagsCtx<TSlots, TMeta> {
   /**
    * Tag groups for this connection. `ephemeral(group)` / `persistent(group)`
    * return a handle to add, remove, count, and address connections by tag; only
-   * groups declared by the `tags(...)` capability are accepted. Requires the
-   * `tags()` capability; using it without that capability throws at runtime.
+   * groups declared by the `tags(...)` capability are accepted.
    */
   readonly tags: TagsApi<
     keyof EphemeralTags<TSlots> & string,
     keyof PersistentTags<TSlots> & string,
     TMeta
   >;
+}
 
+/** The `ctx.channels` surface — owned by the `channels()` capability. */
+export interface ChannelsCtx<TMeta> {
   /**
    * Look up a channel by name (or family + name) to send into it or read its
-   * members from outside a channel handler. Requires the `channels()` capability.
+   * members from outside a channel handler.
    */
   readonly channels: {
     get(name: string): ChannelHandle<Record<string, unknown>, TMeta>;
     get(family: string, name: string): ChannelHandle<Record<string, unknown>, TMeta>;
   };
+}
 
-  /** Send an event to the current connection. Returns false if the socket can't accept it. */
-  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+/** The type of `ctx.plugin(id)` for one plugin slice. */
+type PluginApiOf<TSlice> = TSlice extends { __api: infer TApi } ? TApi : unknown;
+
+/** The `ctx.plugin(id)` surface — owned by `plugin(...)` capabilities. */
+export interface PluginCtx<TPlugins> {
   /**
-   * Send an event to every other connection on this server. The calling
-   * connection is excluded by default; pass `excludeSelf: false` to include it.
+   * Reach a registered plugin's per-connection API by its id. The id is typed to
+   * the plugins actually listed, and the result is that plugin's `api` type. Pass
+   * an explicit type argument to override, or `registrationId` to select an
+   * instance when the same plugin is registered more than once.
    */
-  broadcast<E extends keyof Outgoing<TSlots> & string>(
-    event: E,
-    payload: Outgoing<TSlots>[E],
-    options?: { excludeSelf?: boolean },
-  ): void;
-};
+  plugin<TId extends keyof TPlugins & string>(
+    id: TId,
+    registrationId?: string,
+  ): PluginApiOf<TPlugins[TId]>;
+  plugin<TApi = unknown>(id: string, registrationId?: string): TApi;
+}
+
+/** True when `T` is a non-empty record (the slot is actually declared). */
+type HasKeys<T> = [keyof T] extends [never] ? false : true;
+
+/**
+ * The capability-owned ctx fields, intersected onto `CoreCtx` based on what the
+ * server lists. Each fragment appears only when its owning capability is
+ * present — gated by a feature flag, a builder brand, or a declared contract
+ * slot. When a capability is absent, its ctx field does not exist on the type,
+ * so reading it is a compile error (not a present-but-null field).
+ *
+ * @template TCaps The capabilities listed in `define({ capabilities: [...] })`.
+ */
+export type CtxExtensionsOf<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+> = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
+  ('ack' extends FeaturesOf<TCaps> ? AckCtx : {}) &
+  ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
+  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TMeta> : {}) &
+  (HasKeys<EphemeralTags<TSlots>> extends true
+    ? TagsCtx<TSlots, TMeta>
+    : HasKeys<PersistentTags<TSlots>> extends true
+      ? TagsCtx<TSlots, TMeta>
+      : {}) &
+  (HasKeys<Plugins<TSlots>> extends true ? PluginCtx<Plugins<TSlots>> : {});
+
+/**
+ * The `ctx` object every connection-scoped handler receives — the handlers you
+ * register with `base.on(...)` and the connect/disconnect lifecycle hooks.
+ *
+ * `send` and `broadcast` are typed against the server's `emits(...)` events, so
+ * a typo or wrong payload is a compile error. Capability-owned surfaces are
+ * present only when their capability is listed (see `CtxExtensionsOf`).
+ *
+ * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
+ * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TCaps  The capabilities listed, gating the capability-owned ctx fields.
+ */
+export type AppCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = CoreCtx<TSlots, TEnv, TMeta> & CtxExtensionsOf<TSlots, TMeta, TCaps>;
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
@@ -160,3 +225,6 @@ type EphemeralTags<TSlots> = SlotOr<TSlots, 'ephemeralTags'>;
 
 /** The persistent tag-group map (group name → value type), read off the merged contract slots. */
 type PersistentTags<TSlots> = SlotOr<TSlots, 'persistentTags'>;
+
+/** The per-plugin contract slices, read off the merged contract slots. */
+type Plugins<TSlots> = SlotOr<TSlots, 'plugins'>;

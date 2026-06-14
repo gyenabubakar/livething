@@ -54,6 +54,42 @@ export interface WireOutgoingMessage {
 export type { IncomingProtocolEvent } from './protocol.ts';
 
 /**
+ * One new-model plugin lifecycle handler, tagged with its plugin id and the
+ * global registration index so the engine can order hooks deterministically.
+ * The handler already receives a plugin-scoped context (sends are prefixed).
+ */
+export interface PluginLifecycleEntry {
+  readonly pluginId: string;
+  readonly order: number;
+  readonly handler: (ctx: any, ...rest: any[]) => void | Promise<void>;
+}
+
+/** New-model plugin lifecycle hooks, one ordered list per kind. */
+export interface PluginLifecycleHooks {
+  init: PluginLifecycleEntry[];
+  connect: PluginLifecycleEntry[];
+  disconnect: PluginLifecycleEntry[];
+  shutdown: PluginLifecycleEntry[];
+  error: PluginLifecycleEntry[];
+  validationError: PluginLifecycleEntry[];
+}
+
+/**
+ * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
+ * inbound onion (§25). It may own `identity` — but only one upgrade hook (a
+ * plugin's or the app's) may, enforced at runtime.
+ */
+export interface PluginUpgradeEntry {
+  readonly pluginId: string;
+  readonly handler: (
+    request: Request,
+    helpers: LifecycleTypes.UpgradeHelpers,
+  ) =>
+    | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+    | Promise<{ identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
+}
+
+/**
  * All hook registries the engine fills during primitive setup.
  *
  * These are the runtime lists and maps the engine dispatches later while
@@ -161,6 +197,23 @@ export interface RegisteredEngineHooks {
 
   /** Observes incoming payloads that fail schema validation. */
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
+
+  /**
+   * New-model plugin lifecycle hooks, kept apart from the app's so they run in
+   * the onion order (§25): inbound (`init`/`connect`) runs plugins → app, and
+   * outbound (`disconnect`/`shutdown`) runs app → plugins (LIFO). Each entry
+   * carries its plugin id and a global registration index so the engine can sort
+   * deterministically. Handlers are already wrapped in a plugin-scoped ctx.
+   */
+  pluginLifecycle: PluginLifecycleHooks;
+
+  /**
+   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * app's builder upgrade hook; meta is shallow-merged (the app wins on key
+   * conflict), tags concatenated, and at most one hook (these or the app's) may
+   * return `identity` (§25).
+   */
+  pluginUpgrade: PluginUpgradeEntry[];
 
   // -- Scheduled work ---------------------------------------------------------
 

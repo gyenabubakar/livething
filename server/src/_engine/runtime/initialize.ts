@@ -141,6 +141,11 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     platform: core.platform,
     requireStorage: () => core.requireStorage(),
   });
+  // Inbound onion: new-model plugin inits run before the app's (§25). Their
+  // handlers are already wrapped in a plugin-scoped context.
+  for (const entry of core.hooks.pluginLifecycle.init) {
+    await entry.handler(initCtx);
+  }
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }

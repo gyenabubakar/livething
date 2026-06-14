@@ -74,6 +74,14 @@ export interface CompiledChannel {
   recordedStreams: Map<string, AnyRecordedStream>;
 
   intercepts: AnyIntercept[];
+
+  /**
+   * The owning plugin id when this channel was contributed by a `plugin(...)`,
+   * else `undefined`. Set from the channel primitive's `__plugin` provenance
+   * marker; the compile name guards read it to permit the framework-namespaced
+   * `__<id>::<name>` channel scope and its child events.
+   */
+  __plugin?: string;
 }
 
 /**

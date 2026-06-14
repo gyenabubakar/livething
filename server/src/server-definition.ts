@@ -66,6 +66,9 @@ export interface ServerContract {
 
   /** Per-channel sub-contracts. Each entry mirrors this shape for one channel. */
   readonly channels: Record<string, any>;
+
+  /** Per-plugin contract slices, surfaced on `InferClient.plugins[id]`. */
+  readonly plugins?: Record<string, any>;
 }
 
 /**

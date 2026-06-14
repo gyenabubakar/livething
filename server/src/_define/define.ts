@@ -33,6 +33,7 @@ import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
+import { assertPluginDependencies } from './plugin.ts';
 import type { AppCtx } from './app-ctx.ts';
 import type {
   AnyCapability,
@@ -113,10 +114,20 @@ export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
  * has no `env` field and cannot own host-level capabilities (see `plugin(...)`).
  */
 export interface ScopedDefineConfig<
+  TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
 > {
   /** Marks this as a plugin's scoped handler. */
   readonly scoped: true;
+  /**
+   * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
+   * onion (§25): it sees only the raw request, not the app's identity. Return
+   * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
+   * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
+   * may own `identity` — but only one upgrade hook (the app's or one plugin's)
+   * may return it, or the build/runtime errors.
+   */
+  readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
   readonly capabilities?: TCaps;
 }
@@ -129,13 +140,19 @@ export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrim
   Contribution<{ incoming: Record<TEvent, TPayload> }>;
 
 /** Configuration object for `base.on(...)`. */
-export interface OnConfig<TSlots, TEnv, TMeta, TSchema extends Validator | undefined> {
+export interface OnConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TSchema extends Validator | undefined,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> {
   /** Optional schema validating the incoming payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
   /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
   readonly rateLimit?: RateLimitConfig;
   /** Runs each time the client sends this event, with the validated payload. */
-  run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): void | Promise<void>;
+  run(ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>, input: InferInput<TSchema>): void | Promise<void>;
 }
 
 /** The value `base.request(...)` returns — a handler primitive that declares its request slot. */
@@ -153,17 +170,21 @@ export interface RequestConfig<
   TMeta,
   TSchema extends Validator | undefined,
   TResponse,
+  TCaps extends readonly AnyCapability[] = readonly [],
 > {
   /** Optional schema validating the request payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
   /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this request. */
   readonly rateLimit?: RateLimitConfig;
   /** Runs the request and returns the reply. The reply type is inferred from the return. */
-  run(ctx: AppCtx<TSlots, TEnv, TMeta>, input: InferInput<TSchema>): TResponse | Promise<TResponse>;
+  run(
+    ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
+    input: InferInput<TSchema>,
+  ): TResponse | Promise<TResponse>;
 }
 
 /** Builder method granted by the `requests()` capability. */
-export interface RequestMethods<TSlots, TEnv, TMeta> {
+export interface RequestMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Register a handler for one client→server request. Like `base.on`, but the
    * client awaits a reply: whatever the handler returns becomes the response,
@@ -176,7 +197,7 @@ export interface RequestMethods<TSlots, TEnv, TMeta> {
     TResponse = void,
   >(
     event: TEvent,
-    config: RequestConfig<TSlots, TEnv, TMeta, TSchema, TResponse>,
+    config: RequestConfig<TSlots, TEnv, TMeta, TSchema, TResponse, TCaps>,
   ): RequestHandlerValue<TEvent, InferInput<TSchema>, Awaited<TResponse>>;
 }
 
@@ -238,7 +259,12 @@ export type StreamHandlerValue<TEvent extends string, TEntry, TSlot extends stri
   Contribution<{ [K in TSlot]: Record<TEvent, TEntry> }>;
 
 /** The `ctx` a plain stream generator receives — `ctx.stream` carries nudges. */
-type StreamCtx<TSlots, TEnv, TMeta, TNudges> = AppCtx<TSlots, TEnv, TMeta> & {
+type StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps extends readonly AnyCapability[]> = AppCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps
+> & {
   stream: NudgesHandle<TNudges>;
 };
 
@@ -250,6 +276,7 @@ export interface StreamConfig<
   TInput extends Validator | undefined,
   TChunk,
   TNudges extends StreamNudgeMap,
+  TCaps extends readonly AnyCapability[] = readonly [],
 > {
   /** Schema validating the start payload the client sends. */
   readonly input?: TInput;
@@ -263,13 +290,13 @@ export interface StreamConfig<
   readonly allowConcurrent?: boolean;
   /** The async generator — each yielded value is sent to the client as a chunk. */
   run(
-    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges>,
+    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
   ): AsyncGenerator<TChunk, void, unknown>;
 }
 
 /** Builder method granted by the `stream()` capability. */
-export interface StreamMethods<TSlots, TEnv, TMeta> {
+export interface StreamMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Register a plain server-pushed stream. */
   stream<
     TEvent extends string,
@@ -278,7 +305,7 @@ export interface StreamMethods<TSlots, TEnv, TMeta> {
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: StreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges>,
+    config: StreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
     { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
@@ -299,11 +326,15 @@ interface DurableStreamOptions {
 }
 
 /** The `ctx` a resumable stream generator receives — `ctx.stream` adds cursor controls. */
-type ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges> = AppCtx<
+type ResumableStreamCtx<
   TSlots,
   TEnv,
-  TMeta
-> & {
+  TMeta,
+  TChunk,
+  TCursor,
+  TNudges,
+  TCaps extends readonly AnyCapability[],
+> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   stream: NudgesHandle<TNudges> & {
     /** The cursor recorded on the last run, or `null` on the first run. */
     cursor: TCursor | null;
@@ -323,6 +354,7 @@ export interface ResumableStreamConfig<
   TChunk,
   TCursor,
   TNudges extends StreamNudgeMap,
+  TCaps extends readonly AnyCapability[] = readonly [],
 > extends DurableStreamOptions {
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
@@ -333,13 +365,18 @@ export interface ResumableStreamConfig<
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
   run(
-    ctx: ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges>,
+    ctx: ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges, TCaps>,
     input: InferInput<TInput>,
   ): AsyncGenerator<TChunk, void, unknown>;
 }
 
 /** Builder method granted by the `resumableStream()` capability. */
-export interface ResumableStreamMethods<TSlots, TEnv, TMeta> {
+export interface ResumableStreamMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+> {
   /** Register a resumable server-pushed stream. */
   resumableStream<
     TEvent extends string,
@@ -349,7 +386,7 @@ export interface ResumableStreamMethods<TSlots, TEnv, TMeta> {
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ResumableStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TCursor, TNudges>,
+    config: ResumableStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TCursor, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
     {
@@ -370,6 +407,7 @@ export interface RecordedStreamConfig<
   TInput extends Validator | undefined,
   TChunk,
   TNudges extends StreamNudgeMap,
+  TCaps extends readonly AnyCapability[] = readonly [],
 > extends DurableStreamOptions {
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
@@ -378,13 +416,18 @@ export interface RecordedStreamConfig<
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
   run(
-    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges>,
+    ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
   ): AsyncGenerator<TChunk, void, unknown>;
 }
 
 /** Builder method granted by the `recordedStream()` capability. */
-export interface RecordedStreamMethods<TSlots, TEnv, TMeta> {
+export interface RecordedStreamMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+> {
   /** Register a recorded server-pushed stream. */
   recordedStream<
     TEvent extends string,
@@ -393,7 +436,7 @@ export interface RecordedStreamMethods<TSlots, TEnv, TMeta> {
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: RecordedStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges>,
+    config: RecordedStreamConfig<TSlots, TEnv, TMeta, TInput, TChunk, TNudges, TCaps>,
   ): StreamHandlerValue<
     TEvent,
     { payload: InferInput<TInput>; chunk: TChunk; nudges: NudgesContract<TNudges> },
@@ -445,33 +488,55 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
 }
 
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
-export type ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing> = AppCtx<TSlots, TEnv, TMeta> & {
+export type ChannelCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TParams,
+  TOutgoing,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta>;
 };
 
 /** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
-export type ChannelGateCtx<TSlots, TEnv, TMeta> = AppCtx<TSlots, TEnv, TMeta> & {
+export type ChannelGateCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
 };
 
 /** The `ctx` a channel `check` gate receives — adds the validated subscribe payload. */
-export type ChannelCheckCtx<TSlots, TEnv, TMeta> = ChannelGateCtx<TSlots, TEnv, TMeta> & {
+export type ChannelCheckCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = ChannelGateCtx<TSlots, TEnv, TMeta, TCaps> & {
   /** The validated subscribe payload. */
   readonly check: unknown;
 };
 
 /** Configuration object for `base.channel(...)`. */
-export interface ChannelConfig<TSlots, TEnv, TMeta> {
+export interface ChannelConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> {
   /** Server→client events this channel emits. */
   readonly outgoing?: { readonly emits?: Record<string, TypeMarker<any> | Validator> };
   /** Schema validating the payload a client sends on subscribe. */
   readonly subscribe?: Validator;
   /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
-  check?: (ctx: ChannelCheckCtx<TSlots, TEnv, TMeta>) => unknown | Promise<unknown>;
+  check?: (ctx: ChannelCheckCtx<TSlots, TEnv, TMeta, TCaps>) => unknown | Promise<unknown>;
   /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
-  commit?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>, checkResult: any) => void;
+  commit?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>, checkResult: any) => void;
   /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
-  revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>;
+  revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
   /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
   readonly persistent?: boolean;
 }
@@ -493,14 +558,24 @@ type ChannelOwnSlice<TParams, TOutgoing, TAddressing extends string, TSubscribe>
 } & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe });
 
 /** Configuration object for a channel `stream` / `recordedStream`. */
-interface ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges> {
+interface ChannelStreamConfig<
+  TSlots,
+  TEnv,
+  TMeta,
+  TParams,
+  TOutgoing,
+  TInput,
+  TChunk,
+  TNudges,
+  TCaps extends readonly AnyCapability[],
+> {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing> & {
+    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
       stream: NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
@@ -523,6 +598,7 @@ export interface ChannelObject<
   TOutgoing,
   TAddressing extends string,
   TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
 >
   extends
     ChannelBuilder,
@@ -535,7 +611,7 @@ export interface ChannelObject<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing>,
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
         input: InferInput<TInput>,
       ): void | Promise<void>;
     },
@@ -555,7 +631,7 @@ export interface ChannelObject<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing>,
+        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
         input: InferInput<TInput>,
       ): TResponse | Promise<TResponse>;
     },
@@ -573,7 +649,17 @@ export interface ChannelObject<
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges>,
+    config: ChannelStreamConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TInput,
+      TChunk,
+      TNudges,
+      TCaps
+    >,
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
@@ -593,7 +679,17 @@ export interface ChannelObject<
     const TNudges extends StreamNudgeMap = {},
   >(
     event: TEvent,
-    config: ChannelStreamConfig<TSlots, TEnv, TMeta, TParams, TOutgoing, TInput, TChunk, TNudges>,
+    config: ChannelStreamConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TInput,
+      TChunk,
+      TNudges,
+      TCaps
+    >,
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
@@ -606,23 +702,32 @@ export interface ChannelObject<
   >;
 
   /** Runs after a client subscribes to this channel. */
-  subscribe(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  subscribe(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
   /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
-  unsubscribe(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  unsubscribe(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
   /** Runs on every session end, including a plain disconnect. */
-  sessionEnd(handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  sessionEnd(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta>, frame: InterceptFrame) => unknown | void,
+    handler: (
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+      frame: InterceptFrame,
+    ) => unknown | void,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
   replay(hooks: CustomReplayHooks): void;
 }
 
 /** Builder method granted by the `channels()` capability. */
-export interface ChannelMethods<TSlots, TEnv, TMeta> {
+export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Declare a static channel. */
-  channel<TName extends string, const TConfig extends ChannelConfig<TSlots, TEnv, TMeta>>(
+  channel<TName extends string, const TConfig extends ChannelConfig<TSlots, TEnv, TMeta, TCaps>>(
     name: TName,
     config?: TConfig,
   ): ChannelObject<
@@ -633,13 +738,14 @@ export interface ChannelMethods<TSlots, TEnv, TMeta> {
     {},
     EmitsOfConfig<TConfig>,
     'static',
-    SubscribeOfConfig<TConfig>
+    SubscribeOfConfig<TConfig>,
+    TCaps
   >;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
     TPattern extends string,
-    const TConfig extends ChannelConfig<TSlots, TEnv, TMeta>,
+    const TConfig extends ChannelConfig<TSlots, TEnv, TMeta, TCaps>,
   >(
     pattern: readonly [TFamily, TPattern],
     config?: TConfig,
@@ -651,7 +757,8 @@ export interface ChannelMethods<TSlots, TEnv, TMeta> {
     ExtractParams<TPattern>,
     EmitsOfConfig<TConfig>,
     'dynamic',
-    SubscribeOfConfig<TConfig>
+    SubscribeOfConfig<TConfig>,
+    TCaps
   >;
 }
 
@@ -674,13 +781,14 @@ export type CapabilityMethods<
   TEnv,
   TMeta,
   TBrand extends string,
-> = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta> : {}) &
+  TCaps extends readonly AnyCapability[],
+> = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {}) &
   ('replay-custom' extends TBrand ? ReplayMethods : {}) &
-  ('stream' extends TBrand ? StreamMethods<TSlots, TEnv, TMeta> : {}) &
-  ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TEnv, TMeta> : {}) &
-  ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta> : {}) &
-  ('channels' extends TBrand ? ChannelMethods<TSlots, TEnv, TMeta> : {});
+  ('stream' extends TBrand ? StreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
+  ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
+  ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
+  ('channels' extends TBrand ? ChannelMethods<TSlots, TEnv, TMeta, TCaps> : {});
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
@@ -690,12 +798,13 @@ export type CapabilityMethods<
 export type Base<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> = CoreBase<
   TSlots,
   TEnv,
-  TMeta
+  TMeta,
+  TCaps
 > &
-  CapabilityMethods<TSlots, TEnv, TMeta, BrandsOf<TCaps>>;
+  CapabilityMethods<TSlots, TEnv, TMeta, BrandsOf<TCaps>, TCaps>;
 
 /** The methods present on every `base`, whatever capabilities are listed. */
-export interface CoreBase<TSlots, TEnv, TMeta> {
+export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Register a handler for one client→server event. The handler is an
    * exportable value — pass it to `assemble(...)`. Exactly one handler per event
@@ -703,19 +812,19 @@ export interface CoreBase<TSlots, TEnv, TMeta> {
    */
   on<TEvent extends string, TSchema extends Validator | undefined = undefined>(
     event: TEvent,
-    config: OnConfig<TSlots, TEnv, TMeta, TSchema>,
+    config: OnConfig<TSlots, TEnv, TMeta, TSchema, TCaps>,
   ): IncomingHandlerValue<TEvent, InferInput<TSchema>>;
 
   /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
   init(handler: (ctx: InitContext) => void | Promise<void>): void;
   /** Run each time a connection opens, after `upgrade(...)` succeeds. */
-  connect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  connect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
-  disconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta>) => void | Promise<void>): void;
+  disconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run on any unhandled error from a handler. `event` is set when the error came from one. */
   error(
     handler: (
-      ctx: AppCtx<TSlots, TEnv, TMeta>,
+      ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       error: unknown,
       event?: string,
     ) => void | Promise<void>,
@@ -723,7 +832,7 @@ export interface CoreBase<TSlots, TEnv, TMeta> {
   /** Run when an incoming payload fails its schema validation. */
   validationError(
     handler: (
-      ctx: AppCtx<TSlots, TEnv, TMeta>,
+      ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       event: string,
       error: unknown,
     ) => void | Promise<void>,
@@ -735,7 +844,7 @@ export interface CoreBase<TSlots, TEnv, TMeta> {
    * return a value to replace the payload. One intercept per server.
    */
   intercept(
-    handler: (ctx: AppCtx<TSlots, TEnv, TMeta>, frame: InterceptFrame) => unknown | void,
+    handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>, frame: InterceptFrame) => unknown | void,
   ): void;
 
   /**
@@ -872,6 +981,30 @@ function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
   };
 }
 
+/** Symbol key for a plugin's scoped upgrade primitive. */
+const SCOPED_UPGRADE_KEY = Symbol('scopedUpgrade');
+
+/**
+ * Build the carrier for a plugin's `upgrade(...)`. It is tagged `onUpgrade` so it
+ * is visible to `assertSupported`, but carries `__scopedUpgrade` so
+ * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginUpgrade`
+ * (bound to the real plugin id) — never the app's single builder slot.
+ */
+function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
+  return {
+    __wskit: 'onUpgrade',
+    __kind: 'lifecycle',
+    __identity: [SCOPED_UPGRADE_KEY],
+    __requires: {},
+    __scopedUpgrade: true,
+    handler,
+    __setup() {
+      // Rewritten by namespacePluginPrimitives to bind the plugin id. Left inert
+      // so a stray scoped upgrade that never went through plugin(...) is a no-op.
+    },
+  } as unknown as Primitive;
+}
+
 /**
  * Create a WSKit server. `define(...)` holds only bootstrap (`env`, `upgrade`,
  * `hibernation`); every feature is a capability you list. It returns a `base`
@@ -906,9 +1039,12 @@ export function define<
 >(
   config: DefineConfig<TEnv, TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
-export function define<const TCaps extends readonly PluginSafeCapability[] = readonly []>(
-  config: ScopedDefineConfig<TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, unknown, TCaps>;
+export function define<
+  TMeta = unknown,
+  const TCaps extends readonly PluginSafeCapability[] = readonly [],
+>(
+  config: ScopedDefineConfig<TMeta, TCaps>,
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps>;
 export function define(config: any): Base<any, any, any, any> {
   const lifecyclePrimitives: Primitive[] = [];
   const seen = new Set<string>();
@@ -1066,6 +1202,7 @@ export function define(config: any): Base<any, any, any, any> {
       registerOnce('replay', build(hooks));
     },
     assemble(...items: readonly Contribution[]) {
+      assertPluginDependencies(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
       const scheduledBodies = new Map<
         string,
@@ -1143,7 +1280,13 @@ export function define(config: any): Base<any, any, any, any> {
       const rateLimitPrimitive = buildRateLimit ? buildRateLimit(rateLimitOverrides) : null;
 
       const primitives: Primitive[] = [];
-      if (config.upgrade) primitives.push(onUpgrade(adaptUpgrade(config.upgrade)));
+      if (config.upgrade) {
+        primitives.push(
+          config.scoped
+            ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade))
+            : onUpgrade(adaptUpgrade(config.upgrade)),
+        );
+      }
       if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
       if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);

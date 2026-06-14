@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { adaptStreamContext } from '~/stream/ctx-adapter.ts';
 import { nudge, stream as streamDef } from '~/stream/definition.ts';
@@ -63,7 +64,7 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  * });
  * ```
  */
-export function stream(): StreamCapability {
+export const stream = withCapabilityKind(function stream(): StreamCapability {
   const cap = capability<{}, never, 'stream'>([]) as StreamCapability;
   (cap as { __streamBuild: StreamCapability['__streamBuild'] }).__streamBuild = {
     kind: 'plain',
@@ -78,5 +79,5 @@ export function stream(): StreamCapability {
       return compileStreamDef(def, handlers);
     },
   };
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.stream);
+}, CAPABILITY_KIND.stream);

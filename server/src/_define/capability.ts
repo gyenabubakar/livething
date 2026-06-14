@@ -45,6 +45,13 @@ export interface Capability<
   readonly __primitives: readonly Primitive[];
   /** Feature flags this capability turns on, surfaced for build-time checks. @internal */
   readonly __features: readonly TFeature[];
+  /**
+   * Stable identity token shared with the factory that produced this capability,
+   * used to match a plugin's `dependsOn` factory ref to a listed capability
+   * without calling the factory. Absent on capabilities that are never a
+   * `dependsOn` target (such as plugin capabilities). @internal
+   */
+  readonly __capabilityKind?: string;
   /** @internal phantom — the builder-method group this capability grants; never set at runtime. */
   readonly __brand?: TBrand;
 }
@@ -76,6 +83,37 @@ export function capability<
 }
 
 /**
+ * Any capability factory — a function that returns a capability, regardless of
+ * the arguments it takes. The `dependsOn` matcher reads the identity token off
+ * such a ref without ever calling it, so an arg-requiring factory (`keepalive`,
+ * `scheduled`, …) is a valid `dependsOn` target. @internal
+ */
+export type CapabilityFactory = ((...args: any[]) => AnyCapability) & {
+  readonly __capabilityKind?: string;
+};
+
+/** A capability factory function carrying the identity token its result is stamped with. @internal */
+export type KindedFactory<TFactory extends (...args: any[]) => AnyCapability> = TFactory & {
+  readonly __capabilityKind: string;
+};
+
+/**
+ * Stamp a capability factory with a stable identity token and return it. The
+ * same token must be applied to every capability the factory produces (via the
+ * `kind` argument to `capability()` / `hostCapability()`), so a plugin's
+ * `dependsOn` ref can be matched to a listed capability by reading the token off
+ * the factory — without ever calling it.
+ *
+ * @internal
+ */
+export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapability>(
+  factory: TFactory,
+  kind: string,
+): KindedFactory<TFactory> {
+  return Object.assign(factory, { __capabilityKind: kind });
+}
+
+/**
  * A capability the **host** owns and a plugin can never list — the global
  * engines (`ack`, `dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
  * `replay`). It carries a `__hostOnly` marker so `define({ scoped: true })`
@@ -97,6 +135,18 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
 }
 
 /**
+ * Stamp a capability instance with its identity token, mirroring the token its
+ * factory carries (see {@link withCapabilityKind}). Returns the same instance so
+ * factories can `return stampKind(cap, '<kind>')`.
+ *
+ * @internal
+ */
+export function stampKind<TCap extends AnyCapability>(cap: TCap, kind: string): TCap {
+  (cap as { __capabilityKind: string }).__capabilityKind = kind;
+  return cap;
+}
+
+/**
  * A capability of any shape. Use this in constraint positions (`extends
  * readonly AnyCapability[]`) — the default `Capability` narrows the brand to
  * `never`, which would reject any capability that grants a builder method.
@@ -107,6 +157,10 @@ export type AnyCapability = Capability<any, string, string>;
 export type BrandsOf<TCaps extends readonly AnyCapability[]> = NonNullable<
   TCaps[number]['__brand']
 >;
+
+/** The union of feature flags turned on across a list of capabilities. @internal */
+export type FeaturesOf<TCaps extends readonly AnyCapability[]> =
+  TCaps[number]['__features'][number];
 
 /** Collapse a union of slot records into one merged record. @internal */
 export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (

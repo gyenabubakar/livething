@@ -199,8 +199,9 @@ export function buildConnectionContext(
   // plugin-scoped context (sends prefixed with the plugin namespace), cached
   // per connection context so repeated calls return the same API object.
   const pluginApiCache = new Map<string, unknown>();
-  (base as Record<PropertyKey, unknown>).plugin = (id: string) => {
-    if (pluginApiCache.has(id)) return pluginApiCache.get(id);
+  (base as Record<PropertyKey, unknown>).plugin = (id: string, registrationId?: string) => {
+    const cacheKey = registrationId ? `${id}#${registrationId}` : id;
+    if (pluginApiCache.has(cacheKey)) return pluginApiCache.get(cacheKey);
     const factory = deps.getPluginApiFactory(id);
     if (!factory) {
       throw new Error(
@@ -209,7 +210,7 @@ export function buildConnectionContext(
       );
     }
     const api = factory(scopePluginContext(id, base));
-    pluginApiCache.set(id, api);
+    pluginApiCache.set(cacheKey, api);
     return api;
   };
 

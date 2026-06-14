@@ -139,6 +139,18 @@ export async function runConnectionLifecycle(
   runtime: {
     connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
     disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+    /**
+     * New-model plugin connect/disconnect hooks, in registration order. Inbound
+     * (`connect`) runs these head-first before the app; outbound (`disconnect`)
+     * runs the app first, then these in reverse (LIFO) — the onion (§25). The
+     * handlers are already wrapped in a plugin-scoped context.
+     */
+    pluginConnectHooks?: readonly {
+      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+    }[];
+    pluginDisconnectHooks?: readonly {
+      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+    }[];
     pluginRuntimes: readonly {
       instance: { id: string };
       onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
@@ -155,6 +167,10 @@ export async function runConnectionLifecycle(
 ): Promise<void> {
   return withConnectionContext(runtime.asyncContext, String(ctx.id), async () => {
     if (kind === 'connect') {
+      // Inbound onion: new-model plugins see the connection before the app.
+      for (const entry of runtime.pluginConnectHooks ?? []) {
+        await entry.handler(ctx);
+      }
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
       }
@@ -168,6 +184,11 @@ export async function runConnectionLifecycle(
     } else {
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
+      }
+      // Outbound onion: the app tears down first, then plugins unwind LIFO.
+      const disconnects = runtime.pluginDisconnectHooks ?? [];
+      for (let i = disconnects.length - 1; i >= 0; i -= 1) {
+        await disconnects[i]!.handler(ctx);
       }
       for (const pluginRuntime of runtime.pluginRuntimes) {
         if (pluginRuntime.onDisconnect) {
@@ -572,6 +593,24 @@ export async function handleUpgrade(
           meta?: Record<string, unknown>;
           tags?: readonly PublicApi.TagRef[];
         }>)[];
+    /**
+     * New-model plugin `upgrade` hooks, in registration order. Run before the
+     * app's builder hook (inbound onion, §25). Each may own `identity`, but the
+     * single-owner rule below allows at most one identity source overall.
+     */
+    pluginUpgradeHooks?: readonly {
+      pluginId: string;
+      handler: (
+        request: Request,
+        helpers: LifecycleTypes.UpgradeHelpers,
+      ) =>
+        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+        | Promise<{
+            identity?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }>;
+    }[];
     builderUpgradeHook?:
       | ((
           request: Request,
@@ -603,23 +642,41 @@ export async function handleUpgrade(
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
-  if (runtime.upgradeHooks.length === 0 && !runtime.builderUpgradeHook) {
+  const pluginUpgradeHooks = runtime.pluginUpgradeHooks ?? [];
+  if (
+    pluginUpgradeHooks.length === 0 &&
+    runtime.upgradeHooks.length === 0 &&
+    !runtime.builderUpgradeHook
+  ) {
     return {};
   }
 
   try {
-    // Run internal-primitive hooks first, then the user-facing builder
-    // hook last. Each result's meta is shallow-merged into the running
-    // total; tags are concatenated (TagRef equality is by identity).
+    // Onion order: plugin upgrades first (registration order), then internal
+    // primitive hooks, then the app's builder hook last. Each result's meta is
+    // shallow-merged into the running total — since the app applies last it
+    // wins on key conflict; tags are concatenated (TagRef equality is by
+    // identity). At most one hook may own `identity` (§25).
     let mergedMeta: Record<string, unknown> | undefined;
     let builderIdentity: string | undefined;
+    let identityOwner: string | undefined;
     const mergedTags: PublicApi.TagRef[] = [];
-    function apply(result: {
-      identity?: string;
-      meta?: Record<string, unknown>;
-      tags?: readonly PublicApi.TagRef[];
-    }): void {
+    function apply(
+      result: {
+        identity?: string;
+        meta?: Record<string, unknown>;
+        tags?: readonly PublicApi.TagRef[];
+      },
+      owner: string,
+    ): void {
       if (result.identity !== undefined) {
+        if (identityOwner !== undefined) {
+          throw new Error(
+            `[wskit] Two upgrade hooks returned 'identity' (${identityOwner} and ${owner}). ` +
+              'identity has exactly one owner per connection — the app or one plugin, never both.',
+          );
+        }
+        identityOwner = owner;
         builderIdentity = result.identity;
       }
       if (result.meta) {
@@ -641,11 +698,17 @@ export async function handleUpgrade(
         }
       }
     }
+    for (const entry of pluginUpgradeHooks) {
+      apply(
+        (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
+        `plugin '${entry.pluginId}'`,
+      );
+    }
     for (const hook of runtime.upgradeHooks) {
-      apply((await hook(request, runtime.upgradeHelpers)) ?? {});
+      apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
     if (runtime.builderUpgradeHook) {
-      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {});
+      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
     return {
       identity: builderIdentity,
@@ -679,6 +742,11 @@ export async function handleUpgrade(
 export async function handleShutdown(
   runtime: Pick<ConnectionRuntime, 'connections'> & {
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
+    /**
+     * New-model plugin shutdown hooks, in registration order. Run after the
+     * app's, in reverse (LIFO) — the outbound onion (§25). Already scoped.
+     */
+    pluginShutdownHooks?: readonly { handler: (ctx: unknown) => void | Promise<void> }[];
     pluginRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
@@ -695,6 +763,18 @@ export async function handleShutdown(
       await hook(runtime.createShutdownContext());
     } catch (error) {
       runtime.logger?.error('[wskit] shutdown hook threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Outbound onion: new-model plugins unwind after the app, LIFO.
+  const pluginShutdowns = runtime.pluginShutdownHooks ?? [];
+  for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
+    try {
+      await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
+    } catch (error) {
+      runtime.logger?.error('[wskit] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

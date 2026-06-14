@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { resolvePlan } from '~/rate-limit/plan.ts';
 import { rateLimit as rateLimitFactory } from '~/rate-limit/rate-limit.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -60,7 +61,9 @@ export interface RateLimitCapability extends Capability<{}, never, never> {
  * });
  * ```
  */
-export function rateLimit(config?: RateLimitGlobalConfig): RateLimitCapability {
+export const rateLimit = withCapabilityKind(function rateLimit(
+  config?: RateLimitGlobalConfig,
+): RateLimitCapability {
   const rule: RateLimitConfig | undefined = config ? { enabled: true, ...config } : undefined;
   const cap = capability<{}>([]) as RateLimitCapability;
   const writable = cap as {
@@ -78,5 +81,5 @@ export function rateLimit(config?: RateLimitGlobalConfig): RateLimitCapability {
     });
     return plan ? rateLimitFactory(plan) : null;
   };
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.rateLimit);
+}, CAPABILITY_KIND.rateLimit);

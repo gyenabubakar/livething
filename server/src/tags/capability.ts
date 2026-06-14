@@ -1,4 +1,5 @@
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { resolveTagGroupDefs, tagGroups } from '~/tags/tags.ts';
 import type { Capability, UnionToIntersection } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -91,7 +92,7 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  * });
  * ```
  */
-export function tags<const TDefs extends readonly TagGroupDef[]>(
+export const tags = withCapabilityKind(function tags<const TDefs extends readonly TagGroupDef[]>(
   builder: TagsBuilder<TDefs>,
 ): TagsCapability<TDefs> {
   const defs = resolveTagGroupDefs(builder as TagsConfig);
@@ -100,5 +101,8 @@ export function tags<const TDefs extends readonly TagGroupDef[]>(
   const persistent = registrationsFor(defs, 'persistent');
   if (ephemeral.length > 0) primitives.push(tagGroups('ephemeral', ephemeral));
   if (persistent.length > 0) primitives.push(tagGroups('persistent', persistent));
-  return capability<TagsSlots<TDefs>, never>(primitives) as TagsCapability<TDefs>;
-}
+  return stampKind(
+    capability<TagsSlots<TDefs>, never>(primitives) as TagsCapability<TDefs>,
+    CAPABILITY_KIND.tags,
+  );
+}, CAPABILITY_KIND.tags);

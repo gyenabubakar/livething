@@ -1,4 +1,5 @@
-import { hostCapability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 
@@ -25,6 +26,6 @@ import type { HostCapability } from '~/_define/capability.ts';
  * });
  * ```
  */
-export function ack(): HostCapability<{}, 'ack'> {
-  return hostCapability<{}, 'ack'>([ackFactory()], ['ack']);
-}
+export const ack = withCapabilityKind(function ack(): HostCapability<{}, 'ack'> {
+  return stampKind(hostCapability<{}, 'ack'>([ackFactory()], ['ack']), CAPABILITY_KIND.ack);
+}, CAPABILITY_KIND.ack);

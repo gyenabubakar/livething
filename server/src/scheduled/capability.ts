@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -115,7 +116,7 @@ function resolveDeclaration(def: ScheduledDef): ScheduledDeclaration {
  * });
  * ```
  */
-export function scheduled<const TDefs extends ScheduledDefs>(
+export const scheduled = withCapabilityKind(function scheduled<const TDefs extends ScheduledDefs>(
   defs: TDefs,
 ): ScheduledCapability<TDefs> {
   const declarations = new Map<string, ScheduledDeclaration>();
@@ -132,5 +133,5 @@ export function scheduled<const TDefs extends ScheduledDefs>(
   writable.__scheduled = declarations;
   writable.__buildScheduled = (taskId, declaration, body) =>
     makeScheduledPrimitive(taskId, declaration, body);
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.scheduled);
+}, CAPABILITY_KIND.scheduled);

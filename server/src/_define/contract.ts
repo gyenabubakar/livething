@@ -33,6 +33,8 @@ export type BuildContract<TSlots> = {
   readonly channels: AsRecord<SlotOr<TSlots, 'channels'>>;
   /** Named, typed server errors — declared by `errors([...])`. */
   readonly errors: AsRecord<SlotOr<TSlots, 'errors'>>;
+  /** Per-plugin contract slices — declared by each `plugin(...)` capability. */
+  readonly plugins: AsRecord<SlotOr<TSlots, 'plugins'>>;
 };
 
 /** Coerce a slot to a record so the built contract always satisfies `ServerContract`. */

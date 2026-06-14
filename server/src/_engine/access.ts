@@ -409,6 +409,42 @@ export interface EngineAccess {
   registerPluginApi(id: string, factory: (ctx: unknown) => unknown): void;
 
   /**
+   * Register one new-model plugin lifecycle hook. Kept apart from the app's so
+   * the engine can run them in onion order (§25). Hooks land in install order,
+   * which equals host capability (registration) order, so inbound kinds run the
+   * list head-first and outbound kinds run it in reverse (LIFO). The handler is
+   * already wrapped in a plugin-scoped context.
+   *
+   * @internal
+   */
+  registerPluginLifecycle(
+    kind: 'init' | 'connect' | 'disconnect' | 'shutdown' | 'error' | 'validationError',
+    pluginId: string,
+    handler: (ctx: unknown, ...rest: unknown[]) => void | Promise<void>,
+  ): void;
+
+  /**
+   * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
+   * (inbound onion, §25); it may own `identity`, but the single-owner rule is
+   * enforced at runtime.
+   *
+   * @internal
+   */
+  registerPluginUpgrade(
+    pluginId: string,
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | Promise<{
+          identity?: string;
+          meta?: Record<string, unknown>;
+          tags?: readonly ContextApi.TagRef[];
+        }>,
+  ): void;
+
+  /**
    * Refresh the idle timeout for one live connection.
    *
    * Built-in primitives such as `keepalive()` use this instead of reaching

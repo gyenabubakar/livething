@@ -170,6 +170,13 @@ export function createEngineAccess(
       }
       core.pluginApiFactories.set(id, factory);
     },
+    registerPluginLifecycle: (kind, pluginId, handler) => {
+      const list = core.hooks.pluginLifecycle[kind];
+      list.push({ pluginId, order: list.length, handler });
+    },
+    registerPluginUpgrade: (pluginId, handler) => {
+      core.hooks.pluginUpgrade.push({ pluginId, handler });
+    },
     registerTagGroups: (kind, groups) => {
       if (core.tagGroupsRegistered[kind]) {
         throw new Error(`[wskit] tagGroups.${kind} declared more than once in this contract.`);

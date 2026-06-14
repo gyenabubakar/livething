@@ -1,4 +1,5 @@
-import { capability, hostCapability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { capability, hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { handleReplay } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
 import type { Capability, HostCapability } from '~/_define/capability.ts';
@@ -61,9 +62,14 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
  * });
  * ```
  */
-function history(config?: HistoryConfig): HostCapability<{}, 'replay'> {
-  return hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']);
-}
+const history = withCapabilityKind(function history(
+  config?: HistoryConfig,
+): HostCapability<{}, 'replay'> {
+  return stampKind(
+    hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']),
+    CAPABILITY_KIND.replay,
+  );
+}, CAPABILITY_KIND.replay);
 
 /**
  * Record outgoing messages and resend the latest state per key on reconnect.
@@ -75,9 +81,14 @@ function history(config?: HistoryConfig): HostCapability<{}, 'replay'> {
  * replay.snapshot({ snapshotKey: (event, payload) => String(payload.roomId) });
  * ```
  */
-function snapshot(config?: SnapshotConfig): HostCapability<{}, 'replay'> {
-  return hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']);
-}
+const snapshot = withCapabilityKind(function snapshot(
+  config?: SnapshotConfig,
+): HostCapability<{}, 'replay'> {
+  return stampKind(
+    hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']),
+    CAPABILITY_KIND.replay,
+  );
+}, CAPABILITY_KIND.replay);
 
 /**
  * Enable custom replay, where you own the storage and the resend. Listing this
@@ -102,7 +113,7 @@ function snapshot(config?: SnapshotConfig): HostCapability<{}, 'replay'> {
  * });
  * ```
  */
-function custom(): ReplayCustomCapability {
+const custom = withCapabilityKind(function custom(): ReplayCustomCapability {
   const cap = capability<{}, never, 'replay-custom'>([]) as ReplayCustomCapability;
   (cap as { __hostOnly: true }).__hostOnly = true;
   (cap as { __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive }).__buildCustomReplay = (
@@ -113,8 +124,8 @@ function custom(): ReplayCustomCapability {
       onAfterSend: hooks.afterSend,
       onReplay: hooks.replay,
     });
-  return cap;
-}
+  return stampKind(cap, CAPABILITY_KIND.replayCustom);
+}, CAPABILITY_KIND.replayCustom);
 
 /**
  * Replay capabilities. List `replay.history(...)` or `replay.snapshot(...)` for

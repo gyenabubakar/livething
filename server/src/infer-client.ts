@@ -163,6 +163,31 @@ type ClientChannelMap<TChannels> = {
 };
 
 /**
+ * One plugin's contract slice in the client's perspective. The plugin's scoped
+ * contract is stored in server perspective under `__contract`; this flips it the
+ * same way the top-level client view does — the plugin's `outgoing` events are
+ * what the client receives, its `incoming` events are what the client sends —
+ * and surfaces `api`, the type of `ctx.plugin(id)`. Names are short
+ * (un-prefixed); the `__<id>::` wire prefix never appears here.
+ */
+type ClientPluginSlice<TSlice> = TSlice extends { __contract: infer TContract; __api: infer TApi }
+  ? {
+      incoming: Slot<TContract, 'outgoing'>;
+      outgoing: Slot<TContract, 'incoming'>;
+      requests: Slot<TContract, 'requests'>;
+      streams: ClientStreams<TContract>;
+      channels: ClientChannelMap<Slot<TContract, 'channels'>>;
+      errors: Slot<TContract, 'errors'>;
+      api: TApi;
+    }
+  : never;
+
+/** Every registered plugin's slice, keyed by plugin id, in the client's view. */
+type ClientPluginMap<TPlugins> = {
+  [TId in keyof TPlugins]: ClientPluginSlice<TPlugins[TId]>;
+};
+
+/**
  * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
@@ -220,4 +245,6 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   channels: ClientChannelMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
   errors: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
+  /** Each registered plugin's own surface, keyed by plugin id, with short names. */
+  plugins: ClientPluginMap<Slot<ContractOf<TServer>, 'plugins'>>;
 }>;

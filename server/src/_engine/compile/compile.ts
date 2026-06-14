@@ -165,8 +165,9 @@ export function compileHandlerDefinition(
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   const declaredPluginEvents = collectPluginEventNames(compiled);
+  const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
-  validateScopeAndEventNameSyntax(compiled, declaredPluginEvents);
+  validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
 }
@@ -299,12 +300,25 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
 function validateScopeAndEventNameSyntax(
   compiled: EngineCompileTypes.CompiledServer,
   declaredPluginEvents: ReadonlySet<string>,
+  declaredPluginChannels: ReadonlySet<string>,
 ): void {
   // A static channel name travels on the wire as `channel` (limit 256); a
   // dynamic family key travels as `channelScope` (limit 128). Validating a
   // family key against the larger channel limit lets a 129-char key boot that
   // no client can ever address.
   function checkScopeName(name: string, kind: 'channel', limit: number): void {
+    // A plugin's channel scope is framework-namespaced as `__<id>::<name>` — it
+    // legitimately carries `__` and `::`. Provenance (not string shape) is what
+    // exempts it, so a hand-declared `::` channel still throws.
+    if (declaredPluginChannels.has(name)) {
+      if (name.length > limit) {
+        throw new Error(
+          `[wskit] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+        );
+      }
+      return;
+    }
+
     assertValidWSKitIdentifier(name, `${kind} name`, limit);
 
     if (name.startsWith('@') || name.startsWith('#')) {
@@ -468,16 +482,65 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
     }
   }
 
-  // New-model plugins contribute namespaced incoming/request/outgoing primitives
-  // that carry a `__plugin` provenance marker. Collecting their wire names here is
-  // what lets the reserved-name guards allow the framework-managed `__<id>::name`
-  // form while still rejecting any hand-declared reserved name.
-  for (const scope of [compiled.incoming, compiled.requests, compiled.outgoing]) {
-    for (const [event, primitive] of scope) {
+  // New-model plugins contribute namespaced incoming/request/outgoing/stream
+  // primitives that carry a `__plugin` provenance marker. Collecting their wire
+  // names here is what lets the reserved-name guards allow the framework-managed
+  // `__<id>::name` form while still rejecting any hand-declared reserved name.
+  collectFromScope(compiled, names);
+  // A plugin's channel carries its own provenance marker; its child events are
+  // namespaced too. Collect them so the guards allow the prefixed child names.
+  for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
+    if (channel.__plugin) collectFromScope(channel, names);
+  }
+
+  return names;
+}
+
+/**
+ * Collect every plugin-provenance event name in one scope — plain events plus
+ * the nudge names a plugin stream declares (those travel as their own frames).
+ */
+function collectFromScope(
+  scope: {
+    incoming: ReadonlyMap<string, unknown>;
+    requests: ReadonlyMap<string, unknown>;
+    outgoing: ReadonlyMap<string, unknown>;
+    streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+    resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+    recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+  },
+  names: Set<string>,
+): void {
+  for (const map of [scope.incoming, scope.requests, scope.outgoing]) {
+    for (const [event, primitive] of map) {
       if ((primitive as { __plugin?: string }).__plugin) names.add(event);
     }
   }
+  for (const [event, generate] of scope.streams) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.stream.nudges) names.add(nudge.event);
+  }
+  for (const [event, generate] of scope.resumableStreams ?? []) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.nudges) names.add(nudge.event);
+  }
+  for (const [event, generate] of scope.recordedStreams ?? []) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.nudges) names.add(nudge.event);
+  }
+}
 
+/** The channel scope names a plugin owns, so the `::`/`@`/`#` guards allow them. */
+function collectPluginChannelNames(
+  compiled: EngineCompileTypes.CompiledServer,
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
+    if (channel.__plugin) names.add(channel.key);
+  }
   return names;
 }
 

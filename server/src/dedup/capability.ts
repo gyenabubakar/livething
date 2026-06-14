@@ -1,4 +1,5 @@
-import { hostCapability } from '~/_define/capability.ts';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 
@@ -18,6 +19,11 @@ import type { HostCapability } from '~/_define/capability.ts';
  * const base = define({ env: t<Env>(), capabilities: [dedup({ cap: 256 })] });
  * ```
  */
-export function dedup(options?: { cap?: number }): HostCapability<{}, 'dedup'> {
-  return hostCapability<{}, 'dedup'>([dedupFactory(options)], ['dedup']);
-}
+export const dedup = withCapabilityKind(function dedup(options?: {
+  cap?: number;
+}): HostCapability<{}, 'dedup'> {
+  return stampKind(
+    hostCapability<{}, 'dedup'>([dedupFactory(options)], ['dedup']),
+    CAPABILITY_KIND.dedup,
+  );
+}, CAPABILITY_KIND.dedup);

@@ -103,6 +103,7 @@ export class Engine {
     return EngineConnectionRuntime.handleUpgrade(
       {
         upgradeHooks: this.core.hooks.upgrade,
+        pluginUpgradeHooks: this.core.hooks.pluginUpgrade,
         builderUpgradeHook: this.core.hooks.builderUpgrade,
         upgradeHelpers: this.buildUpgradeHelpers(),
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
@@ -117,6 +118,7 @@ export class Engine {
     return EngineConnectionRuntime.handleShutdown({
       connections: core.connections,
       shutdownHooks: core.hooks.shutdown,
+      pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
       pluginRuntimes: core.pluginRuntimes,
 
       createShutdownContext: () => this.createShutdownContext(),
