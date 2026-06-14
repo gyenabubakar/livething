@@ -141,6 +141,9 @@ export interface ContextCommonDeps {
     connection?: EngineRuntimeTypes.RuntimeConnection,
   ): void;
 
+  /** Look up a `plugin(...)` API factory by id for the `ctx.plugin(id)` accessor. */
+  getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
+
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
   /**
    * Whether at least one tag group was declared via the contract's `tagGroups`

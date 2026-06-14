@@ -1,7 +1,7 @@
-import { capability } from '~/_define/capability.ts';
+import { capability, hostCapability } from '~/_define/capability.ts';
 import { handleReplay } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { Capability, HostCapability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
@@ -32,6 +32,8 @@ export interface CustomReplayHooks {
 
 /** A `replay.custom()` capability, carrying the builder that turns hooks into a primitive. */
 export interface ReplayCustomCapability extends Capability<{}, never, 'replay-custom'> {
+  /** Host-owned: rejected inside a plugin's `define({ scoped: true })`. @internal */
+  readonly __hostOnly: true;
   /** Build the custom-replay primitive from `base.replay(...)` hooks. @internal */
   readonly __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive;
 }
@@ -59,8 +61,8 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
  * });
  * ```
  */
-function history(config?: HistoryConfig): Capability<{}, 'replay'> {
-  return capability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']);
+function history(config?: HistoryConfig): HostCapability<{}, 'replay'> {
+  return hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']);
 }
 
 /**
@@ -73,8 +75,8 @@ function history(config?: HistoryConfig): Capability<{}, 'replay'> {
  * replay.snapshot({ snapshotKey: (event, payload) => String(payload.roomId) });
  * ```
  */
-function snapshot(config?: SnapshotConfig): Capability<{}, 'replay'> {
-  return capability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']);
+function snapshot(config?: SnapshotConfig): HostCapability<{}, 'replay'> {
+  return hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']);
 }
 
 /**
@@ -102,6 +104,7 @@ function snapshot(config?: SnapshotConfig): Capability<{}, 'replay'> {
  */
 function custom(): ReplayCustomCapability {
   const cap = capability<{}, never, 'replay-custom'>([]) as ReplayCustomCapability;
+  (cap as { __hostOnly: true }).__hostOnly = true;
   (cap as { __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive }).__buildCustomReplay = (
     hooks,
   ) =>

@@ -1,6 +1,6 @@
-import { capability } from '~/_define/capability.ts';
+import { hostCapability } from '~/_define/capability.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { HostCapability } from '~/_define/capability.ts';
 
 /**
  * Drop duplicate incoming messages. The engine remembers the most recent
@@ -18,6 +18,6 @@ import type { Capability } from '~/_define/capability.ts';
  * const base = define({ env: t<Env>(), capabilities: [dedup({ cap: 256 })] });
  * ```
  */
-export function dedup(options?: { cap?: number }): Capability<{}, 'dedup'> {
-  return capability<{}, 'dedup'>([dedupFactory(options)], ['dedup']);
+export function dedup(options?: { cap?: number }): HostCapability<{}, 'dedup'> {
+  return hostCapability<{}, 'dedup'>([dedupFactory(options)], ['dedup']);
 }

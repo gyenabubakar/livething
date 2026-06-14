@@ -571,3 +571,40 @@ describe('lazy storage in init/shutdown/task contexts', () => {
     expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
   });
 });
+
+describe('ctx.plugin', () => {
+  it('runs the registered factory against a plugin-scoped ctx and caches the api', () => {
+    const connection = createConnection('conn_1');
+    const factory = vi.fn((scopedCtx: any) => ({
+      announce() {
+        scopedCtx.send('online', { id: scopedCtx.id });
+      },
+    }));
+    const send = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      sendThroughPipeline: send,
+      getPluginApiFactory: (id: string) => (id === 'acme:presence' ? factory : undefined),
+    });
+
+    const ctx = buildConnectionContext(deps, connection) as any;
+    const api = ctx.plugin('acme:presence') as { announce(): void };
+    expect(ctx.plugin('acme:presence')).toBe(api); // cached — factory runs once
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    api.announce();
+    expect(send).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({ event: '__acme:presence::online' }),
+    );
+  });
+
+  it('throws for an unregistered plugin id', () => {
+    const connection = createConnection('conn_1');
+    const ctx = buildConnectionContext(
+      baseDeps({ getPluginApiFactory: () => undefined }),
+      connection,
+    ) as any;
+    expect(() => ctx.plugin('acme:nope')).toThrow(/no plugin with id 'acme:nope' is registered/);
+  });
+});

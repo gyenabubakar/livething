@@ -157,6 +157,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
     attachPluginApis: (ctx, connection) =>
       EngineContexts.attachPluginApis(core.pluginRuntimes, ctx, connection),
+    getPluginApiFactory: (id: string) => core.pluginApiFactories.get(id),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),

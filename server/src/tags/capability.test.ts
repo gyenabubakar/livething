@@ -51,9 +51,9 @@ describe('tags typing', () => {
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
 
+    // @ts-expect-error 'nope' is not a declared ephemeral group
     define({
       env: t<Env>(),
-      // @ts-expect-error 'nope' is not a declared ephemeral group
       upgrade() {
         return { identity: 'a', tags: { ephemeral: { nope: 'x' } } };
       },

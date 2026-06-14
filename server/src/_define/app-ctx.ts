@@ -108,6 +108,14 @@ export type AppCtx<TSlots, TEnv, TMeta> = {
   ack(): void;
 
   /**
+   * Reach a registered plugin's per-connection API by its id. The plugin must be
+   * listed in `define({ capabilities: [...] })`; calling it for an unknown id
+   * throws at runtime. Pass the api type to get a typed result:
+   * `ctx.plugin<PresenceApi>('acme:presence')`.
+   */
+  plugin<TApi = unknown>(id: string): TApi;
+
+  /**
    * Tag groups for this connection. `ephemeral(group)` / `persistent(group)`
    * return a handle to add, remove, count, and address connections by tag; only
    * groups declared by the `tags(...)` capability are accepted. Requires the

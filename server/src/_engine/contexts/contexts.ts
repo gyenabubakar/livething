@@ -1,4 +1,5 @@
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
+import { scopePluginContext } from '~/plugin-scope.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -193,6 +194,24 @@ export function buildConnectionContext(
       },
     });
   }
+
+  // ctx.plugin(id) — runs the registered plugin's API factory against a
+  // plugin-scoped context (sends prefixed with the plugin namespace), cached
+  // per connection context so repeated calls return the same API object.
+  const pluginApiCache = new Map<string, unknown>();
+  (base as Record<PropertyKey, unknown>).plugin = (id: string) => {
+    if (pluginApiCache.has(id)) return pluginApiCache.get(id);
+    const factory = deps.getPluginApiFactory(id);
+    if (!factory) {
+      throw new Error(
+        `[wskit] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
+          'List the plugin in define({ capabilities: [...] }).',
+      );
+    }
+    const api = factory(scopePluginContext(id, base));
+    pluginApiCache.set(id, api);
+    return api;
+  };
 
   // User extension hook — extenders see the assembled ctx and return a
   // partial that gets merged in.

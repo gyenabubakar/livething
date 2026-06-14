@@ -1,7 +1,7 @@
-import { capability } from '~/_define/capability.ts';
+import { hostCapability } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { HostCapability } from '~/_define/capability.ts';
 import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
 
 /**
@@ -21,7 +21,7 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
  * });
  * ```
  */
-export function keepalive(options: KeepaliveOptions): Capability<{}, 'keepalive'> {
+export function keepalive(options: KeepaliveOptions): HostCapability<{}, 'keepalive'> {
   const { pingIntervalMs, idleTimeoutMs } = options;
   assertPositiveInteger(pingIntervalMs, 'pingIntervalMs', 'keepalive()');
   assertPositiveInteger(idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
@@ -32,5 +32,5 @@ export function keepalive(options: KeepaliveOptions): Capability<{}, 'keepalive'
         'window closes, or a live client would be dropped.',
     );
   }
-  return capability<{}, 'keepalive'>([keepaliveFactory(options)], ['keepalive']);
+  return hostCapability<{}, 'keepalive'>([keepaliveFactory(options)], ['keepalive']);
 }

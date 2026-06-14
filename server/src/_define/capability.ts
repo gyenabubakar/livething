@@ -61,15 +61,39 @@ export function capability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TExtra extends object = {},
 >(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
-): Capability<TSlots, TFeature, TBrand> {
+  extra?: TExtra,
+): Capability<TSlots, TFeature, TBrand> & TExtra {
   return {
     __wskitCapability: true,
     __primitives: primitives,
     __features: features,
-  } as Capability<TSlots, TFeature, TBrand>;
+    ...(extra ?? ({} as TExtra)),
+  } as Capability<TSlots, TFeature, TBrand> & TExtra;
+}
+
+/**
+ * A capability the **host** owns and a plugin can never list — the global
+ * engines (`ack`, `dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
+ * `replay`). It carries a `__hostOnly` marker so `define({ scoped: true })`
+ * rejects it at compile time; a plugin declares a prerequisite on it instead.
+ */
+export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
+  TSlots,
+  TFeature
+> & { readonly __hostOnly: true };
+
+/** Build a host-owned capability — like `capability()`, but marked `__hostOnly`. */
+export function hostCapability<TSlots = {}, TFeature extends string = never>(
+  primitives: readonly Primitive[],
+  features: readonly TFeature[] = [],
+): HostCapability<TSlots, TFeature> {
+  return capability<TSlots, TFeature, never, { readonly __hostOnly: true }>(primitives, features, {
+    __hostOnly: true,
+  });
 }
 
 /**

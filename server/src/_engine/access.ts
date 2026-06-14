@@ -402,6 +402,13 @@ export interface EngineAccess {
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 
   /**
+   * Register a plugin's per-connection API factory under its id. `ctx.plugin(id)`
+   * runs the factory against a plugin-scoped context. Two plugins sharing an id
+   * is a build error.
+   */
+  registerPluginApi(id: string, factory: (ctx: unknown) => unknown): void;
+
+  /**
    * Refresh the idle timeout for one live connection.
    *
    * Built-in primitives such as `keepalive()` use this instead of reaching

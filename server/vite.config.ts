@@ -33,6 +33,7 @@ export default defineConfig({
         streams: resolve(__dirname, 'src/streams.ts'),
         channels: resolve(__dirname, 'src/channel/capability.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
+        plugin: resolve(__dirname, 'src/_define/plugin.ts'),
       },
       formats: ['es'],
     },

@@ -1,6 +1,6 @@
-import { capability } from '~/_define/capability.ts';
+import { hostCapability } from '~/_define/capability.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { HostCapability } from '~/_define/capability.ts';
 
 /**
  * Enable acknowledgements. With this listed, a handler can call `ctx.ack()` to
@@ -25,6 +25,6 @@ import type { Capability } from '~/_define/capability.ts';
  * });
  * ```
  */
-export function ack(): Capability<{}, 'ack'> {
-  return capability<{}, 'ack'>([ackFactory()], ['ack']);
+export function ack(): HostCapability<{}, 'ack'> {
+  return hostCapability<{}, 'ack'>([ackFactory()], ['ack']);
 }

@@ -1,6 +1,6 @@
-import { capability } from '~/_define/capability.ts';
+import { hostCapability } from '~/_define/capability.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { HostCapability } from '~/_define/capability.ts';
 
 /**
  * Turn on durable storage. This is the prerequisite for features that must
@@ -15,6 +15,6 @@ import type { Capability } from '~/_define/capability.ts';
  * const base = define({ env: t<Env>(), capabilities: [persistence()] });
  * ```
  */
-export function persistence(): Capability<{}, 'persistence'> {
-  return capability<{}, 'persistence'>([persistenceFactory()], ['persistence']);
+export function persistence(): HostCapability<{}, 'persistence'> {
+  return hostCapability<{}, 'persistence'>([persistenceFactory()], ['persistence']);
 }

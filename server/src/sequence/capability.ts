@@ -1,6 +1,6 @@
-import { capability } from '~/_define/capability.ts';
+import { hostCapability } from '~/_define/capability.ts';
 import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
-import type { Capability } from '~/_define/capability.ts';
+import type { HostCapability } from '~/_define/capability.ts';
 import type { SequenceOptions } from '~/sequence/sequence.ts';
 
 /**
@@ -20,6 +20,6 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
  * const base = define({ env: t<Env>(), capabilities: [sequence({ persist: true })] });
  * ```
  */
-export function sequence(options?: SequenceOptions): Capability<{}, 'sequence'> {
-  return capability<{}, 'sequence'>([sequenceFactory(options)], ['sequence']);
+export function sequence(options?: SequenceOptions): HostCapability<{}, 'sequence'> {
+  return hostCapability<{}, 'sequence'>([sequenceFactory(options)], ['sequence']);
 }

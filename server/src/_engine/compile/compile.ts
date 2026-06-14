@@ -164,8 +164,9 @@ export function compileHandlerDefinition(
   validatePluginDependencies(compiled, handler.__features);
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
-  validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
-  validateScopeAndEventNameSyntax(compiled);
+  const declaredPluginEvents = collectPluginEventNames(compiled);
+  validateNoReservedEventNames(compiled, declaredPluginEvents);
+  validateScopeAndEventNameSyntax(compiled, declaredPluginEvents);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
 }
@@ -295,7 +296,10 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * These rules are easier to enforce as a build-time hard error than to escape
  * at parse time; real-world names don't need any of these characters.
  */
-function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
+function validateScopeAndEventNameSyntax(
+  compiled: EngineCompileTypes.CompiledServer,
+  declaredPluginEvents: ReadonlySet<string>,
+): void {
   // A static channel name travels on the wire as `channel` (limit 256); a
   // dynamic family key travels as `channelScope` (limit 128). Validating a
   // family key against the larger channel limit lets a 129-char key boot that
@@ -319,7 +323,10 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
   }
 
   function checkEventName(event: string, scopeLabel: string): void {
-    if (event.includes('::')) {
+    // A namespaced plugin event travels as `__<id>::<name>`, where `::` is the
+    // intentional id↔name boundary. Exempt it only when it is a known plugin
+    // event (by provenance), so a hand-declared `::` name still throws.
+    if (event.includes('::') && !declaredPluginEvents.has(event)) {
       throw new Error(
         `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
           `separator in the contract.matches(...) path key syntax — pick a different name.`,
@@ -461,6 +468,16 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
     }
   }
 
+  // New-model plugins contribute namespaced incoming/request/outgoing primitives
+  // that carry a `__plugin` provenance marker. Collecting their wire names here is
+  // what lets the reserved-name guards allow the framework-managed `__<id>::name`
+  // form while still rejecting any hand-declared reserved name.
+  for (const scope of [compiled.incoming, compiled.requests, compiled.outgoing]) {
+    for (const [event, primitive] of scope) {
+      if ((primitive as { __plugin?: string }).__plugin) names.add(event);
+    }
+  }
+
   return names;
 }
 
@@ -484,8 +501,9 @@ function validateNoReservedEventNames(
 
     // The double-underscore prefix is reserved for WSKit protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
-    // names installed plugins actually declared — anything else with the
-    // prefix is a user-declared event that would clash with the protocol.
+    // names installed plugins actually declared (by provenance, not by string
+    // shape) — anything else with the prefix is a user-declared event that would
+    // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
       throw new Error(
         `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +

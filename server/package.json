@@ -79,6 +79,11 @@
       "wskit-dev": "./src/tags/capability.ts",
       "types": "./dist/tags/capability.d.ts",
       "import": "./dist/tags.js"
+    },
+    "./plugin": {
+      "wskit-dev": "./src/_define/plugin.ts",
+      "types": "./dist/_define/plugin.d.ts",
+      "import": "./dist/plugin.js"
     }
   },
   "publishConfig": {

@@ -26,6 +26,8 @@ export interface RateLimitGlobalConfig {
 
 /** A `rateLimit(...)` capability, carrying its global rule and intercept builder for assembly. */
 export interface RateLimitCapability extends Capability<{}, never, never> {
+  /** Host-owned: rejected inside a plugin's `define({ scoped: true })`. @internal */
+  readonly __hostOnly: true;
   /** The global rule, or `undefined` when only per-handler limits apply. @internal */
   readonly __rateLimit: RateLimitConfig | undefined;
   /**
@@ -62,9 +64,11 @@ export function rateLimit(config?: RateLimitGlobalConfig): RateLimitCapability {
   const rule: RateLimitConfig | undefined = config ? { enabled: true, ...config } : undefined;
   const cap = capability<{}>([]) as RateLimitCapability;
   const writable = cap as {
+    __hostOnly: true;
     __rateLimit: RateLimitConfig | undefined;
     __buildRateLimit: (overrides: ReadonlyMap<string, RateLimitConfig>) => Primitive | null;
   };
+  writable.__hostOnly = true;
   writable.__rateLimit = rule;
   writable.__buildRateLimit = (overrides) => {
     const plan = resolvePlan({

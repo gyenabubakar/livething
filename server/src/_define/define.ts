@@ -93,6 +93,32 @@ export interface DefineConfig<
   readonly hibernation?: { readonly enabled: boolean };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
   readonly capabilities?: TCaps;
+  /** Always absent on an app server — set only by a plugin's scoped handler (`scoped: true`). */
+  readonly scoped?: false;
+}
+
+/**
+ * A capability a plugin is allowed to list — every capability except a
+ * host-owned one. Host-owned engines (`ack`/`dedup`/`sequence`/`keepalive`/
+ * `persistence`/`rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one
+ * inside `define({ scoped: true })` is a compile error. A plugin declares a
+ * prerequisite on them instead.
+ */
+export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
+
+/**
+ * The configuration for a **plugin's** scoped handler (`scoped: true`). Authored
+ * with the same builders as an app, but it declares only its own namespaced
+ * slice and inherits the host's env, transport, and global singletons — so it
+ * has no `env` field and cannot own host-level capabilities (see `plugin(...)`).
+ */
+export interface ScopedDefineConfig<
+  TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
+> {
+  /** Marks this as a plugin's scoped handler. */
+  readonly scoped: true;
+  /** The features this plugin uses. Host-owned capabilities are a compile error here. */
+  readonly capabilities?: TCaps;
 }
 
 /** The value `base.on(...)` returns — a handler primitive that also declares its contract slot. */
@@ -879,7 +905,11 @@ export function define<
   const TCaps extends readonly AnyCapability[] = readonly [],
 >(
   config: DefineConfig<TEnv, TMeta, TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps> {
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
+export function define<const TCaps extends readonly PluginSafeCapability[] = readonly []>(
+  config: ScopedDefineConfig<TCaps>,
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, unknown, TCaps>;
+export function define(config: any): Base<any, any, any, any> {
   const lifecyclePrimitives: Primitive[] = [];
   const seen = new Set<string>();
 
@@ -1170,9 +1200,10 @@ export function define<
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
+        ...(config.scoped ? { __scoped: true as const } : {}),
       });
     },
   };
 
-  return base as unknown as Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
+  return base as unknown as Base<any, any, any, any>;
 }

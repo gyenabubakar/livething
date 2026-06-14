@@ -100,6 +100,13 @@ export class EngineCore {
    */
   readonly tagGroupSchemas = new Map<string, Validator>();
 
+  /**
+   * Per-connection API factories for plugins registered through the new
+   * `plugin(...)` model, keyed by plugin id. `ctx.plugin(id)` runs the matching
+   * factory against a plugin-scoped context. Empty when no such plugin is listed.
+   */
+  readonly pluginApiFactories = new Map<string, (ctx: unknown) => unknown>();
+
   readonly declaredErrorCodes = new Set<string>([
     // The engine's own fallback code for any non-WSKitError. It is always a
     // valid code to surface, so declaring it here keeps an explicit

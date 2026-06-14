@@ -162,6 +162,14 @@ export function createEngineAccess(
     setChannelPersistent: (channelKey, enabled) => {
       core.channelPersistenceOverrides.set(channelKey, enabled);
     },
+    registerPluginApi: (id, factory) => {
+      if (core.pluginApiFactories.has(id)) {
+        throw new Error(
+          `[wskit] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
+        );
+      }
+      core.pluginApiFactories.set(id, factory);
+    },
     registerTagGroups: (kind, groups) => {
       if (core.tagGroupsRegistered[kind]) {
         throw new Error(`[wskit] tagGroups.${kind} declared more than once in this contract.`);
