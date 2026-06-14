@@ -57,6 +57,22 @@ export type {
   PluginInstance,
 } from './plugins/plugin.ts';
 
+export { define } from './_define/define.ts';
+export type {
+  Base,
+  CoreBase,
+  DefineConfig,
+  IncomingHandlerValue,
+  OnConfig,
+  UpgradeFn,
+  UpgradeReturn,
+} from './_define/define.ts';
+export type { AppCtx } from './_define/app-ctx.ts';
+export type { Capability, Contribution } from './_define/capability.ts';
+export { emits } from './emits/emits.ts';
+export type { EmitDefs } from './emits/emits.ts';
+export { errors } from './errors/capability.ts';
+
 export type { InferClient } from './infer-client.ts';
 
 export type {
