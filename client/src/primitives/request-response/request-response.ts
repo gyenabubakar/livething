@@ -33,6 +33,10 @@ export function requestResponse(
 
   return {
     _tag: 'requestResponse',
+    // Run after serverRequest so a server-initiated request (a correlated frame
+    // for a serverRequests event) is claimed there first; this primitive then
+    // only sees replies to the client's own requests.
+    optionalAfter: ['serverRequest'],
     setup(helpers) {
       const pending = new Map<string, Pending>();
       // Frames for requests made before the socket is open when no buffering is
@@ -42,8 +46,6 @@ export function requestResponse(
       // so a serialization failure on flush rejects that exact request.
       const outbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
 
-      // The owner a buffered/outboxed frame carries: still pending while its entry
-      // is in `pending`, and rejecting it settles the waiting Promise.
       function ownerFor(correlationId: string): FrameOwner {
         return {
           isPending: () => pending.has(correlationId),
@@ -68,6 +70,7 @@ export function requestResponse(
             outbox.delete(correlationId);
             helpers.lazyRelease();
           }
+
           const timer = setTimeout(() => {
             done();
             reject(Timeout());
@@ -79,6 +82,7 @@ export function requestResponse(
               done();
               resolve(value);
             },
+
             reject: (reason) => {
               clearTimeout(timer);
               done();
@@ -98,6 +102,7 @@ export function requestResponse(
           // nothing will flush it, so fail fast instead of hanging to the timeout.
           const owner = ownerFor(correlationId);
           let result: SendResult;
+
           try {
             result = helpers.send(frame, { owner });
           } catch (error) {
@@ -119,6 +124,7 @@ export function requestResponse(
 
       return {
         id: 'requestResponse',
+
         onOpen() {
           // Flush held request frames once the socket opens. Skip any whose owner
           // already settled (timed out / disconnected), and let rawSend reject the
@@ -130,9 +136,11 @@ export function requestResponse(
           }
           return null;
         },
+
         onIncoming(message) {
           const correlationId = message.__wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
+
           const waiter = pending.get(correlationId);
           // A reply with no pending waiter is a late/duplicate response to a request
           // that already settled (timed out, rejected on disconnect, or resolved by an
@@ -140,21 +148,24 @@ export function requestResponse(
           if (!waiter) return null;
 
           helpers.log.info(`matched response for request '${correlationId}'`);
+
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
           else waiter.resolve(message.payload);
+
           return null;
         },
+
         onClose() {
           for (const waiter of pending.values()) waiter.reject(Disconnected());
           pending.clear();
           outbox.clear();
         },
+
         install(socket) {
           // @ts-expect-error — install adds request() to the socket dynamically
           socket.request = (event: string, payload: unknown, callOptions?: { timeout?: number }) =>
             sendRequest(event, payload, { markers: {}, timeout: callOptions?.timeout });
 
-          // Let channel messaging objects make scoped requests too.
           getAugmenters(socket).push((messaging, scope) => {
             messaging.request = (
               event: string,
@@ -173,4 +184,5 @@ export function requestResponse(
     },
   };
 }
+
 requestResponse.tag = 'requestResponse';

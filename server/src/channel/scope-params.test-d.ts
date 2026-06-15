@@ -6,10 +6,6 @@
 import { channel, contract, implement, scope, t } from '~/index.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 
-// ---------------------------------------------------------------------------
-// ExtractParams — the underlying template-literal inference
-// ---------------------------------------------------------------------------
-
 const _single: ExtractParams<'room:{id}'> = { id: 'x' };
 void _single;
 
@@ -19,10 +15,6 @@ void _multi;
 // A paramless template infers the empty object.
 const _none: ExtractParams<'lobby'> = {};
 void _none;
-
-// ---------------------------------------------------------------------------
-// End-to-end: scope() -> contract -> implement().channel -> ctx.channel.params
-// ---------------------------------------------------------------------------
 
 const app = contract('app', {
   env: t<{ X: string }>(),

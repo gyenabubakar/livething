@@ -158,7 +158,6 @@ describe('channels.kick end-to-end', () => {
       new Set(['banned', 'also_banned']),
     );
 
-    // Kept connection still a member.
     expect(
       [...kept.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
@@ -288,7 +287,6 @@ describe('channels.kick end-to-end', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const banned = createConnection('banned');
 
-    // Use a dynamic channel family scope so channelScope is non-null.
     addChannelMembership(channelMembers, banned, {
       channelName: 'room:123',
       channelScope: 'room',
@@ -305,7 +303,7 @@ describe('channels.kick end-to-end', () => {
     const runtime = {
       compiled: {
         channels: new Map(),
-        channelFamilies: new Map(), // family 'room' is NOT registered
+        channelFamilies: new Map(),
       },
       connections,
       channelMembers,
@@ -340,8 +338,6 @@ describe('channels.kick end-to-end', () => {
       sendProtocolMessage() {},
       broadcastToChannel() {},
       async handleValidationError() {},
-      // The channel IS persistent — isChannelPersistent would return true for
-      // any key associated with this family if the family were present.
       isChannelPersistent: (_key: string) => true,
       persistMembership() {},
       deleteDurableMembership(identity: string, channelName: string, channelScope: string | null) {

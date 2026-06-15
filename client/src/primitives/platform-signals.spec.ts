@@ -18,8 +18,6 @@ function mockEnvironment() {
   const instance = environment({
     onVisibilityChange(cb) {
       vis = cb;
-      // A real unsubscribe stops routing — so a test that emits after an unbind
-      // sees nothing, making listener-lifecycle assertions mutation-sensitive.
       return () => {
         vis = null;
         visUnsub();
@@ -87,12 +85,10 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
     const m = mockEnvironment();
     const { socket } = build(platform({ environment: m.environment, backgroundDisconnectMs: 500 }));
 
-    // Hide the app — timer fires and platform calls disconnect() with selfDisconnecting=true.
     m.setVisible(false);
     vi.advanceTimersByTime(500);
     expect(socket.getState()).toBe('closed');
 
-    // The background drop should NOT have unsubscribed the network listener.
     expect(m.netUnsub).not.toHaveBeenCalled();
   });
 
@@ -104,7 +100,6 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
 
     socket.disconnect();
 
-    // A real user disconnect must unbind both environment listeners.
     expect(m.netUnsub).toHaveBeenCalledTimes(1);
   });
 
@@ -116,16 +111,12 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
     })();
     build(platform({ environment: m.environment, backgroundDisconnectMs: 500 }), capture);
 
-    // Drive a background disconnect.
     m.setVisible(false);
     vi.advanceTimersByTime(500);
 
-    // Foreground triggers reconnect.
     m.setVisible(true);
     MockWebSocket.last().open();
 
-    // Trigger the network listener post-reopen — it must still be alive and
-    // route the signal to any subscriber.
     m.setOnline(false);
     expect(received).toEqual([false]);
 
@@ -162,10 +153,8 @@ describe('visibility signal routing via onSignal', () => {
     build(platform({ environment: m.environment, backgroundDisconnectMs: 2000 }), primitive);
 
     m.setVisible(false);
-    // Cancel the timer by coming back before 2000ms.
     vi.advanceTimersByTime(500);
     m.setVisible(true);
-    // Go hidden again.
     m.setVisible(false);
 
     expect(received).toEqual([false, true, false]);
@@ -174,12 +163,11 @@ describe('visibility signal routing via onSignal', () => {
   it('emits the visibility signal even when backgroundDisconnectMs is not set', () => {
     const m = mockEnvironment();
     const { primitive, received } = makeSignalCapture();
-    const { socket } = build(platform({ environment: m.environment }), primitive); // no background disconnect
+    const { socket } = build(platform({ environment: m.environment }), primitive);
 
     m.setVisible(false);
     m.setVisible(true);
 
-    // The signal is a general extension point — it fires regardless.
     expect(received).toEqual([false, true]);
 
     // And without backgroundDisconnectMs, going hidden must NOT drop the socket.
@@ -203,7 +191,6 @@ describe('signal handler isolation (#20)', () => {
         return { id: 'signal-thrower' };
       },
     };
-    // Registration order = primitive order: thrower runs before `second`.
     const { socket } = build(
       platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
       thrower,
@@ -221,8 +208,6 @@ describe('signal handler isolation (#20)', () => {
 describe('environment cleanup isolation (#21)', () => {
   it('one throwing cleanup still detaches the other listeners', () => {
     const visUnsub = vi.fn();
-    // Network cleanup is registered first; make it throw and verify the later
-    // visibility cleanup still runs.
     const env = environment({
       onNetworkChange() {
         return () => {
@@ -237,7 +222,7 @@ describe('environment cleanup isolation (#21)', () => {
     const { socket } = build(platform({ environment: env, backgroundDisconnectMs: 500 }));
     socket.onError((error) => errors.push(error));
 
-    socket.disconnect(); // close → unbind runs every cleanup
+    socket.disconnect();
 
     expect(visUnsub).toHaveBeenCalled();
     expect(errors.length).toBeGreaterThanOrEqual(1);

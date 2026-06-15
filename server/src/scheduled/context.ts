@@ -1,4 +1,5 @@
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
+import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 
 /**
@@ -18,18 +19,7 @@ export function createTaskContext(
     broadcast: (event, payload) => {
       deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
-    sendToConnection: (connectionId, event, payload) => {
-      const connection = deps.connections.get(connectionId);
-      if (!connection) {
-        deps.logger.error('[wskit] sendToConnection target not found', {
-          connectionId,
-          event,
-        });
-        return false;
-      }
-      deps.sendThroughPipeline(connection, { routing: undefined, event, payload });
-      return true;
-    },
+    ...buildConnectionHandle(deps),
     getConnections: () => {
       return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
     },

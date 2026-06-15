@@ -7,11 +7,6 @@ import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// request(), sendWithAck() and stream() all "send and await". They must obey the
-// same rule as send(): with buffering on, a frame queued offline (or while a
-// staggered flush is draining) flushes in order; with buffering off, a frame sent
-// before the socket opens is held for the in-progress connect and flushed on open
-// (it is NOT raced onto the wire ahead of buffered messages, and NOT dropped).
 interface C {
   outgoing: { typing: { id: string } };
   requests: { echo: { payload: { id: string }; response: { ok: boolean } } };
@@ -40,14 +35,14 @@ describe('send-and-await frames respect the buffering flush order', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
-    ws.serverClose(1006); // offline; the buffer keeps queued sends
+    ws.serverClose(1006);
 
     socket.send('typing', { id: 'a' });
     socket.send('typing', { id: 'b' });
 
     socket.connect();
     ws = MockWebSocket.last();
-    ws.open(); // onOpen flush: 'a' now, 'b' scheduled +100ms (isFlushing = true)
+    ws.open();
 
     void socket.request('echo', { id: 'r' }); // must NOT jump ahead of 'b'
 
@@ -92,18 +87,18 @@ describe('send-and-await frames respect the buffering flush order', () => {
 describe('send-and-await frames are held (not dropped) before open without buffering', () => {
   it('holds a sendWithAck made before open and flushes it when the socket opens', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), ack());
-    const pending = socket.sendWithAck('typing', { id: 'a' }); // lazy connect; not open yet
+    const pending = socket.sendWithAck('typing', { id: 'a' });
     void pending.catch(() => undefined);
 
-    const ws = MockWebSocket.last(); // created by the lazy connect
-    expect(ws.sentFrames()).toEqual([]); // held — not sent, not rejected
+    const ws = MockWebSocket.last();
+    expect(ws.sentFrames()).toEqual([]);
 
-    ws.open(); // onOpen flushes the held frame
+    ws.open();
     const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'typing');
     expect(sent).toBeDefined();
 
     const ackId = sent.__wskit.ackId as string;
-    ws.emit({ event: 'typing', payload: {}, __wskit: { ackId } }); // server confirms
+    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId } });
     await expect(pending).resolves.toBeUndefined();
   });
 
@@ -113,7 +108,7 @@ describe('send-and-await frames are held (not dropped) before open without buffe
     void pending.catch(() => undefined);
 
     const ws = MockWebSocket.last();
-    expect(ws.sentFrames()).toEqual([]); // held
+    expect(ws.sentFrames()).toEqual([]);
 
     ws.open();
     const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'echo');
@@ -140,7 +135,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
       );
       await Promise.resolve();
       await Promise.resolve();
-      expect(settled).toHaveBeenCalledWith('disconnected'); // settled with the 10s timer un-advanced
+      expect(settled).toHaveBeenCalledWith('disconnected');
     } finally {
       vi.useRealTimers();
     }

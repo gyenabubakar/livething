@@ -54,7 +54,13 @@ const handleDoSendToEmpty = base.on('do-send-to-empty', {
 const handleDoSendToConnection = base.on('do-send-to-connection', {
   input: v.object({ connectionId: v.string(), text: v.string() }),
   run(ctx, input) {
-    const delivered = ctx.sendToConnection(input.connectionId, 'message', {
+    const ref = {
+      __wskit: 'connection-ref' as const,
+      id: input.connectionId,
+      instance: undefined,
+      identity: input.connectionId,
+    };
+    const delivered = ctx.connection(ref).send('message', {
       text: input.text,
       from: ctx.meta.username,
     });

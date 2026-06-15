@@ -79,16 +79,13 @@ describe('durable stream survives unexpected drop', () => {
       // Drop the connection unexpectedly — a persistent stream must NOT throw Disconnected.
       first.serverClose(1006, 'drop');
 
-      // Reconnect.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
-      // More chunks arrive after resume.
       second.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
       second.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
 
-      // The for-await loop should have received both chunks without throwing.
       expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
     } finally {
       vi.useRealTimers();
@@ -106,7 +103,6 @@ describe('cancel during reconnect', () => {
       first.open();
       const { handle, sid } = await start(socket, first, { streamKind: 'persistent' });
 
-      // Drop the connection: the stream is kept for the reconnect window.
       first.serverClose(1006, 'drop');
 
       // Cancel while reconnecting — the frame can't go out yet, so it's held and the
@@ -114,7 +110,6 @@ describe('cancel during reconnect', () => {
       handle.cancel();
       expect(handle.active).toBe(true);
 
-      // Reconnect: the held cancel flushes and no __resumeStream__ is sent.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -127,8 +122,6 @@ describe('cancel during reconnect', () => {
         false,
       );
 
-      // The stream loop ends cleanly (cancel ends without throwing) and the lazy
-      // hold is released exactly once.
       expect(await collect(handle)).toEqual([]);
       expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
     } finally {
@@ -172,33 +165,26 @@ describe('resumable stream lazy hold across failed reconnects', () => {
       const first = MockWebSocket.last();
       first.open();
 
-      // An unrelated lazy consumer (a broadcast-stream subscriber) holds a count.
       const unrelated = socket.onStream('ask-ai', { onChunk: () => undefined });
 
-      // Two durable streams start, each taking a hold.
       const a = await start(socket, first, { streamKind: 'persistent' });
       const b = await start(socket, first, { streamKind: 'persistent' });
       const baseline = (socket as unknown as WSKitSocket)._lazyConsumers;
-      expect(baseline).toBe(3); // unrelated + 2 streams
+      expect(baseline).toBe(3);
 
-      // Drop, then several failed reconnect attempts each fire onClose before opening.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().serverClose(1006, 'still down');
       vi.advanceTimersByTime(3000);
       MockWebSocket.last().serverClose(1006, 'still down');
 
-      // After repeated closes, each kept stream released its single hold exactly
-      // once — the count dropped by 2 (the streams), not more.
-      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1); // only unrelated remains
+      expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
 
-      // A successful reconnect re-acquires both stream holds.
       vi.advanceTimersByTime(6000);
       const reopened = MockWebSocket.last();
       reopened.open();
       expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(3);
 
-      // End both streams; the unrelated consumer keeps its count.
       reopened.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: a.sid } });
       reopened.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: b.sid } });
       expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
@@ -225,14 +211,12 @@ describe('hibernation-wake resume', () => {
       __wskit: { streamId: sid },
     });
 
-    // The primitive must have re-sent a __resumeStream__ frame.
     const frames = ws.sentFrames();
     const resumeFrame = frames.find(
       (f) => f.event === '__resumeStream__' && f.__wskit.streamId === sid,
     );
     expect(resumeFrame).toBeDefined();
 
-    // The stream is still alive — deliver more chunks and close cleanly.
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
 
@@ -272,19 +256,14 @@ describe('ephemeral stream not resumed on reconnect', () => {
       const first = MockWebSocket.last();
       first.open();
 
-      // Start an ephemeral stream (default).
       const { handle, sid } = await start(socket, first, { streamKind: 'ephemeral' });
 
-      // Collect in background — will throw Disconnected.
       const collectPromise = collect(handle);
 
-      // Drop the connection unexpectedly.
       first.serverClose(1006, 'drop');
 
-      // Ephemeral streams must throw Disconnected.
       await expect(collectPromise).rejects.toMatchObject({ code: 'disconnected' });
 
-      // Reconnect and verify no __resumeStream__ is sent.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -305,14 +284,12 @@ describe('__error__ with correlationId/ackId passthrough', () => {
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
     socket.onError(() => {});
-    // __error__ with a correlationId belongs to another primitive — stream must ignore it.
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found' },
       __wskit: { streamId: sid, correlationId: 'req-abc' },
     });
 
-    // Stream is still alive — chunks should still arrive.
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
 
@@ -341,17 +318,12 @@ describe('resumeStream reuse branch', () => {
   it('reuses existing state when resumeStream is called twice for the same id', async () => {
     const { socket, ws } = build();
 
-    // First call creates the state and acquires a lazy hold.
     const handleA = socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
 
-    // Second call for the same id must reuse the existing state — no new lazy hold.
     socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
 
-    // Only one lazyAcquire was called (for the first resumeStream); the second reused state.
-    // If a second lazyAcquire fired, _lazyConsumers would be 2, not 1.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
 
-    // The original handle's loop drains chunks — proving both calls share the same queue.
     ws.emit({ event: 'ask-ai', payload: { text: 'x' }, __wskit: { streamId: 'feed-1', seq: 1 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-1' } });
 
@@ -362,17 +334,13 @@ describe('resumeStream reuse branch', () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
-    // After start(), exactly one lazy hold is live (from triggerStream).
     const consumersAfterStart = (socket as unknown as WSKitSocket)._lazyConsumers;
 
-    // resumeStream for the same id must reuse the existing state — no new lazy hold.
     socket.resumeStream('ask-ai', sid, { lastKnownSeq: 0 });
 
     // lazyAcquire must NOT have been called again; the consumer count stays the same.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(consumersAfterStart);
 
-    // Chunks delivered after resumeStream arrive on the original handle's queue,
-    // proving the same StreamState (and its queue) was reused.
     ws.emit({ event: 'ask-ai', payload: { text: 'z' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
 
@@ -384,7 +352,6 @@ describe('resumeStream default lastKnownSeq from state', () => {
   it('sends payload {} when no chunk has been delivered and no lastKnownSeq is given', () => {
     const { socket, ws } = build();
 
-    // No chunks received yet — lastSeq is NEGATIVE_INFINITY (not finite).
     socket.resumeStream('ask-ai', 'feed-fresh');
 
     const frame = ws.sentFrames().at(-1);
@@ -404,7 +371,6 @@ describe('resumeStream default lastKnownSeq from state', () => {
       first.open();
 
       const { sid } = await start(socket, first, { streamKind: 'persistent' });
-      // Deliver a chunk so lastSeq = 3.
       first.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 3 } });
 
       first.serverClose(1006, 'drop');
@@ -412,7 +378,6 @@ describe('resumeStream default lastKnownSeq from state', () => {
       const second = MockWebSocket.last();
       second.open();
 
-      // On reconnect, the primitive derives lastKnownSeq from state.lastSeq (3).
       expect(second.sentFrames()).toContainEqual({
         event: '__resumeStream__',
         payload: { lastKnownSeq: 3 },
@@ -426,24 +391,17 @@ describe('resumeStream default lastKnownSeq from state', () => {
 
 describe('resumable stream releases lazy hold when socket closes with no reconnect', () => {
   it('drops _lazyConsumers to 0 after a persistent stream on a lazy socket closes permanently (code 1006, no reconnect)', async () => {
-    // A lazy socket — _lazyConsumers tracks who is keeping it alive.
     const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
 
-    // Start a persistent (resumable) stream.
     await start(socket, ws, { streamKind: 'persistent' });
 
-    // Exactly one lazy hold acquired by triggerStream.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
 
-    // Server drops the connection unexpectedly — no reconnection primitive is
-    // registered, so the socket stays closed permanently.
     ws.serverClose(1006, 'drop');
 
-    // The stream is dead: the socket cannot reconnect, so the hold MUST be
-    // released. Today it stays stuck at 1 for resumable streams.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
   });
 });
@@ -452,7 +410,6 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
   it('does not abort a resumable stream with Timeout while waiting for the first resumed chunk after reconnect', async () => {
     vi.useFakeTimers();
     try {
-      // Use a short timeout so the test can advance time without waiting real ms.
       const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
       socket.connect();
       const first = MockWebSocket.last();
@@ -460,11 +417,9 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
 
       const { handle, sid } = await start(socket, first, { streamKind: 'persistent' });
 
-      // Deliver one chunk, then drop the connection before any more arrive.
       first.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
       first.serverClose(1006, 'drop');
 
-      // Reconnect.
       vi.advanceTimersByTime(500);
       const second = MockWebSocket.last();
       second.open();
@@ -477,7 +432,6 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
       // only start when the first resumed chunk is received.
       vi.advanceTimersByTime(1100);
 
-      // Now deliver the first resumed chunk.
       second.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
       second.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
 
@@ -496,7 +450,7 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
     try {
       const socket = client<C>()(
         connect('wss://test'),
-        stream({ timeout: 0 }), // no per-chunk timer: only the close path can settle it
+        stream({ timeout: 0 }),
         reconnection({ maxAttempts: 1 }),
       );
       socket.connect();
@@ -508,7 +462,7 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
         () => null,
         (error) => error,
       );
-      await Promise.resolve(); // park the for-await on the queue
+      await Promise.resolve();
 
       // Drop, fire the one retry, then drop the retry BEFORE it opens so the
       // attempt counter is never reset — reconnection exhausts maxAttempts and
@@ -542,7 +496,7 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
     );
     await Promise.resolve();
 
-    ws.serverClose(4001, 'policy'); // non-retryable → reconnection gives up at once
+    ws.serverClose(4001, 'policy');
 
     expect(socket.getState()).toBe('closed');
     expect(await drained).toMatchObject({ code: 'disconnected' });
@@ -551,11 +505,11 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
 
 describe('stream teardown, pre-open triggers, and resume deadline', () => {
   it('a resumable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
-    const { socket, ws } = build(); // no reconnection() — an unexpected drop is terminal
+    const { socket, ws } = build();
     const { handle } = await start(socket, ws, { streamKind: 'persistent' });
 
     const drained = collect(handle);
-    await Promise.resolve(); // let the for-await park on the queue
+    await Promise.resolve();
     ws.serverClose(1006, 'drop');
 
     await expect(drained).rejects.toMatchObject({ code: 'disconnected' });
@@ -565,10 +519,10 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), stream({ timeout: 0 }));
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
 
-    const ws = MockWebSocket.last(); // created by the lazy connect, not open yet
-    expect(ws.sentFrames()).toEqual([]); // held, not dropped
+    const ws = MockWebSocket.last();
+    expect(ws.sentFrames()).toEqual([]);
 
-    ws.open(); // onOpen flushes the held trigger
+    ws.open();
     const sent = ws.sentFrames().find((f) => f.event === 'ask-ai');
     expect(sent).toBeDefined();
 
@@ -593,14 +547,13 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(500);
       const second = MockWebSocket.last();
-      second.open(); // onReconnect sends __resumeStream__ and arms the resume deadline
+      second.open();
 
       // Capture the rejection up front so it can't surface as an unhandled one.
       const drained = collect(handle).then(
         () => null,
         (error) => error,
       );
-      // No resumed chunk ever arrives; the resume deadline must end the stream.
       await vi.advanceTimersByTimeAsync(31_000);
       expect(await drained).toMatchObject({ code: 'timeout' });
     } finally {
@@ -620,10 +573,8 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(500);
       const second = MockWebSocket.last();
-      second.open(); // onReconnect sends __resumeStream__ and arms the 30s resume deadline
+      second.open();
 
-      // The server acks the resume — proof the stream is alive — but the producer
-      // is slow, so no chunk arrives yet. The resume deadline must be dropped.
       second.emit({
         event: '__streamOk__',
         payload: {},
@@ -634,7 +585,6 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
       // must NOT be aborted by the now-stale deadline.
       await vi.advanceTimersByTimeAsync(31_000);
 
-      // The slow first chunk and a clean end finally arrive.
       second.emit({
         event: 'ask-ai',
         payload: { text: 'late' },

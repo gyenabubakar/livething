@@ -14,7 +14,12 @@
       { "name": "ACK_SERVER", "class_name": "AckServer" },
       { "name": "INCOMING_SERVER", "class_name": "IncomingServer" },
       { "name": "REQUEST_SERVER", "class_name": "RequestServer" },
+      { "name": "SERVER_REQUEST_SERVER", "class_name": "ServerRequestServer" },
+      { "name": "SERVER_ACK_SERVER", "class_name": "ServerAckServer" },
+      { "name": "BROADCAST_REQUEST_SERVER", "class_name": "BroadcastRequestServer" },
       { "name": "STREAM_BASIC_SERVER", "class_name": "StreamBasicServer" },
+      { "name": "STREAM_SIGNAL_SERVER", "class_name": "StreamSignalServer" },
+      { "name": "STREAM_BACKPRESSURE_SERVER", "class_name": "StreamBackpressureServer" },
       { "name": "STREAM_NUDGES_SERVER", "class_name": "StreamNudgesServer" },
       { "name": "STREAM_BROADCAST_SERVER", "class_name": "StreamBroadcastServer" },
       { "name": "CHANNEL_STATIC_SERVER", "class_name": "ChannelStaticServer" },
@@ -136,6 +141,26 @@
     {
       "tag": "v4",
       "deleted_classes": ["NamespaceServer"],
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["ServerRequestServer"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["BroadcastRequestServer"],
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["ServerAckServer"],
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["StreamSignalServer"],
+    },
+    {
+      "tag": "v9",
+      "new_sqlite_classes": ["StreamBackpressureServer"],
     },
   ],
 }

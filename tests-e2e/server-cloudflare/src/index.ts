@@ -6,7 +6,12 @@ export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { AckServer } from './ack.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
+export { ServerRequestServer } from './server-request.ts';
+export { ServerAckServer } from './server-ack.ts';
+export { BroadcastRequestServer } from './broadcast-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
+export { StreamSignalServer } from './stream-signal.ts';
+export { StreamBackpressureServer } from './stream-backpressure.ts';
 export { StreamNudgesServer } from './stream-nudges.ts';
 export { StreamBroadcastServer } from './stream-broadcast.ts';
 export { ChannelStaticServer } from './channel-static.ts';
@@ -51,7 +56,12 @@ export { DurableConfigServer } from './durable-config.ts';
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
+  '/ws/server-request': 'SERVER_REQUEST_SERVER',
+  '/ws/server-ack': 'SERVER_ACK_SERVER',
+  '/ws/broadcast-request': 'BROADCAST_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',
+  '/ws/stream-signal': 'STREAM_SIGNAL_SERVER',
+  '/ws/stream-backpressure': 'STREAM_BACKPRESSURE_SERVER',
   '/ws/stream-nudges': 'STREAM_NUDGES_SERVER',
   '/ws/stream-broadcast': 'STREAM_BROADCAST_SERVER',
   '/ws/channel-static': 'CHANNEL_STATIC_SERVER',

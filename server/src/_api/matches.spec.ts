@@ -176,7 +176,6 @@ describe('matches — narrows the frame type predicate', () => {
   it('narrows event, payload, kind, and routing on the true branch', () => {
     const frame: InterceptFrame = makeFrame('send-msg', { text: 'hi' });
     if (matches(testContract, 'send-msg', frame)) {
-      // Type-level: these reads should compile without `as` casts.
       const _event: 'send-msg' = frame.event;
       const _payload: { text: string } = frame.payload;
       const _kind: 'incoming' = frame.kind;

@@ -36,6 +36,11 @@ interface CommonResumableConfig {
    * `broadcast: true`. Default: 500.
    */
   maxChunks?: number;
+  /**
+   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Defaults
+   * to 256 KB.
+   */
+  highWaterMark?: number;
 }
 
 /**
@@ -171,5 +176,6 @@ export function resumableStream<
     maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
     maxChunks: config?.maxChunks ?? 500,
+    highWaterMark: config?.highWaterMark,
   };
 }

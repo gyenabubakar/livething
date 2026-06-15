@@ -42,7 +42,7 @@ const room = base.channel('room', {
   // TypeScript infers `role` from what check returned — no manual annotation needed.
   commit(ctx, { role }) {
     if (role === 'banned') throw new Error('banned role may not subscribe');
-    // `ctx.channel.members()` returns the people already in the room.
+
     // Throwing here prevents the subscriber from being added.
     if (ctx.channel.members().length >= 2) throw new Error('room is full');
   },

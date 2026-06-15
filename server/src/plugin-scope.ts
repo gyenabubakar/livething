@@ -22,7 +22,6 @@ type SendPosition = 'event-first' | 'event-second';
 const SCOPED_SENDS: Record<string, SendPosition> = {
   send: 'event-first',
   broadcast: 'event-first',
-  sendToConnection: 'event-second',
 };
 
 /**
@@ -43,6 +42,23 @@ export function scopePluginContext(id: string, ctx: any): any {
         if (typeof original !== 'function') return original;
         return (task: unknown, ...rest: unknown[]) =>
           original(pluginWireName(id, task as string), ...rest);
+      }
+
+      // `ctx.connection(ref).send('evt', ...)` — the handle is built fresh per
+      // call, so wrap its `send` to namespace the event like a plain `ctx.send`.
+      if (key === 'connection') {
+        const original = Reflect.get(target, key, receiver) as (ref: unknown) => {
+          send: (event: string, payload: unknown) => boolean;
+        };
+        if (typeof original !== 'function') return original;
+        return (ref: unknown) => {
+          const handle = original(ref);
+          return {
+            ...handle,
+            send: (event: string, payload: unknown) =>
+              handle.send(pluginWireName(id, event), payload),
+          };
+        };
       }
 
       // `ctx.tags.<kind>('group')` — the group name is namespaced so a plugin's

@@ -29,6 +29,8 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
   readonly maxChunks: number;
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Undefined = default 256 KB. */
+  readonly highWaterMark?: number;
 }
 
 /** Inputs accepted by `resumableGenerateFactory`. */
@@ -44,6 +46,7 @@ export interface BuildResumableStreamGenerateInput {
   maxChunks: number;
   maxAgeMs: number;
   retentionAfterEndMs: number;
+  highWaterMark?: number;
 }
 
 /** Build the runtime primitive used by the engine to mount one resumable stream. */
@@ -66,6 +69,7 @@ export function resumableGenerateFactory(
     maxChunks: input.maxChunks,
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,
+    highWaterMark: input.highWaterMark,
   };
 }
 

@@ -14,6 +14,28 @@ export interface EngineAccessDeps {
   createTaskContext(): unknown;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
+  /** Send a server→client request frame through the outgoing pipeline. */
+  sendServerRequest(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      correlationId: string;
+      channel?: string;
+      channelScope?: string | null;
+    },
+  ): boolean;
+  /** Send a server→client ack-required frame through the outgoing pipeline. */
+  sendServerWithAck(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      ackId: string;
+      channel?: string;
+      channelScope?: string | null;
+    },
+  ): boolean;
 }
 
 /**
@@ -43,6 +65,14 @@ export function createEngineAccess(
     onIncoming: (handler) => {
       core.hooks.incoming.push(handler);
     },
+    onAnswerFrame: (handler) => {
+      core.hooks.answerFrame.push(handler);
+    },
+    sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
+    onAckFrame: (handler) => {
+      core.hooks.ackFrame.push(handler);
+    },
+    sendServerWithAck: (connectionId, opts) => deps.sendServerWithAck(connectionId, opts),
     onOutgoing: (handler) => {
       core.hooks.outgoing.push(handler);
     },

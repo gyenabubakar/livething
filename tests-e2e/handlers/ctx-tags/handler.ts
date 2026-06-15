@@ -56,9 +56,11 @@ const handleGetByTag = base.on('get-by-tag', {
   run(ctx, input) {
     const userMatches = ctx.tags.ephemeral('user').ref(input.tag).connections();
     const labelMatches = ctx.tags.ephemeral('label').ref(input.tag).connections();
+
     const seen = new Set<string>();
     for (const m of userMatches) seen.add(m.id);
     for (const m of labelMatches) seen.add(m.id);
+
     ctx.send('connections-by-tag-result', { tag: input.tag, count: seen.size });
   },
 });

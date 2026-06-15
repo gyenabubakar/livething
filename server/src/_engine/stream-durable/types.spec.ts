@@ -26,7 +26,7 @@ describe('computeBroadcastScopeKey — channel-family keys never collide', () =>
     [
       ['a', 'b"],["x'],
       ['a', 'b"]],[["x'],
-    ], // adversarial quotes/brackets
+    ],
   ];
 
   it.each(trickyPairs)('does not collide: %j vs %j', (left, right) => {

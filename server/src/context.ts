@@ -298,6 +298,20 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 }
 
 /**
+ * A handle to one specific connection, addressed by its `ConnectionRef`.
+ * Returned by `ctx.connection(ref)`. Use it to send directly to that socket.
+ *
+ * Get a ref from `ConnectionInfo.ref()`, `ctx.self`, or any connection snapshot.
+ */
+export interface ConnectionHandle {
+  /**
+   * Send an event to this connection only. Returns `false` when the connection
+   * is no longer live on this instance (its socket is gone).
+   */
+  send(event: string, payload: unknown): boolean;
+}
+
+/**
  * Options for `ctx.broadcast(...)`.
  *
  * `ctx.broadcast` always fans out to every connection on the server. To
@@ -520,7 +534,7 @@ export interface ChannelsManager<
  *
  * Mental model, grouped by purpose:
  * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
- * - **messaging** — `send`, `broadcast`, `sendToConnection`
+ * - **messaging** — `send`, `broadcast`, `connection(ref).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
@@ -530,7 +544,6 @@ export interface ConnectionContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  // Connection identity
   /** The unique ID for the current WebSocket connection. */
   id: string;
 
@@ -551,7 +564,6 @@ export interface ConnectionContext<
   /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
 
-  // Message delivery
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
 
@@ -566,13 +578,16 @@ export interface ConnectionContext<
    */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 
-  /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket. Get a ref from `ctx.self`, a connection
+   * snapshot's `ref()`, or any `ConnectionRef` you hold.
+   */
+  connection(ref: ConnectionRef): ConnectionHandle;
 
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
 
-  // Connection snapshots
   /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
 
@@ -604,14 +619,12 @@ export interface ConnectionContext<
    */
   closeReason?: string;
 
-  // Scope-aware routing helpers
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
   /** Resolve a channel handle from any handler. Only present when channels are registered. */
   channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
-  // Durable scheduling
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
@@ -621,7 +634,6 @@ export interface ConnectionContext<
   /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
   setAlarm(time: number): void;
 
-  // Storage and platform services
   /** SQL storage access. */
   sql: SQLProvider;
 
@@ -640,7 +652,6 @@ export interface ConnectionContext<
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
 
-  // Dispatch-local storage
   /**
    * Store a typed value under a key for the current message dispatch.
    *
@@ -663,7 +674,6 @@ export interface ConnectionContext<
    */
   inject<T>(key: LocalKey<T>): T | undefined;
 
-  // Frame narrowing (mainly inside an intercept)
   /**
    * Type guard narrowing an intercept `frame` to a declared event's payload.
    * Returns `true` when the frame's event, scope, and payload all match the
@@ -726,7 +736,6 @@ export interface ShutdownContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  // Connection management
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
 
@@ -737,7 +746,6 @@ export interface ShutdownContext<
    */
   broadcast(event: string, payload: unknown): void;
 
-  // Storage and durable work
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -750,14 +758,12 @@ export interface ShutdownContext<
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  // Connection snapshots
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
-  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 
@@ -786,14 +792,12 @@ export interface TaskContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  // Storage
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
 
-  // Message delivery
   /**
    * Broadcast an event to every live connection. The task context has no
    * channel filter — for channel-scoped broadcasts, resolve a channel
@@ -801,24 +805,24 @@ export interface TaskContext<
    */
   broadcast(event: string, payload: unknown): void;
 
-  /** Send an event to one specific connection by ID. Returns false if the connection doesn't exist. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket.
+   */
+  connection(ref: ConnectionRef): ConnectionHandle;
 
-  // Connection snapshots
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
-  // Durable scheduling
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 

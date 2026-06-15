@@ -11,9 +11,14 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import {
+  abortActiveStream,
   assertNoConcurrentStream,
   buildActiveStream,
+  buildDrain,
+  DEFAULT_HIGH_WATER_MARK,
+  installCtxDrain,
   installCtxNudges,
+  installCtxSignal,
 } from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
@@ -112,6 +117,10 @@ export async function cancelStream(
   }
 
   activeStream.closed = true;
+
+  // Fire the stop signal before return() so in-flight awaited work (fetch,
+  // timers wired to ctx.stream.signal) is cancelled, then cleanup runs.
+  abortActiveStream(activeStream, 'cancelled');
 
   try {
     // The generator's cleanup (`finally`) may throw. Contain it so the throw
@@ -292,6 +301,7 @@ export async function runStream(
   options: RunStreamOptions,
 ): Promise<void> {
   const { scope, event, stream, payload, wskit } = options;
+
   // One active stream per event per connection, unless `allowConcurrent: true`.
   assertNoConcurrentStream(runtime, connection, {
     event,
@@ -320,25 +330,8 @@ export async function runStream(
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
-
-  const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
-
-  const { active: activeStream } = buildActiveStream({
-    streamId,
-    event,
-    connection,
-    generator: iterator,
-    scope,
-    nudges: stream.stream.nudges.map((declaration) => ({
-      event: declaration.event,
-      validator: declaration.validator,
-    })),
-  });
-
-  runtime.activeStreams.set(streamId, activeStream);
-  if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
-  connection.activeStreamIds.add(streamId);
-  runtime.persistAttachment(connection);
+  const abortController = new AbortController();
+  installCtxSignal(ctx, abortController);
 
   // Who a broadcast fans out to: channel members for a channel stream, every
   // connection otherwise — minus the creator, who gets its own copy.
@@ -354,6 +347,44 @@ export async function runStream(
       : [...runtime.connections.values()];
     return all.filter((target) => target.id !== connection.id);
   }
+
+  // The drain function needs the active-stream object to know when the stream is
+  // torn down, but the iterator (built from ctx, which carries drain) is created
+  // before the active stream exists. A late-bound holder breaks the cycle.
+  let activeStreamRef: ActiveStream | undefined;
+  const highWaterMark = stream.stream.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
+  installCtxDrain(
+    ctx,
+    buildDrain({
+      // Broadcast paces against the healthiest of every target; a single stream
+      // against just its own connection.
+      targets: () => (stream.stream.broadcast ? [connection, ...broadcastTargets()] : [connection]),
+      highWaterMark,
+      isClosed: () => activeStreamRef?.closed ?? false,
+    }),
+  );
+
+  const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+
+  const { active: activeStream } = buildActiveStream({
+    streamId,
+    event,
+    connection,
+    generator: iterator,
+    scope,
+    abortController,
+    highWaterMark,
+    nudges: stream.stream.nudges.map((declaration) => ({
+      event: declaration.event,
+      validator: declaration.validator,
+    })),
+  });
+  activeStreamRef = activeStream;
+
+  runtime.activeStreams.set(streamId, activeStream);
+  if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+  connection.activeStreamIds.add(streamId);
+  runtime.persistAttachment(connection);
 
   try {
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;

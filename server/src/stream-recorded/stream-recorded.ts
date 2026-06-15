@@ -23,6 +23,8 @@ export interface RecordedStreamGeneratePrimitive extends Primitive<'recorded-str
   readonly maxChunks: number;
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Undefined = default 256 KB. */
+  readonly highWaterMark?: number;
 }
 
 /** Inputs accepted by `recordedGenerateFactory`. */
@@ -37,6 +39,7 @@ export interface BuildRecordedStreamGenerateInput {
   maxChunks: number;
   maxAgeMs: number;
   retentionAfterEndMs: number;
+  highWaterMark?: number;
 }
 
 /** Build the runtime primitive used by the engine to mount one recorded stream. */
@@ -58,6 +61,7 @@ export function recordedGenerateFactory(
     maxChunks: input.maxChunks,
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,
+    highWaterMark: input.highWaterMark,
   };
 }
 

@@ -93,9 +93,7 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           return;
         }
 
-        // Only drop the socket while hidden if the app opted in.
         if (!wantsBackground) return;
-
         if (reportingInitialVisibility) return;
 
         hiddenTimer = setTimeout(() => {
@@ -120,16 +118,17 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
 
       return {
         id: 'platform',
+
         onOpen() {
           bind();
           return null;
         },
+
         onClose(...args) {
           const [, , intentional, suspended] = args;
           if (suspended) return;
 
           if (intentional) {
-            // A real user disconnect() detaches the environment.
             backgrounded = false;
             unbind();
           } else {
@@ -142,4 +141,5 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 platform.tag = 'platform';

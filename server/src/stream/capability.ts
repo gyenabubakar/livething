@@ -48,6 +48,7 @@ export const stream = withCapabilityKind(function stream(): StreamCapability {
         nudges: toNudgeDefs(config.nudges),
         broadcast: config.broadcast,
         allowConcurrent: config.allowConcurrent,
+        highWaterMark: config.highWaterMark,
       });
       const handlers = new Map([[event, wrapStreamGenerator(config.run)]]);
       return compileStreamDef(def, handlers);

@@ -97,7 +97,6 @@ describe('incoming dedup', () => {
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'c' } });
-    // 'a' was evicted by 'c', so resending 'a' should dispatch again
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(4);
@@ -109,7 +108,6 @@ describe('incoming dedup', () => {
 
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'a' } });
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
-    // 'b' is still in the window; resending must be dropped
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'b' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
@@ -132,7 +130,6 @@ describe('incoming dedup', () => {
     const runtime = makeRuntime(256);
 
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'first' } });
-    // Fill the ring so 'first' is evicted.
     for (let i = 0; i < 256; i += 1) {
       await send(runtime, connection, {
         event: 'echo',
@@ -140,7 +137,6 @@ describe('incoming dedup', () => {
         wskit: { messageId: `id-${i}` },
       });
     }
-    // After 256 more entries, 'first' was evicted — resending it must dispatch again.
     await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'first' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1 + 256 + 1);
@@ -160,7 +156,6 @@ describe('incoming dedup', () => {
   it('drops duplicate stream nudge frames before they reach the active stream buffer', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
-    // Set up a fake active stream so the nudge path can buffer.
     const nudges: Array<{ event: string; payload: unknown }> = [];
     runtime.activeStreams.set('s-1', {
       id: 's-1',
@@ -168,7 +163,6 @@ describe('incoming dedup', () => {
       closed: false,
       nudges,
       nudgeValidators: new Map([
-        // Pass-through validator — the frame is valid as long as it parses.
         ['speed-up', { '~standard': { validate: (v: unknown) => ({ value: v }) } }],
       ]),
     } as unknown as Parameters<typeof runtime.activeStreams.set>[1]);

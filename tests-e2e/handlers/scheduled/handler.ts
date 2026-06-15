@@ -98,7 +98,13 @@ const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
 
 const handleSendToConnTask = base.scheduled('send-to-conn-task', {
   run(ctx, data) {
-    const delivered = ctx.sendToConnection(data.connectionId, 'schedule-send-to-conn-delivery', {
+    const ref = {
+      __wskit: 'connection-ref' as const,
+      id: data.connectionId,
+      instance: undefined,
+      identity: data.connectionId,
+    };
+    const delivered = ctx.connection(ref).send('schedule-send-to-conn-delivery', {
       text: data.text,
     });
     ctx.broadcast('schedule-send-to-conn-status', {
@@ -124,7 +130,7 @@ const handleSendToTagTask = base.scheduled('send-to-tag-task', {
   run(ctx) {
     for (const conn of ctx.getConnections()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
-        ctx.sendToConnection(conn.id, 'send-to-tag-result', { text: 'tagged-from-task' });
+        ctx.connection(conn.ref()).send('send-to-tag-result', { text: 'tagged-from-task' });
       }
     }
   },
@@ -202,6 +208,7 @@ const handleQueryDeadLetter = base.on('query-dead-letter', {
       .toArray();
     const row = rows[0];
     if (!row) return;
+
     const parsed = JSON.parse(row.error) as { message: string };
     ctx.send('dead-letter-result', {
       taskId: row.taskId,
@@ -336,6 +343,7 @@ const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task'
       rejected = true;
       message = (err as Error).message;
     }
+
     ctx.send('schedule-unknown-task-result', { rejected, message });
   },
 });

@@ -14,5 +14,4 @@ export const Disconnected = /* @__PURE__ */ error('disconnected');
  */
 export const Dropped = /* @__PURE__ */ error('dropped');
 
-// Re-exported from @wskit/core so apps have one import for every runtime error.
 export { error, WSKitError, Block, ValidationFailed } from '@wskit/core';

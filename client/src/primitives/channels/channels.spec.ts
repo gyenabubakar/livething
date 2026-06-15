@@ -115,7 +115,6 @@ describe('subscribe / unsubscribe', () => {
     });
     const unsubscribeId = frame.__wskit.unsubscribeId;
     expect(typeof unsubscribeId).toBe('string');
-    // The channel goes inactive at once, but the promise resolves only on confirm.
     expect(onUnsub).toHaveBeenCalled();
     ws.emit({
       event: '__unsubscribeOk__',
@@ -174,11 +173,10 @@ describe('subscribe / unsubscribe', () => {
     const room = socket.channel('general');
 
     const first = room.subscribe();
-    const second = room.subscribe(); // before __subscribeOk__
+    const second = room.subscribe();
 
     // Same in-flight promise — not a second, orphaned one.
     expect(second).toBe(first);
-    // Only one __subscribe__ frame went out.
     expect(ws.sentFrames().filter((f) => f.event === '__subscribe__')).toHaveLength(1);
 
     ws.emit({
@@ -187,7 +185,6 @@ describe('subscribe / unsubscribe', () => {
       __wskit: { channel: 'general' },
     });
 
-    // Both awaiters settle.
     await expect(first).resolves.toBeUndefined();
     await expect(second).resolves.toBeUndefined();
   });
@@ -196,8 +193,8 @@ describe('subscribe / unsubscribe', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
 
-    room.subscribe(); // in flight — no __subscribeOk__ yet
-    room.unsubscribe(); // tears the channel down before confirmation
+    room.subscribe();
+    room.unsubscribe();
 
     function countSubscribeFrames() {
       return ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
@@ -219,7 +216,6 @@ describe('subscribe / unsubscribe', () => {
       payload: {},
       __wskit: { channel: 'general', unsubscribeId },
     });
-    // Confirmed leave releases the queued subscribe: exactly one fresh frame.
     expect(countSubscribeFrames()).toBe(before + 1);
 
     ws.emit({
@@ -252,7 +248,7 @@ describe('routing', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     const handler = vi.fn();
-    room.on('message', handler); // before subscribe
+    room.on('message', handler);
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -382,7 +378,7 @@ describe('dynamic families and scope handles', () => {
 
   it('an absent scope subscribes as a static channel (no channelScope marker)', async () => {
     const { socket, ws } = build(channels());
-    const room = socket.channel('general'); // no scope
+    const room = socket.channel('general');
     void room.subscribe();
     expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'general' });
   });
@@ -396,10 +392,10 @@ describe('dynamic families and scope handles', () => {
 
   it('rejects an empty family key locally with validation-failed and sends nothing', async () => {
     const { socket, ws } = build(channels());
-    const room = socket.channel('rooms', ''); // empty supplied scope
+    const room = socket.channel('rooms', '');
     const before = ws.sentFrames().length;
     await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
-    expect(ws.sentFrames().length).toBe(before); // no subscribe frame went out
+    expect(ws.sentFrames().length).toBe(before);
   });
 
   it('family-level on() fires with the channel name', async () => {
@@ -433,7 +429,6 @@ describe('server-initiated subscriptions and reconnection', () => {
       payload: { source: 'server' },
       __wskit: { channel: 'general' },
     });
-    // A handle created afterwards is backed by the already-active state.
     const room = socket.channel('general');
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
   });
@@ -480,11 +475,9 @@ describe('server-initiated subscriptions and reconnection', () => {
         __wskit: { channel: 'general', channelPersistent: true },
       });
 
-      // Drop, then leave while reconnecting — the leave is held and resent on open.
       first.serverClose(1006, 'drop');
       room.unsubscribe();
 
-      // Reconnect: onOpen resends the leave; the channel is already inactive.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -533,7 +526,6 @@ describe('reliable leave', () => {
       const leave = room.unsubscribe();
       const id = leaveId(first);
 
-      // Drop before the ack — the leave must resend on reopen with the same id.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -544,7 +536,6 @@ describe('reliable leave', () => {
           .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
       ).toBe(true);
 
-      // Drop AGAIN before the ack — still resent, same id, and no rejoin for it.
       second.serverClose(1006, 'drop');
       vi.advanceTimersByTime(3000);
       const third = MockWebSocket.last();
@@ -560,7 +551,6 @@ describe('reliable leave', () => {
           .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
       ).toBe(false);
 
-      // The server finally confirms — the promise resolves.
       third.emit({
         event: '__unsubscribeOk__',
         payload: {},
@@ -592,7 +582,6 @@ describe('reliable leave', () => {
       });
 
       const leave = room.unsubscribe();
-      // Drop, then exhaust the single retry without a successful open.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(60_000);
       MockWebSocket.last().serverClose(1006, 'still down');
@@ -630,7 +619,6 @@ describe('reliable leave', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    // The matching id settles it; a second (duplicate) confirmation is a no-op.
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
@@ -656,7 +644,7 @@ describe('reliable leave', () => {
     await p;
 
     const leave1 = room.unsubscribe();
-    const leave2 = room.unsubscribe(); // pending leave → same promise, no second frame
+    const leave2 = room.unsubscribe();
     expect(leave2).toBe(leave1);
     expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
 
@@ -668,7 +656,6 @@ describe('reliable leave', () => {
     });
     await expect(leave1).resolves.toBeUndefined();
 
-    // Already left with nothing pending → resolves without a new frame.
     await expect(room.unsubscribe()).resolves.toBeUndefined();
     expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
   });
@@ -677,7 +664,6 @@ describe('reliable leave', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
 
-    // subscribe then unsubscribe before the server's __subscribeOk__ arrives.
     room.subscribe();
     const leave = room.unsubscribe();
 
@@ -690,7 +676,6 @@ describe('reliable leave', () => {
     });
     expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
 
-    // After the leave confirms, the channel stays inactive — no split-brain.
     const id = leaveId(ws);
     ws.emit({
       event: '__unsubscribeOk__',
@@ -716,21 +701,16 @@ describe('reliable leave', () => {
         __wskit: { channel: 'general' },
       });
 
-      // Leave, then immediately ask to rejoin — the rejoin is queued behind the leave.
       const leave = room.unsubscribe();
       const rejoin = room.subscribe();
       void leave.then(undefined, () => undefined);
       void rejoin.then(undefined, () => undefined);
 
-      // The socket drops before the leave is confirmed. The queued rejoin must
-      // survive the retryable drop, not reject.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
-      // On reopen the leave is resent; confirm it — the queued rejoin then sends
-      // a fresh __subscribe__, which the server confirms, resolving the rejoin.
       const id = second
         .sentFrames()
         .filter((f) => f.event === '__unsubscribe__')
@@ -788,8 +768,6 @@ describe('reliable leave', () => {
       __wskit: { channel: 'general', unsubscribeId: id },
     });
 
-    // The deferred rejoin ran the factory exactly once, now. The payload is sent
-    // on a microtask (it flows through Promise.resolve), so settle that first.
     expect(calls).toBe(1);
     await Promise.resolve();
     await Promise.resolve();
@@ -835,8 +813,6 @@ describe('scoped request and ack', () => {
 describe('stream-error routing (order-independent)', () => {
   it('routes a channel-scoped stream error to the stream primitive, not to channel subscribe-failure, even when channels is registered first', async () => {
     const { socket, ws } = build(channels(), stream());
-    // stream() augments onStream onto channel messaging objects at runtime; the general channel
-    // has no streams in C, so we union-cast to access the augmented method in the test.
     type RoomWithStream = ReturnType<(typeof socket)['channel']> & {
       onStream(
         event: string,
@@ -863,13 +839,11 @@ describe('stream-error routing (order-independent)', () => {
     const onError = vi.fn();
     room.onStream('ask-ai', { onChunk, onError, onEnd: vi.fn() });
 
-    // A chunk starts the broadcast run...
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'hi' },
       __wskit: { channel: 'general', streamId: 's1', seq: 0 },
     });
-    // ...then a channel-scoped stream error.
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },
@@ -877,8 +851,8 @@ describe('stream-error routing (order-independent)', () => {
     });
 
     expect(onChunk).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledTimes(1); // the stream primitive received the error
-    expect(onSubFailed).not.toHaveBeenCalled(); // channels did NOT misroute it
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSubFailed).not.toHaveBeenCalled();
   });
 });
 
@@ -890,7 +864,7 @@ describe('lazy hold lifecycle (no leak)', () => {
   it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {
     vi.useFakeTimers();
     const socket = lazySocket();
-    const p = socket.channel('general').subscribe(); // lazy connect
+    const p = socket.channel('general').subscribe();
     MockWebSocket.last().open();
     MockWebSocket.last().emit({
       event: '__error__',
@@ -900,7 +874,7 @@ describe('lazy hold lifecycle (no leak)', () => {
     await expect(p).rejects.toBeDefined();
 
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('closed'); // would stay 'open' if the hold leaked
+    expect(socket.getState()).toBe('closed');
     vi.useRealTimers();
   });
 
@@ -934,7 +908,6 @@ describe('subscribe wire-limit validation', () => {
 
     await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
 
-    // Caught before any state, lazy hold, or __subscribe__ frame.
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
     expect(ws.sentFrames().length).toBe(before);
   });
@@ -976,7 +949,6 @@ describe('subscribe setup failure cleanup (#13)', () => {
       }),
     ).rejects.toThrow('factory boom');
 
-    // Pending state and the lazy hold are torn down, not leaked.
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
   });
 });
@@ -993,8 +965,6 @@ describe('stale payload rejection guard (#14)', () => {
     const first = room.subscribe(() => firstPayload);
     void first.catch(() => undefined);
 
-    // Cancel the first subscribe, then start a fresh one. The new subscribe is
-    // queued behind the leave until it confirms.
     room.unsubscribe();
     const second = room.subscribe({ token: 'fresh' });
 
@@ -1003,7 +973,6 @@ describe('stale payload rejection guard (#14)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Confirm the leave so the queued subscribe sends, then confirm the subscribe.
     const unsubscribeId = ws
       .sentFrames()
       .filter((f) => f.event === '__unsubscribe__')

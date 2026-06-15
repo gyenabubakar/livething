@@ -134,9 +134,7 @@ describe('request/runtime', () => {
     const request = {
       __wskit: 'request',
       event: 'status',
-      handler: vi.fn(async () => {
-        // Intentionally never calls ctx.respond().
-      }),
+      handler: vi.fn(async () => {}),
     } as unknown as RequestPrimitive;
 
     await expect(

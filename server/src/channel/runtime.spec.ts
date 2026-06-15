@@ -186,7 +186,6 @@ describe('channel runtime', () => {
     // Subscribing must not auto-tag the connection. Tags are scope-blind by
     // design (a tag is just a string in a Set), so an auto `channel:<name>`
     // tag would collapse static-vs-family and family-vs-family distinctions.
-    // subscribe must not auto-tag
     expect(protocol).toEqual([
       {
         connectionId: 'conn_2',
@@ -249,7 +248,6 @@ describe('channel runtime', () => {
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
-    // unsubscribe must not touch tags
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
@@ -557,9 +555,7 @@ describe('channel runtime', () => {
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // The connection must NOT be a member yet when check runs.
     expect(wasMemberDuringCheck).toBe(false);
-    // After subscribe completes the connection IS a member.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
@@ -828,7 +824,6 @@ describe('channel runtime', () => {
       .map((b) => (b.payload as { connectionId: string }).connectionId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
-    // Self-filter: neither connection's own id appears in its initial sync.
     expect(aSyncIds).not.toContain('conn_A');
     expect(bSyncIds).not.toContain('conn_B');
   });
@@ -853,7 +848,6 @@ describe('channel runtime', () => {
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // __subscribeOk__ had already been sent before the side-effect hook ran.
     expect(protocol[0]?.event).toBe('__subscribeOk__');
     expect(protocolCountDuringHook).toBeGreaterThanOrEqual(1);
   });
@@ -888,11 +882,9 @@ describe('channel runtime', () => {
       ),
     ).resolves.toBeUndefined();
 
-    // Subscription was committed — the throw is observational, not a gate.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
-    // The client received __subscribeOk__ before the throw fired.
     expect(protocol.find((p) => p.event === '__subscribeOk__')).toBeDefined();
     // The runtime-error path was invoked with the channel routing markers
     // so the client receives an __error__ frame addressed to this channel.
@@ -946,7 +938,6 @@ describe('channel runtime', () => {
       }),
     ).rejects.toThrow(/hook boom/);
 
-    // Tail ran despite the hook throwing.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
@@ -1332,8 +1323,6 @@ describe('subscribeConnectionAsServer', () => {
   });
 
   it('works on a channel with no check/commit hooks', async () => {
-    // Both hooks are optional. A channel without them should
-    // accept the subscribe without complaint and commit the membership.
     const { protocol, connections, runtime } = createRuntime();
     const target = createConnection('target', {});
     connections.set(target.id, target);
@@ -1537,7 +1526,6 @@ describe('server self-defense against untrusted client frames', () => {
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
     };
 
-    // First subscribe — the connection becomes a member.
     await subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
       channelScope: 'rooms',

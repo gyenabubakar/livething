@@ -156,7 +156,6 @@ describe('createSql', () => {
 describe('createStorage', () => {
   it('returns bundled sql + kv providers', () => {
     const { state } = fakeState();
-    // createStorage requires storage.get/put/delete/list for KV; extend it.
     const kvMap = new Map<string, unknown>();
     (state.storage as unknown as Record<string, unknown>).get = vi.fn(async (k: string) =>
       kvMap.get(k),

@@ -12,9 +12,14 @@ import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { storageIdentityOf } from '~/_engine/runtime/types.ts';
 import {
+  abortActiveStream,
   assertNoConcurrentStream,
   buildActiveStream,
+  buildDrain,
+  DEFAULT_HIGH_WATER_MARK,
+  installCtxDrain,
   installCtxNudges,
+  installCtxSignal,
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
@@ -108,6 +113,9 @@ export interface DurableStreamRuntimeDef {
 
   /** Disconnect policy — drives whether the generator survives the drop. */
   readonly onDisconnect?: OnDisconnect;
+
+  /** Outbound backpressure limit in bytes for `ctx.stream.drain()`. Default 256 KB. */
+  readonly highWaterMark?: number;
 }
 
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
@@ -423,6 +431,7 @@ export async function resumeDurableStream(
 
     if (existing) {
       existing.closed = true;
+      abortActiveStream(existing, 'aborted');
       // Fire-and-forget cleanup. Call return() inside the .then so a synchronous
       // throw becomes a caught rejection too, not just an async one.
       void Promise.resolve()
@@ -589,12 +598,34 @@ async function runGenerator(
     withCursor: (chunk: unknown, cursor: unknown) => makeCursorChunk(chunk, cursor),
   };
   installCtxNudges(ctx);
+  // A fresh controller per run/attempt — a resume gets its own stop signal.
+  const abortController = new AbortController();
+  installCtxSignal(ctx, abortController);
 
   // Single failure boundary: generator creation, registration, iteration, and
   // status changes all run inside the try so no path can leave the DB row
   // 'active'. A synchronous throw from def.generator(...) is caught here too.
   let activeStream: ActiveStream | undefined;
   let seq = startSeq;
+
+  const highWaterMark = def.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
+  installCtxDrain(
+    ctx,
+    buildDrain({
+      // Broadcast paces against the healthiest of every live target; a single
+      // durable stream against the connection it is currently attached to.
+      targets: () => {
+        const wireTarget = activeStream?.connection ?? connection;
+        if (!def.broadcast) return [wireTarget];
+        return [
+          wireTarget,
+          ...resolveBroadcastTargets({ runtime, excludeConnectionId: connection.id, scope }),
+        ];
+      },
+      highWaterMark,
+      isClosed: () => activeStream?.closed ?? false,
+    }),
+  );
 
   // A run "owns the slot" while no *other* ActiveStream holds this streamId. A
   // resume/replace with the same streamId swaps in a new ActiveStream; once
@@ -617,6 +648,8 @@ async function runGenerator(
       nudges: def.nudges ?? [],
       onDisconnect: def.onDisconnect,
       scope,
+      abortController,
+      highWaterMark,
     });
     activeStream = built.active;
     const nudgeBuffer = built.nudgeBuffer;
@@ -927,6 +960,7 @@ export async function cancelDurableStream(
   const active = runtime.activeStreams.get(streamId);
   if (active && !active.closed) {
     active.closed = true;
+    abortActiveStream(active, 'cancelled');
     try {
       await active.generator.return(undefined);
     } catch (error) {

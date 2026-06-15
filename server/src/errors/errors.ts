@@ -3,13 +3,6 @@ import { error } from '@wskit/core';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import * as v from 'valibot';
 
-// ---------------------------------------------------------------------------
-// Re-exports from @wskit/core
-// ---------------------------------------------------------------------------
-//
-// Everything the developer needs for the error system is available from one
-// import path: `import { error, Block, ChannelNotFound } from '@wskit/server/errors'`
-
 export {
   error,
   WSKitError,
@@ -31,13 +24,6 @@ export {
   UnsupportedProtocol,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
-
-// ---------------------------------------------------------------------------
-// Server-only control flow errors
-// ---------------------------------------------------------------------------
-//
-// These are signals to the engine — not sent to the client. Throw them from
-// handlers, intercepts, or hooks to control connection and message lifecycle.
 
 /**
  * Close the connection immediately with a close code and reason.
@@ -109,10 +95,6 @@ export function Defer(delay: number) {
   assertPositiveInteger(delay, 'delay', 'Defer()');
   return Object.freeze({ __wskit: 'defer' as const, delay });
 }
-
-// ---------------------------------------------------------------------------
-// Server-only built-in error definitions
-// ---------------------------------------------------------------------------
 
 /**
  * Fired on your `onError` handler when a message deferred with `Defer(...)`

@@ -11,12 +11,10 @@ import type * as RecordedStreamPrimitive from '~/stream-recorded/stream-recorded
 import type * as ResumableStreamPrimitive from '~/stream-resumable/stream-resumable.ts';
 import type * as StreamPrimitive from '~/stream/stream.ts';
 
-// ---------------------------------------------------------------------------
 // Widened type aliases — used throughout the compile and runtime layers so
 // generic parameters don't leak into every function signature. Each alias
 // erases the specific event name, payload, and handler types to `any` while
 // keeping the structural shape intact.
-// ---------------------------------------------------------------------------
 
 /** Any `.outgoing()` declaration, regardless of event name or payload type. */
 export type AnyOutgoing = OutgoingPrimitive.OutgoingPrimitive<string, any>;

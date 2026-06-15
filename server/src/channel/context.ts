@@ -84,8 +84,6 @@ export function buildChannelsApi(
   };
 }
 
-// When a handler runs inside a channel scope, ctx.channel gives it a handle
-// bound to that channel. Returns {} when scope has no active channel.
 export function buildChannelScopeExtra(
   connection: EngineContextTypes.RuntimeConnection,
   scope:

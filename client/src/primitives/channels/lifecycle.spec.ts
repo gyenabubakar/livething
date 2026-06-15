@@ -61,31 +61,23 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
         __wskit: { channel: 'general' },
       });
 
-      // Drop the connection — this calls onClose (clears pending, clears members).
-      // Channel stays active so onReconnect will re-subscribe.
       first.serverClose(1006, 'drop');
 
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
-      // At this point the channel re-subscribed with no pending promise.
       const onSubFailed = vi.fn();
       room.onSubscriptionFailed(onSubFailed);
 
-      // Server rejects the reconnect re-subscribe.
       second.emit({
         event: '__error__',
         payload: { code: 'forbidden' },
         __wskit: { channel: 'general' },
       });
 
-      // Because pending is null, the else branch fires onSubscriptionFailed listeners.
       expect(onSubFailed).toHaveBeenCalledWith(expect.objectContaining({ code: 'forbidden' }));
 
-      // The rejected re-subscribe also clears the channel: it is no longer active,
-      // so send() throws instead of silently sending into a channel the server
-      // has no membership for, and onReconnect won't keep retrying it.
       expect(() => room.send('send-message', { text: 'x' })).toThrow();
     } finally {
       vi.useRealTimers();
@@ -102,7 +94,6 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
 
       const room = socket.channel('general');
       room.subscribe();
-      // Server confirms AND marks the channel persistent (durable membership).
       first.emit({
         event: '__subscribeOk__',
         payload: { source: 'client' },
@@ -124,7 +115,6 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       const onSubFailed = vi.fn();
       room.onSubscriptionFailed(onSubFailed);
 
-      // Server refuses the auto-rejoin (revalidate threw) → rejoin-rejected.
       second.emit({
         event: '__error__',
         payload: { code: 'rejoin-rejected' },
@@ -134,8 +124,6 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       expect(onSubFailed).toHaveBeenCalledWith(
         expect.objectContaining({ code: 'rejoin-rejected' }),
       );
-      // The channel is cleared: send() throws, and it won't be retried on the next
-      // reconnect — no permanent "active locally, gone on the server" divergence.
       expect(() => room.send('send-message', { text: 'x' })).toThrow();
     } finally {
       vi.useRealTimers();
@@ -159,9 +147,6 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     const onSubFailed = vi.fn();
     room.onSubscriptionFailed(onSubFailed);
 
-    // A channel-scoped error while steadily subscribed (no pending subscribe, no
-    // reconnect) — e.g. a bad send. The listener fires, but the subscription
-    // must survive: one bad message can't unsubscribe a healthy channel.
     ws.emit({
       event: '__error__',
       payload: { code: 'validation-failed' },
@@ -189,7 +174,6 @@ describe('channels-reconnect-skips-persistent', () => {
       persistent.subscribe();
       ephemeral.subscribe();
 
-      // The server marks 'general' persistent on its __subscribeOk__; 'rooms' is not.
       first.emit({
         event: '__subscribeOk__',
         payload: { source: 'client' },
@@ -207,7 +191,6 @@ describe('channels-reconnect-skips-persistent', () => {
       second.open();
 
       const resubscribes = second.sentFrames().filter((f) => f.event === '__subscribe__');
-      // Only the non-persistent channel is re-subscribed by the client.
       expect(resubscribes.map((f) => f.__wskit?.channel)).toEqual(['room:1']);
     } finally {
       vi.useRealTimers();
@@ -228,7 +211,6 @@ describe('channels-reconnect-skips-persistent', () => {
 
       await vi.advanceTimersByTimeAsync(0);
       expect(calls).toBe(1);
-      // The server confirms AND marks the channel persistent.
       first.emit({
         event: '__subscribeOk__',
         payload: { source: 'client' },
@@ -241,8 +223,6 @@ describe('channels-reconnect-skips-persistent', () => {
       second.open();
       await vi.advanceTimersByTimeAsync(0);
 
-      // onBeforeReopen did not re-run the function (no point — the client won't
-      // re-subscribe), and onReconnect sent no __subscribe__: the server auto-rejoins.
       expect(calls).toBe(1);
       expect(second.sentFrames().some((f) => f.event === '__subscribe__')).toBe(false);
     } finally {
@@ -273,7 +253,6 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
         __wskit: { channel: 'general' },
       });
 
-      // Drop, then queue a scoped request while reconnecting.
       first.serverClose(1006, 'drop');
       void (room as unknown as { request(e: string, p: unknown): Promise<unknown> })
         .request('history', { before: 'x' })
@@ -316,16 +295,11 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
         __wskit: { channel: 'general', channelPersistent: true },
       });
 
-      // Drop the connection; the channel is kept for the reconnect window.
       first.serverClose(1006, 'drop');
 
-      // Unsubscribe during reconnect — the channel leaves locally at once (so
-      // onUnsubscribed fires now), and the leave is held to resend on reopen.
       room.unsubscribe();
       expect(unsubscribed).toHaveBeenCalledTimes(1);
 
-      // Reconnect: the held leave is resent, no rejoin/subscribe goes out for it,
-      // and onUnsubscribed does not fire a second time.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -357,7 +331,6 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
       const room = socket.channel('general');
       void room.subscribe(() => ({ token: `tok-${++calls}` }));
 
-      // A function payload resolves asynchronously before the first __subscribe__.
       await vi.advanceTimersByTimeAsync(0);
       expect(first.sentFrames().find((f) => f.event === '__subscribe__')?.payload).toEqual({
         token: 'tok-1',
@@ -368,14 +341,12 @@ describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
         __wskit: { channel: 'general' },
       });
 
-      // Drop, then let reconnection reopen — onBeforeReopen re-runs the function.
       first.serverClose(1006, 'drop');
       await vi.advanceTimersByTimeAsync(1500);
       const second = MockWebSocket.last();
       second.open();
       await vi.advanceTimersByTimeAsync(0);
 
-      // The re-subscribe carries the refreshed token, not the stale tok-1.
       expect(second.sentFrames().find((f) => f.event === '__subscribe__')?.payload).toEqual({
         token: 'tok-2',
       });
@@ -438,7 +409,6 @@ describe('channels-onclose-keeps-active-clears-members', () => {
     });
     await subscribePromise;
 
-    // Populate members.
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
@@ -446,10 +416,8 @@ describe('channels-onclose-keeps-active-clears-members', () => {
     });
     expect(room.members.size).toBe(1);
 
-    // Simulate a network drop (not a clean disconnect).
     ws.serverClose(1006, 'drop');
 
-    // Members cleared.
     expect(room.members.size).toBe(0);
 
     // Channel is still "active" — send() must not throw channel-not-subscribed.
@@ -467,7 +435,6 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
 
     family('room-42').subscribe();
 
-    // source=server — markSubscribed runs synchronously, notifyFamily fires immediately.
     ws.emit({
       event: '__subscribeOk__',
       payload: { source: 'server' },
@@ -517,7 +484,6 @@ describe('channel-subscribeok-server-leaves-pending-hanging', () => {
       resolved = true;
     });
 
-    // Server confirms with source 'server' while a subscribe() is pending.
     ws.emit({
       event: '__subscribeOk__',
       payload: { source: 'server' },
@@ -526,7 +492,6 @@ describe('channel-subscribeok-server-leaves-pending-hanging', () => {
 
     await subscribePromise;
     expect(resolved).toBe(true);
-    // Channel is active — send() works.
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
   });
 });
@@ -543,7 +508,6 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
     // Never called subscribe() — channel is inactive and has no pending subscribe.
     room.unsubscribe();
 
-    // No spurious __unsubscribe__ frame, no callback.
     expect(ws.sentFrames()).toHaveLength(before);
     expect(ws.sentFrames().some((f) => f.event === '__unsubscribe__')).toBe(false);
     expect(onUnsub).not.toHaveBeenCalled();
@@ -574,9 +538,8 @@ describe('scope-handle-list-only-active', () => {
   it('excludes a channel whose subscribe is still pending (not yet confirmed)', async () => {
     const { socket, ws } = build();
     const family = socket.channel.scope('rooms');
-    family('room-pending').subscribe(); // pending, not confirmed
+    family('room-pending').subscribe();
 
-    // No __subscribeOk__ yet.
     expect(ws.sentFrames().some((f) => f.event === '__subscribeOk__')).toBe(false);
 
     expect(family.list()).toEqual([]);
@@ -639,21 +602,17 @@ describe('BUG async-subscribe', () => {
         gateResolve = resolve;
       });
 
-      // subscribe with an async function that is held open by a gate
       void room.subscribe(() => gate.then(() => ({ token: 'abc' })));
 
-      // unsubscribe before resolving the gate (channel is pending, not yet active)
       room.unsubscribe();
 
       const framesBefore = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
 
-      // now resolve the gate — the late sendSubscribe should NOT fire
       gateResolve();
       await vi.runAllTimersAsync();
 
       const framesAfter = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
 
-      // The unsubscribe frame was sent but no __subscribe__ should follow it
       expect(framesAfter).toBe(framesBefore);
     } finally {
       vi.useRealTimers();
@@ -668,7 +627,6 @@ describe('BUG subscribe-promise-hang', () => {
 
     const p = room.subscribe();
 
-    // unsubscribe before any server reply
     room.unsubscribe();
 
     // The promise should reject, not hang. Race it against a short timeout.
@@ -690,7 +648,7 @@ describe('BUG subscribe-promise-hang', () => {
     expect(settled).toBe(true);
     expect(result).toBe('rejected');
 
-    void ws; // just to reference ws so linters don't complain
+    void ws;
   });
 });
 
@@ -699,7 +657,6 @@ describe('BUG subscribe-when-active', () => {
     const { socket, ws } = build();
     const room = socket.channel('general');
 
-    // First subscribe — let server confirm so channel goes active
     const firstPromise = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -713,12 +670,10 @@ describe('BUG subscribe-when-active', () => {
 
     const subscribeFramesBefore = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
 
-    // Call subscribe() again on an already-active channel
     void room.subscribe();
 
     const subscribeFramesAfter = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
 
-    // No second __subscribe__ frame should be sent
     expect(subscribeFramesAfter).toBe(subscribeFramesBefore);
     // onSubscribed must not fire again
     expect(onSubscribed).not.toHaveBeenCalled();
@@ -736,14 +691,12 @@ describe('BUG persistence-flip', () => {
 
       const room = socket.channel('general');
       room.subscribe();
-      // Server marks the channel persistent
       first.emit({
         event: '__subscribeOk__',
         payload: { source: 'client' },
         __wskit: { channel: 'general', channelPersistent: true },
       });
 
-      // Drop and reconnect — server does NOT auto-resubscribe (sends nothing)
       first.serverClose(1006, 'drop');
       await vi.advanceTimersByTimeAsync(1500);
       const second = MockWebSocket.last();
@@ -752,10 +705,8 @@ describe('BUG persistence-flip', () => {
       const onSubFailed = vi.fn();
       room.onSubscriptionFailed(onSubFailed);
 
-      // Advance a generous window (e.g. 10 seconds) — client should fall back
       await vi.advanceTimersByTimeAsync(10_000);
 
-      // Either the client sent its own __subscribe__ or fired onSubscriptionFailed
       const clientSubscribe = second
         .sentFrames()
         .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
@@ -776,7 +727,6 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
         channels(),
         reconnection(),
       );
-      // The only consumer is this pending subscribe; the socket lazily connects.
       socket
         .channel('general')
         .subscribe()
@@ -785,8 +735,8 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       first.open();
       first.serverClose(1006); // drop before __subscribeOk__ — subscribe never activates
       vi.advanceTimersByTime(1500);
-      MockWebSocket.last().open(); // reconnected with no live consumers
-      vi.advanceTimersByTime(2000); // past the idle timeout
+      MockWebSocket.last().open();
+      vi.advanceTimersByTime(2000);
       expect(socket.getState()).toBe('closed');
     } finally {
       vi.useRealTimers();
@@ -807,12 +757,12 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       });
       MockWebSocket.last().serverClose(1006);
       vi.advanceTimersByTime(1500);
-      MockWebSocket.last().open(); // onReconnect schedules the 5s fallback timer
-      socket.disconnect(); // must cancel that timer
+      MockWebSocket.last().open();
+      socket.disconnect();
       socket.connect();
       const fresh = MockWebSocket.last();
       fresh.open();
-      vi.advanceTimersByTime(6000); // a stale timer would fire here
+      vi.advanceTimersByTime(6000);
       const subs = fresh.sentFrames().filter((f) => f.event === '__subscribe__');
       expect(subs).toHaveLength(0);
     } finally {
@@ -854,14 +804,13 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
         payload: { source: 'client' },
         __wskit: { channel: 'general' },
       });
-      // Reconnect roster: 'b' left, 'c' joined; 'a' unchanged.
       second.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
         __wskit: { channel: 'general' },
       });
 
-      expect(joins).toEqual(['c']); // not 'a' (unchanged)
+      expect(joins).toEqual(['c']);
       expect(leaves).toEqual(['b']);
     } finally {
       vi.useRealTimers();
@@ -879,7 +828,7 @@ describe('reconnection give-up tears down active channels', () => {
     const room = socket.channel('general');
     const onUnsub = vi.fn();
     room.onUnsubscribed(onUnsub);
-    room.subscribe(); // lazy connect + take the idle-prevention hold
+    room.subscribe();
     const ws = MockWebSocket.last();
     ws.open();
     ws.emit({
@@ -889,7 +838,7 @@ describe('reconnection give-up tears down active channels', () => {
     });
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(1);
 
-    ws.serverClose(4001, 'policy'); // non-retryable → reconnection gives up
+    ws.serverClose(4001, 'policy');
 
     expect(socket.getState()).toBe('closed');
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
@@ -921,7 +870,6 @@ describe('member join deltas after a failed rejoin', () => {
         __wskit: { channel: 'general' },
       });
 
-      // Drop → priorMembers stashed = {a}; reconnect → rejoin goes out.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -935,7 +883,7 @@ describe('member join deltas after a failed rejoin', () => {
         __wskit: { channel: 'general' },
       });
 
-      joins.length = 0; // only the fresh subscribe's joins matter now
+      joins.length = 0;
 
       room.subscribe();
       second.emit({
@@ -956,7 +904,7 @@ describe('member join deltas after a failed rejoin', () => {
   });
 
   it('reports every peer as a join on a fresh subscribe after an explicit unsubscribe', () => {
-    const { socket, ws } = build(); // no reconnection — a drop is terminal
+    const { socket, ws } = build();
     const room = socket.channel('general');
     const joins: string[] = [];
     room.onMemberJoin((id) => joins.push(id));
@@ -972,14 +920,11 @@ describe('member join deltas after a failed rejoin', () => {
       __wskit: { channel: 'general' },
     });
 
-    // Drop → priorMembers stashed = {a}; the channel stays active.
     ws.serverClose(1006, 'drop');
-    // Explicit unsubscribe → markUnsubscribed must drop the stale priorMembers.
     room.unsubscribe();
 
     joins.length = 0;
 
-    // Reconnect and subscribe fresh.
     socket.connect();
     const second = MockWebSocket.last();
     second.open();
@@ -1024,7 +969,6 @@ describe('presence deltas across a double drop', () => {
       const joins: string[] = [];
       room.onMemberJoin((id) => joins.push(id));
 
-      // First drop → roster stashed {a,b}; reconnect re-subscribes (rejoin in flight).
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -1036,7 +980,6 @@ describe('presence deltas across a double drop', () => {
       const third = MockWebSocket.last();
       third.open();
 
-      // Rejoin confirmed with the SAME roster — nobody actually joined.
       third.emit({
         event: '__subscribeOk__',
         payload: { source: 'client' },

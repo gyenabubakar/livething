@@ -3,9 +3,6 @@ import type { ChannelImplement } from '~/channel/implement.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Definition } from './definitions.ts';
 
-// All the handlers and sub-builders the build phase needs to walk a list of
-// definitions. One bag is built per scope — top-level, or one per nested
-// channel.
 export interface HandlerMaps {
   readonly incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   readonly requestHandlers: Map<string, (ctx: any, payload: any) => any>;

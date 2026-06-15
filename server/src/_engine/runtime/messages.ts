@@ -44,8 +44,6 @@ export {
   sendThroughPipeline,
 } from '~/outgoing/runtime.ts';
 
-// ───── Section: dispatch runtime types ─────
-
 /**
  * Larger dependency bag for inbound message dispatch.
  */
@@ -71,6 +69,13 @@ interface DispatchRuntime
   >;
 
   incomingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+
+  answerFrameHooks: readonly ((
+    connectionId: string,
+    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
+  ) => boolean)[];
+
+  ackFrameHooks: readonly ((connectionId: string, ackId: string) => boolean)[];
 
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
@@ -140,8 +145,6 @@ interface DispatchRuntime
   durableStreamSchemaReady: boolean;
 }
 
-// ───── Section: wire-error helpers ─────
-
 /**
  * Turn a valibot parse failure into a typed `ValidationFailed` error so a
  * malformed wire frame settles as a `__error__` frame instead of crashing the
@@ -171,8 +174,6 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
     issues: [{ message: error instanceof Error ? error.message : String(error) }],
   });
 }
-
-// ───── Section: incoming dedup ─────
 
 /**
  * Check whether an incoming frame's `messageId` has already been seen on this
@@ -207,8 +208,6 @@ function isDuplicateIncoming(
   ring.writePtr = (ring.writePtr + 1) % ring.cap;
   return false;
 }
-
-// ───── Section: inbound dispatch ─────
 
 /**
  * Build the curated `routing` view of a frame's `__wskit` envelope for the
@@ -286,7 +285,6 @@ export async function dispatchIncoming(
   try {
     scope = resolveScope(runtime.compiled, wskit);
   } catch (error) {
-    // Bad routing markers — send the client a typed `__error__` frame.
     await runtime.handleRuntimeError(connection, {
       error,
       event,
@@ -317,7 +315,6 @@ export async function dispatchIncoming(
     return;
   }
 
-  // A scoped frame can only reach handlers declared in that scope — never top-level ones.
   const scoped = scope.channel;
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
@@ -331,8 +328,6 @@ export async function dispatchIncoming(
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
 
-  // One context for the whole dispatch — reused across intercepts and the
-  // handler. Built on first need.
   let sharedCtx: Record<PropertyKey, unknown> | undefined;
   function getCtx(): Record<PropertyKey, unknown> {
     return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
@@ -341,7 +336,6 @@ export async function dispatchIncoming(
   let message = { event, payload };
 
   try {
-    // A hook's return value becomes the new payload only. The event name is locked.
     if (attempt === 0) {
       for (const hook of runtime.incomingHooks) {
         const next = hook(message);
@@ -474,6 +468,7 @@ export async function dispatchIncoming(
             retentionAfterEndMs: durable.retentionAfterEndMs,
             cursor: resumableStream?.cursor,
             onDisconnect: durable.onDisconnect,
+            highWaterMark: durable.highWaterMark,
           },
           payload: payloadValue,
           wskit,
@@ -502,7 +497,6 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
-    // Pass `scope` so onValidationError hooks get the right channel ctx.
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
@@ -610,6 +604,7 @@ function resolveDurableDefForRow(
         retentionAfterEndMs: resumable.retentionAfterEndMs,
         cursor: resumable.cursor,
         onDisconnect: resumable.onDisconnect,
+        highWaterMark: resumable.highWaterMark,
       },
     };
   }
@@ -627,6 +622,7 @@ function resolveDurableDefForRow(
         maxAgeMs: recorded.maxAgeMs,
         retentionAfterEndMs: recorded.retentionAfterEndMs,
         onDisconnect: recorded.onDisconnect,
+        highWaterMark: recorded.highWaterMark,
       },
     };
   }
@@ -749,6 +745,17 @@ async function dispatchProtocolFrame(
         }
         return;
       }
+      case '__ack__': {
+        // The client auto-confirms a server-initiated `sendWithAck(...)` by
+        // echoing its `ackId`. Offer it to the ack-frame hooks (owned by the
+        // `ack()` capability) so the server's pending promise resolves. An
+        // `ackId` with no matching pending entry — a duplicate confirm, or one
+        // that arrived after timeout — is simply dropped.
+        for (const hook of runtime.ackFrameHooks) {
+          if (hook(connection.id, frame.__wskit.ackId)) return;
+        }
+        return;
+      }
       case '__resumeStream__':
         await handleResumeStream(runtime, connection, frame);
         return;
@@ -837,7 +844,6 @@ export async function processTextMessage(
     return;
   }
 
-  // User-event frame: app event with an optional `__wskit` block.
   let frame: Protocol.UserEventFrame;
   try {
     frame = v.parse(Protocol.UserEventFrameSchema, parsed);
@@ -849,6 +855,18 @@ export async function processTextMessage(
     return;
   }
   const wskit = frame.__wskit;
+
+  // A user-event frame echoing a `correlationId` may be the client's answer to a
+  // server-initiated request. Offer it to the answer-frame hooks (owned by the
+  // requests capability) before anything else — they settle the server's pending
+  // promise and stop routing so the answer never reaches an `on`/`request`
+  // handler or gets dropped by dedup. A correlationId with no matching pending
+  // entry falls through to normal routing.
+  if (wskit?.correlationId !== undefined) {
+    for (const hook of runtime.answerFrameHooks) {
+      if (hook(connection.id, { event, payload: frame.payload, wskit })) return;
+    }
+  }
 
   // Dedup here so every frame with a `messageId` shares one idempotency budget.
   if (

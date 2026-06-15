@@ -26,7 +26,6 @@ afterEach(() => {
 function buildSocket<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
 ): WSKitSocket {
-  // The test reaches into internal members, so it works against the class type.
   return client<TestContract>()(connect('wss://test'), ...primitives) as unknown as WSKitSocket;
 }
 
@@ -88,8 +87,6 @@ describe('queued frame isolation on open (#10)', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    // The valid frame queued behind the unserializable one still goes out, and
-    // the bad frame is reported rather than stranding the rest.
     expect(ws.sentFrames().some((f) => f.event === 'good')).toBe(true);
     expect(errors.length).toBeGreaterThanOrEqual(1);
   });
@@ -104,14 +101,10 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
       },
     };
 
-    // Build with buffering(enabled:true) so a fallback IS registered
     const socket = buildSocket(buffering({ enabled: true }));
-    // Inject the cancelling primitive BEFORE the buffering runtime sees the message.
-    // We need it at the front of the primitives list.
     const existing = (socket as WSKitSocket)._primitives;
     (socket as WSKitSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
-    // Socket is NOT connected — buffering fallback would queue if it were reached
     expect(socket._state).toBe('closed');
 
     const result = socket.send('action', { id: 1 });
@@ -131,10 +124,8 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
     const existing = (socket as WSKitSocket)._primitives;
     (socket as WSKitSocket)._setPrimitives([cancellingPrimitive, ...existing]);
 
-    // While disconnected, try to send — the onOutgoing hook cancels it
     socket.send('action', { id: 2 });
 
-    // Now connect
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -172,13 +163,11 @@ describe('_send: return value — true when buffered, false when dropped', () =>
 
 describe('_rawSend: dropped while socket is not open', () => {
   it('does not call ws.send when state is not open', () => {
-    // Build the socket (state = 'closed', ws = null)
     const socket = buildSocket();
     const before = MockWebSocket.instances.length;
 
     socket._rawSend({ event: 'ping', payload: {} });
 
-    // No new socket, nothing sent
     expect(MockWebSocket.instances.length).toBe(before);
   });
 
@@ -191,7 +180,6 @@ describe('_rawSend: dropped while socket is not open', () => {
     const { socket, ws } = openedSocket();
     socket.disconnect();
 
-    // ws is now null and state is 'closed'
     const framesBefore = ws.sent.length;
     socket._rawSend({ event: 'late', payload: {} });
 
@@ -199,7 +187,6 @@ describe('_rawSend: dropped while socket is not open', () => {
   });
 
   it('drops a frame sent via helpers.rawSend before the socket opens', () => {
-    // A primitive that tries to rawSend in setup (before open)
     let rawSendRef: ((m: WireMessage) => void) | null = null;
     const spy: PrimitiveRuntime = {
       id: 'raw-spy',
@@ -208,10 +195,8 @@ describe('_rawSend: dropped while socket is not open', () => {
     const socket = buildSocket();
     socket._setPrimitives([spy]);
 
-    // Grab the helpers' rawSend function and call it before connecting
     rawSendRef = (m: WireMessage) => socket._rawSend(m);
 
-    // No ws yet — should silently drop
     rawSendRef({ event: 'early', payload: {} });
 
     socket.connect();

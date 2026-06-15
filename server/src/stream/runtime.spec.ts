@@ -9,6 +9,7 @@ import type {
   SendThroughPipelineOptions,
 } from '~/outgoing/runtime.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
+import { wrapStreamGenerator } from './shared.ts';
 import type { RunStreamOptions } from './runtime.ts';
 
 type AsyncContextStore = {
@@ -175,7 +176,6 @@ describe('stream/runtime', () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
-    // Both are members of the channel family scope.
     trigger.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
       channelScope: 'rooms',
@@ -234,7 +234,6 @@ describe('stream/runtime', () => {
       channelName: 'room:1',
       channelScope: 'rooms',
     });
-    // nonMember is connected but never subscribed.
 
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(member.id, member);
@@ -343,6 +342,7 @@ describe('stream/runtime', () => {
       generator,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     });
 
@@ -376,6 +376,7 @@ describe('stream/runtime', () => {
       generator: generator as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     });
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
@@ -531,6 +532,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: true,
     };
     runtime.activeStreams.set('stream_1', closed);
@@ -558,6 +560,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     });
 
@@ -586,6 +589,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
       scope: { channelName: 'room:1', channelScope: 'rooms' },
     };
@@ -626,6 +630,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
       scope: { channelName: 'room:1', channelScope: 'rooms' },
     };
@@ -661,6 +666,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
       scope: { channelName: 'room:1', channelScope: 'rooms' },
     };
@@ -692,6 +698,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: new Array(255).fill({ event: 'n', payload: {} }),
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -719,6 +726,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -751,6 +759,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -773,9 +782,9 @@ describe('stream/runtime', () => {
       connectionId: connection.id,
       event: 'nudgey',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
-      // Already at the 256 cap.
       nudges: new Array(256).fill({ event: 'n', payload: {} }),
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -791,10 +800,8 @@ describe('stream/runtime', () => {
     );
 
     expect(result).toBe(true);
-    // The stream keeps running — overflow is backpressure, not a teardown.
     expect(active.closed).toBe(false);
     expect(runtime.activeStreams.has('stream_1')).toBe(true);
-    // Client told only this nudge was rejected, non-terminally.
     const rejected = protocolMessages.find((m) => m.event === '__error__');
     expect(rejected).toBeDefined();
     expect(rejected!.payload).toMatchObject({
@@ -821,6 +828,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -870,6 +878,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['async-nudge', v.objectAsync({})]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -906,6 +915,7 @@ describe('stream/runtime', () => {
       nudges: [],
       // Schema rejects any payload where `bad` is not literally false.
       nudgeValidators: new Map([['pause', v.object({ bad: v.literal(false) })]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -997,7 +1007,6 @@ describe('stream/runtime', () => {
     });
 
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
-    // Outside the stream advance, the context is auto-scoped.
     expect(runtime.asyncContext.getStore()).toBeUndefined();
   });
 
@@ -1015,6 +1024,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1039,8 +1049,6 @@ describe('stream/runtime', () => {
       detail: { event: 'start-tokens', streamId: 'existing_1' },
     });
 
-    // Existing stream is untouched, no second stream registered, and no
-    // `__streamOk__` for a stream that never started.
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
     expect(runtime.activeStreams.size).toBe(1);
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
@@ -1124,6 +1132,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1158,6 +1167,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1193,6 +1203,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1341,5 +1352,87 @@ describe('stream/runtime', () => {
         wskit: { streamId: 'conv-42', channelScope: null },
       }),
     ).rejects.toMatchObject({ code: 'stream-id-collision' });
+  });
+
+  // Phase 6 — outbound backpressure. ctx.stream.drain() is wired onto the run
+  // ctx and paces the generator against the connection's buffer.
+  describe('ctx.stream.drain', () => {
+    it('exposes drain() on the run ctx and the stream completes when the buffer drains', async () => {
+      const { runtime, protocolMessages } = createStreamRuntime();
+      // A connection whose buffer starts over the mark, then drops on the third read.
+      let reads = 0;
+      const connection = createConnection();
+      connection.descriptor = {
+        send: vi.fn(),
+        close() {},
+        bufferedAmount() {
+          reads += 1;
+          return reads >= 3 ? 0 : 1_000_000;
+        },
+        backpressureSupported: true,
+        identity: connection.id,
+      };
+      // The run ctx is the object buildConnectionContext returns; drain is
+      // installed on it before the generator runs. Capture it from the ctx.
+      let sawDrain: unknown;
+      const stream = {
+        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        generator: wrapStreamGenerator(async function* (ctx: {
+          stream: { drain: () => Promise<void> };
+        }) {
+          sawDrain = ctx.stream.drain;
+          yield { token: 'a' };
+          await ctx.stream.drain();
+          yield { token: 'b' };
+        }),
+      };
+
+      await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+      });
+
+      expect(typeof sawDrain).toBe('function');
+      expect(protocolMessages.some((m) => m.event === '__streamEnd__')).toBe(true);
+      expect(reads).toBeGreaterThanOrEqual(3);
+    });
+
+    it('drain() is a no-op when the connection reports no backpressure support', async () => {
+      const { runtime, protocolMessages } = createStreamRuntime();
+      let reads = 0;
+      const connection = createConnection();
+      connection.descriptor = {
+        send: vi.fn(),
+        close() {},
+        bufferedAmount() {
+          reads += 1;
+          // Always "full" — if drain honored it the stream would hang.
+          return 1_000_000;
+        },
+        backpressureSupported: false,
+        identity: connection.id,
+      };
+      const stream = {
+        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        generator: wrapStreamGenerator(async function* (ctx: {
+          stream: { drain: () => Promise<void> };
+        }) {
+          yield { token: 'a' };
+          await ctx.stream.drain();
+          yield { token: 'b' };
+        }),
+      };
+
+      await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+      });
+
+      expect(protocolMessages.some((m) => m.event === '__streamEnd__')).toBe(true);
+    });
   });
 });

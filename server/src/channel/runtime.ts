@@ -299,6 +299,7 @@ export async function leaveChannel(
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
   const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : disconnect;
+
   // A disconnect on a persistent channel only ends the session. Every other
   // path also changes group membership.
   const isTrueLeave = !disconnect || !isPersistent;
@@ -404,7 +405,6 @@ async function runSubscribeFlow(
   const scope: ResolvedChannelScope = opts;
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  // ── Phase 1: gate (async) ────────────────────────────────────────────────
   // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
   // `revalidate` instead — no payload, revocation only — so a payload-gated
   // `check` is never handed an undefined payload on reconnect.
@@ -451,7 +451,6 @@ async function runSubscribeFlow(
     return;
   }
 
-  // ── Phase 2: commit then membership write ────────────────────────────────
   const isPersistent = runtime.isChannelPersistent(scope.channel.key);
 
   // Re-check durable membership here — a leave that finished after phase 1
@@ -497,11 +496,8 @@ async function runSubscribeFlow(
   // concurrent subscribes both snapshot empty and miss each other.
   addChannelMembership(runtime.channelMembers, connection, scope);
 
-  // ── Phase 3: post-commit (async) ─────────────────────────────────────────
   runtime.persistAttachment(connection);
 
-  // Snapshot the members of this exact scope, self excluded, straight from
-  // the index — no throwaway ConnectionInfo objects.
   const memberKey = createChannelMembershipKey(scope.channelName, scope.channelScope);
   const members: { connectionId: string; meta: Record<string, unknown> }[] = [];
   for (const member of runtime.channelMembers.get(memberKey) ?? []) {
@@ -522,8 +518,6 @@ async function runSubscribeFlow(
     wskit: { ...wskit, channelPersistent: isPersistent },
   });
 
-  // One snapshot frame with the whole member list, in place of a
-  // __memberJoin__ + __memberOnline__ pair per existing peer.
   runtime.sendProtocolMessage(connection, { event: '__memberSync__', payload: { members }, wskit });
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).

@@ -48,6 +48,7 @@ export const recordedStream = withCapabilityKind(
           nudges: toNudgeDefs(config.nudges),
           broadcast: config.broadcast,
           allowConcurrent: config.allowConcurrent,
+          highWaterMark: config.highWaterMark,
           onDisconnect: config.onDisconnect,
           maxChunks: config.maxChunks,
           maxAgeMs: config.maxAgeMs,

@@ -52,7 +52,6 @@ function buildSocket(
   connectDescriptor: ConnectDescriptor,
   primitives: readonly Primitive[],
 ): WSKitSocket {
-  // Plugins are tracked separately and always run after primitives.
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
   const primitiveSpecs = [
     connectDescriptor,
@@ -68,14 +67,12 @@ function buildSocket(
   // "primitives before plugins" holds for onOpen/onIncoming/onOutgoing/onClose.
   const sorted = [...topoSort(primitiveSpecs), ...pluginSpecs];
 
-  // Each primitive copies its settings into one shared config object.
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
     throw new WSKitConfigError('[wskit] client() requires a connect() capability.');
   }
 
-  // Build the socket first so each primitive's setup() can safely use it.
   const socket = new WSKitSocket(config);
   socket._setKnownTags(new Set(sorted.map((spec) => spec._tag).filter(Boolean)));
   const helpers = socket._helpers();

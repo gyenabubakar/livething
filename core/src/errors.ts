@@ -150,6 +150,7 @@ function createMatchesFn<TCode extends string, TDetail>(
     if (!(err instanceof WSKitError)) return false;
     if (err.code !== code) return false;
     if (!validate) return true;
+
     try {
       validate(err.detail);
       return true;

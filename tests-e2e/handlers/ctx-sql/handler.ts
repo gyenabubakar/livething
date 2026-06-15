@@ -77,12 +77,14 @@ const handleSqlReuseProbe = base.on('sql-reuse-probe', {
   run(ctx) {
     const result = ctx.sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM notes');
     result.one();
+
     let error = '';
     try {
       result.toArray();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
+
     ctx.send('sql-reuse-result', { error });
   },
 });
@@ -126,12 +128,14 @@ const handleSqlOneMultiProbe = base.on('sql-one-multi-probe', {
   run(ctx) {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', 'm1', 'x');
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', 'm2', 'x');
+
     let error = '';
     try {
       ctx.sql.exec('SELECT id FROM notes').one();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
+
     ctx.send('sql-reuse-result', { error });
   },
 });
@@ -152,6 +156,7 @@ const handleConnectionsSnapshotProbe = base.on('connections-snapshot-probe', {
       (c.latency === null || typeof c.latency === 'number') &&
       (c.quality === null || typeof c.quality === 'string') &&
       typeof c.bufferedAmount === 'number';
+
     ctx.send('snapshot-result', { count: conns.length, shapeOk });
   },
 });

@@ -19,15 +19,18 @@ function wrapCursor<TRow = unknown>(
     },
     one: () => {
       claim('one');
+
       const iter = cursor[Symbol.iterator]();
       const first = iter.next();
       if (first.done) return null;
+
       const second = iter.next();
       if (!second.done) {
         throw new Error(
           '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
         );
       }
+
       return first.value as TRow;
     },
     raw: () => {
@@ -40,6 +43,10 @@ function wrapCursor<TRow = unknown>(
 /**
  * Create an SQLProvider backed by Cloudflare Durable Object SQLite storage.
  * Supports `exec()` for queries and `transaction()` for atomic operations.
+ *
+ * `transaction()` throws when the runtime lacks `storage.transactionSync` rather
+ * than downgrading to plain `exec()` calls — that would break the all-or-nothing
+ * contract and leave a partially-executed callback's writes committed.
  */
 export function createSql(state: DurableObjectState): SQLProvider {
   return {
@@ -50,10 +57,6 @@ export function createSql(state: DurableObjectState): SQLProvider {
       fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
     ): T {
       if (typeof state.storage.transactionSync !== 'function') {
-        // Refuse to silently downgrade `transaction(callback)` to plain
-        // exec() calls — that breaks the documented all-or-nothing contract
-        // and leaves writes from a partially-executed callback committed.
-        // Throw before invoking the callback so the caller can react.
         throw new Error(
           '[wskit] this Cloudflare runtime does not support atomic transactions. ' +
             'ctx.sql.transaction() requires storage.transactionSync(). Upgrade your ' +

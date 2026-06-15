@@ -160,7 +160,6 @@ describe('ctx.provide / ctx.inject', () => {
     const key = localKey<{ role: string }>('auth');
     const ctx = buildConnectionContext(baseDeps(), createConnection());
 
-    // Simulates: top-level intercept provides, handler injects
     ctx.provide(key, { role: 'admin' });
     const seen = ctx.inject(key);
     expect(seen).toEqual({ role: 'admin' });

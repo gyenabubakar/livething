@@ -102,9 +102,6 @@ function baseDispatchRuntime(
   } as any;
 }
 
-// -------------------------------------------------------------------
-// handleUpgrade
-// -------------------------------------------------------------------
 describe('handleUpgrade', () => {
   it('returns reject shape when RejectUpgrade is thrown', async () => {
     const result = await handleUpgrade(
@@ -241,9 +238,6 @@ describe('handleUpgrade', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// Defer retries + DeferExhausted
-// -------------------------------------------------------------------
 describe('defer retry behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -303,12 +297,10 @@ describe('defer retry behavior', () => {
       payload: { id: 1 },
       wskit: undefined,
     });
-    // Attempts: 1 (first), then retries 2, 3. After attempt 3 Defer triggers exhausted.
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
     }
 
-    // 1 initial call + 3 retries = 4 handler invocations before DeferExhausted fires
     expect(handler).toHaveBeenCalledTimes(4);
     expect(errors).toHaveLength(1);
     const err = errors[0];
@@ -347,9 +339,6 @@ describe('defer retry behavior', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// Disconnect thrown from handler
-// -------------------------------------------------------------------
 describe('Disconnect thrown from handler', () => {
   it('closes the connection with the given code and reason', async () => {
     const connection = createConnection();
@@ -371,9 +360,6 @@ describe('Disconnect thrown from handler', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// Block silently dropped
-// -------------------------------------------------------------------
 describe('Block at dispatch', () => {
   it('silently swallows Block — no onError, no validation error', async () => {
     const connection = createConnection();
@@ -401,9 +387,6 @@ describe('Block at dispatch', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// processTextMessage protocol branches
-// -------------------------------------------------------------------
 describe('processTextMessage protocol branches', () => {
   it('responds to raw "ping" text frames with "pong"', async () => {
     const connection = createConnection();
@@ -585,9 +568,6 @@ describe('processTextMessage protocol branches', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// wakeHibernatedConnection → restoreChannelMemberships branches
-// -------------------------------------------------------------------
 describe('wakeHibernatedConnection — channel memberships restore', () => {
   function makeRuntime(id: string, row: Record<string, unknown> | null) {
     return {
@@ -653,9 +633,6 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// onAfterSend async rejection logging
-// -------------------------------------------------------------------
 describe('onAfterSend async rejection', () => {
   it('logs errors from an after-send hook that returns a rejecting promise', async () => {
     const { sendThroughPipeline } = await import('~/_engine/runtime/messages.ts');

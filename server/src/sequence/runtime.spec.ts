@@ -74,7 +74,6 @@ describe('sequence/runtime', () => {
   });
 
   it('resumes from a pre-existing sequence row after a restart', () => {
-    // Simulate a server restart where the row already contains nextSeq=42.
     let currentSeq: number | null = 42;
     const queries: string[] = [];
 
@@ -102,7 +101,6 @@ describe('sequence/runtime', () => {
 
     expect(allocatePersistentSequence(sql)).toBe(42);
     expect(allocatePersistentSequence(sql)).toBe(43);
-    // No INSERT should happen when the row already exists.
     expect(queries.some((q) => q.startsWith('INSERT INTO __wskit_sequence'))).toBe(false);
   });
 });
@@ -118,13 +116,11 @@ describe('createPersistentSequenceAllocator (batched)', () => {
     const { calls, sql } = createSql();
     const alloc = createPersistentSequenceAllocator(sql, 3); // batchSize 3
 
-    // First next() reserves [1..4) in one write and serves from memory after.
     expect(alloc.next()).toBe(1);
     expect(alloc.next()).toBe(2);
     expect(alloc.next()).toBe(3);
     expect(writeCount(calls)).toBe(1); // the whole first batch was one SQL write
 
-    // The 4th call exhausts the batch and refills with exactly one more write.
     expect(alloc.next()).toBe(4);
     expect(writeCount(calls)).toBe(2);
     expect(alloc.next()).toBe(5);

@@ -63,7 +63,6 @@ function incomingPrimitive(onIncoming: (message: WireMessage) => WireMessage | n
 describe('incoming pipeline — malformed text frame', () => {
   it('swallows an unparseable text frame and keeps the socket alive', () => {
     const handler = vi.fn();
-    // Supply a custom parse that always throws so we can control the failure
     const parseSpec = configPrimitive((config) => {
       config.parse = () => {
         throw new SyntaxError('bad json');
@@ -72,7 +71,6 @@ describe('incoming pipeline — malformed text frame', () => {
     const { socket, ws } = connected(parseSpec);
     socket.on('anything', handler);
 
-    // emitRaw sends the string directly without JSON-stringifying
     ws.emitRaw('this is not valid json');
 
     expect(handler).not.toHaveBeenCalled();
@@ -116,11 +114,8 @@ describe('incoming pipeline — defaultParse event field validation', () => {
     socket.on('42', handler);
     socket.on('null', handler);
 
-    // numeric event — valid JSON but event is a number, not a string
     ws.emitRaw(JSON.stringify({ event: 42, payload: {} }));
-    // missing event field
     ws.emitRaw(JSON.stringify({ payload: {} }));
-    // null event
     ws.emitRaw(JSON.stringify({ event: null, payload: {} }));
 
     expect(handler).not.toHaveBeenCalled();
@@ -153,7 +148,6 @@ describe('incoming pipeline — scoped frame top-level guard', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    // Subscribe the channel so it is active
     socket.channel('chat').subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -207,9 +201,6 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     socket.onError(() => {});
     socket.on('test', topHandler);
 
-    // The throw is caught: it does NOT escape onmessage. The throwing primitive
-    // is skipped, the message continues unchanged, so the sibling primitive and
-    // the top-level handler both still run for this frame.
     expect(() => ws.emit({ event: 'test', payload: {} })).not.toThrow();
     expect(secondPrimitiveHandler).toHaveBeenCalled();
     expect(topHandler).toHaveBeenCalled();
@@ -228,12 +219,10 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     socket.onError(() => {});
     socket.on('test', topHandler);
 
-    // First frame: the throw is contained and the frame still reaches dispatch.
     expect(() => ws.emit({ event: 'test', payload: { n: 1 } })).not.toThrow();
     expect(topHandler).toHaveBeenCalledWith({ n: 1 });
     expect(socket.getState()).toBe('open');
 
-    // A later non-throwing frame is delivered normally too.
     shouldThrow = false;
     ws.emit({ event: 'test', payload: { n: 2 } });
     expect(topHandler).toHaveBeenCalledWith({ n: 2 });
@@ -264,7 +253,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
       });
       const { ws } = connected(throwing);
 
-      ws.emit({ event: 'test', payload: {} }); // no error listener → rethrow out-of-band
+      ws.emit({ event: 'test', payload: {} });
       expect(scheduled).toHaveLength(1);
       expect(scheduled[0]).toThrow(boom);
     } finally {
@@ -293,7 +282,6 @@ describe('handler registered inside a dispatch does not receive the triggering m
 
     expect(lateHandler).not.toHaveBeenCalled();
 
-    // Second message: now lateHandler is already registered, so it must fire.
     ws.emit({ event: 'message', payload: { text: 'second' } });
 
     expect(lateHandler).toHaveBeenCalledTimes(1);

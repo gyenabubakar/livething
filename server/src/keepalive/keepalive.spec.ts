@@ -68,7 +68,6 @@ describe('keepalive', () => {
     void connectHandlers[0]!({ id: 'conn-1' });
     void activityHandlers[0]!('conn-1');
 
-    // Both the connect and the activity hook refresh with idleTimeoutMs.
     expect(refreshed).toEqual([
       { connectionId: 'conn-1', timeoutMs: 30_000 },
       { connectionId: 'conn-1', timeoutMs: 30_000 },

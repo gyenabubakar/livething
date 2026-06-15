@@ -35,17 +35,11 @@ type Primitive = PrimitiveCore.Primitive;
  * runtime plugins read and write these fields directly.
  */
 export class EngineCore {
-  // ─────── compiled handler + primitive tree ───────
-
   readonly options: EngineAdapterTypes.EngineOptions;
   readonly primitives: readonly Primitive[];
   readonly compiled: EngineCompileTypes.CompiledServer;
 
-  // ─────── hook registries ───────
-
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
-
-  // ─────── adapter-provided dependencies ───────
 
   storage?: PublicApi.StorageProvider;
   env: Record<string, unknown>;
@@ -60,8 +54,6 @@ export class EngineCore {
    * with a broker call `setInstanceId(...)` so refs carry a real id.
    */
   engineInstanceId: string | undefined;
-
-  // ─────── feature flags set during primitive setup ───────
 
   hibernationEnabled = false;
   replayEnabled = false;
@@ -124,8 +116,6 @@ export class EngineCore {
     StreamIdCollision.code,
     UnsupportedProtocol.code,
   ]);
-
-  // ─────── runtime maps ───────
 
   readonly connections = new Map<string, RuntimeConnection>();
   // Channel-key → members index, so broadcasts skip a full connections scan.
@@ -190,8 +180,6 @@ export class EngineCore {
     this.engineInstanceId = id;
   }
 
-  // ─────── dependency accessors ───────
-
   storageOrUndefined(): PublicApi.StorageProvider | undefined {
     return this.storage;
   }
@@ -210,14 +198,10 @@ export class EngineCore {
     return this.timers;
   }
 
-  // ─────── id generation ───────
-
   generateId(prefix = 'id'): string {
     this.idCounter += 1;
     return `${prefix}_${this.instanceNonce}_${this.idCounter}`;
   }
-
-  // ─────── feature-flag readers ───────
 
   usesHibernation(): boolean {
     return this.hibernationEnabled;

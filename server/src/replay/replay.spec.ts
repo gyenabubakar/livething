@@ -250,7 +250,6 @@ describe('replay', () => {
       validateReduced: (event, payload) => seen.push({ event, payload }),
     });
 
-    // The reducer's output — not the raw frame — is what gets validated.
     expect(seen).toEqual([{ event: 'doc-snapshot', payload: { id: 'doc-1', title: 'Draft' } }]);
   });
 

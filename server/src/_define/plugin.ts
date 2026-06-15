@@ -30,6 +30,10 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   // Internal carriers that ride along but need no namespacing.
   'ack',
   'sequence',
+  // The server→client request install primitive: a global pending map and ctx
+  // install. Outgoing request frames are prefixed by the normal scoped-send
+  // path, so the carrier itself needs no per-plugin namespacing.
+  'server-requests',
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */

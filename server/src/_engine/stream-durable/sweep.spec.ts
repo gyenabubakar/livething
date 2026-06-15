@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { sweepDurableStreams } from './runtime.ts';
 import * as Storage from './storage.ts';
 
-// Minimal in-memory SQL that just tracks streams + chunks enough for sweep.
 function makeSql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();

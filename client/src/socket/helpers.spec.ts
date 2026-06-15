@@ -30,7 +30,7 @@ describe('onSignal / emitSignal', () => {
     unsub();
 
     helpers.emitSignal('online', false);
-    expect(received).toHaveLength(1); // handler did not fire again
+    expect(received).toHaveLength(1);
   });
 
   it('emitSignal to a name with no listeners is a safe no-op', () => {
@@ -58,8 +58,8 @@ describe('onSignal / emitSignal', () => {
 
     unsubA();
     helpers.emitSignal('online', false);
-    expect(a).toHaveLength(1); // A stopped
-    expect(b).toEqual([true, false]); // B continued
+    expect(a).toHaveLength(1);
+    expect(b).toEqual([true, false]);
   });
 });
 
@@ -143,7 +143,6 @@ describe('id scope fallback (#17)', () => {
   it('falls back to getRandomValues when randomUUID is unavailable', () => {
     let counter = 0;
     setCrypto({
-      // No randomUUID — force the getRandomValues path.
       getRandomValues: (array: Uint8Array) => {
         for (let i = 0; i < array.length; i++) array[i] = (counter + i) % 256;
         counter += 7;
@@ -152,10 +151,8 @@ describe('id scope fallback (#17)', () => {
     });
     const a = client()(connect('wss://test')) as WSKitSocket;
     const b = client()(connect('wss://test')) as WSKitSocket;
-    // Distinct secure-random bytes per socket → distinct scopes, with no dependence
-    // on Math.random.
     expect(scopeOf(a)).not.toBe(scopeOf(b));
-    expect(scopeOf(a)).toMatch(/^[0-9a-f]{32}/); // 16 bytes hex
+    expect(scopeOf(a)).toMatch(/^[0-9a-f]{32}/);
   });
 
   it('a frozen weak RNG cannot make two sockets collide because the scope uses getRandomValues', () => {

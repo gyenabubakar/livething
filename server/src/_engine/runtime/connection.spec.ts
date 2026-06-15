@@ -152,7 +152,6 @@ describe('connection runtime', () => {
       },
     );
 
-    // Fire three messages and a close while connect is still running.
     const a = handle.handleMessage('a');
     const b = handle.handleMessage('b');
     const c = handle.handleMessage('c');
@@ -513,7 +512,6 @@ describe('connection runtime', () => {
           active_stream_ids: [],
         }),
         reloadPersistentTags(connection) {
-          // Stand in for the durable reload wired in engine.deps.ts.
           reloaded.push(connection.identity);
           tagMembers.set('persistent:role/admin', new Set([connection]));
         },
@@ -565,11 +563,9 @@ describe('connection runtime', () => {
       alarmState: { current: null },
     });
 
-    // Give the microtasks a chance to enter handleConnectionClose.
     await new Promise((r) => setTimeout(r, 0));
     expect(order).toEqual(['close-start']);
 
-    // Resolve close cleanup; shutdown should now finish.
     resolveClose();
     await shutdownPromise;
     expect(order).toEqual(['close-start', 'close-end']);
@@ -702,7 +698,6 @@ describe('connection runtime', () => {
       { code: 1001, reason: 'Server shutting down' },
     ]);
     expect(cleared).toEqual(['alarm-handle']);
-    // Both throws were logged.
     expect(errorLog.map((e) => e.message)).toEqual([
       '[wskit] shutdown hook threw',
       '[wskit] plugin shutdown hook threw',
@@ -866,7 +861,6 @@ describe('connection runtime', () => {
       reason: 'normal',
     });
 
-    // Nothing ran — guard short-circuited at the top.
     expect(events).toEqual([]);
   });
 
@@ -929,7 +923,6 @@ describe('connection runtime', () => {
       }),
     ).resolves.toBeUndefined();
 
-    // Channel-leave still ran despite the hook throwing.
     expect(events).toEqual(['streams-cancelled', 'disconnect-hook:start', 'channel-left']);
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]![0]).toMatch(/disconnect lifecycle hook threw/);
@@ -1001,7 +994,6 @@ describe('connection runtime', () => {
       }),
     ).resolves.toBeUndefined();
 
-    // Both channels were attempted, keepalive cleared, and the throw was logged.
     expect(events).toEqual(['streams-cancelled', 'disconnect-hook', 'leave:one', 'leave:two']);
     expect(clearTimeoutSpy).toHaveBeenCalledWith(keepaliveHandle);
     expect(logger.error).toHaveBeenCalledTimes(1);
@@ -1072,7 +1064,7 @@ describe('connection runtime', () => {
         throw new Error('user finally threw');
       }
     })();
-    await throwing.next(); // prime past the yield
+    await throwing.next();
 
     const clean = (async function* () {
       yield 'ok';
@@ -1106,7 +1098,6 @@ describe('connection runtime', () => {
 
     await expect(cancelActiveStreamsForConnection(runtime, 'c1')).resolves.toBeUndefined();
 
-    // Both streams removed despite the first one throwing.
     expect(runtime.activeStreams.size).toBe(0);
     expect(logger.error).toHaveBeenCalledTimes(1);
     const [message, fields] = logger.error.mock.calls[0]!;

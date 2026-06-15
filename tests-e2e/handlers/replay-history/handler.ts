@@ -104,6 +104,7 @@ export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
     } catch (err) {
       undeclared = err instanceof Error ? err.message : String(err);
     }
+
     ctx.send('replay-guard-error', { undeclared });
   },
 });

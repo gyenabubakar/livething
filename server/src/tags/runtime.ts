@@ -221,7 +221,6 @@ export function buildGroupHandle(
   const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 
-  // True when a persistent-tag change also needs a durable SQL write.
   const persistsDurably = runtime.persistenceEnabled && connection.identity.length > 0;
 
   return {

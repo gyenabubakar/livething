@@ -573,7 +573,6 @@ export function buildLoadReplayQuery(
 ): { sql: string; params: unknown[] } {
   if (scope.channelName) {
     if (scope.channelScope === null) {
-      // Static channel: scope marker is always an explicit null.
       return {
         sql: `
           SELECT

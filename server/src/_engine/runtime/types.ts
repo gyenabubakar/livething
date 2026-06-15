@@ -96,13 +96,32 @@ export interface PluginUpgradeEntry {
  * processing messages, connections, shutdown, and alarms.
  */
 export interface RegisteredEngineHooks {
-  // -- Message pipeline hooks -------------------------------------------------
-
   /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
   incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
+
+  /**
+   * Settle a server→client request answer. A user-event frame carrying a
+   * `correlationId` is offered to each hook before normal routing; a hook
+   * returns `true` when the id matches a pending server-initiated request it
+   * owns (validating the answer and resolving/rejecting the server promise),
+   * which stops routing. Owned by the `requests()` capability so the core never
+   * imports the pending-request map.
+   */
+  answerFrame: ((
+    connectionId: string,
+    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
+  ) => boolean)[];
+
+  /**
+   * Settle a server→client ack receipt. An inbound `__ack__` frame echoing an
+   * `ackId` is offered to each hook; a hook returns `true` when the id matches a
+   * pending `sendWithAck(...)` it owns (resolving the server promise). Owned by
+   * the `ack()` capability so the core never imports its pending-ack map.
+   */
+  ackFrame: ((connectionId: string, ackId: string) => boolean)[];
 
   /** Runs before wire serialization — can observe or rewrite the payload (event is locked). */
   outgoing: ((message: { event: string; payload: unknown }) => unknown | void)[];
@@ -129,12 +148,8 @@ export interface RegisteredEngineHooks {
     ) => boolean | void | Promise<boolean | void>)[]
   >;
 
-  // -- Context extension ------------------------------------------------------
-
   /** Factories that add extra fields/methods to every connection context. */
   contextExtenders: ((ctx: any) => Record<string, unknown>)[];
-
-  // -- Lifecycle hooks --------------------------------------------------------
 
   /** Runs during primitive setup, before `init` hooks — for internal bootstrap. */
   boot: (() => void | Promise<void>)[];
@@ -215,12 +230,8 @@ export interface RegisteredEngineHooks {
    */
   pluginUpgrade: PluginUpgradeEntry[];
 
-  // -- Scheduled work ---------------------------------------------------------
-
   /** Runs when the adapter fires a scheduled callback. */
   alarm: (() => void | Promise<void>)[];
-
-  // -- Channel membership -----------------------------------------------------
 
   /** Async check phase per channel key — runs before a subscription is confirmed. */
   check: Map<string, ChannelCheckHook[]>;
@@ -249,8 +260,6 @@ export interface RegisteredEngineHooks {
  * active.
  */
 export interface RuntimeConnection {
-  // -- Identity --
-
   /** Unique connection ID assigned by the engine. */
   id: string;
 
@@ -273,8 +282,6 @@ export interface RuntimeConnection {
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
 
-  // -- Channel state --
-
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
    * keys held under that group. The `(kind, group)` split is enforced at
@@ -295,8 +302,6 @@ export interface RuntimeConnection {
    * checks, member listings, kick filters, broadcasts) all read this map.
    */
   channelMemberships: Map<string, { channelName: string; channelScope: string | null }>;
-
-  // -- Ephemeral runtime state --
 
   /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
   latency: number | null;
@@ -431,6 +436,22 @@ export interface ActiveStream {
    * claims a different (or no) scope is rejected, not silently accepted.
    */
   scope?: ResolvedScope;
+
+  /**
+   * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
+   * generator code can pass it into slow awaited work (`fetch`, timers, …). The
+   * runtime aborts it on client cancel, owning-connection disconnect, and server
+   * shutdown — always before `generator.return()` so in-flight work stops first.
+   */
+  abortController: AbortController;
+
+  /**
+   * Outbound backpressure limit in bytes for this stream. `ctx.stream.drain()`
+   * resolves once the buffered amount falls below this mark. Resolved from the
+   * stream config's `highWaterMark`, defaulting to 256 KB. The drain closure
+   * captures the resolved value directly; this field records it for diagnostics.
+   */
+  highWaterMark?: number;
 }
 
 /**
@@ -474,6 +495,13 @@ export interface RoutingTarget {
   channelScope?: string | null;
 
   correlationId?: string;
+
+  /**
+   * Ack id stamped on the outgoing frame as `__wskit.ackId`. A server
+   * `sendWithAck(...)` sets it so the client knows to auto-confirm receipt by
+   * echoing this id back in an `__ack__` frame.
+   */
+  ackId?: string;
 
   streamId?: string;
 

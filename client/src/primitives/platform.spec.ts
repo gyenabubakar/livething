@@ -85,8 +85,8 @@ describe('background disconnect', () => {
 
     m.setVisible(false);
     vi.advanceTimersByTime(500);
-    m.setVisible(true); // cancels
-    m.setVisible(false); // restarts the countdown
+    m.setVisible(true);
+    m.setVisible(false);
     vi.advanceTimersByTime(999);
     expect(socket.getState()).toBe('open');
     vi.advanceTimersByTime(1);
@@ -99,11 +99,11 @@ describe('background disconnect', () => {
       platform({ environment: m.environment, backgroundDisconnectMs: 1000 }),
     );
 
-    m.setVisible(false); // start the countdown
-    ws.serverClose(1006, 'network blip'); // accidental drop before the timer fires
+    m.setVisible(false);
+    ws.serverClose(1006, 'network blip');
     expect(socket.getState()).toBe('closed');
 
-    vi.advanceTimersByTime(1000); // countdown fires on an already-dead socket
+    vi.advanceTimersByTime(1000);
 
     m.setVisible(true); // returning must NOT trigger a platform reconnect
     expect(socket.getState()).toBe('closed');
@@ -125,18 +125,15 @@ describe('background disconnect', () => {
       connect('wss://test', { lazy: true, idleTimeout: 1000 }),
       platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
     );
-    // Two listeners → lazy connect; consumer count is 2.
     const un1 = socket.on('message', () => undefined);
     socket.on('message', () => undefined);
     MockWebSocket.last().open();
     expect(socket.getState()).toBe('open');
 
-    // Hide → background disconnect after 500ms.
     m.setVisible(false);
     vi.advanceTimersByTime(500);
     expect(socket.getState()).toBe('closed');
 
-    // Return → reconnect.
     m.setVisible(true);
     MockWebSocket.last().open();
     expect(socket.getState()).toBe('open');
@@ -162,14 +159,11 @@ describe('background disconnect', () => {
 
 describe('manual connect while already hidden', () => {
   it('manual socket.connect() while hidden must not be auto-dropped by background timer', () => {
-    // Build an environment that is already hidden and reports that state
-    // immediately to any subscriber (mirrors WebEnvironment behaviour).
     let visCb: ((v: boolean) => void) | null = null;
     const visUnsub = vi.fn();
     const env = environment({
       onVisibilityChange(cb) {
         visCb = cb;
-        // Report current state (hidden) right away, just like WebEnvironment.
         cb(false);
         return visUnsub;
       },
@@ -180,10 +174,8 @@ describe('manual connect while already hidden', () => {
       platform({ environment: env, backgroundDisconnectMs: 1000 }),
     );
 
-    // Manually connect and open the socket while the tab is already hidden.
     socket.connect();
     MockWebSocket.last().open();
-    // The socket is open — the user explicitly connected it.
     expect(socket.getState()).toBe('open');
 
     // Advance past backgroundDisconnectMs. The socket was manually opened
@@ -191,7 +183,6 @@ describe('manual connect while already hidden', () => {
     vi.advanceTimersByTime(1000);
     expect(socket.getState()).toBe('open');
 
-    // Silence TS — visCb is set inside the subscribe callback above.
     void visCb;
   });
 });
@@ -206,11 +197,11 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
 
     m.setOnline(false);
     vi.advanceTimersByTime(60_000);
-    expect(MockWebSocket.instances).toHaveLength(1); // no retry while offline
-    expect(socket.getState()).toBe('reconnecting'); // still active, not closed
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(socket.getState()).toBe('reconnecting');
 
     m.setOnline(true);
-    expect(MockWebSocket.instances).toHaveLength(2); // retried at once
+    expect(MockWebSocket.instances).toHaveLength(2);
   });
 
   it('does not schedule a retry when the drop happens while already offline', () => {
@@ -241,9 +232,9 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
       reconnection({ networkAware: false }),
     );
 
-    m.setOnline(false); // ignored
+    m.setOnline(false);
     ws.serverClose(1006);
     vi.advanceTimersByTime(2000);
-    expect(MockWebSocket.instances).toHaveLength(2); // retried despite being "offline"
+    expect(MockWebSocket.instances).toHaveLength(2);
   });
 });

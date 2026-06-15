@@ -32,8 +32,6 @@ function build<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
 ) {
   const socket = client<TestContract>()(connect('wss://test'), ...primitives);
-  // Some tests here deliberately throw inside a hook; sink the error so the
-  // no-listener out-of-band rethrow doesn't fail the suite.
   socket.onError(() => {});
   socket.connect();
   const ws = MockWebSocket.last();
@@ -108,7 +106,7 @@ describe('error routing', () => {
 describe('buffering', () => {
   it('queues sends while disconnected and flushes on reconnect', () => {
     const socket = client<TestContract>()(connect('wss://test'), buffering({ enabled: true }));
-    expect(socket.send('typing', { channelId: 'a' })).toBe(true); // queued, not dropped
+    expect(socket.send('typing', { channelId: 'a' })).toBe(true);
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -130,8 +128,6 @@ describe('query params', () => {
   });
 
   it('awaits a thenable that is not instanceof Promise (cross-realm) (#23)', async () => {
-    // A foreign-realm Promise: a thenable whose prototype is not this realm's
-    // Promise, so `instanceof Promise` is false.
     const foreign = {
       then(onFulfilled: (value: Record<string, string>) => unknown) {
         return Promise.resolve(onFulfilled({ token: 'xrealm' }));
@@ -246,7 +242,6 @@ describe('quality + debug compose without error', () => {
 });
 
 describe('kernel lifecycle-hook isolation', () => {
-  // A primitive whose `hook` throws, paired with a sibling that records it ran.
   function pair(hook: 'onOpen' | 'onReconnect' | 'onClose'): {
     ran: () => boolean;
     specs: Primitive[];
@@ -276,7 +271,7 @@ describe('kernel lifecycle-hook isolation', () => {
 
   it('contains a throwing onOpen so the rest of the open sequence still runs', () => {
     const p = pair('onOpen');
-    const { socket } = build(...p.specs); // build() opens the socket
+    const { socket } = build(...p.specs);
     expect(socket.getState()).toBe('open');
     expect(p.ran()).toBe(true);
   });
@@ -300,9 +295,9 @@ describe('kernel lifecycle-hook isolation', () => {
     vi.useFakeTimers();
     const p = pair('onReconnect');
     const { ws } = build(...p.specs, reconnection());
-    ws.serverClose(1006); // unexpected drop → reconnection schedules a retry
+    ws.serverClose(1006);
     vi.advanceTimersByTime(2000);
-    MockWebSocket.last().open(); // reconnect open fires onReconnect hooks
+    MockWebSocket.last().open();
     expect(p.ran()).toBe(true);
     vi.useRealTimers();
   });

@@ -23,6 +23,8 @@ export type BuildContract<TSlots> = {
   readonly outgoing: AsRecord<SlotOr<TSlots, 'outgoing'>>;
   /** Client→server request/response pairs — declared by each `base.request(...)`. */
   readonly requests: AsRecord<SlotOr<TSlots, 'requests'>>;
+  /** Server→client request/response pairs — declared by `requests({...})`. */
+  readonly serverRequests: AsRecord<SlotOr<TSlots, 'serverRequests'>>;
   /** Server-pushed plain streams. */
   readonly streams: AsRecord<SlotOr<TSlots, 'streams'>>;
   /** Server-pushed resumable streams. */

@@ -141,8 +141,6 @@ export function plugin<TArgs = void, TApi = unknown>(
       _plugin: { key: def.key, id: def.id, registrationId },
       dependencies,
       setup(helpers) {
-        // Each hook can only be registered once — doing it twice throws instead of
-        // quietly replacing the first one, so all the plugin's logic stays in one callback.
         let incoming: ((message: WireMessage) => WireMessage | void) | null = null;
         let outgoing: ((message: WireMessage) => WireMessage | void) | null = null;
         let open: (() => WireMessage[] | void) | null = null;
@@ -177,7 +175,6 @@ export function plugin<TArgs = void, TApi = unknown>(
 
           onIncoming: (message) => {
             if (!incoming) return message;
-            // Only Block consumes the message; any other throw is reported and passes through.
             const run = incoming;
             return runMessageHook(
               (m) => run(m) ?? m,

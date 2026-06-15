@@ -49,7 +49,6 @@ describe('plugin hooks — getState()', () => {
     });
 
     expect(asyncContext.run({ connectionId: 'c1' }, () => hooks.getState().id)).toBe('c1');
-    // Outside any run() there is no active connection — empty placeholder.
     expect(hooks.getState().id).toBe('');
   });
 

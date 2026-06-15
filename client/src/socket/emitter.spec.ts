@@ -46,7 +46,6 @@ describe('Emitter.listenerCount', () => {
     const emitter = new Emitter<Events>();
     const unsub = emitter.on('open', () => {});
     unsub();
-    // The empty set is deleted from the map, so count must read 0 not undefined.
     expect(emitter.listenerCount('open')).toBe(0);
   });
 });
@@ -118,7 +117,6 @@ describe('Emitter.emit — mid-emit mutation isolation', () => {
     emitter.emit('open');
     expect(fn2CallCount).toBe(0);
 
-    // Second emit: fn2 was registered before this call, so it must run now.
     emitter.emit('open');
     expect(fn2CallCount).toBe(1);
   });

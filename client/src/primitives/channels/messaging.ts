@@ -178,7 +178,6 @@ export function buildChannelMessaging(
       return promise;
     },
     unsubscribe(): Promise<void> {
-      // Already gone with nothing in flight — a no-op that still resolves.
       if (!state.active && !state.pending && !state.pendingLeave) return Promise.resolve();
 
       // A leave is already outstanding: the latest intent is to leave, so drop

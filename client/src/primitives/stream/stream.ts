@@ -103,7 +103,6 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       const triggers = new Map<string, Trigger>();
       const broadcastSubs = new Map<string, Set<BroadcastSub>>();
       const broadcastRuns = new Map<string, BroadcastRun>();
-      // Nudges awaiting a __nudgeOk__ / __error__, keyed by streamNudgeId.
       const pendingNudges = new Map<string, PendingNudge>();
       // Trigger frames for streams started before the socket was open with no
       // buffering installed to hold them, keyed by streamId. helpers.send drops
@@ -176,7 +175,6 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         trigger.reject(error);
       }
 
-      // Settle a pending nudge by its id (resolve on __nudgeOk__, reject on error).
       function settleNudge(id: string | undefined, run: (pending: PendingNudge) => void): void {
         if (id === undefined) return;
         const pending = pendingNudges.get(id);
@@ -376,7 +374,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null };
           broadcastRuns.set(streamId, run);
         }
-        if (seq !== undefined && seq <= run.lastSeq) return; // already delivered
+        if (seq !== undefined && seq <= run.lastSeq) return;
         if (seq !== undefined) run.lastSeq = seq;
         if (run.timer) clearTimeout(run.timer);
         if (timeout > 0) {
@@ -415,6 +413,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
       return {
         id: 'stream',
+
         onIncoming(message) {
           const envelope = message.__wskit;
           const streamId = envelope?.streamId;
@@ -443,7 +442,6 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               // The hold the trigger took in triggerStream now belongs to the
               // running stream — adopt it rather than acquiring a second one.
               state.hasLazyHold = true;
-              // The server tells us whether this stream is resumable.
               state.resumable = envelope?.streamKind === 'persistent';
               if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
                 warnedNoKeepalive = true;
@@ -504,7 +502,6 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               return null;
             }
             default: {
-              // A chunk. Deliver to the creator's handle and any broadcast listeners.
               if (message.event.startsWith('__')) return message;
               const seq = envelope?.seq;
               const state = streams.get(streamId);
@@ -525,6 +522,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
           }
         },
+
         onOpen() {
           // Flush held cancels first and finish those streams — a cancel queued
           // during reconnect must reach the server (deleting its durable row) and
@@ -553,6 +551,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           resumeOutbox.clear();
           return frames;
         },
+
         onReconnect() {
           const frames: WireMessage[] = [];
           for (const state of streams.values()) {
@@ -577,6 +576,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
           return frames.length ? frames : null;
         },
+
         onClose(...args) {
           const [code, reason, intentional, suspended] = args;
           for (const trigger of triggers.values()) {
@@ -620,6 +620,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           for (const run of broadcastRuns.values()) if (run.timer) clearTimeout(run.timer);
           broadcastRuns.clear();
         },
+
         onReconnectFailed() {
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
@@ -635,6 +636,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // loop throws Disconnected instead of hanging forever.
           for (const state of [...streams.values()]) finishStream(state, Disconnected());
         },
+
         install(socket) {
           // @ts-expect-error — install adds stream() to the socket dynamically
           socket.stream = (
@@ -683,4 +685,5 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
     },
   };
 }
+
 stream.tag = 'stream';

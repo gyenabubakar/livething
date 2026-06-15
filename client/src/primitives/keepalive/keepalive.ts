@@ -73,6 +73,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
 
       return {
         id: 'keepalive',
+
         install(socket) {
           // @ts-expect-error — install adds the quality API to the socket dynamically
           socket.getQuality = (): ConnectionQuality =>
@@ -87,10 +88,12 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
             };
           };
         },
+
         onOpen() {
           loop.start();
           return null;
         },
+
         onClose() {
           loop.stop();
           quality = null;
@@ -100,4 +103,5 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
     },
   };
 }
+
 keepalive.tag = 'keepalive';

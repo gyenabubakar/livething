@@ -2,7 +2,6 @@ import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { describe, expectTypeOf, it } from 'vitest';
 
-// A contract whose tag groups declare per-group value types via t<>().
 const c = contract('tags-typing', {
   env: t<Record<string, unknown>>(),
   tags: (ephemeral, persistent) => [

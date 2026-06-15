@@ -1,7 +1,5 @@
 import type { SQLProvider } from '~/context.ts';
 
-// ── DDL ────────────────────────────────────────────────────────────────────
-
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
     identity      TEXT NOT NULL,
@@ -46,8 +44,6 @@ const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
   ON __wskit_tags (group_name, key)
 `;
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 /**
  * A single durable channel membership row, returned with the engine-native
  * `null` scope for static channels. Storage stores `''` and the read path
@@ -65,8 +61,6 @@ type RawMembershipRow = {
   channel_scope: string;
   joined_at: number;
 };
-
-// ── Schema ─────────────────────────────────────────────────────────────────
 
 // All six DDL statements in one multi-statement string. Cloudflare's SQL
 // `exec` accepts semicolon-separated statements, so this is one round trip
@@ -87,8 +81,6 @@ const PERSISTENCE_SCHEMA_SQL = [
 export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(PERSISTENCE_SCHEMA_SQL);
 }
-
-// ── Memberships ────────────────────────────────────────────────────────────
 
 export interface MembershipKey {
   identity: string;
@@ -204,8 +196,6 @@ export function deleteMembershipsByChannel(
   );
 }
 
-// ── Tags ───────────────────────────────────────────────────────────────────
-
 /**
  * Delete every persistent tag row for one identity. Used by `purgeIdentity`.
  * Safe to call even when no rows exist for the identity.
@@ -213,8 +203,6 @@ export function deleteMembershipsByChannel(
 export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
   sql.exec('DELETE FROM __wskit_tags WHERE identity = ?', identity);
 }
-
-// ── Scope mapping ──────────────────────────────────────────────────────────
 
 /**
  * Maps in-code `null` scope (static channel) to the empty string `''` on the

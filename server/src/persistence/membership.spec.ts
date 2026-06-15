@@ -84,9 +84,7 @@ describe('removeChannelMember with persistence disabled', () => {
       channelScope: null,
     });
 
-    // No durable row to delete with persistence off — no SQL runs.
     expect(exec).not.toHaveBeenCalled();
-    // The live connection is still kicked out of the channel (true leave).
     expect(leaveChannel).toHaveBeenCalledTimes(1);
     expect(leaveChannel.mock.calls[0]![0]).toBe(connection);
   });

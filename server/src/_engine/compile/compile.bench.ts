@@ -28,7 +28,6 @@ const Empty = v.object({});
 const Text = v.object({ text: v.string() });
 const NumChunk = v.object({ n: v.number() });
 
-// ── Tiny: 1 incoming, 1 outgoing ──
 const tinyContract = contract('bench-tiny', {
   env: t<Record<string, unknown>>(),
   definitions: [incoming('noop', Empty), outgoing('ack', Empty)],
@@ -37,7 +36,6 @@ const tinyHandler = implement(tinyContract)
   .on('noop', () => {})
   .build();
 
-// ── Medium: ~10 events, 2 channels ──
 const mediumContract = contract('bench-medium', {
   env: t<Record<string, unknown>>(),
   persistence: true,
@@ -72,7 +70,6 @@ const mediumHandler = implement(mediumContract)
   .channel('rooms', (ch) => ch.on('post', () => {}))
   .build();
 
-// ── Heavy: ~50 events, 10 channels ──
 function channelDefs(prefix: string) {
   return [
     incoming(`${prefix}-send`, Text),

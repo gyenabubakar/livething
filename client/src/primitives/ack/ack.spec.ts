@@ -60,7 +60,7 @@ describe('ack — buffered frame ownership', () => {
 
   it('rejects the exact ack whose held frame cannot serialize on flush, later acks still flush', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), ack());
-    socket.onError(() => undefined); // absorb the reported serialization failure
+    socket.onError(() => undefined);
     const circular: Record<string, unknown> = {};
     circular.self = circular;
 
@@ -73,7 +73,7 @@ describe('ack — buffered frame ownership', () => {
 
     await expect(bad).rejects.toBeInstanceOf(TypeError);
     const ackId = ws.sentFrames().at(-1).__wskit.ackId;
-    ws.emit({ event: 'chat', payload: {}, __wskit: { ackId } });
+    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId } });
     await expect(good).resolves.toBeUndefined();
   });
 });
@@ -132,8 +132,6 @@ describe('ack timeout and disconnect rejection', () => {
     socket.disconnect();
     await expect(first).rejects.toMatchObject({ code: 'disconnected' });
 
-    // After reconnect a brand-new ack resolves on its own __ack__, unaffected by
-    // the rejected attempt (its id and waiter are independent).
     socket.connect();
     const ws2 = MockWebSocket.last();
     ws2.open();
@@ -153,16 +151,44 @@ describe('ack stale/duplicate frame handling', () => {
       handler,
     );
 
-    // Emit an __ack__ frame with an ackId that has no registered waiter.
     ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: 'stale-id-that-never-existed' } });
 
     expect(handler).not.toHaveBeenCalled();
   });
 });
 
+describe('ack — server-initiated sendWithAck (client auto-confirms)', () => {
+  it('auto-sends an __ack__ for a server message carrying an ackId AND still delivers it to on()', () => {
+    const { socket, ws } = build();
+    const handler = vi.fn();
+    (socket as unknown as { on(event: string, handler: (data: unknown) => void): () => void }).on(
+      'chat',
+      handler,
+    );
+
+    ws.emit({ event: 'chat', payload: { text: 'hi' }, __wskit: { ackId: 'srv-1' } });
+
+    const confirm = ws.sentFrames().find((f: { event: string }) => f.event === '__ack__');
+    expect(confirm).toBeDefined();
+    expect(confirm.__wskit.ackId).toBe('srv-1');
+    expect(handler).toHaveBeenCalledWith({ text: 'hi' });
+  });
+
+  it("does not confirm or mistake the client's OWN send confirmation for a server-initiated one", async () => {
+    const { socket, ws } = build();
+    const pending = socket.sendWithAck('chat', { text: 'mine' });
+    const ackId = ws.sentFrames().at(-1).__wskit.ackId as string;
+
+    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId } });
+    await expect(pending).resolves.toBeUndefined();
+
+    const acks = ws.sentFrames().filter((f: { event: string }) => f.event === '__ack__');
+    expect(acks).toEqual([]);
+  });
+});
+
 describe('ack lazy-socket hold', () => {
   it('holds a sendWithAck started on a connecting lazy socket and resolves it once open and acked', async () => {
-    // Lazy socket (idleTimeout=0 so no idle timer fires), no buffering.
     const socket = client<C>()(
       connect('wss://test', { lazy: true, idleTimeout: 0 }),
       ack({ timeout: 5000 }),
@@ -171,23 +197,20 @@ describe('ack lazy-socket hold', () => {
     const rawSocket = socket as unknown as { _lazyConsumers: number };
     expect(rawSocket._lazyConsumers).toBe(0);
 
-    // sendWithAck triggers the lazy connect (socket enters 'connecting'). With no
-    // buffering the frame is held for the in-progress connect, not dropped, and
-    // the hold stays until the ack settles.
     const pending = socket.sendWithAck('chat', { text: 'hi' });
     void pending.catch(() => undefined);
     expect(rawSocket._lazyConsumers).toBe(1);
 
-    const ws = MockWebSocket.last(); // created by the lazy connect, not open yet
-    expect(ws.sentFrames()).toEqual([]); // held while connecting
+    const ws = MockWebSocket.last();
+    expect(ws.sentFrames()).toEqual([]);
 
-    ws.open(); // onOpen flushes the held frame
+    ws.open();
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('chat');
 
     ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: frame.__wskit.ackId } });
     await expect(pending).resolves.toBeUndefined();
-    expect(rawSocket._lazyConsumers).toBe(0); // hold released after it settles
+    expect(rawSocket._lazyConsumers).toBe(0);
   });
 });
 
@@ -196,8 +219,6 @@ describe('ack ttl option passthrough', () => {
     const { socket, ws } = build();
     const sendSpy = vi.spyOn(socket as unknown as WSKitSocket, '_send');
     const promise = socket.sendWithAck('chat', { text: 'hi' }, { ttl: 5000 });
-    // helpers.send delegates to socket._send — verify the options arg carries the ttl
-    // (alongside the owner attached so a buffered/outboxed ack can be settled).
     expect(sendSpy).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'chat' }),
       expect.objectContaining({ ttl: 5000, owner: expect.any(Object) }),
@@ -211,8 +232,6 @@ describe('ack ttl option passthrough', () => {
     const { socket, ws } = build();
     const sendSpy = vi.spyOn(socket as unknown as WSKitSocket, '_send');
     const promise = socket.sendWithAck('chat', { text: 'hi' });
-    // helpers.send delegates to socket._send — with no ttl the options still carry
-    // the owner attached so a buffered/outboxed ack can be settled.
     expect(sendSpy).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'chat' }),
       expect.objectContaining({ owner: expect.any(Object) }),
@@ -225,10 +244,6 @@ describe('ack ttl option passthrough', () => {
   it('forwards ttl to the outgoing fallback when the socket is not connected', async () => {
     vi.useFakeTimers();
 
-    // Build with a custom outgoing fallback that records the ttl it receives.
-    // We achieve this by registering a primitive that captures helpers.send calls.
-    // Simplest approach: spy on the actual wire using a disconnected socket
-    // and a buffering primitive implemented inline.
     let capturedTtl: number | undefined = 'not-called' as unknown as number | undefined;
 
     const fakePrimitive = {
@@ -243,7 +258,6 @@ describe('ack ttl option passthrough', () => {
     };
 
     const socket = client<C>()(connect('wss://test'), ack(), fakePrimitive as unknown as Primitive);
-    // Do NOT connect so sends hit the fallback
     socket.sendWithAck('chat', { text: 'hi' }, { ttl: 3000 });
 
     expect(capturedTtl).toBe(3000);

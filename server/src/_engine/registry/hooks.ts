@@ -5,6 +5,8 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
   return {
     activity: [],
     incoming: [],
+    answerFrame: [],
+    ackFrame: [],
     outgoing: [],
     wskitStamp: [],
     beforeSend: [],

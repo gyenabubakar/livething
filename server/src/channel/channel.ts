@@ -18,7 +18,6 @@ import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-r
 import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
-// Internal aliases that keep the union type below readable.
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
 type AnyIntercept = InterceptPrimitive<any>;

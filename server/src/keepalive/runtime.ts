@@ -60,6 +60,7 @@ export function scheduleConnectionPing(
     }
 
     connection.pendingPingSentAt = Date.now();
+
     // The ping timer can fire in the same tick the socket is closing — most
     // visibly when the ping interval is half the idle timeout, so a ping lands
     // exactly on the close deadline. Sending on an already-closed socket throws
@@ -71,6 +72,7 @@ export function scheduleConnectionPing(
     } catch {
       return;
     }
+
     scheduleConnectionPing(connection, intervalMs);
   }, intervalMs);
 }

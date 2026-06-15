@@ -34,7 +34,6 @@ async function main() {
     const _t: string = chunk.text;
     void _t;
   }
-  // nudge() is awaitable and takes an optional per-call timeout.
   const _nudged: Promise<void> = handle.nudge('cancel', { reason: 'stop' }, { timeout: 5000 });
   void _nudged;
   handle.cancel();
@@ -74,7 +73,6 @@ async function main() {
   // @ts-expect-error — 'nope' is not a declared stream
   void socket.resumeStream('nope', 'stream-1');
 
-  // Scoped stream on a channel.
   const withChannels = client<C>()(connect('wss://x'), stream(), channels());
   const room = withChannels.channel('rooms', 'r1');
   const roomStream = await room.stream('ask-ai', { prompt: 'hi' });

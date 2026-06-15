@@ -101,10 +101,11 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
       return {
         id: 'channels',
+
         onIncoming(message) {
           const wskit = message.__wskit;
           const name = wskit?.channel;
-          if (typeof name !== 'string') return message; // not a channel frame
+          if (typeof name !== 'string') return message;
 
           const scopeKey = wskit?.channelScope;
           const state = stateFor(name, scopeKey);
@@ -187,7 +188,6 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               return null;
             }
             default: {
-              // A normal channel event. Leave protocol frames and request replies alone.
               if (message.event.startsWith('__')) return message;
               if (wskit?.correlationId !== undefined) return message;
               // A channel-scoped stream chunk carries a streamId — it belongs to
@@ -201,6 +201,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
           }
         },
+
         onOpen() {
           // Resend any outstanding leave BEFORE the subscribe flush — a leave wins
           // over a rejoin. A leave that didn't reach the server before a drop is
@@ -234,6 +235,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
           return null;
         },
+
         onBeforeReopen() {
           // Re-run function payloads (e.g. a token factory) before reconnecting, so
           // the re-subscribe sends a fresh value instead of the one from the original
@@ -258,6 +260,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
           })();
         },
+
         onReconnect() {
           // Re-join every channel we were subscribed to before the disconnect. The
           // server confirms with __subscribeOk__ (and a fresh __memberSync__ fills
@@ -295,6 +298,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
           return resubscribes.length ? resubscribes : null;
         },
+
         onClose(_code, _reason, intentional) {
           for (const state of states.values()) {
             state.clearRejoinTimer();
@@ -330,6 +334,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             state.clearMembersForReconnect();
           }
         },
+
         onReconnectFailed() {
           // Reconnection is abandoned. Active channels won't be revived, so release
           // their idle-prevention holds and give them a terminal signal; an
@@ -341,6 +346,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             else state.releaseLazy();
           }
         },
+
         install(installedSocket) {
           socket = installedSocket;
 
@@ -365,4 +371,5 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
     },
   };
 }
+
 channels.tag = 'channels';

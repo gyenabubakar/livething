@@ -3,6 +3,7 @@
 import type {
   ChannelHandle,
   ChannelsManager,
+  ConnectionHandle,
   ConnectionInfo,
   ConnectionRef,
   KVProvider,
@@ -12,10 +13,6 @@ import type {
 } from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { Contract } from './contract-types.ts';
-
-// ---------------------------------------------------------------------------
-// Typed messaging APIs
-// ---------------------------------------------------------------------------
 
 interface TypedSendApi<TOutgoing> {
   /** Send an event to the current connection. Returns false if the socket can't accept it. */
@@ -31,10 +28,6 @@ interface TypedSendApi<TOutgoing> {
     options?: { excludeSelf?: boolean },
   ): void;
 }
-
-// ---------------------------------------------------------------------------
-// Typed tags API
-// ---------------------------------------------------------------------------
 
 /**
  * Address for every connection holding any key under one group. Built via
@@ -88,10 +81,6 @@ export interface TagsApi<
   list(): readonly { kind: 'ephemeral' | 'persistent'; group: string; key: string }[];
 }
 
-// ---------------------------------------------------------------------------
-// Typed channels manager
-// ---------------------------------------------------------------------------
-
 type ChannelOutgoing<C> = C extends { outgoing: infer O }
   ? O extends Record<string, any>
     ? O
@@ -107,10 +96,6 @@ type TypedChannelsManager<TChannels, Meta> = {
     name: string,
   ): ChannelHandle<ChannelOutgoing<TChannels[K]>, Meta>;
 };
-
-// ---------------------------------------------------------------------------
-// Scheduled api
-// ---------------------------------------------------------------------------
 
 interface ScheduleApi<TScheduled> {
   /**
@@ -134,10 +119,6 @@ interface ScheduleApi<TScheduled> {
     filter?: Record<string, unknown>,
   ): void;
 }
-
-// ---------------------------------------------------------------------------
-// Top-level Ctx derivation
-// ---------------------------------------------------------------------------
 
 /**
  * The `ctx` object passed to handlers registered via
@@ -173,8 +154,11 @@ export type Ctx<C extends Contract> = {
   /** Number of currently-open connections on this server instance. */
   readonly connectionCount: number;
 
-  /** Send an event to a specific other connection by id. Returns false if the target isn't here. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket.
+   */
+  connection(ref: ConnectionRef): ConnectionHandle;
   /** Close this WebSocket. */
   close(code?: number, reason?: string): void;
   /** Snapshot of every currently-open connection on this server instance. */
@@ -206,8 +190,6 @@ export type Ctx<C extends Contract> = {
    */
   inject<T>(key: LocalKey<T>): T | undefined;
 
-  // ───── Always-on feature surface. Runtime throws if the feature was not enabled. ─────
-
   /** Send an `__ack__` back to the client. Requires `ack: true` on the contract. */
   ack(): void;
   /**
@@ -230,10 +212,6 @@ export type Ctx<C extends Contract> = {
     /** Tag groups declared on the contract — attach/find connections by labelled keys. */
     readonly tags: TagsApi<C['tagGroups']['ephemeral'], C['tagGroups']['persistent']>;
   };
-
-// ---------------------------------------------------------------------------
-// Channel-scoped ctx
-// ---------------------------------------------------------------------------
 
 type ChannelOutgoingOf<T> = T extends { outgoing: infer O } ? O : Record<string, unknown>;
 

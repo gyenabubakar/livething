@@ -1,8 +1,8 @@
 import { define, emits, t } from '@wskit/server';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
-import { replay } from '@wskit/server/replay';
 import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -61,10 +61,12 @@ base.replay({
       } catch (err) {
         undeclared = err instanceof Error ? err.message : String(err);
       }
+
       ctx.sql.exec(
         'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared) VALUES (1, ?)',
         undeclared,
       );
+
       return;
     }
 
@@ -114,11 +116,13 @@ base.init((ctx) => {
       confirmed INTEGER NOT NULL DEFAULT 0
     )
   `);
+
   try {
     ctx.sql.exec('ALTER TABLE _custom_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
   } catch {
     // column already exists
   }
+
   try {
     ctx.sql.exec('ALTER TABLE _custom_room_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
   } catch {

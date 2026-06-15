@@ -57,7 +57,6 @@ void [_code, _detail];
 const _isError: boolean = wsErr instanceof Error;
 void _isError;
 
-// WSKitError with void detail (code-only)
 const wsErrVoid = new WSKitError('not-found', undefined as void);
 const _voidCode: 'not-found' = wsErrVoid.code;
 void _voidCode;
@@ -74,11 +73,9 @@ void _notFoundCode;
 const _notFoundDef: ErrorDef<'not-found', void> = NotFound;
 void _notFoundDef;
 
-// Code-only errors are callable — factory returns WSKitError with void detail
 const _notFoundErr: WSKitError<'not-found', void> = NotFound();
 void _notFoundErr;
 
-// .matches() exists
 const _matchesFn: (err: unknown) => err is WSKitError<'not-found', void> = NotFound.matches;
 void _matchesFn;
 
@@ -88,7 +85,6 @@ void _matchesFn;
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
-// Callable — creates WSKitError
 const forbiddenErr = Forbidden({ reason: 'not a member' });
 const _fCode: 'forbidden' = forbiddenErr.code;
 const _fDetail: { reason: string } = forbiddenErr.detail;
@@ -100,7 +96,6 @@ Forbidden({ wrong: true });
 // @ts-expect-error — missing detail
 Forbidden();
 
-// .matches() narrows to WSKitError<'forbidden', { reason: string }>
 declare const unknownErr: unknown;
 if (Forbidden.matches(unknownErr)) {
   const _mc: 'forbidden' = unknownErr.code;
@@ -115,13 +110,11 @@ if (Forbidden.matches(unknownErr)) {
 declare const mockSchema: StandardSchemaV1<unknown, { limit: number }>;
 const QuotaExceeded = error('quota-exceeded', mockSchema);
 
-// Callable
 const quotaErr = QuotaExceeded({ limit: 100 } as { limit: number });
 const _qCode: 'quota-exceeded' = quotaErr.code;
 const _qDetail: { limit: number } = quotaErr.detail;
 void [_qCode, _qDetail];
 
-// .matches() narrows correctly
 declare const anyErr: unknown;
 if (QuotaExceeded.matches(anyErr)) {
   const _qmc: 'quota-exceeded' = anyErr.code;
@@ -138,7 +131,6 @@ declare const plainError: Error;
 const _plainMatch: boolean = Forbidden.matches(plainError);
 void _plainMatch;
 
-// .matches() on code-only error narrows detail to void
 if (NotFound.matches(unknownErr)) {
   const _nc: 'not-found' = unknownErr.code;
   const _nd: void = unknownErr.detail;
@@ -149,15 +141,12 @@ if (NotFound.matches(unknownErr)) {
 // 7. ErrorDef — type structure
 // ===========================================================================
 
-// Code-only error() returns a callable factory with void detail
 const _codeOnlyDef: ErrorDefWithFactory<'gone', void> = error('gone');
 _codeOnlyDef();
 
-// ErrorDef (the base interface) is still non-callable by type
 const _baseOnlyDef: ErrorDef<'gone', void> = error('gone');
 void _baseOnlyDef;
 
-// Factory ErrorDef IS callable
 const _factoryDef = error('bad-input', v.object({ field: v.string() }));
 _factoryDef({ field: 'name' });
 
@@ -165,7 +154,6 @@ _factoryDef({ field: 'name' });
 // 8. error codes — lowercase-kebab convention enforced by types
 // ===========================================================================
 
-// These compile — lowercase kebab
 error('not-found');
 error('too-fast');
 error('queue-full');
@@ -203,7 +191,6 @@ const _vfDetail: {
 } = vfErr.detail;
 void [_vfErrCode, _vfDetail];
 
-// .matches() narrows correctly
 declare const maybeVf: unknown;
 if (ValidationFailed.matches(maybeVf)) {
   const _mc: 'validation-failed' = maybeVf.code;

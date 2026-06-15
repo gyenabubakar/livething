@@ -147,6 +147,7 @@ type ClientScope<TScope> = {
   incoming: Slot<TScope, 'outgoing'>;
   outgoing: Slot<TScope, 'incoming'>;
   requests: Slot<TScope, 'requests'>;
+  serverRequests: Slot<TScope, 'serverRequests'>;
   streams: ClientStreams<TScope>;
 } & ('subscribePayload' extends keyof TScope
   ? { subscribePayload: TScope['subscribePayload'] }
@@ -179,6 +180,7 @@ type ClientPluginSlice<TSlice> = TSlice extends { __contract: infer TContract; _
       incoming: Slot<TContract, 'outgoing'>;
       outgoing: Slot<TContract, 'incoming'>;
       requests: Slot<TContract, 'requests'>;
+      serverRequests: Slot<TContract, 'serverRequests'>;
       streams: ClientStreams<TContract>;
       channels: ClientChannelMap<Slot<TContract, 'channels'>>;
       errors: Slot<TContract, 'errors'>;
@@ -237,6 +239,8 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   outgoing: Slot<ContractOf<TServer>, 'incoming'>;
   /** Request/response pairs the client can invoke — declared with `request(...)`. */
   requests: Slot<ContractOf<TServer>, 'requests'>;
+  /** Server→client request/response pairs the client answers — declared with `requests({...})`. */
+  serverRequests: Slot<ContractOf<TServer>, 'serverRequests'>;
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `resumableStream(...)`, and `recordedStream(...)` all show up under this

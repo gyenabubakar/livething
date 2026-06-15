@@ -1,10 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
-// ---------------------------------------------------------------------------
-// Validator
-// ---------------------------------------------------------------------------
-
 /**
  * A validator for an incoming message payload — any Standard Schema (valibot,
  * zod, arktype, or any other compliant library).

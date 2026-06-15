@@ -31,10 +31,6 @@ import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
-// ── Fake SQL provider ──────────────────────────────────────────────────────
-//
-// Records every `exec` call and simulates the `__wskit_meta` sentinel for
-// warm-boot tests.
 function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
   const calls: string[] = [];
   let schemaVersion: string | null = opts?.warmedSchemaVersion ?? null;
@@ -44,10 +40,8 @@ function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
       calls.push(query);
       const trimmed = query.trim();
 
-      // Simulate the meta-table SELECT for the sentinel check.
       if (trimmed.startsWith('SELECT') && trimmed.includes('__wskit_meta')) {
         if (schemaVersion === null) {
-          // Table doesn't exist on a fresh DO — same shape as Cloudflare.
           throw new Error('no such table: __wskit_meta');
         }
         return {
@@ -57,7 +51,6 @@ function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
         };
       }
 
-      // Mark schema initialized — the engine's bundled CREATE + INSERT.
       if (trimmed.includes('__wskit_meta') && trimmed.includes('INSERT')) {
         schemaVersion = (params[0] as string) ?? null;
       }
@@ -100,8 +93,6 @@ function makeNoopTimers() {
   };
 }
 
-// Build an Engine via the same path the CF adapter uses, but capture the
-// instance instead of returning a DO class.
 function buildEngine(handler: ServerDefinition): Engine {
   let captured: Engine | undefined;
   const server = adapter({
@@ -136,8 +127,6 @@ async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
   await engine.initialize();
   return { execCount: calls.length, calls };
 }
-
-// ── Fixtures ────────────────────────────────────────────────────────────────
 
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
@@ -259,8 +248,6 @@ for (const def of heavyContract.definitions as readonly any[]) {
   }
 }
 const heavyHandler = heavyImpl.build();
-
-// ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('engine.initialize — sql.exec round-trip budget', () => {
   it('tiny (no schema features): cold boot issues 0 exec calls', async () => {

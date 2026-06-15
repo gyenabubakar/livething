@@ -49,6 +49,7 @@ export async function handleRequest(
 ): Promise<void> {
   const { connection, scope, event, request, payload, wskit } = options;
   const correlationId = wskit?.correlationId;
+
   // Refuse to run the handler when no correlationId is on the wire — the
   // response could never settle a pending client promise, but any side
   // effects (broadcasts, plugin state writes, scheduled enqueues) inside
@@ -57,8 +58,10 @@ export async function handleRequest(
   if (correlationId === undefined) {
     throw RequestNoCorrelation();
   }
+
   let response: unknown;
   let responded = false;
+
   await runWithScopedContext(runtime, connection, {
     ctx: options.ctx,
     handler: (ctx) => {
@@ -75,9 +78,11 @@ export async function handleRequest(
           );
           return;
         }
+
         responded = true;
         response = value;
       };
+
       return request.handler(ctx, payload);
     },
   });

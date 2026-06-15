@@ -62,6 +62,83 @@ export interface EngineAccess {
   onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /**
+   * Settle a server→client request answer before normal routing.
+   *
+   * Each incoming user-event frame carrying a `correlationId` is offered to the
+   * registered hooks; a hook returns `true` when the id matches a pending
+   * server-initiated request it owns, which stops routing. Used by the
+   * `requests()` capability so the engine never imports its pending map.
+   *
+   * @internal
+   */
+  onAnswerFrame(
+    handler: (
+      connectionId: string,
+      frame: {
+        event: string;
+        payload: unknown;
+        wskit: Protocol.WSKitProtocol | undefined;
+      },
+    ) => boolean,
+  ): void;
+
+  /**
+   * Send a server→client request frame to one live connection.
+   *
+   * Routes through the normal outgoing pipeline with the given `correlationId`
+   * (and optional channel scope) so plugin stampers and `onBeforeSend`/
+   * `onAfterSend` hooks still run. Returns `false` when the connection is no
+   * longer live on this instance. Used by the `requests()` capability for
+   * `ctx.request(...)` and friends.
+   *
+   * @internal
+   */
+  sendServerRequest(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      correlationId: string;
+      channel?: string;
+      channelScope?: string | null;
+    },
+  ): boolean;
+
+  /**
+   * Settle a server→client ack receipt before normal protocol routing.
+   *
+   * Each inbound `__ack__` frame is offered to the registered hooks; a hook
+   * returns `true` when the `ackId` matches a pending `sendWithAck(...)` it owns,
+   * which stops routing. Used by the `ack()` capability so the engine never
+   * imports its pending-ack map.
+   *
+   * @internal
+   */
+  onAckFrame(handler: (connectionId: string, ackId: string) => boolean): void;
+
+  /**
+   * Send a server→client ack-required user-event frame to one live connection.
+   *
+   * Routes through the normal outgoing pipeline with the given `ackId` (and
+   * optional channel scope) so plugin stampers and `onBeforeSend`/`onAfterSend`
+   * hooks still run. The client auto-confirms by echoing the `ackId` back in an
+   * `__ack__` frame. Returns `false` when the connection is no longer live on
+   * this instance. Used by the `ack()` capability for `ctx.sendWithAck(...)`.
+   *
+   * @internal
+   */
+  sendServerWithAck(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      ackId: string;
+      channel?: string;
+      channelScope?: string | null;
+    },
+  ): boolean;
+
+  /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
    * Return a value to replace the payload, or return nothing to keep the

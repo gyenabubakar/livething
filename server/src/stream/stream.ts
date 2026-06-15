@@ -157,6 +157,11 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
    * `stream-already-active`.
    */
   readonly allowConcurrent?: boolean;
+  /**
+   * Outbound backpressure limit in bytes. `ctx.stream.drain()` resolves once the
+   * connection's buffered amount is below this mark. Defaults to 256 KB.
+   */
+  readonly highWaterMark?: number;
 }
 
 /**
@@ -188,6 +193,11 @@ export interface StreamPrimitive<
    * rejected with `stream-already-active`.
    */
   readonly allowConcurrent: boolean;
+  /**
+   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Undefined
+   * means the runtime default (256 KB) applies.
+   */
+  readonly highWaterMark?: number;
 }
 
 /** Extracts the payload type from a `StreamPrimitive`. */
@@ -259,6 +269,7 @@ export function stream<
     nudges,
     broadcast: startDecl.broadcast ?? false,
     allowConcurrent: startDecl.allowConcurrent ?? false,
+    highWaterMark: startDecl.highWaterMark,
   };
 }
 
@@ -304,7 +315,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
 export function start<TEvent extends string>(
   name: TEvent,
   validator?: undefined,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration<TEvent, unknown>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -317,7 +328,7 @@ export function start<TEvent extends string>(
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
   validator: TSchema,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration<TEvent, StandardSchemaV1.InferOutput<TSchema>>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -330,13 +341,14 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
 export function start(
   name: string,
   validator?: Validator,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration {
   return {
     event: name,
     validator,
     broadcast: options?.broadcast,
     allowConcurrent: options?.allowConcurrent,
+    highWaterMark: options?.highWaterMark,
   };
 }
 

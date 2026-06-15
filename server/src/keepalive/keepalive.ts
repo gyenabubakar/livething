@@ -65,8 +65,6 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
     pingIntervalMs: options.pingIntervalMs,
     idleTimeoutMs: options.idleTimeoutMs,
     __setup(engine) {
-      // `installOnce` ensures the timer logic is set up only once even if the
-      // keepalive primitive is included in multiple groups or scopes.
       engine.installOnce(KEEPALIVE_KEY, () => {
         engine.setKeepalivePingInterval(options.pingIntervalMs);
 

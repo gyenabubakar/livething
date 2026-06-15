@@ -36,8 +36,6 @@ export class Engine {
     this.core = new EngineCore(handler, options);
   }
 
-  // ─────── adapter configuration ───────
-
   /** Set the engine instance id. Only adapters running with a broker call this. */
   setInstanceId(id: string): void {
     this.core.setInstanceId(id);
@@ -52,8 +50,6 @@ export class Engine {
   usesHibernation(): boolean {
     return this.core.hibernationEnabled;
   }
-
-  // ─────── adapter entry points ───────
 
   /** One-time startup: validate capabilities, install plugins, run boot + init hooks. */
   async initialize(): Promise<void> {
@@ -117,6 +113,7 @@ export class Engine {
     const core = this.core;
     return EngineConnectionRuntime.handleShutdown({
       connections: core.connections,
+      activeStreams: core.activeStreams,
       shutdownHooks: core.hooks.shutdown,
       pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
       pluginRuntimes: core.pluginRuntimes,
@@ -164,8 +161,6 @@ export class Engine {
   reconcileConnections(surviving: ReadonlySet<string>): void {
     EngineHibernation.reconcileConnections(this.core, surviving);
   }
-
-  // ─────── internal helpers ───────
 
   /** Build the helper bag passed to every `onUpgrade` hook. @internal */
   private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {

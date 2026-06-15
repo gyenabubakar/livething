@@ -24,9 +24,6 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       issues: [{ message: `${label} must be a non-empty string.` }],
     });
   }
-  // A user event name can't be a reserved protocol name. `ping`/`pong` are the
-  // bare control frames and `__x__` is the engine's namespace — the server drops
-  // such a frame before it can route an error back, so the op would only time out.
   if (kind === 'event' && isReservedEventName(value)) {
     return ValidationFailed({
       event,

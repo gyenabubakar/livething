@@ -22,9 +22,6 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-// Each server() call re-invokes adapter.setup. We capture the
-// createEngine factory so every DO instance shares the same fake engine
-// we can assert against.
 vi.mock('@wskit/server/adapters', () => ({
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
@@ -92,12 +89,12 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const res = await instance.fetch(upgradeRequest());
 
     expect(res.status).toBe(101);
-    // adapter returned the client half of the pair
+
     const [client, server] = pairs[0]!;
     expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
     expect(server.accept).toHaveBeenCalledTimes(1);
     expect(state.acceptWebSocket).not.toHaveBeenCalled();
-    // descriptor passed into engine.accept carried meta/tags
+
     expect(fake.calls.accept).toHaveLength(1);
     const desc = fake.calls.accept[0]!.descriptor as {
       meta: Record<string, unknown>;
@@ -161,10 +158,8 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     await instance.fetch(upgradeRequest());
 
     const [, server] = pairs[0]!;
-    // The real Workers runtime fires a 'close' event for a server-initiated close
-    // on an accepted socket; the fake's close() is a bare spy, so wire it to fire
-    // that event the way the runtime would. This pins that the adapter's close
-    // listener actually runs connection cleanup on the binary-frame close.
+    // The runtime fires a 'close' event on a server-initiated close; the fake's
+    // close() is a bare spy, so wire it to fire that event the way the runtime does.
     server.close.mockImplementation((code: number, reason: string) =>
       server.dispatch('close', { code, reason }),
     );
@@ -178,11 +173,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
   });
 
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
-    // WSKit tags are persisted inside the hibernation attachment, so
-    // forwarding them into Cloudflare's per-socket tag store is redundant.
-    // The tag store also caps at 10 tags and 256 chars per tag, which does
-    // not match the WSKit tag API — passing app tags through would crash
-    // the upgrade for any handler that returns more or longer tags.
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     fake.stageUpgrade({
@@ -199,10 +189,8 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const [, server] = pairs[0]!;
     expect(state.acceptWebSocket).toHaveBeenCalledTimes(1);
     expect(state.acceptWebSocket.mock.calls[0]![0]).toBe(server);
-    // No second argument: tags do not flow into Cloudflare's tag store.
     expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
     expect(server.accept).not.toHaveBeenCalled();
-    // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
 
@@ -251,13 +239,12 @@ describe('handleRejectedUpgrade', () => {
     const res = await instance.fetch(upgradeRequest());
 
     expect(res.status).toBe(101);
-    // One pair created for the rejection path
     expect(pairs).toHaveLength(1);
+
     const [client, server] = pairs[0]!;
     expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
     expect(server.accept).toHaveBeenCalled();
     expect(server.close).toHaveBeenCalledWith(4002, 'bad');
-    // engine.accept not called on reject
     expect(fake.calls.accept).toHaveLength(0);
   });
 
@@ -359,16 +346,9 @@ describe('alarm() and shutdown() RPCs', () => {
   });
 
   it('shutdown() under hibernation wakes every Cloudflare-managed socket before draining', async () => {
-    // Pre-fix: under hibernation a fresh DO instance starts with an empty
-    // engine.connections map. shutdown() walked that map and skipped every
-    // hibernated socket, so a graceful drain right after wake left clients
-    // open. The adapter now enumerates state.getWebSockets() and registers
-    // each one with the engine before delegating.
     const Cls = buildClass({ hibernation: true });
-    // Boot-time reconcile reads each socket's attachment to collect ids of
-    // sockets that survived the eviction. Stub it on the mocks so the loop
-    // runs cleanly; this test cares about the shutdown wake path, not the
-    // reconcile content.
+    // deserializeAttachment is stubbed so the boot-time reconcile loop runs
+    // cleanly; this test cares about the shutdown wake path, not reconcile.
     const sockA = { __id: 'a', deserializeAttachment: () => null } as unknown;
     const sockB = { __id: 'b', deserializeAttachment: () => null } as unknown;
     const state = makeFakeDOState({
@@ -413,14 +393,11 @@ describe('engine wiring in the constructor', () => {
     expect(engineOptions.waitUntil).toBeTypeOf('function');
     expect(engineOptions.logger).toBeDefined();
 
-    // The same Logger instance the adapter passes into engine creation is also
-    // passed into the storage providers, so kv warnings flow through one logger.
     const adapterLogger = engineOptions.logger as Record<string, unknown>;
     expect(typeof adapterLogger.info).toBe('function');
     expect(typeof adapterLogger.warn).toBe('function');
     expect(typeof adapterLogger.error).toBe('function');
 
-    // waitUntil wrapper forwards through to state.waitUntil
     const wrapper = engineOptions.waitUntil as (p: Promise<unknown>) => void;
     const p = Promise.resolve();
     wrapper(p);

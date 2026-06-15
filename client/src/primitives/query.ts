@@ -36,4 +36,5 @@ export function query(getParams: QueryFn): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 query.tag = 'query';

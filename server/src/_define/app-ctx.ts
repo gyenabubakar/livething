@@ -10,8 +10,130 @@ import type {
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
-import type { TagsApi } from '~/tags/types.ts';
+import type { TagGroupHandle, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
+
+/**
+ * A handle to one specific connection, returned by `ctx.connection(ref)`. Its
+ * `send` is typed to the server's `emits(...)` events, so a typo or wrong
+ * payload is a compile error.
+ *
+ * The handle is the seam for addressing one socket. It carries `send` always;
+ * the `requests()` capability adds the `request` arm (see `ConnectionRequestHandle`).
+ *
+ * @template TSlots The merged contract slots — drives the typed `send`.
+ */
+export interface ConnectionHandle<TSlots> {
+  /**
+   * Send an event to this connection only. Returns `false` when the connection
+   * is no longer live on this instance.
+   */
+  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+}
+
+/** The server→client request map, filtered to targeted (non-broadcast) entries. */
+type ServerRequests<TSlots> = {
+  [K in keyof SlotOr<TSlots, 'serverRequests'> as SlotOr<TSlots, 'serverRequests'>[K] extends {
+    broadcast: true;
+  }
+    ? never
+    : K]: SlotOr<TSlots, 'serverRequests'>[K];
+};
+
+/** The server→client request map, filtered to broadcast-only entries. */
+export type BroadcastServerRequests<TSlots> = {
+  [K in keyof SlotOr<TSlots, 'serverRequests'> as SlotOr<TSlots, 'serverRequests'>[K] extends {
+    broadcast: true;
+  }
+    ? K
+    : never]: SlotOr<TSlots, 'serverRequests'>[K];
+};
+
+/** What a `broadcastRequest(...)` resolves to: the winning answer and who gave it. */
+export interface BroadcastAnswer<R> {
+  /** The first valid answer, validated against the request's `response` schema. */
+  readonly response: R;
+  /** The connection that answered first. */
+  readonly from: ConnectionRef;
+}
+
+/**
+ * The `broadcastRequest` arm a `requests()` server adds to every fan-out
+ * surface. Usable ONLY for declarations marked `{ broadcast: true }`; a targeted
+ * decl used here is a compile error. Resolves with the first valid answer and
+ * its `from` ref, or rejects with `timeout` when nobody answers in time.
+ *
+ * @template SR The broadcast-only server→client request map for this scope.
+ */
+export interface BroadcastRequestArm<SR> {
+  broadcastRequest<E extends keyof SR & string>(
+    event: E,
+    payload: SR[E] extends { payload: infer P } ? P : never,
+    options?: { timeout?: number },
+  ): Promise<BroadcastAnswer<SR[E] extends { response: infer R } ? R : never>>;
+}
+
+/**
+ * The `request` arm a `requests()` server adds to a `ctx.connection(ref)`
+ * handle. The server asks one specific connection a declared server→client
+ * request and awaits its typed answer.
+ */
+export interface ConnectionRequestHandle<TSlots> extends ConnectionHandle<TSlots> {
+  /**
+   * Ask this one connection a declared server→client request and resolve its
+   * typed answer. Rejects with `timeout` if no answer arrives, `disconnected`
+   * if the connection drops while waiting, or `request-invalid-response` if the
+   * answer fails its declared `response` schema.
+   */
+  request<E extends keyof ServerRequests<TSlots> & string>(
+    event: E,
+    payload: ServerRequests<TSlots>[E] extends { payload: infer P } ? P : never,
+    options?: { timeout?: number },
+  ): Promise<ServerRequests<TSlots>[E] extends { response: infer R } ? R : never>;
+}
+
+/**
+ * The `ctx.request` / `ctx.connection(ref).request` surface — owned by the
+ * `requests()` capability. Server→client targeted requests: ask one connection
+ * and await its typed answer.
+ */
+export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
+  BroadcastServerRequests<TSlots>
+> {
+  /**
+   * Ask the current connection a declared server→client request and resolve its
+   * typed answer. Rejects with `timeout`/`disconnected`/`request-invalid-response`.
+   */
+  request<E extends keyof ServerRequests<TSlots> & string>(
+    event: E,
+    payload: ServerRequests<TSlots>[E] extends { payload: infer P } ? P : never,
+    options?: { timeout?: number },
+  ): Promise<ServerRequests<TSlots>[E] extends { response: infer R } ? R : never>;
+  /**
+   * Ask every connection on this instance a broadcast-declared server→client
+   * request; the first valid answer wins. Resolves with `{ response, from }` or
+   * rejects with `timeout` when nobody answers (silence means "no").
+   */
+}
+
+/**
+ * The `ctx.connection(ref)` accessor, always present. The handle it returns
+ * carries `request(...)` only when the `requests()` capability is listed —
+ * driven by `TCaps` so the arm is a compile error otherwise.
+ */
+export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapability[]> {
+  /**
+   * Address one specific connection by ref. The handle always carries `send`;
+   * with `requests()` listed it also carries `request(...)`, and with `ack()`
+   * listed it also carries `sendWithAck(...)`.
+   */
+  connection(
+    ref: ConnectionRef,
+  ): ('requests' extends BrandsOf<TCaps>
+    ? ConnectionRequestHandle<TSlots>
+    : ConnectionHandle<TSlots>) &
+    ('ack' extends FeaturesOf<TCaps> ? SendWithAckArm<TSlots> : {});
+}
 
 /**
  * The connection-scoped surface present on **every** server, whatever
@@ -49,8 +171,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   /** Number of connections currently open on this server instance. */
   readonly connectionCount: number;
 
-  /** Send an event to one other connection by id. Returns false if it is not here. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
   /** Close this connection. */
   close(code?: number, reason?: string): void;
   /** Snapshot of every connection currently open on this server instance. */
@@ -183,7 +303,25 @@ export interface SendReplayCtx<TSlots> {
 }
 
 /** The `ctx.ack()` surface — owned by the `ack()` capability. */
-export interface AckCtx {
+/**
+ * The `sendWithAck` arm the `ack()` capability adds to a one-connection surface
+ * (`ctx`, `ctx.connection(ref)`, `ctx.channel`). Sends an event to the single
+ * connection and awaits the client's automatic receipt — no data comes back.
+ * Resolves on the receipt, or rejects with `timeout` / `disconnected`. NOT added
+ * to fan-out surfaces (`broadcast`, channel handles, tag groups).
+ *
+ * @template TSlots The merged contract slots — drives the typed `send`.
+ */
+export interface SendWithAckArm<TSlots> {
+  sendWithAck<E extends keyof Outgoing<TSlots> & string>(
+    event: E,
+    payload: Outgoing<TSlots>[E],
+    options?: { timeout?: number },
+  ): Promise<void>;
+}
+
+/** The `ctx.ack()` + `ctx.sendWithAck(...)` surface — owned by the `ack()` capability. */
+export interface AckCtx<TSlots> extends SendWithAckArm<TSlots> {
   /**
    * Confirm receipt of a client message that was sent with an ack. Present only
    * when the `ack()` capability is listed.
@@ -214,29 +352,62 @@ export interface ScheduleCtx<TSlots> {
   ): void;
 }
 
+/** A tag ref handle, plus the broadcast arm when `requests()` is listed. */
+type TagRefWithBroadcast<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+> = TagRefHandle<TMeta> &
+  ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
+
+/** A tag group handle, plus the broadcast arm (group + ref) when `requests()` is listed. */
+type TagGroupWithBroadcast<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = Omit<
+  TagGroupHandle<TMeta>,
+  'ref'
+> & {
+  ref(key: string): TagRefWithBroadcast<TSlots, TMeta, TCaps>;
+} & ('requests' extends BrandsOf<TCaps>
+    ? BroadcastRequestArm<BroadcastServerRequests<TSlots>>
+    : {});
+
 /** The `ctx.tags` surface — owned by the `tags()` capability. */
-export interface TagsCtx<TSlots, TMeta> {
+export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Tag groups for this connection. `ephemeral(group)` / `persistent(group)`
    * return a handle to add, remove, count, and address connections by tag; only
-   * groups declared by the `tags(...)` capability are accepted.
+   * groups declared by the `tags(...)` capability are accepted. With `requests()`
+   * listed, the group and ref handles also carry `broadcastRequest(...)`.
    */
-  readonly tags: TagsApi<
-    keyof EphemeralTags<TSlots> & string,
-    keyof PersistentTags<TSlots> & string,
-    TMeta
-  >;
+  readonly tags: Omit<
+    TagsApi<keyof EphemeralTags<TSlots> & string, keyof PersistentTags<TSlots> & string, TMeta>,
+    'ephemeral' | 'persistent'
+  > & {
+    ephemeral(
+      group: keyof EphemeralTags<TSlots> & string,
+    ): TagGroupWithBroadcast<TSlots, TMeta, TCaps>;
+    persistent(
+      group: keyof PersistentTags<TSlots> & string,
+    ): TagGroupWithBroadcast<TSlots, TMeta, TCaps>;
+  };
 }
 
+/** A `ctx.channels.get(...)` handle, plus the broadcast arm when `requests()` is listed. */
+type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = ChannelHandle<
+  Record<string, unknown>,
+  TMeta
+> &
+  ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
+
 /** The `ctx.channels` surface — owned by the `channels()` capability. */
-export interface ChannelsCtx<TMeta> {
+export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Look up a channel by name (or family + name) to send into it or read its
-   * members from outside a channel handler.
+   * members from outside a channel handler. With `requests()` listed, the
+   * handle also carries `broadcastRequest(...)` to ask all members.
    */
   readonly channels: {
-    get(name: string): ChannelHandle<Record<string, unknown>, TMeta>;
-    get(family: string, name: string): ChannelHandle<Record<string, unknown>, TMeta>;
+    get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
+    get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
   };
 }
 
@@ -275,18 +446,19 @@ export type CtxExtensionsOf<
   TMeta,
   TCaps extends readonly AnyCapability[],
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
-  ('ack' extends FeaturesOf<TCaps> ? AckCtx : {}) &
+  ('ack' extends FeaturesOf<TCaps> ? AckCtx<TSlots> : {}) &
+  ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
   ('replay' extends FeaturesOf<TCaps>
     ? SendReplayCtx<TSlots>
     : 'replay-custom' extends BrandsOf<TCaps>
       ? SendReplayCtx<TSlots>
       : {}) &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
-  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TMeta> : {}) &
+  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TSlots, TMeta, TCaps> : {}) &
   (HasKeys<EphemeralTags<TSlots>> extends true
-    ? TagsCtx<TSlots, TMeta>
+    ? TagsCtx<TSlots, TMeta, TCaps>
     : HasKeys<PersistentTags<TSlots>> extends true
-      ? TagsCtx<TSlots, TMeta>
+      ? TagsCtx<TSlots, TMeta, TCaps>
       : {}) &
   (HasKeys<Plugins<TSlots>> extends true ? PluginCtx<Plugins<TSlots>> : {});
 
@@ -308,7 +480,10 @@ export type AppCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = CoreCtx<TSlots, TEnv, TMeta> & FrameMatchCtx<TSlots> & CtxExtensionsOf<TSlots, TMeta, TCaps>;
+> = CoreCtx<TSlots, TEnv, TMeta> &
+  ConnectionAddressing<TSlots, TCaps> &
+  FrameMatchCtx<TSlots> &
+  CtxExtensionsOf<TSlots, TMeta, TCaps>;
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;

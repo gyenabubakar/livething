@@ -32,6 +32,7 @@ export interface StreamDef<
   readonly nudges: TNudges;
   readonly broadcast: boolean;
   readonly allowConcurrent: boolean;
+  readonly highWaterMark?: number;
 }
 
 /**
@@ -64,6 +65,7 @@ export function stream<
     nudges?: TNudges;
     broadcast?: boolean;
     allowConcurrent?: boolean;
+    highWaterMark?: number;
   },
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
@@ -77,5 +79,6 @@ export function stream<
     nudges,
     broadcast: config?.broadcast ?? false,
     allowConcurrent: config?.allowConcurrent ?? false,
+    highWaterMark: config?.highWaterMark,
   };
 }

@@ -160,13 +160,6 @@ export function plugin<
   TErrors extends PluginErrorMap = {},
 >(
   id: TId,
-  // Every type parameter is inferred from the call site — never given as an
-  // explicit generic argument. TId comes from the `id` literal. TArgs comes
-  // from the `args: t<T>()` field (the same TypeMarker the contract uses for
-  // `meta`). TApi falls out of setup's return value. TDefs is the
-  // const-narrowed definitions tuple. TErrors is the const-narrowed errors map.
-  // Inferring everything keeps the call shape generic-free, so partial generic
-  // args can't cut off inference for the remaining ones.
   config: Omit<PluginConfig<TArgs, any, TApi>, 'definitions' | 'setup' | 'args' | 'errors'> & {
     readonly args?: TypeMarker<TArgs>;
     readonly definitions?: TDefs;
@@ -187,7 +180,6 @@ export function plugin<
     ? { readonly name: string }
     : ExtractPluginScheduledEntry<TDefs> & { readonly name: string }
 > {
-  // Split the flat `definitions` array into the per-kind buckets `definePlugin` accepts.
   const allDefs = config.definitions ?? [];
   const outgoingDefsRaw = allDefs.filter(
     (d) => (d as { _?: string })._ === 'outgoing',

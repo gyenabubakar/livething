@@ -191,7 +191,7 @@ describe('a throwing handler is surfaced, not swallowed', () => {
         throw boom;
       });
 
-      ws.emit({ event: 'message', payload: {} }); // no error listener → rethrow out-of-band
+      ws.emit({ event: 'message', payload: {} });
       expect(scheduled).toHaveLength(1);
       expect(scheduled[0]).toThrow(boom);
     } finally {
@@ -213,8 +213,6 @@ describe('a throwing handler is surfaced, not swallowed', () => {
         throw new Error('handler boom');
       });
 
-      // The handler throw surfaces on the error listener, whose own throw is
-      // rethrown out-of-band exactly once — no re-entry into the error path.
       expect(() => ws.emit({ event: 'message', payload: {} })).not.toThrow();
       expect(scheduled).toHaveLength(1);
     } finally {

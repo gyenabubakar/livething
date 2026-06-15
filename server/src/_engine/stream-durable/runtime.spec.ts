@@ -10,7 +10,6 @@ import { cancelDurableStream, resumeDurableStream, runDurableStream } from './ru
 import * as Storage from './storage.ts';
 import type { DurableStreamRuntimeDef } from './runtime.ts';
 
-// ---------- in-memory SQL stub (shared across tests) ----------
 function makeSql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
@@ -203,7 +202,6 @@ function makeSql() {
   };
 }
 
-// ---------- runtime + connection scaffolding ----------
 function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
   return {
     id,
@@ -296,7 +294,6 @@ function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStrea
   };
 }
 
-// ---------- tests ----------
 describe('durable stream runtime', () => {
   it('recorded stream — completes cleanly, marks the row ended, sends __streamEnd__', async () => {
     const sql = makeSql();
@@ -359,10 +356,8 @@ describe('durable stream runtime', () => {
     });
 
     expect(caughtReason).toBe('buffer-full');
-    // The buffer holds at most `maxChunks` chunks after trim.
     const chunkRows = Storage.readChunksSince(sql, { identity: 'u1', streamId: 'gen-1', since: 0 });
     expect(chunkRows.length).toBeLessThanOrEqual(2);
-    // The dev caught the error and returned cleanly — __streamEnd__ fires.
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
@@ -596,7 +591,6 @@ describe('durable stream runtime', () => {
     release();
     await run;
 
-    // Only the first chunk reached the wire — the post-replacement yield is dropped.
     const sentValues = pipelineSends.map((s) => (s.payload as { i: number }).i);
     expect(sentValues).toEqual([1]);
   });
@@ -646,7 +640,6 @@ describe('durable stream runtime', () => {
     const { runtime, protocolMessages } = createRuntime(sql);
     const connection = createConnection();
 
-    // Seed an ended recorded stream with chunks 1..5.
     Storage.insertStream(sql, {
       identity: 'u1',
       streamId: 's-replay',
@@ -694,7 +687,6 @@ describe('durable stream runtime', () => {
       kind: 'resumable',
       now: Date.now(),
     });
-    // Stamp cursor as if a prior run made it to idx=4.
     Storage.updateCursor(sql, {
       identity: 'u1',
       streamId: 's-cursor',
@@ -937,7 +929,6 @@ describe('durable stream runtime', () => {
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
     expect(err?.wskit.streamId).toBe('s-bad');
-    // Generator never ran, no chunks went out, no __streamOk__ frame either.
     expect(generatorSpy).not.toHaveBeenCalled();
     expect(pipelineSends).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
@@ -1122,7 +1113,6 @@ describe('durable stream runtime', () => {
     // routing arg, not the payload). One pipeline send per chunk per
     // recipient: 2 chunks × 2 recipients = 4 sends.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(4);
-    // The closing __streamEnd__ is sent via sendProtocolMessage to each peer.
     expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(2);
   });
 
@@ -1150,12 +1140,10 @@ describe('durable stream runtime', () => {
       wskit: undefined,
     });
 
-    // The creator's terminal error goes through handleRuntimeError, tagged terminal.
     expect(runtime.handleRuntimeError).toHaveBeenCalledWith(
       creator,
       expect.objectContaining({ routing: expect.objectContaining({ streamTerminated: true }) }),
     );
-    // Peers get a terminal __error__ (not a misleading clean __streamEnd__).
     const peerError = protocolMessages.find((m) => m.event === '__error__');
     expect(peerError).toBeDefined();
     expect(peerError!.wskit).toMatchObject({ streamTerminated: true });
@@ -1168,7 +1156,6 @@ describe('durable stream runtime', () => {
     const { runtime, protocolMessages } = createRuntime(sql);
     const peer = createConnection('c-peer', 'u-peer');
 
-    // Seed a broadcast row + chunks under the scope key.
     Storage.insertStream(sql, {
       identity: '__bcast:top__',
       streamId: 'b-1',
@@ -1241,12 +1228,10 @@ describe('durable stream runtime', () => {
       wskit: undefined,
     });
 
-    // Row exists under broadcast scope key.
     const row = Storage.readStream(sql, '__bcast:top__', 'gen-1')!;
     expect(row).not.toBeNull();
     expect(row.broadcast).toBe(true);
     expect(JSON.parse(row.cursor!)).toEqual({ idx: 3 });
-    // Chunks recorded under the same scope key for late-joiner catch-up.
     expect(
       Storage.readChunksSince(sql, { identity: '__bcast:top__', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(3);
@@ -1333,7 +1318,6 @@ describe('durable stream runtime', () => {
 
     const replayed = wireChunks(peer).filter((f) => f.event === 'e');
     expect(replayed.map((f) => f.__wskit.seq)).toEqual([1, 2]);
-    // Peer never reaches the generator — no pipeline sends, no __streamEnd__.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
@@ -1358,7 +1342,6 @@ describe('durable stream runtime', () => {
 
     await cancelDurableStream(runtime as never, peer, { streamId: 's-c', cancelScope: {} });
 
-    // Row is still there; peer is on the unsubscribed list.
     expect(Storage.readStream(sql, '__bcast:top__', 's-c')).not.toBeNull();
     expect(
       Storage.isUnsubscribed(sql, {
@@ -1524,7 +1507,6 @@ describe('durable stream runtime', () => {
       lastKnownSeq: 0,
     });
 
-    // Adopt sent __streamOk__ + replayed both buffered chunks to the new wire.
     const okFrames = protocolMessages.filter(
       (m) => m.event === '__streamOk__' && m.wskit.streamId === live.id,
     );
@@ -1642,7 +1624,6 @@ describe('durable stream runtime', () => {
     });
 
     await returned;
-    // Let the fire-and-forget .catch microtask settle.
     await Promise.resolve();
     expect(runtime.logger.warn).toHaveBeenCalledWith(
       '[wskit] durable stream stale-generator cleanup rejected',

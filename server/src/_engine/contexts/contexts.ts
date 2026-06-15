@@ -1,3 +1,4 @@
+import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
@@ -16,7 +17,7 @@ export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToConnections' | 'connections' | 'logger' | 'sendThroughPipeline'
+  'broadcastToConnections' | 'connections' | 'instanceId' | 'logger' | 'sendThroughPipeline'
 >;
 
 /** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
@@ -25,7 +26,7 @@ function buildMessagingApi(
   deps: MessagingDeps,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'close' | 'send' | 'sendToConnection'
+  'broadcast' | 'close' | 'connection' | 'send'
 > {
   return {
     send: (event, payload) =>
@@ -40,18 +41,7 @@ function buildMessagingApi(
       });
     },
 
-    sendToConnection: (connectionId, event, payload) => {
-      const target = deps.connections.get(connectionId);
-      if (!target) {
-        deps.logger.error('[wskit] sendToConnection target not found', {
-          connectionId,
-          event,
-        });
-        return false;
-      }
-      deps.sendThroughPipeline(target, { routing: undefined, event, payload });
-      return true;
-    },
+    ...buildConnectionHandle(deps),
 
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
@@ -224,8 +214,6 @@ export function buildConnectionContext(
     return api;
   };
 
-  // User extension hook — extenders see the assembled ctx and return a
-  // partial that gets merged in.
   for (const extend of deps.contextExtenders ?? []) {
     Object.assign(base, extend(base));
   }

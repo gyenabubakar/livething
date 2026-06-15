@@ -138,9 +138,11 @@ type AnyScopedSectionDeclared<TContract> =
     ? true
     : SectionDeclared<TContract, 'requests'> extends true
       ? true
-      : SectionDeclared<TContract, 'streams'> extends true
+      : SectionDeclared<TContract, 'serverRequests'> extends true
         ? true
-        : false;
+        : SectionDeclared<TContract, 'streams'> extends true
+          ? true
+          : false;
 
 /**
  * If a contract section needs a primitive that wasn't installed, add a stub
@@ -165,6 +167,13 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
               ? {}
               : {
                   request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+                }
+            : {}) &
+          (SectionDeclared<TContract, 'serverRequests'> extends true
+            ? 'onRequest' extends keyof Api
+              ? {}
+              : {
+                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'streams'> extends true

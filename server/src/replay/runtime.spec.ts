@@ -75,7 +75,6 @@ function createReplaySql() {
         );
       }
 
-      // Top-level: every non-channel row.
       const [since] = params;
       return new FakeSqlResult<TRow>(
         [...rows.values()]
@@ -205,7 +204,6 @@ describe('replay/runtime', () => {
   });
 
   it('server-level shouldStoreReplayMessage cascades into channels not in the claimed set', () => {
-    // No channel has claimed; server-level captures channel traffic.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -214,7 +212,6 @@ describe('replay/runtime', () => {
       }),
     ).toBe(true);
 
-    // 'rooms' is claimed (channel registered its own replay) — server-level skips.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -224,7 +221,6 @@ describe('replay/runtime', () => {
       }),
     ).toBe(false);
 
-    // Static channel claimed by name (no channelScope on the frame).
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -234,7 +230,6 @@ describe('replay/runtime', () => {
       }),
     ).toBe(false);
 
-    // Top-level traffic is always captured by server-level replay.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -246,7 +241,6 @@ describe('replay/runtime', () => {
   });
 
   it('skips frames with correlationId — request responses are private and must not be replayed', () => {
-    // Server-level replay.
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: undefined,
@@ -254,7 +248,6 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Channel-scoped replay.
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: 'rooms',
@@ -262,14 +255,12 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Sanity: the same frame without correlationId is captured.
     expect(
       shouldStoreReplayMessage('message', { channelKey: undefined, wskit: {}, exclude: new Set() }),
     ).toBe(true);
   });
 
   it('skips frames with streamId — stream chunks reference an active stream and cannot be replayed', () => {
-    // Server-level replay.
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: undefined,
@@ -277,7 +268,6 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Channel-scoped replay.
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: 'rooms',
@@ -285,7 +275,6 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Sanity: the same frame without streamId is captured.
     expect(
       shouldStoreReplayMessage('token', { channelKey: undefined, wskit: {}, exclude: new Set() }),
     ).toBe(true);
@@ -302,13 +291,11 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // A few more protocol frames at the top level.
     for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
       expect(
         shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
       ).toBe(false);
     }
-    // Sanity: a normal user event with the same scope is still captured.
     expect(
       shouldStoreReplayMessage('room-msg', {
         channelKey: 'rooms',
@@ -546,7 +533,6 @@ describe('replay/runtime', () => {
 
     pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelScope: null });
 
-    // Only the two newest by seq survive: 3 and 4.
     const surviving = loadReplayRows(sql, 0, { channelScope: null } as {
       channelName?: string;
       channelScope: string | null;
@@ -692,7 +678,6 @@ describe('buildLoadReplayQuery', () => {
   });
 
   it('produces the top-level query when no channelName is provided', () => {
-    // Top-level replay returns every non-channel row.
     const query = buildLoadReplayQuery(0, { channelScope: null });
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);

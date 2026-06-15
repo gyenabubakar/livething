@@ -468,7 +468,6 @@ describe('message runtime', () => {
     const handler = vi.fn();
     const connection = createConnection('conn_1');
 
-    // Standard Schema-shaped validator that always returns issues.
     const rejectingSchema = {
       '~standard': {
         version: 1,
@@ -1336,8 +1335,6 @@ describe('message runtime', () => {
   });
 });
 
-// ── nudge intercept ───────────────────────────────────────────────────────────
-
 function makeScopedNode(intercepts: unknown[] = []) {
   return {
     intercepts,
@@ -1578,8 +1575,6 @@ describe('nudge intercepts', () => {
   });
 });
 
-// ── Defer retry hook isolation ────────────────────────────────────────────────
-
 describe('Defer retry hook isolation', () => {
   it('incoming hooks run only once across original dispatch and Defer retry', async () => {
     vi.useFakeTimers();
@@ -1655,12 +1650,10 @@ describe('Defer retry hook isolation', () => {
         { event: 'work', payload: {}, wskit: undefined },
       );
 
-      // First dispatch: handler throws Defer(10). Hook ran once.
       expect(handlerAttempt).toBe(1);
 
       await vi.advanceTimersByTimeAsync(10);
 
-      // Retry completed: handler ran a second time and succeeded.
       expect(handlerAttempt).toBe(2);
 
       // Correct behavior: the incoming hook must have run only ONCE total.
@@ -1739,7 +1732,6 @@ describe('Defer retry hook isolation', () => {
           return { setTimeout: () => undefined, clearTimeout() {} };
         },
         buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
-          // Reflect the resolved scope into ctx the way the real builder does.
           return { id: connection.id, channel: scope?.channelName };
         },
         broadcastToConnections() {},

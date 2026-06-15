@@ -54,7 +54,7 @@ describe('MessageBuffer — owner settling', () => {
     const second = makeOwner();
 
     buffer.enqueue({ event: 'a', payload: 1 }, undefined, first.owner);
-    buffer.enqueue({ event: 'b', payload: 2 }, undefined, second.owner); // evicts 'a'
+    buffer.enqueue({ event: 'b', payload: 2 }, undefined, second.owner);
 
     expect(first.owner.isPending()).toBe(false);
     expect((first.reason() as { code?: string }).code).toBe('dropped');
@@ -99,12 +99,12 @@ describe('MessageBuffer — owner settling', () => {
     buffer.enqueue({ event: 'gone', payload: 1 }, undefined, settled.owner);
     buffer.enqueue({ event: 'live', payload: 2 }, undefined, live.owner);
 
-    settled.owner.reject(new Error('timed out')); // op already settled
+    settled.owner.reject(new Error('timed out'));
 
     const sent: string[] = [];
     buffer.flush((m) => sent.push(m.event));
 
-    expect(sent).toEqual(['live']); // the settled op's frame is not put on the wire
+    expect(sent).toEqual(['live']);
   });
 
   it('rejects the exact owner and reports when its frame fails to serialize on flush, later frames still flush', () => {
@@ -127,15 +127,15 @@ describe('MessageBuffer — owner settling', () => {
     );
 
     expect(bad.owner.isPending()).toBe(false);
-    expect(bad.reason()).toBe(typeError); // the exact TypeError, not a Timeout
+    expect(bad.reason()).toBe(typeError);
     expect(onError).toHaveBeenCalledWith(typeError);
-    expect(sent).toEqual(['good']); // a later frame still flushes
+    expect(sent).toEqual(['good']);
     expect(good.owner.isPending()).toBe(true);
   });
 
   it('an ownerless send still flushes normally', () => {
     const buffer = new MessageBuffer({ enabled: true, maxSize: 5 });
-    buffer.enqueue({ event: 'plain', payload: 1 }); // no owner
+    buffer.enqueue({ event: 'plain', payload: 1 });
 
     const sent: string[] = [];
     buffer.flush((m) => sent.push(m.event));
@@ -168,7 +168,6 @@ describe('MessageBuffer — ring overflow (drop-oldest)', () => {
     buffer.enqueue({ event: 'a', payload: 1 });
     buffer.enqueue({ event: 'b', payload: 2 });
     buffer.enqueue({ event: 'c', payload: 3 });
-    // Overflow: oldest ('a') is dropped
     buffer.enqueue({ event: 'd', payload: 4 });
 
     expect(buffer.size).toBe(3);
@@ -185,8 +184,8 @@ describe('MessageBuffer — ring overflow (drop-oldest)', () => {
 
     buffer.enqueue({ event: 'a', payload: 1 });
     buffer.enqueue({ event: 'b', payload: 2 });
-    buffer.enqueue({ event: 'c', payload: 3 }); // drops 'a'
-    buffer.enqueue({ event: 'd', payload: 4 }); // drops 'b'
+    buffer.enqueue({ event: 'c', payload: 3 });
+    buffer.enqueue({ event: 'd', payload: 4 });
 
     expect(buffer.size).toBe(2);
     buffer.flush(send);
@@ -211,8 +210,6 @@ describe('MessageBuffer — flush isolation (#25)', () => {
 
     buffer.flush(send, undefined, onError);
 
-    // The valid message queued behind the bad one still goes out, and the
-    // failure is reported rather than silently swallowed.
     expect(sent).toEqual(['good']);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(buffer.size).toBe(0);
@@ -225,7 +222,6 @@ describe('MessageBuffer — TTL expiry on flush', () => {
     const buffer = new MessageBuffer({ enabled: true });
     const send = vi.fn();
 
-    // Enqueue two messages — one expires in 500 ms, one has no TTL
     buffer.enqueue({ event: 'typing', payload: {} }, 500);
     buffer.enqueue({ event: 'mark-read', payload: {} });
 
@@ -257,7 +253,7 @@ describe('MessageBuffer — TTL expiry on flush', () => {
     const buffer = new MessageBuffer({ enabled: true, ttl: { typing: 500 } });
     const send = vi.fn();
 
-    buffer.enqueue({ event: 'typing', payload: {} }); // picks 500 ms from map
+    buffer.enqueue({ event: 'typing', payload: {} });
     buffer.enqueue({ event: 'other', payload: {} }); // no TTL in map → never expires
 
     vi.advanceTimersByTime(600);
@@ -273,7 +269,6 @@ describe('MessageBuffer — TTL expiry on flush', () => {
 
     const socket = buildSocket(buffering({ enabled: true, ttl: { typing: 300 } }));
 
-    // Send while disconnected — gets buffered with a 300 ms TTL for 'typing'
     expect(socket.send('typing', { channelId: 'x' })).toBe(true);
 
     vi.advanceTimersByTime(400);
@@ -282,7 +277,6 @@ describe('MessageBuffer — TTL expiry on flush', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    // The typing message should have been dropped (TTL elapsed)
     const frames = ws.sentFrames();
     expect(frames.some((f) => f.event === 'typing')).toBe(false);
   });
@@ -301,7 +295,6 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 
     buffer.flush(send, onComplete);
 
-    // First message goes out immediately on the first tick()
     expect(send).toHaveBeenCalledTimes(1);
     expect(onComplete).not.toHaveBeenCalled();
 
@@ -326,11 +319,11 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 
     buffer.flush(send);
 
-    expect(send).toHaveBeenCalledTimes(1); // first tick fires immediately
+    expect(send).toHaveBeenCalledTimes(1);
 
-    buffer.clear(); // must cancel the pending timer
+    buffer.clear();
 
-    vi.advanceTimersByTime(500); // no further ticks should fire
+    vi.advanceTimersByTime(500);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -347,20 +340,18 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
     buffer.enqueue({ event: 'm2', payload: {} });
     buffer.enqueue({ event: 'm3', payload: {} });
 
-    buffer.flush(send); // m1 goes out immediately
+    buffer.flush(send);
     expect(delivered).toEqual(['m1']);
 
-    // Socket drops mid-flush: stop the drip and confirm m2/m3 stay buffered.
     wireOpen = false;
     buffer.stopFlush();
-    vi.advanceTimersByTime(500); // no further ticks
+    vi.advanceTimersByTime(500);
     expect(delivered).toEqual(['m1']);
     expect(buffer.size).toBe(2);
 
-    // On reconnect they flush successfully.
     wireOpen = true;
     buffer.flush(send);
-    expect(delivered).toEqual(['m1', 'm2']); // m2 immediate
+    expect(delivered).toEqual(['m1', 'm2']);
     vi.advanceTimersByTime(100);
     expect(delivered).toEqual(['m1', 'm2', 'm3']);
   });
@@ -391,17 +382,13 @@ describe('MessageBuffer — double-flush / onComplete guard', () => {
     buffer.enqueue({ event: 'a', payload: 1 });
     buffer.enqueue({ event: 'b', payload: 2 });
 
-    // First flush: 'a' goes out immediately, timer pending for 'b'
     buffer.flush(send, onComplete);
     expect(send).toHaveBeenCalledTimes(1);
 
-    // Second flush before the first timer fires — should take over
     buffer.flush(send, onComplete);
 
-    // Advance past all possible timers
     vi.runAllTimers();
 
-    // onComplete should fire exactly once (from the second flush completing)
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });
@@ -412,7 +399,6 @@ describe('MessageBuffer — TTL zero means no expiry', () => {
     const buffer = new MessageBuffer({ enabled: true });
     const send = vi.fn();
 
-    // ttl=0 should mean "no expiry" — message must be flushed
     buffer.enqueue({ event: 'ping', payload: {} }, 0);
 
     buffer.flush(send);
@@ -460,14 +446,14 @@ describe('buffering — live send during a staggered flush stays in order', () =
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
-    ws.serverClose(1006); // offline; the buffer keeps queued sends
+    ws.serverClose(1006);
 
     socket.send('typing', { channelId: 'a' });
     socket.send('typing', { channelId: 'b' });
 
     socket.connect();
     ws = MockWebSocket.last();
-    ws.open(); // onOpen flush: 'a' goes now, 'b' scheduled +100ms
+    ws.open();
 
     // A live send while the flush is still draining must NOT jump ahead of 'b'.
     socket.send('typing', { channelId: 'c' });

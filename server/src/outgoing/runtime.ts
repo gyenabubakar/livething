@@ -37,8 +37,6 @@ export interface OutgoingRuntime {
   generateId(prefix?: string): string;
 }
 
-// ───── Section: declaration checks ─────
-
 /** Check whether an event name belongs to any installed plugin's outgoing declarations. */
 function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean {
   for (const pluginInstance of compiled.plugins) {
@@ -90,8 +88,6 @@ export function isDeclaredOutgoingEvent(
   );
 }
 
-// ───── Section: payload shape check ─────
-
 /** Throw if the payload is not a plain object — arrays and primitives are rejected. */
 export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -103,8 +99,6 @@ function serializePayloadOrThrow(event: string, payload: Record<string, unknown>
   return serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
 }
 
-// ───── Section: outgoing hook pipeline ─────
-
 /** Run global + plugin `onOutgoing` hooks and return the (possibly rewritten) message. */
 function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
@@ -113,7 +107,6 @@ function runOutgoingHooks(
 ): { event: string; payload: unknown } {
   let current = message;
 
-  // A hook return value replaces the payload only, never the event.
   for (const hook of outgoingHooks) {
     const next = hook(current);
     if (next !== undefined) current = { event: current.event, payload: next };
@@ -145,6 +138,7 @@ function buildWSKit(
     wskit.channelScope = routing.channelScope;
   }
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
+  if (routing?.ackId) wskit.ackId = routing.ackId;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
   if (routing?.streamKind) wskit.streamKind = routing.streamKind;
@@ -191,8 +185,6 @@ function invokeAfterSendHooks(
     }
   }
 }
-
-// ───── Section: wire send primitives ─────
 
 /**
  * Push one outgoing event through plugin hooks, declaration checks, and
@@ -252,8 +244,6 @@ export function sendThroughPipeline(
 
   return true;
 }
-
-// ───── Section: broadcast fan-out ─────
 
 interface PreparedBroadcast {
   event: string;

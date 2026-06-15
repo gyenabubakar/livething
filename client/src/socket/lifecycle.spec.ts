@@ -28,8 +28,6 @@ function c<const P extends readonly Primitive<any, any>[]>(
   return client<C>()(connectDescriptor, ...primitives);
 }
 
-// Build a minimal Primitive whose onClose throws on the first call and records
-// which other "sibling" primitives have had their onClose called.
 function makePrimitive(
   id: string,
   options: { throwOnClose?: boolean } = {},
@@ -156,12 +154,10 @@ describe('primitive onClose throw isolation on disconnect()', () => {
 
 describe('_setState no-op when entering the same state', () => {
   it('subscribe() callback is not called when the new state equals the current state', () => {
-    // The socket starts 'closed'. We manually invoke _setState('closed') again.
     const socket = c(connect('wss://test'));
     const stateCallback = vi.fn();
     socket.subscribe(stateCallback);
 
-    // Force a same-state transition by calling internal _setState directly.
     (socket as unknown as { _setState: (s: string) => void })._setState('closed');
 
     expect(stateCallback).not.toHaveBeenCalled();
@@ -172,7 +168,7 @@ describe('_setState no-op when entering the same state', () => {
     const stateCallback = vi.fn();
     socket.subscribe(stateCallback);
 
-    socket.connect(); // closed → connecting
+    socket.connect();
 
     expect(stateCallback).toHaveBeenCalledTimes(1);
   });
@@ -184,13 +180,13 @@ describe('event ordering on reconnect open', () => {
     const socket = c(connect('wss://test'), reconnection());
     socket.connect();
     MockWebSocket.last().open();
-    MockWebSocket.last().serverClose(1006); // → reconnecting
+    MockWebSocket.last().serverClose(1006);
 
     const order: string[] = [];
     socket.onOpen(() => order.push('open'));
     socket.onReconnect(() => order.push('reconnect'));
 
-    vi.advanceTimersByTime(2000); // let the retry timer fire
+    vi.advanceTimersByTime(2000);
     MockWebSocket.last().open();
 
     expect(order).toEqual(['open', 'reconnect']);
@@ -201,7 +197,7 @@ describe('event ordering on reconnect open', () => {
     const socket = c(connect('wss://test'), reconnection());
     socket.connect();
     MockWebSocket.last().open();
-    MockWebSocket.last().serverClose(1006); // → reconnecting
+    MockWebSocket.last().serverClose(1006);
 
     const onOpen = vi.fn();
     const onReconnect = vi.fn();
@@ -247,9 +243,9 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
     const unsub = socket.on('some-event', () => {});
     MockWebSocket.last().open();
 
-    unsub(); // last consumer released — but idleTimeout:0 should suppress the timer
+    unsub();
 
-    vi.advanceTimersByTime(60_000); // wait well past the default 10_000
+    vi.advanceTimersByTime(60_000);
 
     expect(socket.getState()).toBe('open');
   });
@@ -263,7 +259,7 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
     MockWebSocket.last().open();
 
     unsubA();
-    unsubB(); // last consumer
+    unsubB();
 
     vi.advanceTimersByTime(30_000);
 
@@ -277,20 +273,16 @@ describe('lazy idle window resets on send', () => {
     const socket = c(connect('wss://test', { lazy: true, idleTimeout: 10_000 }));
     const raw = socket as unknown as { send(event: string, payload: unknown): boolean };
 
-    // No listeners ever — a send is what triggers the lazy connect.
     raw.send('echo', {});
     MockWebSocket.last().open();
 
-    // Idle timer is armed (zero consumers). Advance most of the window.
     vi.advanceTimersByTime(8_000);
     expect(socket.getState()).toBe('open');
 
-    // A fresh send must restart the 10s window.
     raw.send('echo', {});
-    vi.advanceTimersByTime(8_000); // 16s since open, but only 8s since the last send
+    vi.advanceTimersByTime(8_000);
     expect(socket.getState()).toBe('open');
 
-    // No further sends — now the window elapses and the socket idle-closes.
     vi.advanceTimersByTime(10_000);
     expect(socket.getState()).not.toBe('open');
   });

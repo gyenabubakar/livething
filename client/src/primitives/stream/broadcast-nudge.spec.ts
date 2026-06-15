@@ -80,7 +80,6 @@ describe('nudge timeout', () => {
     const { handle } = await start(socket, ws);
 
     const pending = handle.nudge('hint', { value: 'test' });
-    // Advance past nudgeTimeout — no __nudgeOk__ or __error__ is sent.
     vi.advanceTimersByTime(500);
 
     await expect(pending).rejects.toMatchObject({ code: 'timeout' });
@@ -107,7 +106,6 @@ describe('nudge timeout', () => {
       }),
     ).not.toThrow();
 
-    // Stream must still be active (the nudge timeout is not terminal).
     expect(handle.active).toBe(true);
   });
 });
@@ -118,7 +116,6 @@ describe('trigger handshake timeout', () => {
     const { socket } = buildWithStream({ timeout: 1000 });
 
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
-    // Advance past the trigger timeout without emitting __streamOk__.
     vi.advanceTimersByTime(1000);
 
     await expect(promise).rejects.toMatchObject({ code: 'timeout' });
@@ -134,7 +131,6 @@ describe('trigger handshake timeout', () => {
 
     await expect(promise).rejects.toMatchObject({ code: 'timeout' });
 
-    // A late __streamOk__ for the timed-out trigger must be silently dropped.
     expect(() =>
       ws.emit({
         event: '__streamOk__',
@@ -151,7 +147,6 @@ describe('nudge after stream ends', () => {
     const { handle, sid } = await start(socket, ws);
 
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
-    // Drain the iterator to confirm the stream ended cleanly.
     const chunks: unknown[] = [];
     for await (const chunk of handle) chunks.push(chunk);
 
@@ -182,7 +177,6 @@ describe('cancel idempotency after stream ends', () => {
     const cancelCount = frames.filter((f) => f.event === '__streamCancel__').length;
     expect(cancelCount).toBe(1);
 
-    // Second call must be a no-op.
     handle.cancel();
     const framesAfter = ws.sentFrames();
     const cancelCountAfter = framesAfter.filter((f) => f.event === '__streamCancel__').length;
@@ -194,7 +188,6 @@ describe('cancel idempotency after stream ends', () => {
     const { handle, sid } = await start(socket, ws);
 
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
-    // Drain the iterator so the end is processed.
     for await (const _chunk of handle) {
       void _chunk;
     }
@@ -214,7 +207,6 @@ describe('cancel idempotency after stream ends', () => {
     }
 
     const frameCountBefore = ws.sentFrames().length;
-    // Simulate breaking out of a loop that already ended — calls return() internally.
     const iter = handle[Symbol.asyncIterator]();
     await iter.return?.();
     expect(ws.sentFrames().length).toBe(frameCountBefore);
@@ -237,7 +229,6 @@ describe('broadcast scope and seq deduplication', () => {
     const onChunk = vi.fn();
     room.onStream('ask-ai', { onChunk });
 
-    // Emit a top-level (unscoped) broadcast chunk — no channel/channelScope markers.
     ws.emit({ event: 'ask-ai', payload: { text: 'hi' }, __wskit: { streamId: 'bs1', seq: 1 } });
 
     expect(onChunk).not.toHaveBeenCalled();
@@ -249,7 +240,6 @@ describe('broadcast scope and seq deduplication', () => {
     const onChunk = vi.fn();
     socket.onStream('ask-ai', { onChunk });
 
-    // Emit a channel-scoped chunk.
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'scoped' },
@@ -265,8 +255,8 @@ describe('broadcast scope and seq deduplication', () => {
     socket.onStream('ask-ai', { onChunk });
 
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs3', seq: 3 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: 'bs3', seq: 2 } }); // stale
-    ws.emit({ event: 'ask-ai', payload: { text: 'c' }, __wskit: { streamId: 'bs3', seq: 3 } }); // dup
+    ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: 'bs3', seq: 2 } });
+    ws.emit({ event: 'ask-ai', payload: { text: 'c' }, __wskit: { streamId: 'bs3', seq: 3 } });
 
     expect(onChunk).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs3');
@@ -294,7 +284,6 @@ describe('late onStream subscriber receives subsequent chunks', () => {
 
     socket.onStream('ask-ai', { onChunk: firstChunks });
 
-    // First chunk — this causes deliverBroadcast to snapshot handlers into broadcastRun.
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'chunk1' },
@@ -302,10 +291,8 @@ describe('late onStream subscriber receives subsequent chunks', () => {
     });
     expect(firstChunks).toHaveBeenCalledTimes(1);
 
-    // Late subscriber added AFTER the broadcastRun was created.
     socket.onStream('ask-ai', { onChunk: lateChunks });
 
-    // Subsequent chunks must reach both subscribers.
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'chunk2' },
@@ -325,7 +312,6 @@ describe('pre-chunk error/end fires onError and onEnd', () => {
     const onEnd = vi.fn();
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd });
 
-    // No chunk emitted — the end frame carries eventName so it still routes.
     ws.emit({
       event: '__streamEnd__',
       payload: {},
@@ -341,7 +327,6 @@ describe('pre-chunk error/end fires onError and onEnd', () => {
     const onError = vi.fn();
     socket.onStream('ask-ai', { onChunk: vi.fn(), onError });
 
-    // No chunk emitted — the error frame carries eventName so it still routes.
     ws.emit({
       event: '__error__',
       payload: { code: 'stream-ended', message: 'ended' },
@@ -370,12 +355,9 @@ describe('deliverBroadcast with no matching scope', () => {
     // Subscribe at channel scope — this subscriber must NOT receive top-level chunks.
     room.onStream('ask-ai', { onChunk, onEnd });
 
-    // Top-level (unscoped) broadcast chunk — scope mismatch, so no run is created.
     ws.emit({ event: 'ask-ai', payload: { text: 'x' }, __wskit: { streamId: 'bs5', seq: 1 } });
     expect(onChunk).not.toHaveBeenCalled();
 
-    // Top-level __streamEnd__ for the same streamId — because no run was registered,
-    // this must also be a no-op for the channel-scoped subscriber.
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs5' } });
     expect(onEnd).not.toHaveBeenCalled();
   });
@@ -383,7 +365,6 @@ describe('deliverBroadcast with no matching scope', () => {
   it('does not register a broadcastRun when no subscriber scope matches', async () => {
     const { socket, ws } = buildWithStreamAndChannels();
 
-    // Register a channel-scoped subscriber (scope = { channel: 'r1', channelScope: 'rooms' }).
     const room = socket.channel('rooms', 'r1');
     const sub = room.subscribe();
     ws.emit({
@@ -397,15 +378,9 @@ describe('deliverBroadcast with no matching scope', () => {
     const onEnd = vi.fn();
     room.onStream('ask-ai', { onChunk, onEnd });
 
-    // Emit a top-level (unscoped) chunk for 'ask-ai'.
-    // deliverBroadcast finds subscribers for 'ask-ai' (line 232 passes), then filters
-    // by scopeMatches — the channel-scoped subscriber does NOT match an unscoped chunk,
-    // so handlers.length === 0 (line 238) and no broadcastRun is created for 'bs6'.
     ws.emit({ event: 'ask-ai', payload: { text: 'x' }, __wskit: { streamId: 'bs6', seq: 1 } });
     expect(onChunk).not.toHaveBeenCalled();
 
-    // Because no broadcastRun was registered for 'bs6', the __streamEnd__ is a no-op
-    // for this subscriber — endBroadcast finds nothing in broadcastRuns.
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs6' } });
     expect(onEnd).not.toHaveBeenCalled();
   });
@@ -419,8 +394,6 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi });
     socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
 
-    // A terminal __streamEnd__ with NO eventName and no preceding chunk (no run):
-    // it cannot be routed, so it must reach nobody — not every subscriber.
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 's1' } });
 
     expect(endAskAi).not.toHaveBeenCalled();
@@ -435,7 +408,6 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi, onError: errAskAi });
     socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
 
-    // __streamEnd__ for feed-b (carrying eventName) before any chunk reaches only feed-b.
     ws.emit({
       event: '__streamEnd__',
       payload: {},
@@ -444,7 +416,6 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     expect(endFeedB).toHaveBeenCalledTimes(1);
     expect(endAskAi).not.toHaveBeenCalled();
 
-    // A terminal __error__ for ask-ai (carrying eventName) reaches only ask-ai.
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },

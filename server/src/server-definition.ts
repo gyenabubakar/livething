@@ -53,6 +53,13 @@ export interface ServerContract {
   readonly requests: Record<string, any>;
 
   /**
+   * Server→client request/response pairs the client answers (declared with
+   * `requests({...})`). From the client's perspective these are the requests the
+   * server asks it, answered via `socket.onRequest(...)`.
+   */
+  readonly serverRequests?: Record<string, any>;
+
+  /**
    * Server-sent streams the client subscribes to. From the client's
    * perspective every server-pushed stream lives here regardless of
    * whether the server declared it with `stream(...)`, `resumableStream(...)`,

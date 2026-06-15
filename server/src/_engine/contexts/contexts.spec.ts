@@ -85,36 +85,46 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
   } as any;
 }
 
-describe('sendToConnection', () => {
-  it('returns false when the target id is not in the connection map', () => {
+function localRef(id: string) {
+  return { __wskit: 'connection-ref' as const, id, instance: undefined, identity: id };
+}
+
+describe('ctx.connection(ref).send', () => {
+  it('returns false and logs when the target id is not in the connection map', () => {
     const connection = createConnection('conn_1');
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    const result = ctx.sendToConnection('nonexistent-id', 'evt', {});
+    const result = ctx.connection(localRef('nonexistent-id')).send('evt', {});
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
-      connectionId: 'nonexistent-id',
-      event: 'evt',
-    });
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      '[wskit] ctx.connection(ref).send target not found',
+      {
+        connectionId: 'nonexistent-id',
+        event: 'evt',
+      },
+    );
   });
 
-  it('task context sendToConnection returns false for unknown ids', () => {
+  it('task context connection(ref).send returns false for unknown ids', () => {
     const deps = baseDeps();
     const task = createTaskContext(deps);
 
-    expect(task.sendToConnection('missing', 'evt', {})).toBe(false);
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
-      connectionId: 'missing',
-      event: 'evt',
-    });
+    expect(task.connection(localRef('missing')).send('evt', {})).toBe(false);
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      '[wskit] ctx.connection(ref).send target not found',
+      {
+        connectionId: 'missing',
+        event: 'evt',
+      },
+    );
   });
 
-  it('returns true and invokes the send pipeline when target exists', () => {
+  it('returns the pipeline result and routes to the addressed connection when it exists', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
@@ -125,12 +135,32 @@ describe('sendToConnection', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    expect(ctx.sendToConnection('peer', 'evt', { text: 'hi' })).toBe(true);
+    expect(ctx.connection(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
     expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, {
       routing: undefined,
       event: 'evt',
       payload: { text: 'hi' },
     });
+  });
+
+  it('throws the cross-instance error when the ref names another instance', () => {
+    const self = createConnection('self');
+    const deps = baseDeps({
+      connections: new Map([[self.id, self]]),
+      instanceId: 'engine-a',
+    });
+
+    const ctx = buildConnectionContext(deps, self);
+    const foreign = {
+      __wskit: 'connection-ref' as const,
+      id: 'peer',
+      instance: 'engine-b',
+      identity: 'peer',
+    };
+    expect(() => ctx.connection(foreign).send('evt', {})).toThrow(
+      '[wskit] ctx.connection(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
+        'cross-instance routing requires a broker, which is not configured yet.',
+    );
   });
 });
 

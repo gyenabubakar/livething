@@ -30,8 +30,14 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
 
   return {
     _tag: 'ack',
+
+    // Run after serverRequest so a server-initiated request is claimed there
+    // first; this primitive then only sees acks for the client's own sends.
+    optionalAfter: ['serverRequest'],
+
     setup(helpers) {
       const pending = new Map<string, Pending>();
+
       // Frames for acks made before the socket is open (lazy connect / reconnect)
       // when no buffering is installed to hold them. Flushed on onOpen — same as
       // request() — so a sendWithAck() started before open isn't dropped. Each
@@ -52,6 +58,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
       ): Promise<void> {
         const eventError = wireIdError(event, event, 'event');
         if (eventError) return Promise.reject(eventError);
+
         const ackId = helpers.generateId('ack');
         helpers.lazyAcquire();
         helpers.ensureConnected();
@@ -62,6 +69,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             outbox.delete(ackId);
             helpers.lazyRelease();
           }
+
           const timer = setTimeout(() => {
             done();
             reject(Timeout());
@@ -73,6 +81,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
               done();
               resolve();
             },
+
             reject: (reason) => {
               clearTimeout(timer);
               done();
@@ -83,6 +92,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           const frame: WireMessage = { event, payload, __wskit: { ackId, ...callOptions.markers } };
           const owner = ownerFor(ackId);
           let result: SendResult;
+
           try {
             result = helpers.send(frame, {
               owner,
@@ -95,7 +105,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             reject(error);
             return;
           }
-          // connecting holds the frame to flush on open; closed/blocked fails fast.
+
           if (result === 'connecting') {
             outbox.set(ackId, { message: frame, owner });
           } else if (result === 'closed' || result === 'blocked') {
@@ -108,6 +118,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
 
       return {
         id: 'ack',
+
         onOpen() {
           const entries = [...outbox.values()];
           outbox.clear();
@@ -116,24 +127,44 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           }
           return null;
         },
+
         onIncoming(message) {
           const ackId = message.__wskit?.ackId;
           if (typeof ackId !== 'string') return message;
 
-          const waiter = pending.get(ackId);
-          if (!waiter) return null;
+          // An `__ack__` (or correlated `__error__`) frame is the server's
+          // RECEIPT of one of our client `sendWithAck` sends. Settle the matching
+          // waiter; a stale id (already settled, or arrived after timeout) is
+          // swallowed — never forwarded to a user handler.
+          if (message.event === '__ack__' || message.event === '__error__') {
+            const waiter = pending.get(ackId);
+            if (!waiter) return null;
 
-          helpers.log.info(`matched acknowledgement '${ackId}'`);
-          if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
-          else waiter.resolve();
-          return null;
+            helpers.log.info(`matched acknowledgement '${ackId}'`);
+
+            if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
+            else waiter.resolve();
+
+            return null;
+          }
+
+          // A normal user-event frame carrying an `ackId` is a SERVER-initiated
+          // sendWithAck asking us to confirm receipt. Auto-send the `__ack__`
+          // receipt (no app code needed), then pass the message through so the
+          // app's `on(event)` handler still runs.
+          helpers.log.info(`auto-confirming server send '${ackId}'`);
+          helpers.rawSend({ event: '__ack__', payload: {}, __wskit: { ackId } });
+
+          return message;
         },
+
         onClose() {
           // Each reject() runs done(), which deletes its own entry, so the map
           // empties itself as we go.
           for (const waiter of pending.values()) waiter.reject(Disconnected());
           outbox.clear();
         },
+
         install(socket) {
           // @ts-expect-error — install adds sendWithAck() to the socket dynamically
           socket.sendWithAck = (event: string, payload: unknown, callOptions?: AckOptionsArg) =>
@@ -154,4 +185,5 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
     },
   };
 }
+
 ack.tag = 'ack';

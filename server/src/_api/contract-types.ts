@@ -18,15 +18,6 @@ import type {
   TypeMarker,
 } from './definitions.ts';
 
-// ---------------------------------------------------------------------------
-// Single-pass categorizer
-//
-// One tail-recursive walk over the definitions tuple builds a record of every
-// per-kind slot in a single instantiation. TS memoizes `Categorize<D>` so
-// downstream slot lookups (`Contract['incoming']`, etc.) are O(1) indexes into
-// the cached record.
-// ---------------------------------------------------------------------------
-
 type NudgesMap<TNudges extends readonly NudgeDef<string, any>[]> = {
   [K in TNudges[number] as K extends NudgeDef<infer N, any> ? N : never]: K extends NudgeDef<
     any,
@@ -111,10 +102,6 @@ type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs ex
   ? Categorize<Tail, AddOne<Acc, Head>>
   : Acc;
 
-// ---------------------------------------------------------------------------
-// Sub-contracts
-// ---------------------------------------------------------------------------
-
 export type ChannelContract<
   TDefs extends readonly Definition[] = readonly Definition[],
   TCheckPayload = unknown,
@@ -134,10 +121,6 @@ export type ChannelContract<
      */
     readonly __addressing: TAddressing;
   };
-
-// ---------------------------------------------------------------------------
-// ContractConfig — the shape passed to contract()
-// ---------------------------------------------------------------------------
 
 export interface KeepaliveOptions {
   /** How often the server sends a keepalive ping, in ms. Must be < idleTimeoutMs. */
@@ -226,10 +209,6 @@ export interface ContractConfig {
   readonly definitions: readonly Definition[];
 }
 
-// ---------------------------------------------------------------------------
-// Extractors that read directly from a const-narrowed config
-// ---------------------------------------------------------------------------
-
 type FeatureFromConfig<TConfig> =
   | (TConfig extends { ack: true } ? 'ack' : never)
   | (TConfig extends { replay: true | ReplayOptionsConfig } ? 'replay' : never)
@@ -280,13 +259,6 @@ type DefinitionsFromConfig<TConfig> = TConfig extends { definitions: infer D }
     ? D
     : readonly []
   : readonly [];
-
-// ---------------------------------------------------------------------------
-// Plugin extractors — fold each mounted plugin's wire surface into the
-// contract's outgoing and errors maps so InferClient sees plugin-prefixed
-// events alongside the contract's own. Plugin scheduled tasks are server-side
-// only (the client never schedules them) and intentionally stay out.
-// ---------------------------------------------------------------------------
 
 type PluginsFromConfig<TConfig> = TConfig extends { plugins: infer P }
   ? P extends readonly any[]
@@ -353,10 +325,6 @@ type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) exten
 ) => void
   ? I
   : never;
-
-// ---------------------------------------------------------------------------
-// Contract — the final type produced by contract()
-// ---------------------------------------------------------------------------
 
 type ContractCats<TConfig> = Categorize<DefinitionsFromConfig<TConfig>>;
 

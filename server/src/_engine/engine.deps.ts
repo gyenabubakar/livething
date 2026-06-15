@@ -12,6 +12,7 @@ import * as MembershipPersistence from '~/persistence/membership.ts';
 import * as RejoinPersistence from '~/persistence/rejoin.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -20,7 +21,6 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
-// ─────── dep-bag memoization ───────
 
 // Each dependency bag closes over `core` and is otherwise constant for the
 // engine's life — build it once per core and reuse it, rather than rebuilding
@@ -45,8 +45,6 @@ function depsMemoFor(core: EngineCore): DepsMemo {
   }
   return memo;
 }
-
-// ─────── shared helpers ───────
 
 /** Bound `leaveChannel` closure used by persistence and identity ops. */
 function buildLeaveChannel(core: EngineCore) {
@@ -79,8 +77,6 @@ function buildTaskContextFactory(core: EngineCore): () => unknown {
       ...commonDeps(core),
     });
 }
-
-// ─────── common deps ───────
 
 /** Shared dep bag for init, shutdown, task, and connection context builders. */
 export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
@@ -167,8 +163,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
   };
 }
 
-// ─────── outgoing runtime bag ───────
-
 /** Dep bag for helpers that only touch outgoing messages. */
 export function outgoingRuntime(core: EngineCore) {
   return (depsMemoFor(core).outgoing ??= buildOutgoingRuntime(core));
@@ -189,8 +183,6 @@ function buildOutgoingRuntime(core: EngineCore) {
   };
 }
 
-// ─────── member runtime bag ───────
-
 /** Dep bag for helpers that also need live connections and membership data. */
 export function memberRuntime(core: EngineCore) {
   return (depsMemoFor(core).member ??= buildMemberRuntime(core));
@@ -210,8 +202,6 @@ function buildMemberRuntime(core: EngineCore) {
     ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
   };
 }
-
-// ─────── channel runtime bag ───────
 
 /** Dep bag for channel subscribe/unsubscribe helpers. */
 export function channelRuntime(core: EngineCore) {
@@ -279,8 +269,6 @@ function buildChannelRuntime(core: EngineCore) {
   };
 }
 
-// ─────── dispatch runtime bag ───────
-
 /** Dep bag for inbound text-message dispatch. */
 export function dispatchRuntime(core: EngineCore) {
   return (depsMemoFor(core).dispatch ??= buildDispatchRuntime(core));
@@ -296,6 +284,8 @@ function buildDispatchRuntime(core: EngineCore) {
     sql: core.storageOrUndefined()?.sql,
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
+    answerFrameHooks: core.hooks.answerFrame,
+    ackFrameHooks: core.hooks.ackFrame,
     errorHooks: core.hooks.error,
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
@@ -367,8 +357,6 @@ function buildDispatchRuntime(core: EngineCore) {
     durableStreamSchemaReady: false,
   };
 }
-
-// ─────── connection runtime bag ───────
 
 /** Dep bag for connection accept, wake, and close logic. */
 export function connectionRuntime(core: EngineCore) {
@@ -457,15 +445,39 @@ function buildConnectionRuntime(core: EngineCore) {
   };
 }
 
-// ─────── helpers exposed to the facade ───────
-
 /** Callbacks needed by `createEngineAccess` and `initialize`. */
-export function engineAccessDeps(core: EngineCore) {
+export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const createTaskContext = buildTaskContextFactory(core);
   return {
     ensureScheduledRuntime: () => Scheduling.ensureScheduledRuntime(core, createTaskContext),
     createTaskContext,
     rescheduleAlarm: () => Scheduling.rescheduleAlarm(core),
+    sendServerRequest: (connectionId, opts) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return false;
+      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
+        routing: {
+          correlationId: opts.correlationId,
+          channel: opts.channel,
+          channelScope: opts.channelScope,
+        },
+        event: opts.event,
+        payload: opts.payload,
+      });
+    },
+    sendServerWithAck: (connectionId, opts) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return false;
+      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
+        routing: {
+          ackId: opts.ackId,
+          channel: opts.channel,
+          channelScope: opts.channelScope,
+        },
+        event: opts.event,
+        payload: opts.payload,
+      });
+    },
   };
 }
 

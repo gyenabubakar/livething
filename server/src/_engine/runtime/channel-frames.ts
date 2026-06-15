@@ -4,6 +4,7 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type * as PublicApi from '~/context.ts';
+import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 /**
@@ -176,11 +177,7 @@ export async function subscribeFromServer(
   opts: SubscribeFromServerOptions,
 ): Promise<void> {
   const { channelName, channelScope, payload, rejoining = false } = opts;
-  if (ref.instance !== runtime.instanceId) {
-    throw new Error(
-      `[wskit] channelHandle.subscribe(ref) targets instance "${ref.instance ?? 'undefined'}" but this engine is "${runtime.instanceId ?? 'undefined'}" — cross-instance routing requires a broker, which is not configured yet.`,
-    );
-  }
+  assertLocalRef(ref, runtime.instanceId, 'channelHandle.subscribe(ref)');
 
   const target = runtime.connections.get(ref.id);
   if (!target) {

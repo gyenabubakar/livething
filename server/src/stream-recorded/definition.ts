@@ -30,6 +30,11 @@ interface CommonRecordedConfig {
    * Default: false.
    */
   broadcast?: boolean;
+  /**
+   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Defaults
+   * to 256 KB.
+   */
+  highWaterMark?: number;
 }
 
 /**
@@ -150,5 +155,6 @@ export function recordedStream<
     maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
     maxChunks: config?.maxChunks ?? 500,
+    highWaterMark: config?.highWaterMark,
   };
 }

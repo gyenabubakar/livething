@@ -130,7 +130,6 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     }
   }
 
-  // Always-run boot hooks (cleanup, state restore). These never skip.
   for (const hook of core.hooks.boot) {
     await hook();
   }

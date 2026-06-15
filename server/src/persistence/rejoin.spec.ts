@@ -331,7 +331,6 @@ describe('restorePersistentTags', () => {
       sql,
       tagMembers: new Map(),
       connection,
-      // Only 'admin' or 'editor' are valid keys for this group now.
       getSchema: () => v.picklist(['admin', 'editor']) as never,
       logger: { error: () => errors.push(1) },
     });

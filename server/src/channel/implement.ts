@@ -11,17 +11,12 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 
-// Reads one slot (incoming / requests / streams / etc.) off a sub-contract
-// so the .on() / .request() / .stream() methods below get per-event types.
 export type FieldOf<T, K extends string> = T extends Record<K, infer V> ? V : Record<string, any>;
 
-// Extracts the subscribe payload type from a channel contract when a check
-// validator is declared on the channel. Falls back to `unknown` otherwise.
 type SubscribePayloadOf<TChC> = 'subscribePayload' extends keyof TChC
   ? TChC['subscribePayload']
   : unknown;
 
-// Everything a channel sub-implementer collects, ready to be compiled.
 export interface ChannelHandlerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;

@@ -219,6 +219,7 @@ export async function cancelActiveStreamsForConnection(
         closed: boolean;
         onDisconnect?: EngineRuntimeTypes.OnDisconnect;
         detached?: boolean;
+        abortController?: AbortController;
       }
     >;
     logger?: Pick<PublicApi.Logger, 'error'>;
@@ -232,6 +233,11 @@ export async function cancelActiveStreamsForConnection(
       continue;
     }
     activeStream.closed = true;
+    // Fire the stop signal before return() so slow awaited work tied to
+    // ctx.stream.signal stops first; the generator's finally still runs.
+    if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
+      activeStream.abortController.abort('aborted');
+    }
     try {
       // A user-supplied generator may throw from its `finally` block. Log
       // and move on — the rest of connection-close cleanup (running
@@ -423,13 +429,10 @@ export function acceptConnection(
   }
 
   const ctx = runtime.buildConnectionContext(connection);
-  // lifecycleReady swallows handler errors into handleRuntimeError; if handleRuntimeError itself throws, the rejection is unhandled — acceptable because that path is fatal anyway.
-  //
-  // Auto-rejoin runs before onConnect so handlers see the connection
-  // already back in its persistent channels. The branch keeps the
-  // original synchronous start of `runConnectionLifecycle` for engines
-  // without persistence — adding a `.then()` chain unconditionally would
-  // shift onConnect's timing by a microtask and break existing tests.
+  // Auto-rejoin runs before onConnect so handlers see the connection already
+  // back in its persistent channels. The branch keeps the synchronous start of
+  // `runConnectionLifecycle` for engines without persistence — an unconditional
+  // `.then()` chain would shift onConnect's timing by a microtask.
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)
@@ -741,6 +744,7 @@ export async function handleUpgrade(
  */
 export async function handleShutdown(
   runtime: Pick<ConnectionRuntime, 'connections'> & {
+    activeStreams?: ReadonlyMap<string, { abortController?: AbortController }>;
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
     /**
      * New-model plugin shutdown hooks, in registration order. Run after the
@@ -755,6 +759,18 @@ export async function handleShutdown(
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
 ): Promise<void> {
+  // Fire every active stream's stop signal up front — including detached
+  // keep-running streams that the per-connection close below leaves alone — so
+  // in-flight awaited work tied to ctx.stream.signal stops as the server goes
+  // away. Idempotent: the per-connection close re-checks before aborting.
+  if (runtime.activeStreams) {
+    for (const activeStream of runtime.activeStreams.values()) {
+      if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
+        activeStream.abortController.abort('shutdown');
+      }
+    }
+  }
+
   // Shutdown is a best-effort drain: a throwing hook must not block
   // stream cancellation, socket close, or alarm clear. Each hook runs
   // inside its own try/catch with logging; cleanup below always runs.

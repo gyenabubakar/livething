@@ -35,11 +35,18 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import { assertPluginDependencies } from './plugin.ts';
-import type { AppCtx, ReplayWire } from './app-ctx.ts';
+import type {
+  AppCtx,
+  BroadcastRequestArm,
+  BroadcastServerRequests,
+  ReplayWire,
+  SendWithAckArm,
+} from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandsOf,
   Contribution,
+  FeaturesOf,
   MergeSlots,
   SlotOr,
   SlotsOf,
@@ -262,6 +269,28 @@ type NudgesHandle<TNudges> = [keyof TNudges] extends [never]
   ? {}
   : { nudges(yielded: unknown): NudgeMessageUnion<TNudges>[] };
 
+/**
+ * The base `ctx.stream` handle present on every stream generator, regardless of
+ * nudges or cursor. Combined with `NudgesHandle` (and cursor controls for
+ * durable streams) to form the full handle.
+ */
+type StreamHandleBase = {
+  /**
+   * Stop signal fired when the stream is cancelled, the owning client
+   * disconnects, or the server shuts down. Pass it into slow awaited work (e.g.
+   * `fetch(url, { signal: ctx.stream.signal })`) so it stops immediately.
+   */
+  readonly signal: AbortSignal;
+  /**
+   * Pause the generator until the outbound buffer is healthy, then resume.
+   * Resolves immediately when the buffered amount is below the stream's
+   * `highWaterMark` (default 256 KB). For a broadcast stream it paces against
+   * the healthiest client, never the slowest. On Cloudflare, which does not
+   * expose buffer fullness, `drain()` is a no-op that resolves immediately.
+   */
+  drain(): Promise<void>;
+};
+
 /** The contract slot shape for a stream's declared nudges. */
 type NudgesContract<TNudges> = { [K in keyof TNudges & string]: NudgePayloadOf<TNudges[K]> };
 
@@ -276,7 +305,7 @@ type StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps extends readonly AnyCapabilit
   TMeta,
   TCaps
 > & {
-  stream: NudgesHandle<TNudges>;
+  stream: StreamHandleBase & NudgesHandle<TNudges>;
 };
 
 /** Configuration object for `base.stream(...)`. */
@@ -299,6 +328,8 @@ export interface StreamConfig<
   readonly broadcast?: boolean;
   /** Permit overlapping streams of the same event on one connection (default false). */
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   /** The async generator — each yielded value is sent to the client as a chunk. */
   run(
     ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps>,
@@ -346,14 +377,15 @@ type ResumableStreamCtx<
   TNudges,
   TCaps extends readonly AnyCapability[],
 > = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
-  stream: NudgesHandle<TNudges> & {
-    /** The cursor recorded on the last run, or `null` on the first run. */
-    cursor: TCursor | null;
-    /** 1 on the first run, 2+ on each resume. */
-    attempt: number;
-    /** Attach a cursor to a chunk so the framework can resume from it. */
-    withCursor(chunk: TChunk, cursor: TCursor): TChunk;
-  };
+  stream: StreamHandleBase &
+    NudgesHandle<TNudges> & {
+      /** The cursor recorded on the last run, or `null` on the first run. */
+      cursor: TCursor | null;
+      /** 1 on the first run, 2+ on each resume. */
+      attempt: number;
+      /** Attach a cursor to a chunk so the framework can resume from it. */
+      withCursor(chunk: TChunk, cursor: TCursor): TChunk;
+    };
 };
 
 /** Configuration object for `base.resumableStream(...)`. */
@@ -375,6 +407,8 @@ export interface ResumableStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   run(
     ctx: ResumableStreamCtx<TSlots, TEnv, TMeta, TChunk, TCursor, TNudges, TCaps>,
     input: InferInput<TInput>,
@@ -426,6 +460,8 @@ export interface RecordedStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   run(
     ctx: StreamCtx<TSlots, TEnv, TMeta, TNudges, TCaps>,
     input: InferInput<TInput>,
@@ -501,6 +537,35 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   ): void;
 }
 
+/** The server→client request map, filtered to targeted (non-broadcast) entries. */
+type ChannelServerRequests<TSlots> = {
+  [K in keyof SlotOr<TSlots, 'serverRequests'> as SlotOr<TSlots, 'serverRequests'>[K] extends {
+    broadcast: true;
+  }
+    ? never
+    : K]: SlotOr<TSlots, 'serverRequests'>[K];
+};
+
+/** The `request`/`broadcastRequest` arms added to `ctx.channel` when `requests()` is listed. */
+type ChannelRequestArm<TSlots, TCaps extends readonly AnyCapability[]> =
+  'requests' extends BrandsOf<TCaps>
+    ? {
+        /**
+         * Ask the calling connection a declared server→client request inside this
+         * channel and resolve its typed answer.
+         */
+        request<E extends keyof ChannelServerRequests<TSlots> & string>(
+          event: E,
+          payload: ChannelServerRequests<TSlots>[E] extends { payload: infer P } ? P : never,
+          options?: { timeout?: number },
+        ): Promise<ChannelServerRequests<TSlots>[E] extends { response: infer R } ? R : never>;
+      } & BroadcastRequestArm<BroadcastServerRequests<TSlots>>
+    : {};
+
+/** The `sendWithAck` arm added to `ctx.channel` when `ack()` is listed. */
+type ChannelSendWithAckArm<TSlots, TCaps extends readonly AnyCapability[]> =
+  'ack' extends FeaturesOf<TCaps> ? SendWithAckArm<TSlots> : {};
+
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
 export type ChannelCtx<
   TSlots,
@@ -510,7 +575,9 @@ export type ChannelCtx<
   TOutgoing,
   TCaps extends readonly AnyCapability[] = readonly [],
 > = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'ack'> & {
-  readonly channel: ChannelHandle<TParams, TOutgoing, TMeta>;
+  readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
+    ChannelRequestArm<TSlots, TCaps> &
+    ChannelSendWithAckArm<TSlots, TCaps>;
 };
 
 /** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
@@ -619,9 +686,11 @@ type ChannelStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
-      stream: NudgesHandle<TNudges>;
+      stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
@@ -644,9 +713,11 @@ type ChannelRecordedStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
-      stream: NudgesHandle<TNudges>;
+      stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
@@ -672,16 +743,19 @@ type ChannelResumableStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
+  readonly highWaterMark?: number;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
-      stream: NudgesHandle<TNudges> & {
-        /** The cursor recorded on the last run, or `null` on the first run. */
-        cursor: TCursor | null;
-        /** 1 on the first run, 2+ on each resume. */
-        attempt: number;
-        /** Attach a cursor to a chunk so the framework can resume from it. */
-        withCursor(chunk: TChunk, cursor: TCursor): TChunk;
-      };
+      stream: StreamHandleBase &
+        NudgesHandle<TNudges> & {
+          /** The cursor recorded on the last run, or `null` on the first run. */
+          cursor: TCursor | null;
+          /** 1 on the first run, 2+ on each resume. */
+          attempt: number;
+          /** Attach a cursor to a chunk so the framework can resume from it. */
+          withCursor(chunk: TChunk, cursor: TCursor): TChunk;
+        };
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;

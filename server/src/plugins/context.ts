@@ -8,7 +8,7 @@ import type * as PrimitiveCore from '~/primitive.ts';
  *
  * Plugins declare outgoing events with short names (e.g. `'flushed'`), but on
  * the wire they become `'__acme:analytics:flushed'`. This Proxy intercepts
- * `send`, `broadcast`, `sendTo`, and `sendToConnection` and prepends the
+ * `send`, `broadcast`, `sendTo`, and `connection(ref).send` and prepends the
  * plugin's ID before delegating to the real context method.
  */
 export function createPluginScopedContext(
@@ -38,14 +38,19 @@ export function createPluginScopedContext(
             prefix,
             position: 'event-first',
           });
-        case 'sendToConnection':
-          return wrapPrefixedSend({
-            target,
-            receiver,
-            key: 'sendToConnection',
-            prefix,
-            position: 'event-second',
-          });
+        case 'connection': {
+          const original = Reflect.get(target, key, receiver) as (ref: unknown) => {
+            send: (event: string, payload: unknown) => boolean;
+          };
+          if (typeof original !== 'function') return original;
+          return (ref: unknown) => {
+            const handle = original(ref);
+            return {
+              ...handle,
+              send: (event: string, payload: unknown) => handle.send(prefix(event), payload),
+            };
+          };
+        }
         default:
           return Reflect.get(target, key, receiver);
       }
@@ -56,33 +61,24 @@ export function createPluginScopedContext(
 interface WrapPrefixedSendOptions {
   target: Record<PropertyKey, unknown>;
   receiver: unknown;
-  key: 'send' | 'broadcast' | 'sendToConnection';
+  key: 'send' | 'broadcast';
   prefix: (event: string) => string;
-  position: 'event-first' | 'event-second';
+  position: 'event-first';
 }
 
 /**
- * Build a wrapper around one of the four send-like methods on a connection
- * context. The wrapper rewrites the `event` argument through `prefix` and
- * forwards every other argument unchanged.
- *
- * `position` says which positional arg holds the event name:
- *   - `event-first`  → `(event, payload, ...rest)` (e.g. `send`, `broadcast`)
- *   - `event-second` → `(target, event, payload)` (e.g. `sendTo`, `sendToConnection`)
+ * Build a wrapper around a `(event, payload, ...rest)` send-like method on a
+ * connection context. The wrapper rewrites the `event` argument through
+ * `prefix` and forwards every other argument unchanged.
  */
 function wrapPrefixedSend({
   target,
   receiver,
   key,
   prefix,
-  position,
 }: WrapPrefixedSendOptions): (...args: unknown[]) => unknown {
   const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
-  if (position === 'event-first') {
-    return (event: unknown, ...rest: unknown[]) => original(prefix(event as string), ...rest);
-  }
-  return (first: unknown, event: unknown, ...rest: unknown[]) =>
-    original(first, prefix(event as string), ...rest);
+  return (event: unknown, ...rest: unknown[]) => original(prefix(event as string), ...rest);
 }
 
 /**

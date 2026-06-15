@@ -451,7 +451,6 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         const baseCtx = ctx as Record<PropertyKey, unknown>;
         const scope = readReplayContextScope(baseCtx);
 
-        // Only handle the request if it matches this primitive's scope.
         if (!matchesReplayScope(channelKey, scope, engine.getReplayClaimedChannelKeys())) {
           return false;
         }

@@ -165,11 +165,8 @@ describe('errors runtime', () => {
       { error: new Error('boom'), event: 'echo' },
     );
 
-    // Second hook still ran despite the first throwing.
     expect(observed).toEqual(['second']);
-    // Logger received the isolation message.
     expect(errors).toEqual(['[wskit] onError hook threw; sending __error__ to client anyway']);
-    // __error__ frame was sent exactly once with the normalized payload.
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 

@@ -74,10 +74,6 @@ import type {
 
 export { ChannelImplement } from '~/channel/implement.ts';
 
-// ---------------------------------------------------------------------------
-// Type-level handler signatures
-// ---------------------------------------------------------------------------
-
 type IncomingHandlerFor<C extends Contract, E extends keyof C['incoming']> = (
   ctx: Ctx<C>,
   payload: C['incoming'][E],
@@ -113,10 +109,6 @@ type ScheduledHandlerFor<C extends Contract, I extends keyof C['scheduled']> = (
   ctx: any,
   data: C['scheduled'][I],
 ) => void | Promise<void>;
-
-// ---------------------------------------------------------------------------
-// Group (implementation-side organisational unit)
-// ---------------------------------------------------------------------------
 
 interface GroupRegistrations {
   incoming: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
@@ -424,10 +416,6 @@ export function group<C extends Contract>(
   return builder;
 }
 
-// ---------------------------------------------------------------------------
-// Implementer
-// ---------------------------------------------------------------------------
-
 interface ImplementerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;
@@ -486,8 +474,6 @@ export class Implementer<C extends Contract> {
   constructor(contract: C) {
     this._contract = contract;
   }
-
-  // ─────────────────── handler binding ───────────────────
 
   /**
    * Attach a handler for one client→server event declared on the contract.
@@ -740,8 +726,6 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  // ─────────────────── lifecycle ───────────────────
-
   /**
    * Runs on the WebSocket upgrade request, before the connection opens. Use
    * it for auth and to set the connection's identity and meta. Return a
@@ -825,8 +809,6 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  // ─────────────────── intercept ───────────────────
-
   /**
    * Attach a middleware-style hook that runs on every incoming event before
    * schema validation. Use it for things like rate limiting, auth checks, or
@@ -860,8 +842,6 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  // ─────────────────── per-handler rate limit ───────────────────
-
   /**
    * Override the resolved rate-limit rule for one top-level event. Missing
    * fields fall back to the top-level resolved rule (contract `rateLimit:`).
@@ -889,8 +869,6 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  // ─────────────────── custom replay ───────────────────
-
   /**
    * Plug in your own replay logic at the top level. You provide an `onReplay`
    * (and optionally `onBeforeSend` / `onAfterSend`); your code owns where the
@@ -906,8 +884,6 @@ export class Implementer<C extends Contract> {
     this._bag.customReplayHooks = hooks;
     return this;
   }
-
-  // ─────────────────── build ───────────────────
 
   /**
    * Finalize the implementation into a `ServerDefinition` the adapter can run.
@@ -935,7 +911,6 @@ export class Implementer<C extends Contract> {
       );
     }
 
-    // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
 
     if (hasDurableStreamDef(config.definitions)) {
@@ -977,8 +952,6 @@ export class Implementer<C extends Contract> {
       primitives.push(customReplayFactory(this._bag.customReplayHooks as any));
     }
 
-    // ── Rate limit ───────────────────────────────────────────────────────────
-    // Collect per-handler overrides from every impl level keyed by scope key.
     const overrides = new Map<string, Map<string, RateLimitConfig>>();
     if (this._bag.rateLimitOverrides.size > 0) {
       overrides.set('top', new Map(this._bag.rateLimitOverrides));
@@ -994,7 +967,6 @@ export class Implementer<C extends Contract> {
     });
     if (rateLimitPlan) primitives.push(rateLimitFactory(rateLimitPlan));
 
-    // ── Tag groups ───────────────────────────────────────────────────────────
     if (config.tags) {
       const tagDefs = resolveTagGroupDefs(config.tags);
       const ephemeral = tagDefs
@@ -1007,7 +979,6 @@ export class Implementer<C extends Contract> {
       if (persistent.length > 0) primitives.push(tagGroupsFactory('persistent', persistent));
     }
 
-    // ── Errors ───────────────────────────────────────────────────────────────
     if (config.errors && config.errors.length > 0) {
       // Each entry is either a built ErrorDefWithFactory from the core
       // `error()` factory (a function) or a plain ErrorContractDef shape
@@ -1024,7 +995,6 @@ export class Implementer<C extends Contract> {
       }
     }
 
-    // ── Plugins ──────────────────────────────────────────────────────────────
     // Push plugins ahead of lifecycle and definitions so their hooks register
     // first and run before user handlers.
     if (config.plugins && config.plugins.length > 0) {
@@ -1033,7 +1003,6 @@ export class Implementer<C extends Contract> {
       }
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
     if (this._bag.lifecycle.onUpgrade) primitives.push(onUpgrade(this._bag.lifecycle.onUpgrade));
     if (this._bag.lifecycle.onInit) primitives.push(onInit(this._bag.lifecycle.onInit));
     if (this._bag.lifecycle.onConnect) primitives.push(onConnect(this._bag.lifecycle.onConnect));
@@ -1044,10 +1013,8 @@ export class Implementer<C extends Contract> {
     if (this._bag.lifecycle.onValidationError)
       primitives.push(onValidationError(this._bag.lifecycle.onValidationError));
 
-    // ── Intercept ────────────────────────────────────────────────────────────
     if (this._bag.intercept) primitives.push(interceptFactory(this._bag.intercept));
 
-    // ── Top-level definitions ────────────────────────────────────────────────
     primitives.push(
       ...this._buildDefinitions(config.definitions, {
         incomingHandlers: this._bag.incomingHandlers,
@@ -1123,7 +1090,6 @@ export class Implementer<C extends Contract> {
           out.push(compileChannelDef(def as ChannelDef, handlers.channelImpls, recurse));
           break;
         default: {
-          // exhaustiveness check
           const _unreachable: never = def;
           void _unreachable;
         }
@@ -1141,10 +1107,6 @@ export class Implementer<C extends Contract> {
 export function implement<C extends Contract>(contract: C): Implementer<C> {
   return new Implementer(contract);
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function hasDurableStreamDef(defs: readonly Definition[]): boolean {
   for (const def of defs) {

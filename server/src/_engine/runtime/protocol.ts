@@ -13,8 +13,6 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import * as v from 'valibot';
 
-// ───── Section: reusable pieces ─────
-
 /**
  * A non-negative safe integer — sequence numbers and replay/resume cursors.
  * Bounded by `Number.MAX_SAFE_INTEGER` so a client-controlled cursor cannot
@@ -98,8 +96,6 @@ const ReplayScope = {
 /** An empty payload — protocol events that carry no app data. */
 const NoPayload = v.strictObject({});
 
-// ───── Section: incoming protocol frames (client → server) ─────
-
 export const SubscribeFrame = v.object({
   event: v.literal('__subscribe__'),
   // Loose here — the channel's `check` validator type-checks it.
@@ -135,6 +131,17 @@ export const ResumeStreamFrame = v.object({
   __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
+/**
+ * A receipt frame, `{ event: '__ack__', __wskit: { ackId } }`. Bidirectional:
+ * the server confirms a client `sendWithAck`, and the client auto-confirms a
+ * server `sendWithAck` — both echo the originating `ackId`.
+ */
+export const AckFrame = v.object({
+  event: v.literal('__ack__'),
+  payload: NoPayload,
+  __wskit: v.strictObject({ ackId: v.string() }),
+});
+
 /** All frames the client may send into the engine, discriminated on `event`. */
 export const IncomingProtocolFrame = v.variant('event', [
   SubscribeFrame,
@@ -142,9 +149,11 @@ export const IncomingProtocolFrame = v.variant('event', [
   ReplayFrame,
   StreamCancelFrame,
   ResumeStreamFrame,
+  // `__ack__` is bidirectional: the client auto-confirms a server-initiated
+  // `sendWithAck(...)` by echoing its `ackId` back. The same frame shape carries
+  // server→client (delivery confirm) and client→server (receipt).
+  AckFrame,
 ]);
-
-// ───── Section: outgoing protocol frames (server → client) ─────
 
 export const SubscribeOkFrame = v.object({
   event: v.literal('__subscribeOk__'),
@@ -189,12 +198,6 @@ export const StreamEndFrame = v.object({
     seq: v.optional(NonNegativeSafeInt),
     eventName: v.optional(EventName),
   }),
-});
-
-export const AckFrame = v.object({
-  event: v.literal('__ack__'),
-  payload: NoPayload,
-  __wskit: v.strictObject({ ackId: v.string() }),
 });
 
 export const ErrorFrame = v.object({
@@ -288,8 +291,6 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberSyncFrame,
 ]);
 
-// ───── Section: user-event frames ─────
-
 /**
  * The loose `__wskit` block on a user-event frame. Carries the correlation and
  * ack ids for request-response and delivery-confirmation flows, the routing
@@ -315,8 +316,6 @@ export const UserEventFrameSchema = v.strictObject({
   payload: v.optional(v.unknown()),
   __wskit: v.optional(WSKitProtocolSchema),
 });
-
-// ───── Section: types ─────
 
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
@@ -350,8 +349,6 @@ export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
 /** Names of the protocol events the engine sends to clients. */
 export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
-
-// ───── Section: dispatch helper ─────
 
 /**
  * True when `name` has the protocol-event shape `__x__`. The engine uses this

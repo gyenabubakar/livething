@@ -88,7 +88,6 @@ describe('localKey() no-arg', () => {
     const key = localKey<{ tag: string }>();
     expectTypeOf(key.id).toEqualTypeOf<symbol>();
     expectTypeOf(key.name).toEqualTypeOf<string | undefined>();
-    // Still accepts a debug name.
     const named = localKey<number>('count');
     expectTypeOf(named.id).toEqualTypeOf<symbol>();
   });

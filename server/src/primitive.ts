@@ -1,10 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { EngineAccess } from './_engine/access.ts';
 
-// ---------------------------------------------------------------------------
-// Primitive kind
-// ---------------------------------------------------------------------------
-
 /**
  * The category tag every primitive carries. Set automatically by each
  * primitive factory — you never assign it yourself.
@@ -16,10 +12,6 @@ export type PrimitiveKind =
   | 'lifecycle'
   | 'scope'
   | 'plugin';
-
-// ---------------------------------------------------------------------------
-// Platform requirements
-// ---------------------------------------------------------------------------
 
 /**
  * Declares which platform capabilities a primitive needs at runtime. When any
@@ -47,10 +39,6 @@ export interface PrimitiveRef {
   readonly __key: symbol;
 }
 
-// ---------------------------------------------------------------------------
-// Identity — singleton enforcement
-// ---------------------------------------------------------------------------
-
 /**
  * The identity descriptor for a primitive. Set automatically by each primitive
  * factory — you do not interact with this directly.
@@ -58,10 +46,6 @@ export interface PrimitiveRef {
 export type PrimitiveIdentity =
   | readonly [key: symbol]
   | readonly [key: symbol, registrationId: string];
-
-// ---------------------------------------------------------------------------
-// Primitive instance — what factory functions return
-// ---------------------------------------------------------------------------
 
 /**
  * Base type for every primitive. Every factory function (`ack()`,
@@ -79,10 +63,6 @@ export interface Primitive<Tag extends string = string> {
   /** @internal */
   readonly __setup?: (engine: EngineAccess) => void;
 }
-
-// ---------------------------------------------------------------------------
-// definePrimitive — create a built-in primitive factory
-// ---------------------------------------------------------------------------
 
 /**
  * Configuration passed to `definePrimitive`.

@@ -68,7 +68,6 @@ export function replay(): Primitive<EmptyTypeFn> {
           return message;
         },
         onReconnect() {
-          // Nothing seen yet means nothing to catch up on.
           if (lastSeq.size === 0) return null;
 
           const requests: WireMessage[] = [];
@@ -90,4 +89,5 @@ export function replay(): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 replay.tag = 'replay';

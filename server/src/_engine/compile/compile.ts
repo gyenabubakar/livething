@@ -10,9 +10,6 @@ import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
-// Walk the declarative primitive tree and fill the compiled runtime shape.
-// Per-kind work lives next to the primitive (channel/compile.ts,
-// intercept/compile.ts); this function dispatches.
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],

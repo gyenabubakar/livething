@@ -45,7 +45,7 @@ const handleStartBoomImmediate = base.stream('start-boom-immediate', {
   chunk: Token,
   async *run() {
     throw new Error('boom-immediate');
-    yield { index: 0 }; // unreachable
+    yield { index: 0 };
   },
 });
 

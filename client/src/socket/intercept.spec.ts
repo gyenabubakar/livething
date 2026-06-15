@@ -25,8 +25,6 @@ function build<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
 ) {
   const socket = client<TestContract>()(connect('wss://test'), ...primitives);
-  // Some tests here deliberately throw inside an intercept; sink the error so the
-  // no-listener out-of-band rethrow doesn't fail the suite.
   socket.onError(() => {});
   socket.connect();
   const ws = MockWebSocket.last();
@@ -60,7 +58,6 @@ describe('intercept — non-Block throw drops message', () => {
     );
     socket.on('message', handler);
     ws.emit({ event: 'message', payload: { text: 'hello' } });
-    // Only Block stops the chain; a plain Error skips just the throwing intercept.
     expect(laterIntercept).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -128,13 +125,11 @@ describe('intercept — transform chains to next intercept', () => {
     const interceptFn = vi.fn();
     const { socket, ws } = build(dedup(), intercept(interceptFn));
     socket.on('message', () => {});
-    // First delivery — a new messageId, goes through
     ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
     expect(interceptFn).toHaveBeenCalledTimes(1);
 
     interceptFn.mockClear();
 
-    // Second delivery — duplicate, dedup swallows it before intercepts run
     ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
     expect(interceptFn).not.toHaveBeenCalled();
   });

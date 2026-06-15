@@ -93,7 +93,7 @@ describe('replay', () => {
       first.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
       first.serverClose(1006, 'dropped');
 
-      vi.advanceTimersByTime(1500); // let the backoff fire and reopen
+      vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       expect(second).not.toBe(first);
       second.open();

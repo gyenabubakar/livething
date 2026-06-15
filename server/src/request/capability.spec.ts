@@ -37,9 +37,7 @@ describe('requests() capability — client to server', () => {
   it('does not respond when the handler returns nothing', async () => {
     const base = define({ env: t<Env>(), capabilities: [requests()] });
     const handleNoReply = base.request('no-reply', {
-      run() {
-        // Intentionally returns undefined.
-      },
+      run() {},
     });
     const respond = vi.fn();
     await requestPrimitive(base.assemble(handleNoReply).primitives).handler(

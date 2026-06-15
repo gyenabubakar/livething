@@ -92,7 +92,6 @@ const largePayload = {
   mentions: ['user-1', 'user-2', 'user-3', 'user-4'],
 };
 
-// [members in the broadcast channel, total connections on the server]
 const scenarios: Array<[number, number]> = [
   [100, 100],
   [1000, 1000],

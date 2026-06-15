@@ -290,7 +290,6 @@ describe('scheduled/runtime', () => {
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'typo-flush', time: 100, data: undefined }),
     ).toThrow(/scheduled task "typo-flush" is not registered/);
-    // The unknown id must NOT have been queued.
     expect([...scheduledRuns.values()].map((r) => r.taskId)).not.toContain('typo-flush');
   });
 
@@ -395,14 +394,12 @@ describe('scheduled/runtime', () => {
 
     bootstrapScheduledRuntime(runtime);
 
-    // Bootstrap seeds the recurring baseline.
     const before = [...scheduledRuns.values()];
     expect(before).toHaveLength(1);
     expect(before[0]?.recurring).toBe(true);
 
     cancelScheduledRuns(runtime, 'tick', { any: 'filter' });
 
-    // Filter is ignored for recurring runs — baseline survives.
     expect(scheduledRuns.size).toBe(1);
     expect([...scheduledRuns.values()][0]?.recurring).toBe(true);
   });
@@ -458,7 +455,6 @@ describe('scheduled/runtime', () => {
   it('clears the native alarm when the scheduled queue empties', () => {
     const deleteAlarm = vi.fn(async () => {});
     const runtime = {
-      // Empty queue — no next run.
       getScheduledRuns: () => new Map<string, ScheduledRun>(),
       timers: {
         setAlarm: vi.fn(async () => {}),
@@ -614,11 +610,9 @@ describe('scheduled/runtime', () => {
     now.mockReturnValue(0);
     bootstrapScheduledRuntime(runtime);
 
-    // Bootstrap seeds a recurring run at 100.
     let recurring = [...scheduledRuns.values()].find((r) => r.recurring);
     expect(recurring).toBeDefined();
 
-    // Fire 1.
     now.mockReturnValue(100);
     await handleScheduledAlarm(runtime);
     expect(deadLetters.size).toBe(1);
@@ -627,7 +621,6 @@ describe('scheduled/runtime', () => {
     expect(recurring).toBeDefined();
     expect(recurring?.time).toBe(200);
 
-    // Fire 2.
     now.mockReturnValue(200);
     await handleScheduledAlarm(runtime);
     expect(deadLetters.size).toBe(2);
@@ -636,7 +629,6 @@ describe('scheduled/runtime', () => {
     expect(recurring).toBeDefined();
     expect(recurring?.time).toBe(300);
 
-    // Fire 3.
     now.mockReturnValue(300);
     await handleScheduledAlarm(runtime);
     expect(deadLetters.size).toBe(3);
@@ -674,7 +666,6 @@ describe('scheduled/runtime', () => {
       attempts: 1,
       error: { message: 'boom' },
     });
-    // One-shot with retry:false must not be re-queued.
     expect(scheduledRuns.has('run_1')).toBe(false);
     expect([...scheduledRuns.values()]).toHaveLength(0);
 
@@ -730,12 +721,10 @@ describe('scheduled/runtime', () => {
     now.mockReturnValue(50);
     await expect(handleScheduledAlarm(runtime)).resolves.toBeUndefined();
 
-    // Run was removed from the queue and the dead-letter row exists.
     expect(scheduledRuns.has('run_1')).toBe(false);
     const dlq = deadLetters.get('run_1');
     expect(dlq).toBeDefined();
     expect(typeof dlq!.error.message).toBe('string');
-    // The fallback to String(error) for BigInt produces "1".
     expect(dlq!.error.message).toBe('1');
     now.mockRestore();
   });
