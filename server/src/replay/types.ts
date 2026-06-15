@@ -78,7 +78,7 @@ export interface ReplayOptions {
    * Rows that produce the same key replace each other, so replay sends only the
    * latest snapshot for that key. If omitted, the event name is used.
    */
-  readonly snapshotKey?: (event: string, payload: Record<string, unknown>) => string;
+  readonly snapshotKey?: SnapshotKeyFn;
 
   /**
    * Combine snapshot rows over time instead of always replacing them with the
@@ -97,10 +97,7 @@ export interface ReplayOptions {
    * If you do not provide `reduce`, WSKit uses the default "latest event wins"
    * behavior.
    */
-  readonly reduce?: (
-    previous: ReplaySnapshotValue | null,
-    next: ReplaySnapshotValue,
-  ) => ReplaySnapshotValue | null;
+  readonly reduce?: SnapshotReducer;
 }
 
 /**
@@ -112,6 +109,25 @@ export interface ReplaySnapshotValue {
   event: string;
   payload: Record<string, unknown>;
 }
+
+/**
+ * Builds the logical key for a snapshot row (snapshot mode). Rows sharing a key
+ * replace each other, so replay sends only the latest per key. Exported so you
+ * can type a `snapshotKey` written as a standalone function or arrow.
+ */
+export type SnapshotKeyFn = (event: string, payload: Record<string, unknown>) => string;
+
+/**
+ * Combines snapshot rows over time (snapshot mode): given the stored value for a
+ * key (`previous`, or `null`) and the new outgoing event (`next`), return the
+ * value to store, or `null` to delete the snapshot. Exported so you can type a
+ * `reduce` written as a standalone function or arrow without re-declaring the
+ * argument and return shapes.
+ */
+export type SnapshotReducer = (
+  previous: ReplaySnapshotValue | null,
+  next: ReplaySnapshotValue,
+) => ReplaySnapshotValue | null;
 
 /** @internal */
 export interface ReplayRow {

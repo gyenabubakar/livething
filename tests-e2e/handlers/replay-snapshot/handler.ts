@@ -1,11 +1,12 @@
 import { define, emits, t } from '@wskit/server';
-import { Disconnect } from '@wskit/server/errors';
-import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
-import { replay } from '@wskit/server/replay';
 import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { Disconnect } from '@wskit/server/errors';
+import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
+import type { ReplaySnapshotValue } from '@wskit/server/replay';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
   BurstCounter,
@@ -21,9 +22,9 @@ import {
 } from './events.ts';
 
 function reduceSnapshot(
-  previous: { event: string; payload: Record<string, unknown> } | null,
-  next: { event: string; payload: Record<string, unknown> },
-) {
+  previous: ReplaySnapshotValue | null,
+  next: ReplaySnapshotValue,
+): ReplaySnapshotValue | null {
   if (next.event === 'doc-deleted') return null;
   if (next.event !== 'counter-snapshot') return next;
 

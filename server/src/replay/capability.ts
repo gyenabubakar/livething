@@ -7,6 +7,8 @@ import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 
+export type { ReplaySnapshotValue, SnapshotReducer, SnapshotKeyFn } from '~/replay/types.ts';
+
 /** Built-in history-mode replay settings — every replayable message is kept as its own row. */
 export type HistoryConfig = Pick<ReplayOptions, 'durability' | 'retention' | 'exclude'>;
 

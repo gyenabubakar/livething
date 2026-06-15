@@ -1,6 +1,6 @@
 import { define, t } from '@wskit/server';
-import { Disconnect } from '@wskit/server/errors';
 import { channels } from '@wskit/server/channels';
+import { Disconnect } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -32,9 +32,9 @@ const room = base.channel('room', {
   },
   subscribe: v.object({ token: v.string() }),
   async check(ctx) {
-    // `ctx.check` is the validated subscribe payload (typed `unknown` on the gate).
+    // `ctx.check` is the validated subscribe payload, typed from the channel's subscribe schema.
     await new Promise((r) => setTimeout(r, 5));
-    const { token } = ctx.check as { token: string };
+    const { token } = ctx.check;
     const role = token ? TOKEN_ROLES[token] : undefined;
     if (!role) throw new Error('unknown or missing token');
     return { role };
@@ -103,7 +103,7 @@ const nonceRoom = base.channel('nonce-room', {
   async check(ctx) {
     // Reject a token that's been used before. A stale snapshot resent on
     // reconnect lands here and is refused; a freshly generated one passes.
-    const { token } = ctx.check as { token: string };
+    const { token } = ctx.check;
     if (!token) throw new Error('missing token');
     const key = `nonce:${token}`;
     if (await ctx.kv.get(key)) throw new Error('token already used');

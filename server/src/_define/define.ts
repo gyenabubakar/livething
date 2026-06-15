@@ -451,15 +451,8 @@ type EmitPayloadOf<T> =
 /** The map of a channel's emit declarations → payload types. */
 type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
 
-/** The channel's server→client emit map, read off its config. */
-type EmitsOfConfig<TConfig> = TConfig extends { outgoing: { emits: infer E } } ? EmitMap<E> : {};
-
-/** The channel's subscribe-payload type, read off its config. */
-type SubscribeOfConfig<TConfig> = TConfig extends { subscribe: infer S }
-  ? S extends Validator<infer U>
-    ? U
-    : never
-  : never;
+/** The subscribe-payload type for a channel's `subscribe` schema, or `never` when absent. */
+type SubscribePayloadOf<TSubscribe> = TSubscribe extends Validator<infer U> ? U : never;
 
 /** A channel handle inside a channel handler — sends are typed to the channel's emits. */
 interface ChannelHandle<TParams, TOutgoing, TMeta> {
@@ -509,15 +502,20 @@ export type ChannelGateCtx<
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
 };
 
-/** The `ctx` a channel `check` gate receives — adds the validated subscribe payload. */
+/**
+ * The `ctx` a channel `check` gate receives — adds the validated subscribe
+ * payload, typed to the channel's `subscribe` schema output (or `unknown` when
+ * the channel declares no `subscribe` schema).
+ */
 export type ChannelCheckCtx<
   TSlots,
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
+  TCheckPayload = unknown,
 > = ChannelGateCtx<TSlots, TEnv, TMeta, TCaps> & {
   /** The validated subscribe payload. */
-  readonly check: unknown;
+  readonly check: TCheckPayload;
 };
 
 /** Configuration object for `base.channel(...)`. */
@@ -526,19 +524,31 @@ export interface ChannelConfig<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
+  TSubscribe extends Validator | undefined = Validator | undefined,
+  TCheckResult = unknown,
 > {
   /** Server→client events this channel emits. */
   readonly outgoing?: { readonly emits?: Record<string, TypeMarker<any> | Validator> };
   /** Schema validating the payload a client sends on subscribe. */
-  readonly subscribe?: Validator;
+  readonly subscribe?: TSubscribe;
   /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
-  check?: (ctx: ChannelCheckCtx<TSlots, TEnv, TMeta, TCaps>) => unknown | Promise<unknown>;
+  check?: (
+    ctx: ChannelCheckCtx<TSlots, TEnv, TMeta, TCaps, InferInput<TSubscribe>>,
+  ) => TCheckResult | Promise<TCheckResult>;
   /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
-  commit?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>, checkResult: any) => void;
+  commit?: (
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    checkResult: Awaited<TCheckResult>,
+  ) => void;
   /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
   /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
   readonly persistent?: boolean;
+  /**
+   * Per-channel built-in replay opt-in/out, cascading from `define`. `true` is
+   * shorthand for history mode with defaults; `false` opts this channel out.
+   */
+  readonly replay?: boolean;
   /**
    * Channel-level rate-limit rule. Caps every event in this channel against one
    * bucket; a per-handler `rateLimit` tightens or loosens it. Needs the
@@ -996,37 +1006,48 @@ export interface ChannelCoreMethods<
 /** Builder method granted by the `channels()` capability. */
 export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Declare a static channel. */
-  channel<TName extends string, const TConfig extends ChannelConfig<TSlots, TEnv, TMeta, TCaps>>(
+  channel<
+    TName extends string,
+    const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
+    TSubscribe extends Validator | undefined = undefined,
+    TCheckResult = unknown,
+  >(
     name: TName,
-    config?: TConfig,
+    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+      readonly outgoing?: { readonly emits?: TEmits };
+    },
   ): ChannelObject<
     TSlots,
     TEnv,
     TMeta,
     TName,
     {},
-    EmitsOfConfig<TConfig>,
+    EmitMap<TEmits>,
     'static',
-    SubscribeOfConfig<TConfig>,
+    SubscribePayloadOf<TSubscribe>,
     TCaps
   >;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
     TPattern extends string,
-    const TConfig extends ChannelConfig<TSlots, TEnv, TMeta, TCaps>,
+    const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
+    TSubscribe extends Validator | undefined = undefined,
+    TCheckResult = unknown,
   >(
     pattern: readonly [TFamily, TPattern],
-    config?: TConfig,
+    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+      readonly outgoing?: { readonly emits?: TEmits };
+    },
   ): ChannelObject<
     TSlots,
     TEnv,
     TMeta,
     TFamily,
     ExtractParams<TPattern>,
-    EmitsOfConfig<TConfig>,
+    EmitMap<TEmits>,
     'dynamic',
-    SubscribeOfConfig<TConfig>,
+    SubscribePayloadOf<TSubscribe>,
     TCaps
   >;
 }
