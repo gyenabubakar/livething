@@ -63,11 +63,14 @@ describe('rateLimit() capability', () => {
     expect(interceptCount(base.assemble(handler))).toBe(0);
   });
 
-  it('throws when a handler sets a rateLimit override but the capability is not listed', () => {
+  it('throws at assemble when a handler smuggles a rateLimit override past the type gate without the capability', () => {
+    // The type gate (RateLimitField) makes `rateLimit` a compile error here; the
+    // cast bypasses it to prove the assemble-time throw is still wired as
+    // defense-in-depth for code that sidesteps the types.
     const base = define({ env: t<Record<string, never>>() });
     const handler = base.on('plain', {
       input: v.object({}),
-      rateLimit: { enabled: true, max: 1 },
+      ...({ rateLimit: { enabled: true, max: 1 } } as object),
       run() {},
     });
     expect(() => base.assemble(handler)).toThrow(

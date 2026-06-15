@@ -140,21 +140,33 @@ export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrim
 > &
   Contribution<{ incoming: Record<TEvent, TPayload> }>;
 
+/**
+ * The per-handler / channel-level `rateLimit?` field, present only when the
+ * `rateLimit()` capability is listed. Absent otherwise, so passing a `rateLimit`
+ * override without the capability is a compile-time excess-property error rather
+ * than a boot-time throw.
+ */
+export type RateLimitField<TCaps extends readonly AnyCapability[]> =
+  'rateLimit' extends BrandsOf<TCaps>
+    ? {
+        /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
+        readonly rateLimit?: RateLimitConfig;
+      }
+    : {};
+
 /** Configuration object for `base.on(...)`. */
-export interface OnConfig<
+export type OnConfig<
   TSlots,
   TEnv,
   TMeta,
   TSchema extends Validator | undefined,
   TCaps extends readonly AnyCapability[] = readonly [],
-> {
+> = {
   /** Optional schema validating the incoming payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
-  /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this event. */
-  readonly rateLimit?: RateLimitConfig;
   /** Runs each time the client sends this event, with the validated payload. */
   run(ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>, input: InferInput<TSchema>): void | Promise<void>;
-}
+} & RateLimitField<TCaps>;
 
 /** The value `base.request(...)` returns — a handler primitive that declares its request slot. */
 export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = RequestPrimitive<
@@ -165,24 +177,22 @@ export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = Re
   Contribution<{ requests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
 
 /** Configuration object for `base.request(...)`. */
-export interface RequestConfig<
+export type RequestConfig<
   TSlots,
   TEnv,
   TMeta,
   TSchema extends Validator | undefined,
   TResponse,
   TCaps extends readonly AnyCapability[] = readonly [],
-> {
+> = {
   /** Optional schema validating the request payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
-  /** Per-handler rate-limit override — tighten, loosen, or disable the limit for this request. */
-  readonly rateLimit?: RateLimitConfig;
   /** Runs the request and returns the reply. The reply type is inferred from the return. */
   run(
     ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
     input: InferInput<TSchema>,
   ): TResponse | Promise<TResponse>;
-}
+} & RateLimitField<TCaps>;
 
 /** Builder method granted by the `requests()` capability. */
 export interface RequestMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
@@ -529,15 +539,29 @@ export type ChannelCheckCtx<
   readonly check: TCheckPayload;
 };
 
+/**
+ * The channel-level `rateLimit?` field, present only when the `rateLimit()`
+ * capability is listed. Caps every event in this channel against one bucket; a
+ * per-handler `rateLimit` tightens or loosens it. Absent without the capability,
+ * so passing it is a compile-time excess-property error.
+ */
+type ChannelRateLimitField<TCaps extends readonly AnyCapability[]> =
+  'rateLimit' extends BrandsOf<TCaps>
+    ? {
+        /** Channel-level rate-limit rule shared by every event in this channel. */
+        readonly rateLimit?: RateLimitConfig;
+      }
+    : {};
+
 /** Configuration object for `base.channel(...)`. */
-export interface ChannelConfig<
+export type ChannelConfig<
   TSlots,
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
   TSubscribe extends Validator | undefined = Validator | undefined,
   TCheckResult = unknown,
-> {
+> = {
   /** Server→client events this channel emits. */
   readonly outgoing?: { readonly emits?: Record<string, TypeMarker<any> | Validator> };
   /** Schema validating the payload a client sends on subscribe. */
@@ -560,13 +584,7 @@ export interface ChannelConfig<
    * shorthand for history mode with defaults; `false` opts this channel out.
    */
   readonly replay?: boolean;
-  /**
-   * Channel-level rate-limit rule. Caps every event in this channel against one
-   * bucket; a per-handler `rateLimit` tightens or loosens it. Needs the
-   * `rateLimit()` capability listed.
-   */
-  readonly rateLimit?: RateLimitConfig;
-}
+} & ChannelRateLimitField<TCaps>;
 
 /**
  * A channel handler's return value. It declares the channel's own slice (emits,
@@ -585,7 +603,7 @@ type ChannelOwnSlice<TParams, TOutgoing, TAddressing extends string, TSubscribe>
 } & ([TSubscribe] extends [never] ? {} : { subscribePayload: TSubscribe });
 
 /** Configuration object for a channel `stream`. */
-interface ChannelStreamConfig<
+type ChannelStreamConfig<
   TSlots,
   TEnv,
   TMeta,
@@ -595,24 +613,22 @@ interface ChannelStreamConfig<
   TChunk,
   TNudges,
   TCaps extends readonly AnyCapability[],
-> {
+> = {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Per-handler rate-limit override for this channel stream. */
-  readonly rateLimit?: RateLimitConfig;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
       stream: NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
-}
+} & RateLimitField<TCaps>;
 
 /** Configuration object for a channel `recordedStream` — adds the durable retention options. */
-interface ChannelRecordedStreamConfig<
+type ChannelRecordedStreamConfig<
   TSlots,
   TEnv,
   TMeta,
@@ -622,24 +638,22 @@ interface ChannelRecordedStreamConfig<
   TChunk,
   TNudges,
   TCaps extends readonly AnyCapability[],
-> extends DurableStreamOptions {
+> = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Per-handler rate-limit override for this channel stream. */
-  readonly rateLimit?: RateLimitConfig;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
       stream: NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
-}
+} & RateLimitField<TCaps>;
 
 /** Configuration object for a channel `resumableStream` — adds cursor controls and retention. */
-interface ChannelResumableStreamConfig<
+type ChannelResumableStreamConfig<
   TSlots,
   TEnv,
   TMeta,
@@ -650,7 +664,7 @@ interface ChannelResumableStreamConfig<
   TCursor,
   TNudges,
   TCaps extends readonly AnyCapability[],
-> extends DurableStreamOptions {
+> = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
   /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
@@ -658,8 +672,6 @@ interface ChannelResumableStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
-  /** Per-handler rate-limit override for this channel stream. */
-  readonly rateLimit?: RateLimitConfig;
   run(
     ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps> & {
       stream: NudgesHandle<TNudges> & {
@@ -673,7 +685,7 @@ interface ChannelResumableStreamConfig<
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
   ): AsyncGenerator<TChunk, void, unknown>;
-}
+} & RateLimitField<TCaps>;
 
 /**
  * The accumulating channel object returned by `base.channel(...)`. Its handler
@@ -956,13 +968,11 @@ export interface ChannelCoreMethods<
     event: TEvent,
     config: {
       input?: TInput;
-      /** Per-handler rate-limit override for this channel event. */
-      rateLimit?: RateLimitConfig;
       run(
         ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
         input: InferInput<TInput>,
       ): void | Promise<void>;
-    },
+    } & RateLimitField<TCaps>,
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
@@ -978,13 +988,11 @@ export interface ChannelCoreMethods<
     event: TEvent,
     config: {
       input?: TInput;
-      /** Per-handler rate-limit override for this channel request. */
-      rateLimit?: RateLimitConfig;
       run(
         ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps>,
         input: InferInput<TInput>,
       ): TResponse | Promise<TResponse>;
-    },
+    } & RateLimitField<TCaps>,
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe>,
@@ -1385,7 +1393,7 @@ export function define(config: any): Base<any, any, any, any> {
   }
 
   const base = {
-    on(event: string, config: OnConfig<any, any, any, any>) {
+    on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
       const primitive = incomingFactory(
         event,
         config.run as any,
