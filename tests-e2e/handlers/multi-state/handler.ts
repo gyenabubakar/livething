@@ -8,16 +8,16 @@ import { define, emits, t } from '@wskit/server';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const TagBatchPayload = v.object({});
 
 const base = define({
   env: t<Env>(),
   hibernation: { enabled: true },
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
-    // `user` is consumed by `requireUsername` from `_shared/upgrade.ts`;
+    // `user` is consumed by `requireUsernameWithUserTag` from `_shared/upgrade.ts`;
     // `batch` is what the multi-state handlers under test add and remove.
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('batch', t<string>())]),
     emits({ 'tag-batch-done': t<{ ok: boolean }>() }),

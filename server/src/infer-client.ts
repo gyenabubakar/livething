@@ -7,6 +7,7 @@ import type {
   NudgeOverflow,
   RateLimited,
   RejoinRejected,
+  RequestInvalidResponse,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
@@ -79,6 +80,7 @@ type BuiltInErrorUnion =
   | typeof RejoinRejected
   | typeof InternalError
   | typeof RateLimited
+  | typeof RequestInvalidResponse
   | typeof RequestNoCorrelation
   | typeof RequestNoResponse
   | typeof StreamAborted

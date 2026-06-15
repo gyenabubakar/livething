@@ -103,7 +103,7 @@ describe('matches — happy path', () => {
     const frame = makeFrame(
       'send',
       { text: 'hi' },
-      { routing: { channel: 'chat', channelScope: null } },
+      { routing: { channel: 'chat', channelFamily: null } },
     );
     expect(matches(testContract, '@chat::send', frame)).toBe(true);
   });
@@ -112,7 +112,7 @@ describe('matches — happy path', () => {
     const frame = makeFrame(
       'join',
       { user: 'alice' },
-      { routing: { channel: 'room:42', channelScope: 'rooms' } },
+      { routing: { channel: 'room:42', channelFamily: 'rooms' } },
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(true);
   });
@@ -138,7 +138,7 @@ describe('matches — sad path', () => {
     const frame = makeFrame(
       'join',
       { user: 'alice' },
-      { routing: { channel: 'room:42', channelScope: 'other-family' } },
+      { routing: { channel: 'room:42', channelFamily: 'other-family' } },
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(false);
   });
@@ -147,7 +147,7 @@ describe('matches — sad path', () => {
     const frame = makeFrame(
       'join',
       { user: 'alice' },
-      { routing: { channel: 'lobby', channelScope: 'rooms' } },
+      { routing: { channel: 'lobby', channelFamily: 'rooms' } },
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(false);
   });
@@ -190,7 +190,7 @@ describe('matches — narrows the frame type predicate', () => {
     const frame: InterceptFrame = makeFrame(
       'send',
       { text: 'hi' },
-      { routing: { channel: 'chat', channelScope: null } },
+      { routing: { channel: 'chat', channelFamily: null } },
     );
     if (matches(testContract, '@chat::send', frame)) {
       const _channel: 'chat' = frame.routing.channel;

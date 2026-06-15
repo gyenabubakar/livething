@@ -212,7 +212,34 @@ class ReplayInstaller {
       return {};
     }
 
-    if (scope.channelName || !base.id) return {};
+    if (!base.id) return {};
+
+    // Top-level replay cascades into every channel it has not ceded to a
+    // channel-scoped instance. When the live ctx is in such a channel scope,
+    // attach `ctx.channel.sendReplay` so handlers can replay channel frames
+    // through the cascading store, mirroring the storage cascade.
+    if (scope.channelName || scope.channelScope) {
+      if (
+        !base.channel ||
+        !matchesReplayScope(undefined, scope, this.engine.getReplayClaimedChannelKeys())
+      ) {
+        return {};
+      }
+      base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+        this.engine.assertReplaySendContract(event, payload, {
+          channel: scope.channelName ?? undefined,
+          channelScope: scope.channelScope ?? null,
+        });
+        this.engine.sendReplay(base.id as string, {
+          channelName: scope.channelName ?? null,
+          channelScope: scope.channelScope ?? null,
+          event,
+          payload,
+          wire,
+        });
+      };
+      return {};
+    }
 
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
       this.engine.assertReplaySendContract(event, payload, {

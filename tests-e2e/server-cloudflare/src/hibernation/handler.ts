@@ -2,7 +2,7 @@ import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { stream } from '@wskit/server/streams';
 import { tags } from '@wskit/server/tags';
-import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
+import { requireUsernameWithUserTag } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 
@@ -20,7 +20,7 @@ const SlowChunk = v.object({ index: v.number() });
 const base = define({
   env: t<Env>(),
   hibernation: { enabled: true },
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
     stream(),

@@ -67,10 +67,12 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
 const history = withCapabilityKind(function history(
   config?: HistoryConfig,
 ): HostCapability<{}, 'replay'> {
-  return stampKind(
-    hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'history' })], ['replay']),
-    CAPABILITY_KIND.replay,
+  const cap = hostCapability<{}, 'replay'>(
+    [replayFactory({ ...config, type: 'history' })],
+    ['replay'],
   );
+  attachBuiltinReplayBuilder(cap);
+  return stampKind(cap, CAPABILITY_KIND.replay);
 }, CAPABILITY_KIND.replay);
 
 /**
@@ -86,11 +88,29 @@ const history = withCapabilityKind(function history(
 const snapshot = withCapabilityKind(function snapshot(
   config?: SnapshotConfig,
 ): HostCapability<{}, 'replay'> {
-  return stampKind(
-    hostCapability<{}, 'replay'>([replayFactory({ ...config, type: 'snapshot' })], ['replay']),
-    CAPABILITY_KIND.replay,
+  const cap = hostCapability<{}, 'replay'>(
+    [replayFactory({ ...config, type: 'snapshot' })],
+    ['replay'],
   );
+  attachBuiltinReplayBuilder(cap);
+  return stampKind(cap, CAPABILITY_KIND.replay);
 }, CAPABILITY_KIND.replay);
+
+/**
+ * Stamp a built-in replay capability with the builder a channel borrows to
+ * forward its own `replay: true | false | ReplayOptions` config. Lets the
+ * channel module honour per-channel replay without value-importing the replay
+ * engine itself.
+ */
+function attachBuiltinReplayBuilder(cap: HostCapability<{}, 'replay'>): void {
+  (cap as { __buildBuiltinReplay?: (replayConfig: unknown) => Primitive }).__buildBuiltinReplay = (
+    replayConfig,
+  ) => {
+    if (replayConfig === false) return replayFactory(false);
+    if (replayConfig === true) return replayFactory();
+    return replayFactory(replayConfig as ReplayOptions);
+  };
+}
 
 /**
  * Enable custom replay, where you own the storage and the resend. Listing this

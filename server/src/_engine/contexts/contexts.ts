@@ -1,7 +1,9 @@
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
+import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
@@ -166,6 +168,14 @@ export function buildConnectionContext(
 
     inject<T>(key: LocalKey<T>): T | undefined {
       return locals.get(key) as T | undefined;
+    },
+
+    matches(key: string, frame: InterceptFrame) {
+      return frameMatches(deps.compiled, key, frame);
+    },
+
+    unsafeCast(key: string, frame: InterceptFrame) {
+      return frameUnsafeCast(deps.compiled, key, frame);
     },
   };
 

@@ -3,14 +3,14 @@ import { scheduled } from '@wskit/server/scheduled';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
     scheduled({

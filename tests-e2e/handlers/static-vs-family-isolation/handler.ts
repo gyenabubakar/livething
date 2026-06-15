@@ -1,11 +1,11 @@
 import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { sequence } from '@wskit/server/sequence';
 import { tags } from '@wskit/server/tags';
-import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const MsgPayload = v.object({ from: v.string(), text: v.string() });
 const SendInGeneralPayload = v.object({ text: v.string() });
@@ -36,7 +36,7 @@ const KickAckPayload = v.object({ where: v.string() });
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     dedup(),
     sequence({ persist: true }),

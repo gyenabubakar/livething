@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
 
 /**
@@ -661,6 +662,22 @@ export interface ConnectionContext<
    * @see provide
    */
   inject<T>(key: LocalKey<T>): T | undefined;
+
+  // Frame narrowing (mainly inside an intercept)
+  /**
+   * Type guard narrowing an intercept `frame` to a declared event's payload.
+   * Returns `true` when the frame's event, scope, and payload all match the
+   * key; the payload is run through the declared validator. Throws when the key
+   * names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  matches(key: string, frame: InterceptFrame): boolean;
+
+  /**
+   * Narrow an intercept `frame` without a runtime check — a type-only assertion
+   * for when your own logic already established the payload's shape. Throws when
+   * the key names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  unsafeCast(key: string, frame: InterceptFrame): InterceptFrame;
 }
 
 /**

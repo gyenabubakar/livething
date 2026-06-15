@@ -1,12 +1,13 @@
 import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
 import { persistence } from '@wskit/server/persistence';
+import { rateLimit } from '@wskit/server/rate-limit';
+import { replay } from '@wskit/server/replay';
 import { requests } from '@wskit/server/requests';
 import { scheduled } from '@wskit/server/scheduled';
-import { channels } from '@wskit/server/channels';
-import { stream, resumableStream, recordedStream } from '@wskit/server/streams';
-import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
+import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -33,6 +34,7 @@ export const base = define({
     persistence(),
     sequence({ persist: true }),
     dedup(),
+    rateLimit(),
     requests(),
     channels(),
     scheduled({ tick: null }),

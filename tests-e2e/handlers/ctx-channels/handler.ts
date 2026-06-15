@@ -3,11 +3,11 @@ import { channels } from '@wskit/server/channels';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
       'members-result': t<{ channel: string; count: number }>(),

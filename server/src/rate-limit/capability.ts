@@ -3,8 +3,8 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { resolvePlan } from '~/rate-limit/plan.ts';
 import { rateLimit as rateLimitFactory } from '~/rate-limit/rate-limit.ts';
-import type { Capability } from '~/_define/capability.ts';
 import type { ChannelDef } from '~/_api/definitions.ts';
+import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
@@ -20,6 +20,12 @@ export interface RateLimitBuildInput {
   readonly overrides: ReadonlyMap<string, ReadonlyMap<string, RateLimitConfig>>;
   /** Channel-level rules, keyed by channel key — the scope default for that channel. */
   readonly channelRules: ReadonlyMap<string, RateLimitConfig>;
+  /**
+   * Every channel key in the app, including channels with no own rule. A channel
+   * with no rule still needs a scope entry so its events inherit the top-level
+   * cap (shared bucket) instead of passing through unlimited.
+   */
+  readonly channelKeys?: ReadonlySet<string>;
 }
 
 /**
@@ -89,12 +95,20 @@ export const rateLimit = withCapabilityKind(function rateLimit(
   };
   writable.__hostOnly = true;
   writable.__rateLimit = rule;
-  writable.__buildRateLimit = ({ overrides, channelRules }) => {
-    // Each channel rule becomes a synthetic top-level channel definition so the
-    // cascade resolver produces a `channel:<key>` scope rule for it.
+  writable.__buildRateLimit = ({ overrides, channelRules, channelKeys }) => {
+    // Each channel becomes a synthetic top-level channel definition so the
+    // cascade resolver produces a `channel:<key>` scope rule for it. Channels
+    // with no own rule still get a definition (with no rateLimit) so the
+    // cascade hands them the top-level rule — a shared, inherited bucket.
     const definitions: ChannelDef[] = [];
-    for (const [key, cfg] of channelRules) {
-      definitions.push({ _: 'channel', pattern: key, rateLimit: cfg, definitions: [] });
+    const keys = new Set<string>([...channelRules.keys(), ...(channelKeys ?? [])]);
+    for (const key of keys) {
+      definitions.push({
+        _: 'channel',
+        pattern: key,
+        rateLimit: channelRules.get(key),
+        definitions: [],
+      });
     }
     const plan = resolvePlan({ contractRateLimit: rule, definitions, overrides });
     return plan ? rateLimitFactory(plan) : null;

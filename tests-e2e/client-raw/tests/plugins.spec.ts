@@ -194,8 +194,15 @@ test.describe('plugins handler', () => {
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
 
+    // The plugin's shutdown count is persisted in the DO's storage, so it
+    // survives reconnects — and survives a Playwright retry that reuses this
+    // room. Read the starting value rather than assume 0, then assert one
+    // explicit shutdown increments it by exactly 1.
     await page.getByTestId('shutdown-count-btn').click();
-    await waitForText(page, 'shutdown-count', 'shutdowns: 0');
+    await expect(page.getByTestId('shutdown-count')).toHaveText(/shutdowns: \d+/);
+    const before = Number(
+      (await page.getByTestId('shutdown-count').textContent())!.replace('shutdowns: ', ''),
+    );
 
     const response = await page.request.post(`/ws/plugins/shutdown?room=${room}`);
     expect(response.status()).toBe(204);
@@ -206,7 +213,7 @@ test.describe('plugins handler', () => {
     await waitForText(page, 'db-connected', 'db-ready');
 
     await page.getByTestId('shutdown-count-btn').click();
-    await waitForText(page, 'shutdown-count', 'shutdowns: 1');
+    await waitForText(page, 'shutdown-count', `shutdowns: ${before + 1}`);
   });
 
   test('__streamCancel__ survives a generator finally throw — websocket stays alive', async ({

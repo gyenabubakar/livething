@@ -14,13 +14,15 @@ import type { LocalKey } from './local-key.ts';
 const StringKey = localKey<string>('greeting');
 const NumberKey = localKey<number>('count');
 const ObjKey = localKey<{ id: number }>('user');
+const NoNameKey = localKey<string>();
 
 declare const _sk: LocalKey<string>;
-void [StringKey, NumberKey, ObjKey, _sk];
+void [StringKey, NumberKey, ObjKey, NoNameKey, _sk];
 
-// name is always a string
-const _name: string = StringKey.name;
-void _name;
+// name is an optional debug string; identity is a symbol
+const _name: string | undefined = StringKey.name;
+const _id: symbol = StringKey.id;
+void [_name, _id];
 
 // ---------------------------------------------------------------------------
 // ctx.provide — accepts the correct type

@@ -1,4 +1,4 @@
-import type { ConnectionInfo, TagRef } from '~/context.ts';
+import type { ConnectionInfo, ConnectionRef, TagRef } from '~/context.ts';
 
 /** Discriminator for a tag group's storage policy. */
 export type TagKind = 'ephemeral' | 'persistent';
@@ -17,6 +17,8 @@ export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
   connections(): ConnectionInfo<Meta>[];
   /** Number of connections on this instance with this tag. */
   count(): number;
+  /** Whether the connection addressed by `ref` currently holds this tag. */
+  has(ref: ConnectionRef): boolean;
 }
 
 /**

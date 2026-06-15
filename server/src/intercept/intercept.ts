@@ -37,7 +37,8 @@ export interface InterceptRouting {
   readonly correlationId?: string;
   readonly streamId?: string;
   readonly channel?: string;
-  readonly channelScope?: string | null;
+  /** The dynamic channel family key for a channel-scoped frame, or `null` for a static channel. */
+  readonly channelFamily?: string | null;
   readonly seq?: number;
 }
 

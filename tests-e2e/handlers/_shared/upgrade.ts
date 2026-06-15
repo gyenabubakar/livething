@@ -1,26 +1,43 @@
 import { RejectUpgrade } from '@wskit/server/errors';
 
 /**
- * The new `define()` upgrade return shape: a stable `identity`, inferred `meta`,
- * and the ephemeral-tag object sugar `{ ephemeral: { user: <username> } }`.
- * A handler that declares a `user` ephemeral tag group picks the tag up; one
- * that declares no groups simply ignores it (the empty target accepts any keys).
+ * The plain upgrade result: a stable `identity` and inferred `meta`, with no
+ * tags. Use this in handlers that do not declare a `user` ephemeral tag group —
+ * the upgrade runtime rejects a tag for a group the handler never declared.
  */
 interface UsernameUpgrade {
   identity: string;
   meta: { username: string };
+}
+
+/**
+ * The upgrade result plus the initial `user` ephemeral tag. Use this only in
+ * handlers that declare a `user` ephemeral tag group under `tags(...)`.
+ */
+interface UsernameUpgradeWithUserTag extends UsernameUpgrade {
   tags: { ephemeral: { user: string } };
 }
 
 /**
- * Pull `username` from the query string and surface it as identity, meta, and an
- * initial `user` ephemeral tag. Feeds `define()`'s `upgrade(request)`.
+ * Pull `username` from the query string and surface it as identity and meta.
+ * Feeds `define()`'s `upgrade(request)`. For handlers that declare a `user`
+ * ephemeral tag group and want the tag attached on connect, use
+ * {@link requireUsernameWithUserTag} instead.
  */
 export function requireUsername(request: Request): UsernameUpgrade {
   const url = new URL(request.url);
   const username = url.searchParams.get('username');
   if (!username) throw RejectUpgrade(4001, 'Missing username');
-  return { identity: username, meta: { username }, tags: { ephemeral: { user: username } } };
+  return { identity: username, meta: { username } };
+}
+
+/**
+ * Like {@link requireUsername}, but also attaches a `user:<username>` ephemeral
+ * tag. Only valid in handlers that declare a `user` ephemeral tag group.
+ */
+export function requireUsernameWithUserTag(request: Request): UsernameUpgradeWithUserTag {
+  const { identity, meta } = requireUsername(request);
+  return { identity, meta, tags: { ephemeral: { user: identity } } };
 }
 
 /**
@@ -32,5 +49,5 @@ export function requireUsername(request: Request): UsernameUpgrade {
 export function allowAnonymous(request: Request): UsernameUpgrade {
   const url = new URL(request.url);
   const username = url.searchParams.get('username') ?? '';
-  return { identity: username, meta: { username }, tags: { ephemeral: { user: username } } };
+  return { identity: username, meta: { username } };
 }

@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
@@ -34,7 +35,7 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import { assertPluginDependencies } from './plugin.ts';
-import type { AppCtx } from './app-ctx.ts';
+import type { AppCtx, ReplayWire } from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandsOf,
@@ -478,6 +479,16 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
   /** Remove a durable membership by identity. */
   removeMember(identity: string): Promise<void>;
+  /**
+   * Inject a synthetic replay frame for one of this channel's outgoing events.
+   * Used from a channel custom-replay handler; `wire` carries the seq/messageId
+   * the client uses to dedup.
+   */
+  sendReplay<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    wire: ReplayWire,
+  ): void;
 }
 
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
@@ -488,7 +499,7 @@ export type ChannelCtx<
   TParams,
   TOutgoing,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'ack'> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta>;
 };
 
@@ -498,7 +509,7 @@ export type ChannelGateCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'ack'> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
 };
 
@@ -1437,6 +1448,7 @@ export function define(config: any): Base<any, any, any, any> {
       let factory: ((p: unknown, c: unknown, deps: unknown) => unknown) | undefined;
       const streamBuilders: Record<string, unknown> = {};
       let buildCustomReplay: unknown;
+      let buildBuiltinReplay: unknown;
       let buildRequest: unknown;
       for (const cap of config.capabilities ?? []) {
         const candidate = (
@@ -1448,6 +1460,8 @@ export function define(config: any): Base<any, any, any, any> {
         if (streamBuild) streamBuilders[streamBuild.kind] = streamBuild.build;
         const customReplay = (cap as { __buildCustomReplay?: unknown }).__buildCustomReplay;
         if (customReplay) buildCustomReplay = customReplay;
+        const builtinReplay = (cap as { __buildBuiltinReplay?: unknown }).__buildBuiltinReplay;
+        if (builtinReplay) buildBuiltinReplay = builtinReplay;
         const request = (cap as { __buildRequest?: unknown }).__buildRequest;
         if (request) buildRequest = request;
       }
@@ -1456,7 +1470,12 @@ export function define(config: any): Base<any, any, any, any> {
           '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
         );
       }
-      return factory(pattern, channelConfig, { streamBuilders, buildCustomReplay, buildRequest });
+      return factory(pattern, channelConfig, {
+        streamBuilders,
+        buildCustomReplay,
+        buildBuiltinReplay,
+        buildRequest,
+      });
     },
     init(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('init', onInit(handler));
@@ -1468,10 +1487,20 @@ export function define(config: any): Base<any, any, any, any> {
       registerOnce('disconnect', onDisconnect(handler));
     },
     error(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
-      registerOnce('error', onError(handler));
+      registerOnce(
+        'error',
+        onError((ctx: any, error: unknown, event?: string) =>
+          handler(adaptChannelContext(ctx), error, event),
+        ),
+      );
     },
     validationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
-      registerOnce('validationError', onValidationError(handler));
+      registerOnce(
+        'validationError',
+        onValidationError((ctx: any, event: string, error: unknown) =>
+          handler(adaptChannelContext(ctx), event, error),
+        ),
+      );
     },
     shutdown(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('shutdown', onShutdown(handler));
@@ -1577,8 +1606,10 @@ export function define(config: any): Base<any, any, any, any> {
         hasRateLimitConfig = true;
       }
 
+      const channelKeys = new Set<string>();
       for (const channel of channelObjects) {
         const ch = channel as unknown as ChannelRateLimitSource;
+        channelKeys.add(ch.__key);
         if (ch.__rateLimit) {
           channelRules.set(ch.__key, ch.__rateLimit);
           hasRateLimitConfig = true;
@@ -1596,7 +1627,7 @@ export function define(config: any): Base<any, any, any, any> {
         );
       }
       const rateLimitPrimitive = buildRateLimit
-        ? buildRateLimit({ overrides, channelRules })
+        ? buildRateLimit({ overrides, channelRules, channelKeys })
         : null;
 
       const primitives: Primitive[] = [];

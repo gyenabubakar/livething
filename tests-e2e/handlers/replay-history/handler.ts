@@ -54,23 +54,6 @@ base.error((_ctx, error, event) => {
   console.error(`[replay] error in ${event}:`, error);
 });
 
-/**
- * Manual replay injection. The new `AppCtx` / channel handle do not type
- * `sendReplay` (it is documented only for custom replay, §12), but the runtime
- * still exposes it under built-in history replay — these handlers exist to
- * exercise that. We reach it through a narrow local type rather than `any`.
- */
-type ReplayWire = {
-  seq: number;
-  messageId: string;
-  channel?: string;
-  channelScope?: string | null;
-};
-type SendReplay = (event: string, payload: unknown, wire: ReplayWire) => void;
-function asReplay(sink: unknown): { sendReplay: SendReplay } {
-  return sink as { sendReplay: SendReplay };
-}
-
 export const handleSendMsg = base.on('send-msg', {
   input: SendMsg,
   run(ctx, payload) {
@@ -91,7 +74,7 @@ export const handleSendCursor = base.on('send-cursor', {
 export const handleRequestHistory = base.on('request-history', {
   input: RequestHistory,
   run(ctx) {
-    asReplay(ctx).sendReplay(
+    ctx.sendReplay(
       'chat-msg',
       { text: 'injected-history', from: 'system' },
       { seq: 0, messageId: 'manual-001' },
@@ -111,8 +94,10 @@ export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
   run(ctx) {
     let undeclared = '';
     try {
-      asReplay(ctx).sendReplay(
-        'not-declared-event',
+      // Intentionally an undeclared event to exercise the runtime guard; the
+      // type-level surface only accepts declared emits, so cast past it here.
+      ctx.sendReplay(
+        'not-declared-event' as 'chat-msg',
         { text: 'x', from: 'system' },
         { seq: 0, messageId: 'bad-1' },
       );
@@ -126,7 +111,7 @@ export const handleTriggerBadReplay = base.on('trigger-bad-replay', {
 export const handleInjectFamilyReplay = base.on('inject-family-replay', {
   input: InjectFamilyReplay,
   run(ctx) {
-    asReplay(ctx).sendReplay(
+    ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
       { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
@@ -137,8 +122,7 @@ export const handleInjectFamilyReplay = base.on('inject-family-replay', {
 export const handleTriggerBigIntReplay = base.on('trigger-bigint-replay', {
   input: TriggerBigIntReplay,
   run(ctx) {
-    const sink = asReplay(ctx);
-    sink.sendReplay(
+    ctx.sendReplay(
       'chat-msg',
       { text: 'bigint-row', from: 'system', reactions: 7n } as unknown as {
         text: string;
@@ -146,7 +130,7 @@ export const handleTriggerBigIntReplay = base.on('trigger-bigint-replay', {
       },
       { seq: 1, messageId: 'bigint-row-1' },
     );
-    sink.sendReplay(
+    ctx.sendReplay(
       'chat-msg',
       { text: 'after-bigint-row', from: 'system' },
       { seq: 2, messageId: 'after-bigint-row' },
@@ -190,7 +174,7 @@ export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
 export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
   input: RequestRoomHistory,
   run(ctx) {
-    asReplay(ctx.channel).sendReplay(
+    ctx.channel.sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },
       { seq: 0, messageId: 'room-manual-001' },
@@ -216,6 +200,7 @@ export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
 });
 
 const optoutRoom = base.channel('optout-room', {
+  replay: false,
   outgoing: {
     emits: {
       'room-msg': RoomMsg,

@@ -146,7 +146,7 @@ export function matches<TContract extends Contract<any, any>, TKey extends strin
     if (typeof channelDef.pattern === 'string') {
       if (frame.routing.channel !== parsed.name) return false;
     } else {
-      if (frame.routing.channelScope !== parsed.name) return false;
+      if (frame.routing.channelFamily !== parsed.name) return false;
       if (typeof frame.routing.channel !== 'string') return false;
       if (!channelDef.pattern.pattern.test(frame.routing.channel)) return false;
     }

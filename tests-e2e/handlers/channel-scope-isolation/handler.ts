@@ -1,12 +1,12 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
-import { sequence } from '@wskit/server/sequence';
 import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({
   family: v.string(),
@@ -42,7 +42,7 @@ const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() }
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
       'public-members-result': t<{ name: string; count: number; ids: string[] }>(),

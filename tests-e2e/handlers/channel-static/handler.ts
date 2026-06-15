@@ -4,7 +4,7 @@ import { stream } from '@wskit/server/streams';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({
   text: v.string(),
@@ -21,7 +21,7 @@ const KickAckPayload = v.object({ tag: v.string() });
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
     stream(),

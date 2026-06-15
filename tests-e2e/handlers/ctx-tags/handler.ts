@@ -2,7 +2,7 @@ import { define, emits, t } from '@wskit/server';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 function serializeTags(tags: readonly { group: string; key: string }[]): string {
   return tags.map((t) => `${t.group}:${t.key}`).join(',');
@@ -10,7 +10,7 @@ function serializeTags(tags: readonly { group: string; key: string }[]): string 
 
 const base = define({
   env: t<Env>(),
-  upgrade: (request) => requireUsername(request),
+  upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
     emits({

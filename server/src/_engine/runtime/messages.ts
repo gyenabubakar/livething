@@ -225,7 +225,7 @@ function buildInterceptRouting(
     correlationId?: string;
     streamId?: string;
     channel?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
     seq?: number;
   } = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
@@ -234,7 +234,7 @@ function buildInterceptRouting(
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
-    routing.channelScope = wskit.channelScope ?? null;
+    routing.channelFamily = wskit.channelScope ?? null;
   }
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
   return routing;

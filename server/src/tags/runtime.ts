@@ -182,6 +182,14 @@ function makeRefHandle(
     count(): number {
       return runtime.tagMembers.get(tagRefIndexKey(kind, group, key))?.size ?? 0;
     },
+    has(ref) {
+      const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
+      if (!members) return false;
+      for (const target of members) {
+        if (target.id === ref.id) return true;
+      }
+      return false;
+    },
   };
 }
 

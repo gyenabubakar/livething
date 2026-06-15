@@ -22,6 +22,7 @@ export {
   NudgeOverflow,
   RateLimited,
   RejoinRejected,
+  RequestInvalidResponse,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,

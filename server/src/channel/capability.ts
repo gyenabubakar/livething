@@ -48,6 +48,8 @@ export interface ChannelDeps {
     afterSend?: unknown;
     replay: unknown;
   }) => Primitive;
+  /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
+  readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
   readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
 }
@@ -105,6 +107,16 @@ export class ChannelBuilder {
       for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
     }
     if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
+    if (cfg.replay !== undefined) {
+      const build = deps.buildBuiltinReplay;
+      if (!build) {
+        throw new Error(
+          `[wskit] channel '${this.__key}' sets replay but no built-in replay capability is ` +
+            'listed. Add replay.history() or replay.snapshot() to capabilities.',
+        );
+      }
+      this.children.push(build(cfg.replay));
+    }
     if (cfg.check) {
       this.children.push(
         checkFactory(

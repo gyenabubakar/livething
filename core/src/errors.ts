@@ -223,6 +223,7 @@ const RESERVED_ERROR_CODES = new Set([
   'internal-error',
   'request-no-response',
   'request-no-correlation',
+  'request-invalid-response',
   'stream-aborted',
   'nudge-overflow',
   'stream-id-collision',
@@ -456,6 +457,40 @@ export const RequestNoResponse = /* @__PURE__ */ buildErrorFactory('request-no-r
  * fires for hand-crafted frames or non-SDK clients.
  */
 export const RequestNoCorrelation = /* @__PURE__ */ buildErrorFactory('request-no-correlation');
+
+/**
+ * Sent to the client when a `request(...)` handler's reply fails the response
+ * schema declared on that request. The handler ran and returned a value, but
+ * the value did not match the declared response shape, so the framework rejects
+ * the pending client promise with this code instead of sending an invalid reply.
+ *
+ * The server-side cause is a handler returning the wrong shape for its declared
+ * response. `detail.event` is the request event; `detail.issues` carries the
+ * Standard Schema validation issues.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await client.request('create-post', data);
+ * } catch (err) {
+ *   if (RequestInvalidResponse.matches(err)) {
+ *     // server returned a reply that failed its response schema
+ *   }
+ * }
+ * ```
+ */
+export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
+  'request-invalid-response',
+  v.object({
+    event: v.string(),
+    issues: v.array(
+      v.object({
+        message: v.string(),
+        path: v.optional(v.array(v.union([v.string(), v.number()]))),
+      }),
+    ),
+  }),
+);
 
 /**
  * Sent to the client when an in-flight stream terminates for a server-side

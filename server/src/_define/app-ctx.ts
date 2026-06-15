@@ -7,6 +7,7 @@ import type {
   Logger,
   SQLProvider,
 } from '~/context.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { TagsApi } from '~/tags/types.ts';
@@ -90,6 +91,96 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
     options?: { excludeSelf?: boolean },
   ): void;
 };
+
+/** The incoming/request payload one top-level event key narrows a frame to. */
+type TopPayload<TSlots, TEvent extends string> = TEvent extends keyof Incoming<TSlots>
+  ? Incoming<TSlots>[TEvent]
+  : TEvent extends keyof Requests<TSlots>
+    ? Requests<TSlots>[TEvent] extends { payload: infer P }
+      ? P
+      : unknown
+    : unknown;
+
+/** The incoming/request payload one channel-scoped key narrows a frame to. */
+type ChannelPayload<
+  TSlots,
+  TFamily extends string,
+  TEvent extends string,
+> = TFamily extends keyof Channels<TSlots>
+  ? Channels<TSlots>[TFamily] extends { incoming: infer I }
+    ? TEvent extends keyof I
+      ? I[TEvent]
+      : ChannelRequestPayload<Channels<TSlots>[TFamily], TEvent>
+    : ChannelRequestPayload<Channels<TSlots>[TFamily], TEvent>
+  : unknown;
+
+/** The request payload for a channel-scoped key, when the event is a channel request. */
+type ChannelRequestPayload<TChannel, TEvent extends string> = TChannel extends {
+  requests: infer R;
+}
+  ? TEvent extends keyof R
+    ? R[TEvent] extends { payload: infer P }
+      ? P
+      : unknown
+    : unknown
+  : unknown;
+
+/** The payload a `ctx.matches` / `ctx.unsafeCast` key narrows a frame to. */
+type PayloadForKey<TSlots, TKey extends string> = TKey extends `@${infer Family}::${infer Event}`
+  ? ChannelPayload<TSlots, Family, Event>
+  : TopPayload<TSlots, TKey>;
+
+/** An `InterceptFrame` whose `payload` is narrowed to the key's declared input type. */
+type NarrowedFrame<TSlots, TKey extends string> = Omit<InterceptFrame, 'payload'> & {
+  readonly payload: PayloadForKey<TSlots, TKey>;
+};
+
+/**
+ * The frame-narrowing methods on every connection ctx — typed against the
+ * server's event catalog so a matched frame's payload narrows to that event's
+ * input type. Mainly used inside an intercept.
+ */
+export interface FrameMatchCtx<TSlots> {
+  /**
+   * Type guard narrowing an intercept `frame` to a declared event's payload.
+   * Returns `true` when the frame's event, scope, and payload all match the
+   * key; the payload is validated against the declared schema. Throws when the
+   * key names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  matches<TKey extends string>(
+    key: TKey,
+    frame: InterceptFrame,
+  ): frame is NarrowedFrame<TSlots, TKey>;
+  /**
+   * Narrow an intercept `frame` without a runtime check — a type-only assertion
+   * for when your own logic already established the payload's shape. Throws when
+   * the key names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  unsafeCast<TKey extends string>(key: TKey, frame: InterceptFrame): NarrowedFrame<TSlots, TKey>;
+}
+
+/** The wire metadata a replay resend carries so the client can dedup it. */
+export interface ReplayWire {
+  /** Monotonic sequence number for this replayed message. */
+  readonly seq: number;
+  /** Stable message id the client uses to dedup the replayed frame. */
+  readonly messageId: string;
+  /** The channel name, for a channel-scoped replay. */
+  readonly channel?: string;
+  /** The dynamic channel family key, or `null` for a static channel. */
+  readonly channelScope?: string | null;
+}
+
+/** The `ctx.sendReplay(...)` surface — owned by a replay capability. */
+export interface SendReplayCtx<TSlots> {
+  /**
+   * Inject a synthetic replay frame for one outgoing event. Present only when a
+   * replay capability is listed (`replay.history` / `replay.snapshot` /
+   * `replay.custom`). Use it from a custom replay handler or to seed history;
+   * `wire` carries the seq/messageId the client uses to dedup.
+   */
+  sendReplay(event: keyof Outgoing<TSlots> & string, payload: unknown, wire: ReplayWire): void;
+}
 
 /** The `ctx.ack()` surface — owned by the `ack()` capability. */
 export interface AckCtx {
@@ -185,6 +276,11 @@ export type CtxExtensionsOf<
   TCaps extends readonly AnyCapability[],
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
   ('ack' extends FeaturesOf<TCaps> ? AckCtx : {}) &
+  ('replay' extends FeaturesOf<TCaps>
+    ? SendReplayCtx<TSlots>
+    : 'replay-custom' extends BrandsOf<TCaps>
+      ? SendReplayCtx<TSlots>
+      : {}) &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
   ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TMeta> : {}) &
   (HasKeys<EphemeralTags<TSlots>> extends true
@@ -212,10 +308,19 @@ export type AppCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = CoreCtx<TSlots, TEnv, TMeta> & CtxExtensionsOf<TSlots, TMeta, TCaps>;
+> = CoreCtx<TSlots, TEnv, TMeta> & FrameMatchCtx<TSlots> & CtxExtensionsOf<TSlots, TMeta, TCaps>;
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
+
+/** The client→server events (event → payload), read off the merged contract slots. */
+type Incoming<TSlots> = SlotOr<TSlots, 'incoming'>;
+
+/** The request events (event → { payload, response }), read off the merged contract slots. */
+type Requests<TSlots> = SlotOr<TSlots, 'requests'>;
+
+/** The channel families (family → channel slice), read off the merged contract slots. */
+type Channels<TSlots> = SlotOr<TSlots, 'channels'>;
 
 /** The scheduled-task map (task id → payload type), read off the merged contract slots. */
 type Scheduled<TSlots> = SlotOr<TSlots, 'scheduled'>;

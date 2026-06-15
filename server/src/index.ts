@@ -64,6 +64,8 @@ export type {
   DefineConfig,
   IncomingHandlerValue,
   OnConfig,
+  RequestConfig,
+  RequestHandlerValue,
   UpgradeFn,
   UpgradeReturn,
 } from './_define/define.ts';
