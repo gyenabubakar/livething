@@ -61,7 +61,7 @@ export async function handleRuntimeError(
       buildConnectionContext,
       resolveScopeFromRouting: (errorRouting) => resolveScopeFromRouting(core, errorRouting),
       declaredErrorCodes: core.declaredErrorCodes,
-      // Inbound onion (§25): new-model plugin error hooks observe before the app's.
+      // Inbound onion: new-model plugin error hooks observe before the app's.
       errorHooks: [
         ...core.hooks.pluginLifecycle.error.map((entry) => entry.handler),
         ...core.hooks.error,

@@ -27,6 +27,9 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onError',
   'onValidationError',
   'onUpgrade',
+  // Observers that ride along stamped with their owner, not namespaced events.
+  'intercept',
+  'outgoingHook',
   // Internal carriers that ride along but need no namespacing.
   'ack',
   'sequence',
@@ -39,27 +42,46 @@ const ALLOWED_PLUGIN_KINDS = new Set([
 /** Symbol key for a plugin's API-registration primitive. */
 const PLUGIN_API_KEY = Symbol('pluginApi');
 
-/** The scoped-handler shape a plugin manifest accepts, carrying its own contract. */
-type ScopedHandler<TContract extends ServerContract> = ServerDefinition<
+/** The scoped-handler shape a plugin manifest accepts, carrying its own contract and ctx. */
+type ScopedHandler<TContract extends ServerContract, TScopedCtx = unknown> = ServerDefinition<
   readonly Primitive[],
-  TContract
+  TContract,
+  TScopedCtx
 > & { readonly __scoped?: boolean };
 
 /** The plain-object manifest passed to `plugin(id, ...)`. */
-export interface PluginManifest<TContract extends ServerContract = ServerContract, TApi = unknown> {
+export interface PluginManifest<
+  TContract extends ServerContract = ServerContract,
+  TApi = unknown,
+  TScopedCtx = unknown,
+> {
   /** The plugin's behavior — a scoped handler from `define({ scoped: true }).assemble(...)`. */
-  readonly handler: ScopedHandler<TContract>;
-  /** Capabilities the host must list. A missing prerequisite is a build error (§21). */
+  readonly handler: ScopedHandler<TContract, TScopedCtx>;
+  /** Capabilities the host must list. A missing prerequisite is a build error. */
   readonly dependsOn?: readonly CapabilityFactory[];
-  /** Per-connection API the host reaches via `ctx.plugin(id)`. Runs against a plugin-scoped ctx. */
-  readonly api?: (ctx: any) => TApi;
+  /**
+   * Per-connection API the host reaches via `ctx.plugin(id)`. Runs against the
+   * plugin's own scoped ctx — the same `ctx` the plugin's `h.on(...)` handlers
+   * receive, scoped to the plugin's capabilities and emits.
+   */
+  readonly api?: (ctx: TScopedCtx) => TApi;
+  /**
+   * Opt the plugin's `intercept`/`outgoing` hooks into seeing the host app's
+   * frames, not just the plugin's own. Off by default (least privilege): a
+   * plugin observes only its own namespaced traffic. When this is the literal
+   * `true`, listing the produced capability bare is a type error — wrap it in
+   * `observeHost(...)` to grant the privilege explicitly. A plugin never sees
+   * another plugin's frames.
+   */
+  readonly observesHostTraffic?: boolean;
 }
 
 /**
- * The contract slice a plugin contributes to the host, surfaced on
- * `InferClient.plugins[id]`. It carries the plugin's own scoped contract in
- * server perspective and the type of `ctx.plugin(id)`; `InferClient` flips the
- * contract into the client's view under short (un-prefixed) names.
+ * The contract slice a plugin contributes to the host. It carries the plugin's
+ * own scoped contract in server perspective and the type of `ctx.plugin(id)`.
+ * `InferClient` flips the contract into the client's view and folds every event
+ * into the top-level client maps under its `__<id>::` wire name; the `api` feeds
+ * the server ctx's `ctx.plugin(id)`.
  */
 export interface PluginContractSlice<TContract extends ServerContract, TApi> {
   /** The plugin's own scoped contract, in server perspective. @internal */
@@ -76,12 +98,36 @@ export interface PluginCapability<
   TId extends string = string,
   TContract extends ServerContract = ServerContract,
   TApi = unknown,
+  TObservesHost extends boolean = false,
 > extends Capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never> {
   /** The plugin's id, for identification at assembly. @internal */
   readonly __pluginId: string;
   /** Capabilities the host must list; a missing one is a build error. @internal */
   readonly __pluginDependsOn: readonly CapabilityFactory[];
+  /** Whether the plugin opted its hooks into observing host traffic. @internal */
+  readonly __observesHostTraffic: boolean;
+  /** Set once `observeHost(...)` wraps this capability; the runtime grant gate reads it. @internal */
+  readonly __hostObservationGranted?: boolean;
+  /**
+   * Phantom brand present only when `observesHostTraffic` is the literal `true`
+   * and the capability has not been wrapped by `observeHost(...)`. The app's
+   * `define({ capabilities })` element type rejects it, so a bare listing is a
+   * compile error; `observeHost(...)` strips it. Never set at runtime. @internal
+   */
+  readonly __requiresHostGrant?: [TObservesHost] extends [true]
+    ? 'This plugin observes host traffic — wrap it in observeHost(...) to grant the privilege.'
+    : never;
 }
+
+/**
+ * A capability the app's `define({ capabilities })` accepts: any capability,
+ * except one still carrying the `__requiresHostGrant` brand of an ungranted
+ * host-observing plugin. Wrapping that plugin in `observeHost(...)` strips the
+ * brand and makes it assignable.
+ */
+export type GrantableCapability = AnyCapability & {
+  readonly __requiresHostGrant?: never;
+};
 
 /** Build the primitive whose `__setup` registers the plugin's API factory with the engine. */
 function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {
@@ -108,7 +154,7 @@ function assertSupported(id: string, primitive: Primitive): void {
 
 /**
  * Verify that every plugin listed in a host's `capabilities[]` has its
- * `dependsOn` prerequisites satisfied by another listed capability (§21, §25).
+ * `dependsOn` prerequisites satisfied by another listed capability.
  * A missing prerequisite is a build error at `assemble()`, never a runtime
  * surprise.
  *
@@ -168,12 +214,23 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
  *   handler: h.assemble(heartbeat),
  *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.id }); } }),
  * });
+ *
+ * // register it like any other capability — the factory is invoked
+ * define({ capabilities: [Presence()] });
  * ```
  */
-export function plugin<const TId extends string, TContract extends ServerContract, TApi = unknown>(
+export function plugin<
+  const TId extends string,
+  TContract extends ServerContract,
+  TApi = unknown,
+  const TObservesHost extends boolean = false,
+  TScopedCtx = unknown,
+>(
   id: TId,
-  manifest: PluginManifest<TContract, TApi>,
-): PluginCapability<TId, TContract, TApi> {
+  manifest: PluginManifest<TContract, TApi, TScopedCtx> & {
+    readonly observesHostTraffic?: TObservesHost;
+  },
+): () => PluginCapability<TId, TContract, TApi, [TObservesHost] extends [true] ? true : false> {
   if (!PLUGIN_ID.test(id)) {
     throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
   }
@@ -186,7 +243,12 @@ export function plugin<const TId extends string, TContract extends ServerContrac
 
   for (const primitive of manifest.handler.primitives) assertSupported(id, primitive);
 
-  const namespaced = namespacePluginPrimitives(id, manifest.handler.primitives);
+  const observesHostTraffic = manifest.observesHostTraffic ?? false;
+  const namespaced = namespacePluginPrimitives(
+    id,
+    manifest.handler.primitives,
+    observesHostTraffic,
+  );
   const primitives: Primitive[] = [...namespaced];
   if (manifest.api) primitives.push(pluginApiPrimitive(id, manifest.api));
 
@@ -196,8 +258,64 @@ export function plugin<const TId extends string, TContract extends ServerContrac
   const writable = cap as {
     __pluginId: string;
     __pluginDependsOn: readonly CapabilityFactory[];
+    __observesHostTraffic: boolean;
   };
   writable.__pluginId = id;
   writable.__pluginDependsOn = manifest.dependsOn ?? [];
-  return cap;
+  writable.__observesHostTraffic = observesHostTraffic;
+  // A fresh capability is returned each call, so wrapping one in observeHost(...)
+  // never mutates another listing of the same plugin.
+  return () => ({ ...cap }) as typeof cap;
+}
+
+/**
+ * Grant a host-observing plugin permission to see the host app's frames. Wrap
+ * the called plugin capability — `observeHost(Metrics())` — and list the result
+ * in `define({ capabilities: [...] })`.
+ *
+ * A plugin built with `observesHostTraffic: true` (literal) is a type error when
+ * listed bare; `observeHost(...)` strips the brand and marks the grant so the
+ * runtime gate at `assemble()` is satisfied.
+ *
+ * @example
+ * ```ts
+ * import { observeHost } from '@wskit/server/plugin';
+ * define({ capabilities: [observeHost(Metrics())] });
+ * ```
+ */
+export function observeHost<TCap extends { readonly __pluginId: string }>(
+  granted: TCap,
+): Omit<TCap, '__requiresHostGrant'> & { readonly __hostObservationGranted: true } {
+  (granted as unknown as { __hostObservationGranted: boolean }).__hostObservationGranted = true;
+  return granted as unknown as Omit<TCap, '__requiresHostGrant'> & {
+    readonly __hostObservationGranted: true;
+  };
+}
+
+/**
+ * Backstop the compile gate at `assemble()`: a plugin that opted into host
+ * observation but was listed without `observeHost(...)` throws a clear build
+ * error. Covers the dynamic case where `observesHostTraffic` is a non-literal
+ * boolean (the type widens, so the brand never fires). When a grant is present,
+ * warn once that the plugin can see the app's frames.
+ */
+export function assertHostObservationGranted(
+  capabilities: readonly AnyCapability[],
+  logger: Pick<Console, 'warn'> = console,
+): void {
+  for (const cap of capabilities) {
+    const pluginCap = cap as Partial<PluginCapability>;
+    if (!pluginCap.__pluginId || !pluginCap.__observesHostTraffic) continue;
+    if (!pluginCap.__hostObservationGranted) {
+      throw new Error(
+        `[wskit] plugin('${pluginCap.__pluginId}') observes host traffic but was listed without ` +
+          'observeHost(...). Wrap it as observeHost(' +
+          `${pluginCap.__pluginId}()) in define({ capabilities: [...] }) to grant the privilege.`,
+      );
+    }
+    logger.warn(
+      `[wskit] plugin "${pluginCap.__pluginId}" is granted host-traffic observation ` +
+        "(its intercept/outgoing see the app's frames)",
+    );
+  }
 }

@@ -116,7 +116,6 @@ export class Engine {
       activeStreams: core.activeStreams,
       shutdownHooks: core.hooks.shutdown,
       pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
-      pluginRuntimes: core.pluginRuntimes,
 
       createShutdownContext: () => this.createShutdownContext(),
 

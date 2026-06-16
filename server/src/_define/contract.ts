@@ -7,8 +7,8 @@ import type { SlotOr, UnionToIntersection } from './capability.ts';
  * The contract built from a server's capabilities and handlers. It is the value
  * carried on the `ServerDefinition` for `InferClient<typeof handler>` to read.
  *
- * Field names follow the **server's** point of view (the same convention as the
- * older `contract()` path), NOT the client-facing direction of `ServerContract`:
+ * Field names follow the **server's** point of view, NOT the client-facing
+ * direction of `ServerContract`:
  * `incoming` holds client→server events and `outgoing` holds server→client
  * events. `InferClient` reads this back and flips it into the client's view
  * (its `incoming` is this `outgoing`, and so on), so the generated client types

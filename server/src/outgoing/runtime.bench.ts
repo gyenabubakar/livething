@@ -1,5 +1,5 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
-import { broadcastToChannel } from '~/outgoing/runtime.ts';
+import { APP_HOOK_OWNER, broadcastToChannel } from '~/outgoing/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { broadcastToChannel as BroadcastToChannel } from '~/outgoing/runtime.ts';
@@ -60,14 +60,12 @@ function createRuntime(
         ],
       ]),
       channelFamilies: new Map(),
-      plugins: [],
     },
     connections,
     channelMembers,
-    pluginRuntimes: [],
     outgoingHooks: [
-      (message: { event: string; payload: unknown }) => message.payload,
-      () => undefined,
+      { handler: (message: { payload: unknown }) => message.payload, owner: APP_HOOK_OWNER },
+      { handler: () => undefined, owner: APP_HOOK_OWNER },
     ],
     wskitStampHooks: withStamper ? [() => ({ seq: seq++ })] : [],
     beforeSendHooks: [],

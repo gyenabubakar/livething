@@ -109,25 +109,26 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  * Return any value — TypeScript infers the type and passes it as the second
  * argument to the paired `commit` handler. Throw to deny the subscribe.
  *
- * Pass `options.validator` to validate the subscribe payload first.
+ * Pass a `subscribe` schema on the channel config to validate the subscribe
+ * payload first; the validated value is read off `ctx.check`.
  *
  * @example
  * ```ts
  * import { Block } from '@wskit/server/errors';
  *
- * implement(chat).channel('private-room', (ch) =>
- *   ch
- *     .check(async (ctx, data?: { token: string }) => {
- *       const user = await db.verifyToken(data?.token);
- *       if (!user) throw Forbidden({ reason: 'Invalid token' });
- *       return user; // available in commit() below
- *     })
- *     .commit((ctx, user) => {
- *       if (ctx.channels.get('private-room').members().length >= 50) {
- *         throw Block;
- *       }
- *     }),
- * );
+ * base.channel('private-room', {
+ *   subscribe: v.object({ token: v.string() }),
+ *   async check(ctx) {
+ *     const user = await db.verifyToken(ctx.check.token);
+ *     if (!user) throw Forbidden({ reason: 'Invalid token' });
+ *     return user; // passed to commit() below
+ *   },
+ *   commit(ctx, user) {
+ *     if (ctx.channel.members().length >= 50) {
+ *       throw Block;
+ *     }
+ *   },
+ * });
  * ```
  */
 export function check<TCtx, TData = unknown, TResult = unknown>(
@@ -158,15 +159,14 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
  *
  * @example
  * ```ts
- * implement(chat).channel('archive-room', (ch) =>
- *   ch
- *     .check(async (ctx) => {
- *       if (await isBanned(ctx.meta.username)) throw Forbidden();
- *     })
- *     .revalidate(async (ctx) => {
- *       if (await isBanned(ctx.meta.username)) throw Forbidden();
- *     }),
- * );
+ * base.channel('archive-room', {
+ *   async check(ctx) {
+ *     if (await isBanned(ctx.meta.username)) throw Forbidden();
+ *   },
+ *   async revalidate(ctx) {
+ *     if (await isBanned(ctx.meta.username)) throw Forbidden();
+ *   },
+ * });
  * ```
  */
 export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePrimitive<TCtx> {
@@ -194,13 +194,13 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
  *
  * @example
  * ```ts
- * implement(chat).channel('private-room', (ch) =>
- *   ch.commit((ctx) => {
- *     if (ctx.channels.get('private-room').members().length >= 50) {
+ * base.channel('private-room', {
+ *   commit(ctx) {
+ *     if (ctx.channel.members().length >= 50) {
  *       throw Block(error('room-full')());
  *     }
- *   }),
- * );
+ *   },
+ * });
  * ```
  */
 export function commit<TCtx, TCheck = unknown>(
@@ -225,12 +225,13 @@ export function commit<TCtx, TCheck = unknown>(
  *
  * @example
  * ```ts
- * implement(chat).channel('notifications', (ch) =>
- *   ch.onSubscribe(async (ctx) => {
- *     const items = await db.getUnread(ctx.meta.userId);
- *     ctx.channel.send('notifications', items);
- *   }),
- * );
+ * const notifications = base.channel('notifications', {
+ *   outgoing: { emits: { notifications: t<Item[]>() } },
+ * });
+ * notifications.subscribe(async (ctx) => {
+ *   const items = await db.getUnread(ctx.meta.userId);
+ *   ctx.channel.send('notifications', items);
+ * });
  * ```
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {

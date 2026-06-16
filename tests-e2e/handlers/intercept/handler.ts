@@ -1,8 +1,8 @@
 import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
 import { Block } from '@wskit/server/errors';
 import { requests } from '@wskit/server/requests';
 import { stream } from '@wskit/server/streams';
-import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';

@@ -27,7 +27,6 @@ export type {
 export { channel } from '~/channel/definition.ts';
 export { recordedStream } from '~/stream-recorded/definition.ts';
 export { resumableStream } from '~/stream-resumable/definition.ts';
-export { incoming } from '~/incoming/definition.ts';
 export { outgoing } from '~/outgoing/definition.ts';
 export { request } from '~/request/definition.ts';
 export { scheduled } from '~/scheduled/definition.ts';
@@ -59,13 +58,14 @@ export type Definition =
 export { error } from '@wskit/core';
 
 /**
- * Type-only carrier used for declaring `meta` shape in contract config.
+ * Type-only carrier used to declare a shape with no runtime schema — the env
+ * bindings in `define(...)` and the payload of an `emits(...)` event.
  *
  * @example
  * ```ts
- * contract('chat', { env: t<Env>(),
- *   meta: t<{ username: string }>(),
- *   definitions: [...],
+ * define({
+ *   env: t<Env>(),
+ *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
  * });
  * ```
  */

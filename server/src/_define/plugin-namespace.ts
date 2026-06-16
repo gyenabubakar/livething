@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { namespaceError } from '@wskit/core';
-import { pluginWireName, scopePluginContext } from '~/plugin-scope.ts';
+import { pluginWireName, scopePluginContext, scopePluginThrow } from '~/plugin-scope.ts';
 import type { ErrorDefWithFactory } from '@wskit/core';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { UpgradeHandler } from '~/lifecycle/lifecycle.ts';
@@ -34,8 +34,30 @@ type PluginLifecycleKind =
   | 'error'
   | 'validationError';
 
+/** A plugin's id paired with the short error codes it declared. */
+interface PluginScope {
+  id: string;
+  shortCodes: Set<string>;
+}
+
+/**
+ * Collect the SHORT error codes a plugin declares across its `errors([...])`
+ * primitives, so user code that throws one of these (its local factory carries
+ * the short code) can be rewritten to the namespaced wire code before it leaves
+ * the plugin's scope.
+ */
+function collectShortErrorCodes(primitives: readonly Primitive[]): Set<string> {
+  const codes = new Set<string>();
+  for (const primitive of primitives) {
+    if (primitive.__wskit !== 'errors') continue;
+    const defs = (primitive as unknown as { defs: ErrorDefWithFactory<string, any>[] }).defs;
+    for (const def of defs) codes.add(def.code);
+  }
+  return codes;
+}
+
 /** Rewrite one routable primitive into its namespaced form for plugin `id`. */
-function namespaceOne(id: string, primitive: Primitive): Primitive {
+function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
   if (!EVENT_KINDS.has(primitive.__wskit)) return primitive;
   const event = (primitive as { event?: string }).event;
   if (event === undefined) return primitive;
@@ -68,11 +90,15 @@ function namespaceOne(id: string, primitive: Primitive): Primitive {
 
   const handler = (primitive as { handler?: (ctx: any, payload: any) => unknown }).handler;
   if (handler) {
-    copy.handler = (ctx: any, payload: any) => handler(scopePluginContext(id, ctx), payload);
+    copy.handler = scopePluginThrow(id, shortCodes, (ctx: any, payload: any) =>
+      handler(scopePluginContext(id, ctx), payload),
+    );
   }
   const run = (primitive as { run?: (ctx: any, ...rest: any[]) => unknown }).run;
   if (run) {
-    copy.run = (ctx: any, ...rest: any[]) => run(scopePluginContext(id, ctx), ...rest);
+    copy.run = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
+      run(scopePluginContext(id, ctx), ...rest),
+    );
   }
   return copy as unknown as Primitive;
 }
@@ -80,19 +106,22 @@ function namespaceOne(id: string, primitive: Primitive): Primitive {
 /**
  * Rebuild a plugin's lifecycle primitive so it registers into the plugin
  * lifecycle registry — kept apart from the app's hooks so the engine can run it
- * in onion order (§25). The handler runs against a plugin-scoped context, so its
+ * in onion order. The handler runs against a plugin-scoped context, so its
  * sends are namespaced like any other plugin send.
  */
 function namespaceLifecycle(
-  id: string,
+  { id, shortCodes }: PluginScope,
   kind: PluginLifecycleKind,
   primitive: Primitive,
 ): Primitive {
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;
-  function scoped(ctx: any, ...rest: any[]): void | Promise<void> {
-    return handler(scopePluginContext(id, ctx), ...rest) as void | Promise<void>;
-  }
+  const scoped = scopePluginThrow(
+    id,
+    shortCodes,
+    (ctx: any, ...rest: any[]): void | Promise<void> =>
+      handler(scopePluginContext(id, ctx), ...rest) as void | Promise<void>,
+  );
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
@@ -112,19 +141,70 @@ function namespaceLifecycle(
 export function namespacePluginPrimitives(
   id: string,
   primitives: readonly Primitive[],
+  observesHost = false,
 ): Primitive[] {
+  const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
   return primitives.map((primitive) => {
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);
     }
     const lifecycleKind = LIFECYCLE_KINDS[primitive.__wskit];
-    if (lifecycleKind) return namespaceLifecycle(id, lifecycleKind, primitive);
-    if (primitive.__wskit === 'scheduled') return namespaceScheduled(id, primitive);
-    if (primitive.__wskit === 'channel') return namespaceChannel(id, primitive);
+    if (lifecycleKind) return namespaceLifecycle(scope, lifecycleKind, primitive);
+    if (primitive.__wskit === 'scheduled') return namespaceScheduled(scope, primitive);
+    if (primitive.__wskit === 'channel') return namespaceChannel(scope, primitive);
     if (primitive.__wskit === 'tag-groups') return namespaceTagGroups(id, primitive);
     if (primitive.__wskit === 'errors') return namespaceErrors(id, primitive);
-    return namespaceOne(id, primitive);
+    if (primitive.__wskit === 'intercept') return ownHook(scope, primitive, observesHost);
+    if (primitive.__wskit === 'outgoingHook')
+      return ownOutgoingHook(scope, primitive, observesHost);
+    return namespaceOne(scope, primitive);
   });
+}
+
+/**
+ * Stamp an intercept with its plugin owner. An intercept observes traffic — it
+ * declares no event — so its event is not rewritten; only the owner is recorded
+ * so the runtime scopes it to the plugin's own frames (plus the app's when host
+ * observation is granted).
+ */
+function ownHook(
+  { id, shortCodes }: PluginScope,
+  primitive: Primitive,
+  observesHost: boolean,
+): Primitive {
+  const handler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown }).handler;
+  return {
+    ...(primitive as unknown as Record<PropertyKey, unknown>),
+    handler: scopePluginThrow(id, shortCodes, handler),
+    __owner: { kind: 'plugin', id },
+    __observesHost: observesHost,
+  } as unknown as Primitive;
+}
+
+/**
+ * Stamp an outgoing hook with its plugin owner and rebuild its `__setup` so it
+ * registers with that owner. Like an intercept, it observes rather than declares,
+ * so its event is not rewritten.
+ */
+function ownOutgoingHook(
+  { id, shortCodes }: PluginScope,
+  primitive: Primitive,
+  observesHost: boolean,
+): Primitive {
+  const handler = scopePluginThrow(
+    id,
+    shortCodes,
+    (primitive as unknown as { handler: (ctx: any, frame: any) => unknown }).handler,
+  );
+  const owner = { owner: { kind: 'plugin' as const, id }, observesHost };
+  return {
+    ...(primitive as unknown as Record<PropertyKey, unknown>),
+    __owner: { kind: 'plugin', id },
+    __observesHost: observesHost,
+    __setup(engine: EngineAccess) {
+      engine.onOutgoing(handler, owner);
+    },
+  } as unknown as Primitive;
 }
 
 /**
@@ -132,7 +212,7 @@ export function namespacePluginPrimitives(
  * its body runs in a plugin-scoped context (sends prefixed; `ctx.schedule(...)`
  * resolves to the namespaced id).
  */
-function namespaceScheduled(id: string, primitive: Primitive): Primitive {
+function namespaceScheduled({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
   const taskId = (primitive as unknown as { taskId: string }).taskId;
   const wireTask = pluginWireName(id, taskId);
   const [key] = primitive.__identity;
@@ -142,7 +222,9 @@ function namespaceScheduled(id: string, primitive: Primitive): Primitive {
     taskId: wireTask,
     __identity: [key, wireTask],
     __plugin: id,
-    handler: (ctx: any, data?: any) => handler(scopePluginContext(id, ctx), data),
+    handler: scopePluginThrow(id, shortCodes, (ctx: any, data?: any) =>
+      handler(scopePluginContext(id, ctx), data),
+    ),
   } as unknown as Primitive;
 }
 
@@ -167,7 +249,7 @@ function namespaceTagGroups(id: string, primitive: Primitive): Primitive {
 
 /**
  * Namespace a plugin's error definitions so each code becomes `__<id>::<code>`.
- * The short codes surface back under `InferClient.plugins[id].errors`.
+ * The prefixed codes surface in the client's top-level `errors` map.
  */
 function namespaceErrors(id: string, primitive: Primitive): Primitive {
   const defs = (primitive as unknown as { defs: ErrorDefWithFactory<string, any>[] }).defs;
@@ -188,7 +270,8 @@ function namespaceErrors(id: string, primitive: Primitive): Primitive {
  * channel scope and its events carry the provenance marker so the compile
  * reserved-name and `::` guards permit the framework-namespaced form.
  */
-function namespaceChannel(id: string, primitive: Primitive): Primitive {
+function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id } = scope;
   const channel = primitive as unknown as {
     pattern: string | { key: string; pattern: string };
     primitives: readonly Primitive[];
@@ -212,7 +295,7 @@ function namespaceChannel(id: string, primitive: Primitive): Primitive {
     pattern,
     __identity: [key, identityTail],
     __plugin: id,
-    primitives: channel.primitives.map((child) => namespaceOne(id, child)),
+    primitives: channel.primitives.map((child) => namespaceOne(scope, child)),
   } as unknown as Primitive;
 }
 

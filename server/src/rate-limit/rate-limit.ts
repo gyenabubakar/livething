@@ -47,9 +47,10 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * routes to an `__error__` frame, preserving `__wskit.correlationId` / `__wskit.ackId` if the
  * original frame carried them.
  *
- * Use through the `rateLimit:` config on `contract({...})` or `channel({...})`
- * — or `.rateLimit(event, config)` on the implementer / channel sub-builder.
- * The `implement(...)` build step calls this factory; you should not normally
+ * Use the `rateLimit({...})` capability for the server-wide rule, plus the
+ * optional `rateLimit` field on a `base.on(...)` / `base.request(...)` config or
+ * a `base.channel(...)` config to tighten, loosen, or disable it per handler or
+ * channel. The `assemble(...)` step calls this factory; you should not normally
  * call it directly.
  */
 export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {

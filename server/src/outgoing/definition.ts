@@ -12,8 +12,9 @@ function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
 }
 
 /**
- * Contract-side declaration of a server→client event. Produced by `outgoing()`
- * and surfaced to client SDKs through `InferClient`.
+ * Contract-side declaration of a server→client event. Produced internally for
+ * each entry in the `emits({...})` capability and surfaced to client SDKs
+ * through `InferClient`.
  */
 export interface OutgoingDef<TName extends string = string, TPayload = unknown> {
   readonly _: 'outgoing';

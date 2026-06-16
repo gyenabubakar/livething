@@ -2,11 +2,14 @@
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { hookRunsForFrame } from '~/intercept/intercept.ts';
+import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-type CompiledServer = EngineCompileTypes.CompiledServer;
+export { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 
 /**
  * Minimal dependency bag for outgoing message helpers.
@@ -14,9 +17,7 @@ type CompiledServer = EngineCompileTypes.CompiledServer;
 export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
-  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[];
-
-  outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+  outgoingHooks: readonly OutgoingHookEntry[];
 
   /**
    * Contributors of `__wskit` metadata for outgoing user frames — the sequence
@@ -37,27 +38,14 @@ export interface OutgoingRuntime {
   generateId(prefix?: string): string;
 }
 
-/** Check whether an event name belongs to any installed plugin's outgoing declarations. */
-function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean {
-  for (const pluginInstance of compiled.plugins) {
-    for (const eventName of Object.keys(pluginInstance.outgoing)) {
-      if (`__${pluginInstance.id}:${eventName}` === event) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 /**
  * Check whether an outgoing event was declared in the correct scope.
  *
  * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
  * — are allowed. An unknown `__x__` name is not, so it cannot slip past the
- * scope check by looking protocol-shaped. Plugin events (`__pluginId:event`)
- * are checked against plugin declarations. Everything else must appear in the
- * scope's outgoing or stream maps.
+ * scope check by looking protocol-shaped. A new-model plugin's namespaced
+ * `emits()` lives in the normal outgoing/channel maps, so it is found by the
+ * scope checks below.
  */
 export function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
@@ -65,7 +53,6 @@ export function isDeclaredOutgoingEvent(
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
   if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
-  if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
   if (routing?.channel) {
     const channel =
@@ -99,24 +86,23 @@ function serializePayloadOrThrow(event: string, payload: Record<string, unknown>
   return serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
 }
 
-/** Run global + plugin `onOutgoing` hooks and return the (possibly rewritten) message. */
+/** Run the owner-tagged outgoing hooks and return the (possibly rewritten) message. */
 function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[],
   message: { event: string; payload: unknown },
 ): { event: string; payload: unknown } {
   let current = message;
 
-  for (const hook of outgoingHooks) {
-    const next = hook(current);
-    if (next !== undefined) current = { event: current.event, payload: next };
-  }
-
-  assertPayloadRecord(current.payload);
-
-  for (const pluginRuntime of pluginRuntimes) {
-    if (!pluginRuntime.onOutgoing) continue;
-    const next = pluginRuntime.onOutgoing(current);
+  // Owner is derived from the event name, which the hooks cannot rewrite.
+  const owner = frameOwner(current.event);
+  // A plugin's own-frame hook sees the short name it declared; an app hook (and
+  // an observed app frame) sees the event unchanged.
+  const parsed = parsePluginWireName(current.event);
+  for (const { handler, owner: hookOwner } of outgoingHooks) {
+    if (!hookRunsForFrame(hookOwner, owner)) continue;
+    const ownFrame = hookOwner.owner.kind === 'plugin' && owner.kind === 'plugin';
+    const event = ownFrame && parsed ? parsed.name : current.event;
+    const next = handler({ event, payload: current.payload, owner });
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 
@@ -204,7 +190,7 @@ export function sendThroughPipeline(
   const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, {
     event,
     payload,
   });
@@ -272,7 +258,6 @@ type BroadcastRuntime = Pick<
   | 'beforeSendHooks'
   | 'compiled'
   | 'logger'
-  | 'pluginRuntimes'
   | 'outgoingHooks'
   | 'waitUntil'
   | 'wskitStampHooks'
@@ -297,7 +282,7 @@ function prepareBroadcast(
   const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, {
     event,
     payload,
   });
@@ -415,7 +400,6 @@ export function broadcastToConnections(
     | 'compiled'
     | 'generateId'
     | 'logger'
-    | 'pluginRuntimes'
     | 'outgoingHooks'
     | 'waitUntil'
     | 'wskitStampHooks'
@@ -491,7 +475,6 @@ export function broadcastToChannel(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'

@@ -1,10 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { parsePluginWireName } from '~/plugin-scope.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { InterceptFrame, InterceptPrimitive } from './intercept.ts';
+import { APP_HOOK_OWNER, hookRunsForFrame } from './intercept.ts';
+import type { HookOwner, InterceptFrame, InterceptPrimitive } from './intercept.ts';
 
-export type { InterceptFrame, InterceptRouting } from './intercept.ts';
+export type { FrameOwner, InterceptFrame, InterceptRouting, OutgoingFrame } from './intercept.ts';
 
 interface InterceptRuntime {
   asyncContext: EngineAsyncContext;
@@ -62,10 +64,20 @@ export async function runIntercepts(
 
   const ctx = getCtx();
   let nextFrame = frame;
+  // A plugin's own-frame intercept sees the short name it declared.
+  const parsed = parsePluginWireName(frame.event);
 
   for (const intercept of intercepts) {
+    const hookOwner: HookOwner = intercept.__owner
+      ? { owner: intercept.__owner, observesHost: intercept.__observesHost ?? false }
+      : APP_HOOK_OWNER;
+    if (!hookRunsForFrame(hookOwner, nextFrame.owner)) continue;
+
+    const ownFrame = hookOwner.owner.kind === 'plugin' && nextFrame.owner.kind === 'plugin';
+    const presented = ownFrame && parsed ? { ...nextFrame, event: parsed.name } : nextFrame;
+
     const next = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-      intercept.handler(ctx, nextFrame),
+      intercept.handler(ctx, presented),
     );
 
     if (next !== undefined) {
@@ -74,6 +86,7 @@ export async function runIntercepts(
         payload: next,
         kind: nextFrame.kind,
         routing: nextFrame.routing,
+        owner: nextFrame.owner,
       };
     }
   }

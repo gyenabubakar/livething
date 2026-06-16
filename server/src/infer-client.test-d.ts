@@ -1,0 +1,123 @@
+/* oxlint-disable no-unused-vars */
+/**
+ * Compile-time fixtures for `InferClient` slots that had no type-test:
+ * `serverRequests` (gap 6, top-level and channel-scoped) and the stream `kind`
+ * discriminator that marks plain streams ephemeral and durable streams
+ * persistent (gap 8).
+ */
+import { t } from '~/_api/index.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { persistence } from '~/persistence/capability.ts';
+import { requests } from '~/request/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
+import { resumableStream } from '~/stream-resumable/capability.ts';
+import { stream } from '~/stream/capability.ts';
+import * as v from 'valibot';
+import { expectTypeOf } from 'vitest';
+import type { InferClient } from '~/infer-client.ts';
+
+// ---------------------------------------------------------------------------
+// Gap 6 — `serverRequests` on InferClient (top-level + channel-scoped).
+// ---------------------------------------------------------------------------
+const reqBase = define({
+  env: t<{}>(),
+  capabilities: [
+    requests({
+      ask: [t<{ a: string }>(), v.object({ ok: v.boolean() })],
+      vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+    }),
+    channels(),
+  ],
+});
+
+const reqChannel = reqBase.channel(['room', 'room:{id}'], {
+  outgoing: {
+    emits: { tick: t<{ n: number }>() },
+    requests: {
+      'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })],
+      vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+    },
+  },
+});
+const reqChannelHandler = reqChannel.on('ping', { run() {} });
+
+const reqDef = reqBase.assemble(reqBase.on('noop', { run() {} }), reqChannelHandler);
+type ReqClient = InferClient<typeof reqDef>;
+
+// Targeted request carries `{ payload, response }` plus the broadcast marker.
+expectTypeOf<ReqClient['serverRequests']['ask']>().toEqualTypeOf<{
+  payload: { a: string };
+  response: { ok: boolean };
+  broadcast: false;
+}>();
+
+// Broadcast request carries the broadcast marker set to `true`.
+expectTypeOf<ReqClient['serverRequests']['vol']>().toEqualTypeOf<{
+  payload: {};
+  response: { r: boolean };
+  broadcast: true;
+}>();
+
+// Each channel scope carries its own `serverRequests` slot in the client view,
+// projected from the channel's `outgoing.requests` declarations (short names,
+// broadcast marked).
+expectTypeOf<ReqClient['channels']['room']['serverRequests']['confirm-kick']>().toEqualTypeOf<{
+  payload: { target: string };
+  response: { ok: boolean };
+  broadcast: false;
+}>();
+expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTypeOf<{
+  payload: {};
+  response: { r: boolean };
+  broadcast: true;
+}>();
+
+// ---------------------------------------------------------------------------
+// Gap 8 — stream `kind` discriminator.
+// ---------------------------------------------------------------------------
+const streamBase = define({
+  env: t<{}>(),
+  capabilities: [
+    emits({ noop: t<{}>() }),
+    persistence(),
+    stream(),
+    resumableStream(),
+    recordedStream(),
+  ],
+});
+
+const plainStream = streamBase.stream('plain', {
+  chunk: t<{ tick: number }>(),
+  run: async function* () {},
+});
+
+const resumable = streamBase.resumableStream('resume', {
+  chunk: t<{ tick: number }>(),
+  cursor: t<{ at: number }>(),
+  nudges: { faster: v.object({ by: v.number() }) },
+  run: async function* () {},
+});
+
+const recorded = streamBase.recordedStream('record', {
+  chunk: t<{ tick: number }>(),
+  run: async function* () {},
+});
+
+const streamDef = streamBase.assemble(plainStream, resumable, recorded);
+type StreamClient = InferClient<typeof streamDef>;
+
+// A plain stream is ephemeral and carries no cursor (tidied away).
+expectTypeOf<StreamClient['streams']['plain']['kind']>().toEqualTypeOf<'ephemeral'>();
+expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('cursor');
+expectTypeOf<StreamClient['streams']['plain']>().not.toHaveProperty('nudges');
+
+// A resumable stream is persistent and keeps its declared cursor and nudges.
+expectTypeOf<StreamClient['streams']['resume']['kind']>().toEqualTypeOf<'persistent'>();
+expectTypeOf<StreamClient['streams']['resume']['cursor']>().toEqualTypeOf<{ at: number }>();
+expectTypeOf<StreamClient['streams']['resume']['nudges']>().toHaveProperty('faster');
+
+// A recorded stream is persistent; with no cursor declared, the field is tidied.
+expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();
+expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');

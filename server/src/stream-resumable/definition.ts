@@ -44,8 +44,8 @@ interface CommonResumableConfig {
 }
 
 /**
- * Contract-side declaration produced by `resumableStream()`. Pass it into
- * a contract's `definitions: [...]` array.
+ * Contract-side declaration produced internally when you register a stream with
+ * `base.resumableStream(...)`.
  */
 export interface ResumableStreamDef<
   TName extends string = string,
@@ -102,7 +102,7 @@ interface ResumableStreamConfig<
  * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
  * a resume so a paused durable stream stays paused after reconnect.
  *
- * Requires `persistence: true` on the contract. Build throws otherwise.
+ * Requires the `persistence()` capability. Build throws otherwise.
  *
  * Pass a `cursor` validator to pin the cursor type and have the framework
  * runtime-check every cursor it restores from storage. A stored cursor that
@@ -111,32 +111,32 @@ interface ResumableStreamConfig<
  *
  * @example
  * ```ts
- * import { contract, resumableStream } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
+ * import { resumableStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});
  * const RowChunk = v.object({ row: v.number() });
  * const PaginateCursor = v.object({ idx: v.number() });
  *
- * const myContract = contract('files', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     resumableStream('paginate', {
- *       payload: PaginatePayload,
- *       chunk: RowChunk,
- *       cursor: PaginateCursor,
- *       maxAgeMs: 60_000,
- *       retentionAfterEndMs: 30_000,
- *     }),
- *   ],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), resumableStream()],
  * });
  *
- * // In the handler:
- * implement(myContract).resumableStream('paginate', async function* (ctx) {
- *   const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
- *   for (let i = startAt + 1; i <= 10; i += 1) {
- *     yield ctx.stream.withCursor({ row: i }, { idx: i });
- *   }
+ * const handlePaginate = base.resumableStream('paginate', {
+ *   input: PaginatePayload,
+ *   chunk: RowChunk,
+ *   cursor: PaginateCursor,
+ *   maxAgeMs: 60_000,
+ *   retentionAfterEndMs: 30_000,
+ *   async *run(ctx) {
+ *     const startAt = ctx.stream.cursor?.idx ?? 0;
+ *     for (let i = startAt + 1; i <= 10; i += 1) {
+ *       yield ctx.stream.withCursor({ row: i }, { idx: i });
+ *     }
+ *   },
  * });
  * ```
  */

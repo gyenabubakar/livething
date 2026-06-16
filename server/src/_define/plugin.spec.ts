@@ -12,7 +12,7 @@ import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { plugin } from './plugin.ts';
+import { observeHost, plugin } from './plugin.ts';
 
 interface Env {
   SECRET: string;
@@ -54,14 +54,14 @@ function buildPresence() {
 
 describe('plugin() — scoped handler + manifest', () => {
   it('namespaces on / request / emits under __<id>::', () => {
-    const { __primitives } = buildPresence();
+    const { __primitives } = buildPresence()();
     expect(findPrimitive(__primitives, 'incoming', '__acme:presence::heartbeat')).toBeDefined();
     expect(findPrimitive(__primitives, 'request', '__acme:presence::who-is-here')).toBeDefined();
     expect(findPrimitive(__primitives, 'outgoing', '__acme:presence::user-online')).toBeDefined();
   });
 
   it('scopes a handler send so its event is prefixed at runtime', () => {
-    const { __primitives } = buildPresence();
+    const { __primitives } = buildPresence()();
     const incoming = findPrimitive(__primitives, 'incoming', '__acme:presence::heartbeat');
     const send = vi.fn();
     incoming.handler({ id: 'conn_1', send }, {});
@@ -69,7 +69,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('registers its API factory through a pluginApi primitive', () => {
-    const { __primitives } = buildPresence();
+    const { __primitives } = buildPresence()();
     const apiPrimitive = findPrimitive(__primitives, 'pluginApi');
     const registerPluginApi = vi.fn();
     apiPrimitive.__setup({ registerPluginApi });
@@ -77,14 +77,14 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('assembles into a host and compiles with the namespaced events', () => {
-    const base = define({ env: t<Env>(), capabilities: [buildPresence()] });
+    const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
     const compiled = compileHandlerDefinition(base.assemble());
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
     expect(compiled.requests.has('__acme:presence::who-is-here')).toBe(true);
   });
 
   it('does not collide with a host event of the same short name', () => {
-    const base = define({ env: t<Env>(), capabilities: [buildPresence()] });
+    const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
     const hostHeartbeat = base.on('heartbeat', { input: v.object({}), run() {} });
     const compiled = compileHandlerDefinition(base.assemble(hostHeartbeat));
     expect(compiled.incoming.has('heartbeat')).toBe(true);
@@ -106,7 +106,7 @@ describe('plugin() — scoped handler + manifest', () => {
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
     const h = define({ scoped: true });
     h.connect(() => {});
-    const { __primitives } = plugin('acme:presence', { handler: h.assemble() });
+    const { __primitives } = plugin('acme:presence', { handler: h.assemble() })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
     const registerPluginLifecycle = vi.fn();
     connectPrimitive.__setup({ registerPluginLifecycle });
@@ -132,14 +132,14 @@ describe('plugin() — scoped handler + manifest', () => {
     const bHandler = b.on('tick', { input: v.object({}), run() {} });
     const PluginB = plugin('acme:b', { handler: b.assemble(bHandler) });
 
-    const base = define({ env: t<Env>(), capabilities: [PluginA, PluginB] });
+    const base = define({ env: t<Env>(), capabilities: [PluginA(), PluginB()] });
     const compiled = compileHandlerDefinition(base.assemble());
     expect(compiled.incoming.has('__acme:a::tick')).toBe(true);
     expect(compiled.incoming.has('__acme:b::tick')).toBe(true);
   });
 
   it('routes a namespaced frame to the plugin handler through real dispatch', async () => {
-    const base = define({ env: t<Env>(), capabilities: [buildPresence()] });
+    const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
     const compiled = compileHandlerDefinition(base.assemble());
 
     const send = vi.fn(() => true);
@@ -151,7 +151,6 @@ describe('plugin() — scoped handler + manifest', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       buildConnectionContext: () => ({ id: connection.id, send }),
       async handleRuntimeError() {},
@@ -187,7 +186,7 @@ describe('plugin() — scoped handler + manifest', () => {
     });
     const base = define({
       env: t<Env>(),
-      capabilities: [channels(), persistence(), Dep],
+      capabilities: [channels(), persistence(), Dep()],
     });
     expect(() => base.assemble()).not.toThrow();
   });
@@ -199,7 +198,7 @@ describe('plugin() — scoped handler + manifest', () => {
       handler: h.assemble(tick),
       dependsOn: [channels, persistence],
     });
-    const base = define({ env: t<Env>(), capabilities: [channels(), Dep] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
     expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
   });
 
@@ -208,7 +207,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
     // requests() is brand-only like channels(); it must NOT count as channels().
-    const base = define({ env: t<Env>(), capabilities: [requests(), Dep] });
+    const base = define({ env: t<Env>(), capabilities: [requests(), Dep()] });
     expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
   });
 
@@ -216,7 +215,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
-    const base = define({ env: t<Env>(), capabilities: [channels(), Dep] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
     expect(() => base.assemble()).not.toThrow();
   });
 
@@ -224,7 +223,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
-    const base = define({ env: t<Env>(), capabilities: [stream(), Dep] });
+    const base = define({ env: t<Env>(), capabilities: [stream(), Dep()] });
     expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
   });
 
@@ -234,7 +233,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
     const base = define({
       env: t<Env>(),
-      capabilities: [persistence(), resumableStream(), Dep],
+      capabilities: [persistence(), resumableStream(), Dep()],
     });
     expect(() => base.assemble()).not.toThrow();
   });
@@ -243,7 +242,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
-    const base = define({ env: t<Env>(), capabilities: [Dep] });
+    const base = define({ env: t<Env>(), capabilities: [Dep()] });
     expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
   });
 
@@ -253,8 +252,80 @@ describe('plugin() — scoped handler + manifest', () => {
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
     const base = define({
       env: t<Env>(),
-      capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Dep],
+      capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Dep()],
     });
     expect(() => base.assemble()).not.toThrow();
+  });
+});
+
+describe('plugin() — host-traffic observation', () => {
+  /** A plugin with one intercept and one outgoing hook; `observes` opts into host traffic. */
+  function buildObserver(observes: boolean) {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const beat = h.on('tick', { input: v.object({}), run() {} });
+    h.intercept(() => {});
+    h.outgoing(() => {});
+    return plugin('acme:obs', {
+      handler: h.assemble(beat),
+      observesHostTraffic: observes,
+    });
+  }
+
+  it('stamps a plugin intercept/outgoing hook with its owner and observesHost flag', () => {
+    const cap = buildObserver(true)();
+    const primitives = cap.__primitives as readonly any[];
+    const intercept = primitives.find((p) => p.__wskit === 'intercept');
+    const outgoing = primitives.find((p) => p.__wskit === 'outgoingHook');
+
+    expect(intercept.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
+    expect(intercept.__observesHost).toBe(true);
+    expect(outgoing.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
+    expect(outgoing.__observesHost).toBe(true);
+  });
+
+  it('defaults a plugin hook to observesHost = false (own-frame only)', () => {
+    const cap = buildObserver(false)();
+    const intercept = (cap.__primitives as readonly any[]).find((p) => p.__wskit === 'intercept');
+    expect(intercept.__observesHost).toBe(false);
+  });
+
+  it('assemble() throws if an observing plugin is listed without observeHost(...)', () => {
+    const Obs = buildObserver(true);
+    const base = define({ env: t<Env>(), capabilities: [Obs()] });
+    expect(() => base.assemble()).toThrowError(/observeHost/);
+  });
+
+  it('assemble() passes and warns once when wrapped in observeHost(...)', () => {
+    const Obs = buildObserver(true);
+    const warn = vi.fn();
+    // The audit log goes to console.warn at assemble; spy on it.
+    const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
+    try {
+      const base = define({ env: t<Env>(), capabilities: [observeHost(Obs())] });
+      expect(() => base.assemble()).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('acme:obs');
+    expect(warn.mock.calls[0]![0]).toContain('host-traffic observation');
+  });
+
+  it('observeHost(...) marks the grant on the capability', () => {
+    const granted = observeHost(buildObserver(true)());
+    expect((granted as any).__hostObservationGranted).toBe(true);
+  });
+
+  it('a non-observing plugin needs no grant and never warns', () => {
+    const Plain = buildObserver(false);
+    const warn = vi.fn();
+    const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
+    try {
+      const base = define({ env: t<Env>(), capabilities: [Plain()] });
+      expect(() => base.assemble()).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(warn).not.toHaveBeenCalled();
   });
 });

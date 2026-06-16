@@ -60,22 +60,28 @@ const REPLAY_KEY = Symbol('replay');
  * Handlers also get `ctx.sendReplay()` for manually replaying a stored
  * message (e.g. in response to a "load older history" request).
  *
- * Replay requires `dedup: true` and `sequence: { persist: true }` on the
- * contract — dedup stamps the `messageId` replay keys off, and persistent
- * sequence keeps `seq` stable across restarts so stored rows order
- * correctly. The build fails fast if either is missing. Also requires the
- * `storage` platform capability.
+ * Replay requires the `dedup()` and `sequence({ persist: true })` capabilities —
+ * dedup stamps the `messageId` replay keys off, and persistent sequence keeps
+ * `seq` stable across restarts so stored rows order correctly. The build fails
+ * fast if either is missing. Also requires the `storage` platform capability.
  *
- * Enable this via `replay: true` (or `replay: { retention: { maxAgeMs } }`)
- * on the contract config instead of calling this primitive directly.
+ * Enable this by listing the `replay.history({...})` capability instead of
+ * calling this primitive directly.
  *
  * @example
  * ```ts
- * const chat = contract('chat', { env: t<Env>(),
- *   sequence: { persist: true },
- *   dedup: true,
- *   replay: { retention: { maxAgeMs: 7 * 24 * 60 * 60 * 1000 } },
- *   definitions: [...],
+ * import { define, t } from '@wskit/server';
+ * import { dedup } from '@wskit/server/dedup';
+ * import { sequence } from '@wskit/server/sequence';
+ * import { replay } from '@wskit/server/replay';
+ *
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [
+ *     dedup(),
+ *     sequence({ persist: true }),
+ *     replay.history({ retention: { maxAgeMs: 7 * 24 * 60 * 60 * 1000 } }),
+ *   ],
  * });
  * ```
  */

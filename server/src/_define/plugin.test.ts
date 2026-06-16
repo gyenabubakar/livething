@@ -11,7 +11,7 @@ import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
-import { plugin } from './plugin.ts';
+import { observeHost, plugin } from './plugin.ts';
 
 interface Env {
   SECRET: string;
@@ -33,7 +33,7 @@ const Presence = plugin('acme:presence', {
   api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
 });
 
-const base = define({ env: t<Env>(), capabilities: [Presence] });
+const base = define({ env: t<Env>(), capabilities: [Presence()] });
 
 describe('plugin typing', () => {
   it('accepts a plugin capability in define({ capabilities })', () => {
@@ -68,7 +68,7 @@ describe('plugin typing', () => {
     });
   });
 
-  it('surfaces the plugin slice under InferClient.plugins[id] with short names', () => {
+  it('folds a plugin surface into the top-level client maps under __id:: names', () => {
     const ph = define({
       scoped: true,
       capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
@@ -82,17 +82,17 @@ describe('plugin typing', () => {
       handler: ph.assemble(beat, who),
       api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
     });
-    const app = define({ env: t<Env>(), capabilities: [P] });
+    const app = define({ env: t<Env>(), capabilities: [P()] });
     const handler = app.assemble();
     type C = InferClient<typeof handler>;
-    type Slice = C['plugins']['acme:presence'];
-    expectTypeOf<Slice['incoming']['user-online']>().toEqualTypeOf<{ id: string }>();
-    expectTypeOf<keyof Slice['outgoing']>().toEqualTypeOf<'heartbeat'>();
-    expectTypeOf<keyof Slice['requests']>().toEqualTypeOf<'who-is-here'>();
-    expectTypeOf<Slice['api']>().toEqualTypeOf<PresenceApi>();
+    expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
+    expectTypeOf<C['outgoing']>().toHaveProperty('__acme:presence::heartbeat');
+    expectTypeOf<C['requests']>().toHaveProperty('__acme:presence::who-is-here');
+    // The client carries no `plugins` key; the plugin api lives on the server ctx.
+    expectTypeOf<C>().not.toHaveProperty('plugins');
   });
 
-  it('surfaces plugin streams / channels / errors under the client slice with short names', () => {
+  it('folds plugin streams / channels / errors into the top-level client maps under __id:: names', () => {
     const Denied = error('denied', v.object({ why: v.string() }));
     const ph = define({
       scoped: true,
@@ -102,13 +102,12 @@ describe('plugin typing', () => {
     const room = ph.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
     room.on('say', { input: v.object({}), run() {} });
     const P = plugin('acme:feed', { handler: ph.assemble(ticks, room) });
-    const app = define({ env: t<Env>(), capabilities: [P] });
+    const app = define({ env: t<Env>(), capabilities: [P()] });
     const feedHandler = app.assemble();
     type C = InferClient<typeof feedHandler>;
-    type Slice = C['plugins']['acme:feed'];
-    expectTypeOf<keyof Slice['streams']>().toEqualTypeOf<'ticks'>();
-    expectTypeOf<keyof Slice['channels']>().toEqualTypeOf<'room'>();
-    expectTypeOf<keyof Slice['errors']>().toEqualTypeOf<'denied'>();
+    expectTypeOf<C['streams']>().toHaveProperty('__acme:feed::ticks');
+    expectTypeOf<C['channels']>().toHaveProperty('__acme:feed::room');
+    expectTypeOf<C['errors']>().toHaveProperty('__acme:feed::denied');
   });
 
   it('types a plugin upgrade meta through the scoped define generic', () => {
@@ -131,5 +130,26 @@ describe('plugin typing', () => {
       scoped: true,
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
+  });
+});
+
+describe('plugin host-observation compile gate', () => {
+  const obsHandler = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+  const beat = obsHandler.on('tick', { input: v.object({}), run() {} });
+  const Observer = plugin('acme:obs', {
+    handler: obsHandler.assemble(beat),
+    observesHostTraffic: true,
+  });
+
+  it('rejects a bare literal-true observing plugin in capabilities', () => {
+    define({
+      env: t<Env>(),
+      // @ts-expect-error observesHostTraffic: true — must be wrapped in observeHost(...)
+      capabilities: [Observer()],
+    });
+  });
+
+  it('accepts the same plugin when wrapped in observeHost(...)', () => {
+    define({ env: t<Env>(), capabilities: [observeHost(Observer())] });
   });
 });

@@ -18,16 +18,20 @@ const ACK_KEY = Symbol('ack');
  *
  * @example
  * ```ts
- * import { contract, incoming, implement, t } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { ack } from '@wskit/server/ack';
  *
- * const c = contract('chat', { env: t<Env>(),
- *   ack: true,
- *   definitions: [incoming('send-message', SendMessage)],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [ack()],
  * });
  *
- * implement(c).on('send-message', async (ctx, payload) => {
- *   await saveMessage(payload);
- *   ctx.ack();
+ * const handleSend = base.on('send-message', {
+ *   input: SendMessage,
+ *   async run(ctx, input) {
+ *     await saveMessage(input);
+ *     ctx.ack();
+ *   },
  * });
  * ```
  */
@@ -61,15 +65,15 @@ export function ack(): AckPrimitive {
 }
 
 /**
- * The identity of the `ack` primitive. Pass `ack` itself in a plugin's
- * `dependencies` array to declare that ack must be registered alongside it.
+ * The identity of the `ack` primitive. A plugin declares that the host must
+ * enable acks by listing the `ack` capability in its `dependsOn` array.
  *
  * ```ts
- * definePlugin({
- *   id: 'acme:delivery',
- *   key: Symbol('acme:delivery'),
- *   dependencies: [ack],
- *   setup(args, hooks) { ... },
+ * import { ack } from '@wskit/server/ack';
+ *
+ * plugin('acme:delivery', {
+ *   handler: h.assemble(...),
+ *   dependsOn: [ack],
  * });
  * ```
  */

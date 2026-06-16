@@ -70,8 +70,8 @@ type ContractOf<TServer extends ServerDefinition> =
 
 /**
  * The set of framework error types WSKit can send to any client, so they are
- * always present in a server's typed error map for `.matches()`. Mirrors the
- * exhaustive client-receivable error-code table in the client spec.
+ * always present in a server's typed error map for `.matches()`. Covers the
+ * full set of framework error codes a client can receive.
  */
 type BuiltInErrorUnion =
   | typeof ValidationFailed
@@ -168,35 +168,78 @@ type ClientChannelMap<TChannels> = {
 };
 
 /**
- * One plugin's contract slice in the client's perspective. The plugin's scoped
- * contract is stored in server perspective under `__contract`; this flips it the
- * same way the top-level client view does — the plugin's `outgoing` events are
- * what the client receives, its `incoming` events are what the client sends —
- * and surfaces `api`, the type of `ctx.plugin(id)`. Names are short
- * (un-prefixed); the `__<id>::` wire prefix never appears here.
+ * Prefix every key of a map with the plugin's wire namespace `__<id>::`. This
+ * mirrors what the runtime does on the wire, so a typed client addresses a
+ * plugin event by its real name — `socket.on('__id::event')` — just like any
+ * other event.
  */
-type ClientPluginSlice<TSlice> = TSlice extends { __contract: infer TContract; __api: infer TApi }
-  ? {
-      incoming: Slot<TContract, 'outgoing'>;
-      outgoing: Slot<TContract, 'incoming'>;
-      requests: Slot<TContract, 'requests'>;
-      serverRequests: Slot<TContract, 'serverRequests'>;
-      streams: ClientStreams<TContract>;
-      channels: ClientChannelMap<Slot<TContract, 'channels'>>;
-      errors: Slot<TContract, 'errors'>;
-      api: TApi;
-    }
-  : never;
-
-/** Every registered plugin's slice, keyed by plugin id, in the client's view. */
-type ClientPluginMap<TPlugins> = {
-  [TId in keyof TPlugins]: ClientPluginSlice<TPlugins[TId]>;
+type PrefixKeys<TId extends string, TMap> = {
+  [TKey in keyof TMap & string as `__${TId}::${TKey}`]: TMap[TKey];
 };
+
+/**
+ * One plugin turned into the client's perspective, with every name carrying the
+ * `__<id>::` wire prefix. The plugin's scoped contract is stored in server
+ * perspective under `__contract`; each surface is flipped the same way the
+ * top-level client view flips it (server `outgoing` → client `incoming`, server
+ * `incoming` → client `outgoing`) and its keys are prefixed. Each field holds
+ * only the plugin's prefixed entries so it can be merged into the matching
+ * top-level client map. A channel is addressed by its prefixed family name; the
+ * channel's inner events stay scoped to that channel and are not prefixed.
+ */
+type ClientPluginProjection<TId extends string, TContract> = {
+  incoming: PrefixKeys<TId, Slot<TContract, 'outgoing'>>;
+  outgoing: PrefixKeys<TId, Slot<TContract, 'incoming'>>;
+  requests: PrefixKeys<TId, Slot<TContract, 'requests'>>;
+  serverRequests: PrefixKeys<TId, Slot<TContract, 'serverRequests'>>;
+  streams: PrefixKeys<TId, ClientStreams<TContract>>;
+  channels: PrefixKeys<TId, ClientChannelMap<Slot<TContract, 'channels'>>>;
+  errors: PrefixKeys<TId, Slot<TContract, 'errors'>>;
+};
+
+/**
+ * Project every registered plugin into a single client-side fragment by folding
+ * each plugin's prefixed surfaces together. `TPlugins` maps plugin id →
+ * `{ __contract; __api }`; this walks each id, projects its contract under the
+ * `__<id>::` prefix, then `UnionToIntersection` merges the per-plugin fragments
+ * into one fragment whose maps the top-level `InferClient` intersects with the
+ * app's own maps. App names never contain `__id::`, so there is no collision.
+ */
+type ClientPluginsFragment<TPlugins> = UnionToIntersection<
+  {
+    [TId in keyof TPlugins & string]: TPlugins[TId] extends { __contract: infer TContract }
+      ? ClientPluginProjection<TId, TContract>
+      : never;
+  }[keyof TPlugins & string]
+>;
+
+/** A fragment with every client map empty — the fallback when no plugins are listed. */
+type EmptyPluginsFragment = {
+  incoming: {};
+  outgoing: {};
+  requests: {};
+  serverRequests: {};
+  streams: {};
+  channels: {};
+  errors: {};
+};
+
+/**
+ * The merged plugin fragment for a server, or an all-empty fragment when no
+ * plugins are listed (`UnionToIntersection<never>` is `unknown`, which would
+ * pollute the intersection).
+ */
+type PluginsFragmentOf<TContract> =
+  ClientPluginsFragment<Slot<TContract, 'plugins'>> extends infer TFragment
+    ? [keyof Slot<TContract, 'plugins'>] extends [never]
+      ? EmptyPluginsFragment
+      : TFragment
+    : EmptyPluginsFragment;
 
 /**
  * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
- * Pass the type of your server definition (the value returned by `.build()`)
+ * Pass the type of your server definition (the value returned by `assemble(...)`)
  * and get back a type that describes every event, request, stream, channel,
  * and error the server exposes to clients.
  *
@@ -205,18 +248,20 @@ type ClientPluginMap<TPlugins> = {
  *
  * ```ts
  * import * as v from 'valibot';
- * import { contract, implement, incoming, outgoing, t } from '@wskit/server';
+ * import { define, emits, t } from '@wskit/server';
  *
  * // server.ts
- * const chat = contract('chat', { env: t<Env>(),
- *   definitions: [
- *     outgoing('chat-message', v.object({ text: v.string() })),
- *     incoming('send-message', v.object({ text: v.string() })),
- *   ],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
  * });
- * const myServer = implement(chat)
- *   .on('send-message', (ctx, payload) => ctx.send('chat-message', payload))
- *   .build();
+ * const handleSend = base.on('send-message', {
+ *   input: v.object({ text: v.string() }),
+ *   run(ctx, input) {
+ *     ctx.send('chat-message', input);
+ *   },
+ * });
+ * export const myServer = base.assemble(handleSend);
  *
  * export type MyClient = InferClient<typeof myServer>;
  *
@@ -228,31 +273,53 @@ type ClientPluginMap<TPlugins> = {
  * socket.send('send-message', { text: 'hello' }); // fully typed
  * ```
  *
- * The contract records all event/request/stream/channel/error shapes.
- * `.build()` stores them on the `ServerDefinition`. `InferClient` reads
- * them back and flips them into the client's perspective.
+ * The assembled definition records all event/request/stream/channel/error
+ * shapes. `InferClient` reads them back and flips them into the client's
+ * perspective.
  */
-export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
-  /** Events the client receives — declared on the server with `outgoing(...)`. */
-  incoming: Slot<ContractOf<TServer>, 'outgoing'>;
-  /** Events the client sends — declared on the server with `incoming(...)`. */
-  outgoing: Slot<ContractOf<TServer>, 'incoming'>;
-  /** Request/response pairs the client can invoke — declared with `request(...)`. */
-  requests: Slot<ContractOf<TServer>, 'requests'>;
-  /** Server→client request/response pairs the client answers — declared with `requests({...})`. */
-  serverRequests: Slot<ContractOf<TServer>, 'serverRequests'>;
+export type InferClient<TServer extends ServerDefinition> = InferClientFor<
+  ContractOf<TServer>,
+  PluginsFragmentOf<ContractOf<TServer>>
+>;
+
+/**
+ * Build the client view from an app contract and its merged plugin fragment.
+ * Every plugin surface is folded into the matching top-level map under its
+ * `__<id>::` wire name, so to the client a plugin event is just an event with a
+ * prefixed name — `socket.on('__id::event')` / `socket.send('__id::event')` are
+ * fully typed. There is no separate `plugins` key on the client.
+ */
+type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
+  /** Events the client receives — server `emits({...})` plus plugin emits under `__id::name`. */
+  incoming: Slot<TContract, 'outgoing'> & PluginMapOf<TPlugins, 'incoming'>;
+  /** Events the client sends — server `base.on(...)` plus plugin handlers under `__id::name`. */
+  outgoing: Slot<TContract, 'incoming'> & PluginMapOf<TPlugins, 'outgoing'>;
+  /** Request/response pairs the client can invoke, plus plugin requests under `__id::name`. */
+  requests: Slot<TContract, 'requests'> & PluginMapOf<TPlugins, 'requests'>;
+  /** Server→client request/response pairs the client answers, plus plugin ones under `__id::name`. */
+  serverRequests: Slot<TContract, 'serverRequests'> & PluginMapOf<TPlugins, 'serverRequests'>;
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `resumableStream(...)`, and `recordedStream(...)` all show up under this
-   * single slot. Each entry carries a `kind` — `'persistent'` for the durable
-   * kinds that survive a reconnect, `'ephemeral'` for a plain stream — so the
-   * client can gate resume-only methods at the type level.
+   * single slot, plus plugin streams under `__id::name`. Each entry carries a
+   * `kind` — `'persistent'` for the durable kinds that survive a reconnect,
+   * `'ephemeral'` for a plain stream — so the client can gate resume-only
+   * methods at the type level.
    */
-  streams: ClientStreams<ContractOf<TServer>>;
-  /** Per-channel sub-contracts, each flipped into the client's perspective. */
-  channels: ClientChannelMap<Slot<ContractOf<TServer>, 'channels'>>;
-  /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
-  errors: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
-  /** Each registered plugin's own surface, keyed by plugin id, with short names. */
-  plugins: ClientPluginMap<Slot<ContractOf<TServer>, 'plugins'>>;
+  streams: ClientStreams<TContract> & PluginMapOf<TPlugins, 'streams'>;
+  /**
+   * Per-channel sub-contracts, each flipped into the client's perspective, plus
+   * plugin channels addressed by their `__id::family` prefixed name.
+   */
+  channels: ClientChannelMap<Slot<TContract, 'channels'>> & PluginMapOf<TPlugins, 'channels'>;
+  /**
+   * Built-in engine errors (e.g. `validation-failed`) merged with
+   * developer-defined errors and plugin errors under `__id::code`.
+   */
+  errors: ErrorMap<BuiltInErrorUnion> & Slot<TContract, 'errors'> & PluginMapOf<TPlugins, 'errors'>;
 }>;
+
+/** Read one map off the merged plugin fragment, falling back to `{}`. */
+type PluginMapOf<TPlugins, TKey extends keyof EmptyPluginsFragment> = TKey extends keyof TPlugins
+  ? TPlugins[TKey]
+  : {};

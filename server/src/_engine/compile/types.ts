@@ -3,7 +3,6 @@ import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
-import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
@@ -36,14 +35,6 @@ export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePr
 export type AnyIntercept = InterceptPrimitive.InterceptPrimitive<any>;
 /** Any `.scheduled()` task declaration. */
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any, any>;
-/** Any installed plugin instance from `definePlugin(...)`. */
-export type AnyPlugin = DefinePlugin.PluginInstance<
-  string,
-  any,
-  any,
-  Record<string, unknown>,
-  DefinePlugin.PluginErrorMap
->;
 /** Widened `.channel()` primitive type for the compile layer. */
 export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
 /** Adapter dependency manifest — which platform features a primitive needs. */
@@ -108,8 +99,6 @@ export interface CompiledServer {
   channelFamilies: Map<string, CompiledChannel>;
 
   scheduled: Map<string, AnyScheduled>;
-
-  plugins: AnyPlugin[];
 
   requires: RequiresManifest;
 

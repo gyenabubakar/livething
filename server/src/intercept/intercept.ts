@@ -2,17 +2,53 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
+ * Who owns a frame's event: the app itself, or one installed plugin.
+ *
+ * Computed from the event name — a plugin-owned event travels as
+ * `__<id>::<name>`, everything else is the app's. `TId` narrows the plugin id
+ * to the union of installed plugin ids so app authors get autocomplete.
+ */
+export type FrameOwner<TId extends string = string> =
+  | { readonly kind: 'app' }
+  | { readonly kind: 'plugin'; readonly id: TId };
+
+/**
+ * Who registered a hook (intercept or outgoing) and whether it was granted
+ * host-traffic observation. The app sees every frame; a plugin sees only its
+ * own frames, plus the app's frames when `observesHost` is true.
+ */
+export interface HookOwner {
+  readonly owner: FrameOwner;
+  readonly observesHost: boolean;
+}
+
+/** A hook registered by the app sees every frame and grants no host observation. */
+export const APP_HOOK_OWNER: HookOwner = { owner: { kind: 'app' }, observesHost: false };
+
+/**
+ * Decide whether a hook runs for a frame under least-privilege scoping:
+ * - an app hook runs for every frame (the host sees all);
+ * - a plugin hook runs for its own frames, plus the app's frames when it was
+ *   granted host observation, and never for another plugin's frames.
+ */
+export function hookRunsForFrame(hook: HookOwner, frame: FrameOwner): boolean {
+  if (hook.owner.kind === 'app') return true;
+  if (frame.kind === 'plugin') return frame.id === hook.owner.id;
+  return hook.observesHost;
+}
+
+/**
  * The shape of a message as it travels through the intercept pipeline.
  *
  * `kind`, `event`, and `routing` are read-only views of the dispatched frame.
  * `payload` is the raw, unvalidated payload — narrow it with
- * `matches(contract, ...)` or `unsafeCast(contract, ...)` from `@wskit/server` to get a typed shape.
+ * `ctx.matches(key, frame)` or `ctx.unsafeCast(key, frame)` to get a typed shape.
  *
  * The event name is locked from the moment the message hits the dispatcher —
  * an intercept cannot rewrite routing. The return value of the handler
  * replaces `payload` only.
  */
-export interface InterceptFrame {
+export interface InterceptFrame<TOwnerId extends string = string> {
   /** The event name exactly as it arrived from the client. */
   readonly event: string;
   /**
@@ -25,6 +61,24 @@ export interface InterceptFrame {
   readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
   /** Curated routing metadata from the wire `__wskit` envelope. */
   readonly routing: InterceptRouting;
+  /** Whether this event is app-owned or plugin-owned, derived from its name. */
+  readonly owner: FrameOwner<TOwnerId>;
+}
+
+/**
+ * The shape of a message as it travels through the outbound authoring pipeline.
+ *
+ * Same locked-event rule as `InterceptFrame`: the return value replaces
+ * `payload` only. There is no `kind`/`routing` here — an outgoing frame is
+ * already routed.
+ */
+export interface OutgoingFrame<TOwnerId extends string = string> {
+  /** The event name as it will be sent to the client. */
+  readonly event: string;
+  /** The payload value, narrowable with `matches()` / `unsafeCast()`. */
+  readonly payload: unknown;
+  /** Whether this event is app-owned or plugin-owned, derived from its name. */
+  readonly owner: FrameOwner<TOwnerId>;
 }
 
 /**
@@ -61,6 +115,10 @@ export type InterceptHandler<TCtx = any> = (ctx: TCtx, frame: InterceptFrame) =>
 /** Primitive type for an intercept. */
 export interface InterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
   readonly handler: InterceptHandler<TCtx>;
+  /** Set by plugin namespacing when a plugin contributes this intercept; absent ⇒ app-owned. @internal */
+  readonly __owner?: FrameOwner;
+  /** Whether the owning plugin was granted host-traffic observation. @internal */
+  readonly __observesHost?: boolean;
 }
 
 /**
@@ -124,3 +182,52 @@ export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<an
  * Symbol key used to reference this primitive in dependency declarations.
  */
 intercept.__key = INTERCEPT_KEY;
+
+/**
+ * Handler signature for an outgoing hook: runs on every server→client frame
+ * before it is serialized. Receives the active connection's context (or
+ * `undefined` for a fan-out broadcast) and the `OutgoingFrame`. Return a value
+ * to rewrite the payload; return nothing to observe. The event is locked.
+ */
+export type OutgoingHandler<TCtx = any> = (
+  ctx: TCtx,
+  frame: OutgoingFrame,
+) => unknown | void | Promise<unknown | void>;
+
+/** Primitive type for an outgoing hook. */
+export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHook'> {
+  readonly handler: OutgoingHandler<TCtx>;
+  /** Set by plugin namespacing when a plugin contributes this hook; absent ⇒ app-owned. @internal */
+  readonly __owner?: FrameOwner;
+  /** Whether the owning plugin was granted host-traffic observation. @internal */
+  readonly __observesHost?: boolean;
+}
+
+/** Unique symbol. One outgoing hook per scope, mirroring `intercept`. */
+const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
+
+/**
+ * Creates an outgoing-hook primitive that fires on every outbound frame before
+ * serialization. Mirrors `intercept` on the inbound side: one per scope, the
+ * return value replaces `frame.payload` only, the event is locked.
+ *
+ * Its `__setup` registers the hook through the engine's `onOutgoing` seam, so
+ * it joins the same outgoing pipeline plugins already feed.
+ */
+export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimitive<any> {
+  return {
+    __wskit: 'outgoingHook',
+    __kind: 'infrastructure',
+    __identity: [OUTGOING_HOOK_KEY, 'outgoingHook'],
+    __requires: {},
+    handler,
+    __setup(engine) {
+      engine.onOutgoing(handler, APP_HOOK_OWNER);
+    },
+  } as OutgoingHookPrimitive<any>;
+}
+
+/**
+ * Symbol key used to reference this primitive in dependency declarations.
+ */
+outgoingHook.__key = OUTGOING_HOOK_KEY;

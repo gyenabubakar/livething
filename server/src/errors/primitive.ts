@@ -33,19 +33,23 @@ const ERRORS_KEY = Symbol('errors');
  *
  * @example
  * ```ts
- * import { contract, error, implement, incoming } from '@wskit/server';
+ * import { define, errors, t } from '@wskit/server';
+ * import { error } from '@wskit/server/errors';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
- * const c = contract('users', { env: t<Env>(),
- *   errors: [NotFound],
- *   definitions: [incoming('get-user', GetUser)],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [errors([NotFound])],
  * });
  *
- * implement(c).on('get-user', async (ctx, payload) => {
- *   const user = await db.find(payload.id);
- *   if (!user) throw NotFound({ id: payload.id });
+ * const handleGetUser = base.on('get-user', {
+ *   input: GetUser,
+ *   async run(ctx, input) {
+ *     const user = await db.find(input.id);
+ *     if (!user) throw NotFound({ id: input.id });
+ *   },
  * });
  * ```
  */

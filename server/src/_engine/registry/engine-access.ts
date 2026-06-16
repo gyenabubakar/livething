@@ -14,6 +14,12 @@ export interface EngineAccessDeps {
   createTaskContext(): unknown;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
+  /**
+   * Build the context object for the connection whose dispatch is running right
+   * now, or `undefined` when no connection is active (e.g. a fan-out broadcast
+   * prepared once for many peers).
+   */
+  buildCurrentContext(): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
   sendServerRequest(
     connectionId: string,
@@ -73,8 +79,13 @@ export function createEngineAccess(
       core.hooks.ackFrame.push(handler);
     },
     sendServerWithAck: (connectionId, opts) => deps.sendServerWithAck(connectionId, opts),
-    onOutgoing: (handler) => {
-      core.hooks.outgoing.push(handler);
+    onOutgoing: (handler, owner) => {
+      // The pipeline supplies the frame; ctx is resolved per-send from the
+      // active connection, or undefined when none is in scope (broadcasts).
+      core.hooks.outgoing.push({
+        handler: (frame) => handler(deps.buildCurrentContext(), frame),
+        owner: owner ?? OutgoingRuntime.APP_HOOK_OWNER,
+      });
     },
     onWSKitStamp: (handler) => {
       core.hooks.wskitStamp.push(handler);

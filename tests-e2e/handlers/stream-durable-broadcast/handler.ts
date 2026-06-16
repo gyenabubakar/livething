@@ -1,6 +1,6 @@
 import { define, t } from '@wskit/server';
-import { persistence } from '@wskit/server/persistence';
 import { channels } from '@wskit/server/channels';
+import { persistence } from '@wskit/server/persistence';
 import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';

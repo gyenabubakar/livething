@@ -1,6 +1,6 @@
 import { define, emits, t } from '@wskit/server';
-import { rateLimit } from '@wskit/server/rate-limit';
 import { channels } from '@wskit/server/channels';
+import { rateLimit } from '@wskit/server/rate-limit';
 import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';

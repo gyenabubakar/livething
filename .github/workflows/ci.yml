@@ -53,6 +53,16 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # Architecture guards for tree-shaking (server spec §24): forbidden
+      # import directions, then a bundle check that forbidden engine code stays
+      # out of minimal/feature bundles. `bundle-check` reads server/dist, which
+      # the Typecheck step above already built via `pnpm typecheck`.
+      - name: Dependency rules
+        run: pnpm depcruise
+
+      - name: Bundle / tree-shaking check
+        run: pnpm bundle-check
+
   e2e:
     name: e2e (Playwright)
     runs-on: ubuntu-latest

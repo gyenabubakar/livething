@@ -1,11 +1,14 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
 import {
+  APP_HOOK_OWNER,
   broadcastToChannel,
   broadcastToConnections,
   sendThroughPipeline,
 } from '~/outgoing/runtime.ts';
+import { frameOwner } from '~/plugin-scope.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { OutgoingFrame } from '~/intercept/intercept.ts';
 import type { OutgoingRuntime } from '~/outgoing/runtime.ts';
 
 function createConnection(id = 'c1'): RuntimeConnection {
@@ -38,9 +41,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       recordedStreams: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
-      plugins: [],
     } as unknown as OutgoingRuntime['compiled'],
-    pluginRuntimes: [],
     outgoingHooks: [],
     wskitStampHooks: [],
     beforeSendHooks: [],
@@ -124,15 +125,16 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/plain object/);
   });
 
-  it('lets a plugin add its own keys to the payload', () => {
+  it('lets an outgoing hook add its own keys to the payload', () => {
     const runtime = createRuntime({
-      pluginRuntimes: [
+      outgoingHooks: [
         {
-          onOutgoing: (message: { event: string; payload: unknown }) => ({
+          owner: APP_HOOK_OWNER,
+          handler: (message: { event: string; payload: unknown }) => ({
             ...(message.payload as Record<string, unknown>),
             sentAt: 1,
           }),
-        } as unknown as OutgoingRuntime['pluginRuntimes'][number],
+        } as unknown as OutgoingRuntime['outgoingHooks'][number],
       ],
     });
     const connection = createConnection();
@@ -239,7 +241,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             },
           ],
         ]),
-        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -272,7 +273,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
           ],
         ]),
         channelFamilies: new Map(),
-        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -501,7 +501,6 @@ describe('broadcastToChannel — fanout resilience', () => {
           recordedStreams: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),
-          plugins: [],
         } as unknown as OutgoingRuntime['compiled'],
         logger: {
           warn() {},
@@ -530,5 +529,163 @@ describe('broadcastToChannel — fanout resilience', () => {
     expect(errorLogs).toHaveLength(1);
     expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
     expect((errorLogs[0]!.data as { channel: string }).channel).toBe('general');
+  });
+});
+
+describe('outgoing authoring hook (outgoingHooks)', () => {
+  it('fires on a send and can rewrite the payload, event stays locked', () => {
+    const seen: OutgoingFrame[] = [];
+    const runtime = createRuntime({
+      outgoingHooks: [
+        {
+          handler: (frame) => {
+            seen.push(frame);
+            // Returning a new payload rewrites it; the returned `event` field is ignored.
+            return { ...(frame.payload as Record<string, unknown>), stamped: true, event: 'nope' };
+          },
+          owner: APP_HOOK_OWNER,
+        },
+      ],
+    });
+    const connection = createConnection();
+    const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
+
+    sendThroughPipeline(runtime, connection, {
+      routing: undefined,
+      event: 'foo',
+      payload: { a: 1 },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.event).toBe('foo');
+    expect(seen[0]!.payload).toEqual({ a: 1 });
+
+    const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    expect(sent.event).toBe('foo');
+    expect(sent.payload).toEqual({ a: 1, stamped: true, event: 'nope' });
+  });
+
+  it('sees frame.owner = { kind: "app" } for an app-declared event', () => {
+    let owner: OutgoingFrame['owner'] | undefined;
+    const runtime = createRuntime({
+      outgoingHooks: [
+        {
+          handler: (frame) => {
+            owner = frame.owner;
+          },
+          owner: APP_HOOK_OWNER,
+        },
+      ],
+    });
+
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: undefined,
+      event: 'foo',
+      payload: { a: 1 },
+    });
+
+    expect(owner).toEqual({ kind: 'app' });
+  });
+});
+
+describe('outgoing hook scoping by owner', () => {
+  function pluginOwner(id: string, observesHost: boolean) {
+    return { owner: { kind: 'plugin' as const, id }, observesHost };
+  }
+
+  // A correlationId bypasses the declaration check, so a hook's firing — not the
+  // declaration — is what these tests observe.
+  const requestRouting = { correlationId: 'corr-1' };
+
+  it('does NOT run a plugin hook for an app frame by default', () => {
+    let fired = false;
+    const runtime = createRuntime({
+      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', false) }],
+    });
+
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: requestRouting,
+      event: 'foo',
+      payload: { a: 1 },
+    });
+
+    expect(fired).toBe(false);
+  });
+
+  it('does NOT run a plugin hook for a sibling plugin frame', () => {
+    let fired = false;
+    const runtime = createRuntime({
+      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', true) }],
+    });
+
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: requestRouting,
+      event: '__b:q::beat',
+      payload: { a: 1 },
+    });
+
+    expect(fired).toBe(false);
+  });
+
+  it('runs a plugin hook for its own frame with the SHORT declared name', () => {
+    const seen: string[] = [];
+    const runtime = createRuntime({
+      outgoingHooks: [
+        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p', false) },
+      ],
+    });
+
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: requestRouting,
+      event: '__a:p::beat',
+      payload: { a: 1 },
+    });
+
+    expect(seen).toEqual(['beat']);
+  });
+
+  it('runs a host-observing plugin hook for an app frame, owner = app', () => {
+    const owners: OutgoingFrame['owner'][] = [];
+    const events: string[] = [];
+    const runtime = createRuntime({
+      outgoingHooks: [
+        {
+          handler: (frame) => {
+            owners.push(frame.owner);
+            events.push(frame.event);
+          },
+          owner: pluginOwner('a:p', true),
+        },
+      ],
+    });
+
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: requestRouting,
+      event: 'foo',
+      payload: { a: 1 },
+    });
+    sendThroughPipeline(runtime, createConnection(), {
+      routing: requestRouting,
+      event: '__a:p::beat',
+      payload: { a: 1 },
+    });
+
+    expect(events).toEqual(['foo', 'beat']);
+    expect(owners[0]).toEqual({ kind: 'app' });
+    expect(owners[1]).toEqual({ kind: 'plugin', id: 'a:p' });
+  });
+});
+
+describe('frameOwner', () => {
+  it('returns app for a plain app event', () => {
+    expect(frameOwner('chat-message')).toEqual({ kind: 'app' });
+  });
+
+  it('returns the plugin id for a plugin wire name', () => {
+    expect(frameOwner('__some:plugin::evt')).toEqual({ kind: 'plugin', id: 'some:plugin' });
+  });
+
+  it('treats a protocol-shaped name with no :: as app-owned', () => {
+    expect(frameOwner('__memberJoin__')).toEqual({ kind: 'app' });
   });
 });

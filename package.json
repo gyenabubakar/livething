@@ -18,6 +18,8 @@
     "bench": "pnpm -r run bench",
     "typecheck": "pnpm run build && pnpm -r --parallel run typecheck",
     "dup": "jscpd",
+    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src --config .dependency-cruiser.cjs",
+    "bundle-check": "node scripts/bundle-check.mjs",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
     "lint": "oxlint --fix .",
@@ -26,7 +28,7 @@
     "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean",
     "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e",
-    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test"
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm depcruise && pnpm bundle-check"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
@@ -34,6 +36,8 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
     "@types/node": "^24.12.0",
     "@vitest/coverage-v8": "^4.1.4",
+    "dependency-cruiser": "17.4.3",
+    "esbuild": "0.28.0",
     "husky": "^9.1.7",
     "jscpd": "^4.2.3",
     "lint-staged": "^15.4.3",

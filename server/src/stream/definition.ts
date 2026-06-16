@@ -16,8 +16,8 @@ export interface NudgeDef<TName extends string = string, TPayload = unknown> {
 
 /**
  * Contract-side declaration of a server-pushed stream. Produced by `stream()`.
- * The matching generator is attached later via
- * `implement(contract).stream(name, async function* (ctx, payload) { ... })`.
+ * The matching generator is registered via
+ * `base.stream(name, { async *run(ctx, input) { ... } })`.
  */
 export interface StreamDef<
   TName extends string = string,
@@ -49,8 +49,8 @@ export function nudge(name: string, schema?: Validator): NudgeDef {
 }
 
 /**
- * Declare a server-pushed stream. The generator is attached later via
- * `implement(contract).stream(name, async function* (ctx, payload) { ... })`.
+ * Declare a server-pushed stream. The generator is registered via
+ * `base.stream(name, { async *run(ctx, input) { ... } })`.
  */
 export function stream<
   TName extends string,

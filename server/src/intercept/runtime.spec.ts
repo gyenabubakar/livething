@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { intercept } from './intercept.ts';
 import { runIntercepts, runWithScopedContext } from './runtime.ts';
-import type { InterceptFrame } from './intercept.ts';
+import type { FrameOwner, InterceptFrame, InterceptHandler } from './intercept.ts';
 
 type AsyncContextStore = {
   connectionId?: string;
@@ -36,7 +36,15 @@ function getCtx(): Record<PropertyKey, unknown> {
 }
 
 function makeFrame(event: string, payload: unknown): InterceptFrame {
-  return { event, payload, kind: 'incoming', routing: {} };
+  return { event, payload, kind: 'incoming', routing: {}, owner: { kind: 'app' } };
+}
+
+function ownedIntercept(id: string, observesHost: boolean, handler: InterceptHandler) {
+  return {
+    ...intercept(handler),
+    __owner: { kind: 'plugin' as const, id },
+    __observesHost: observesHost,
+  };
 }
 
 function makeRuntime() {
@@ -202,6 +210,7 @@ describe('intercept/runtime', () => {
       payload: { v: 1 },
       kind: 'request',
       routing: { correlationId: 'abc-123' },
+      owner: { kind: 'app' },
     };
     const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
@@ -216,6 +225,125 @@ describe('intercept/runtime', () => {
     expect(seen[1]?.routing.correlationId).toBe('abc-123');
     expect(next.kind).toBe('request');
     expect(next.routing.correlationId).toBe('abc-123');
+  });
+
+  it('exposes frame.owner to the handler and preserves it across a payload rewrite', async () => {
+    const connection = createConnection();
+    const seen: InterceptFrame[] = [];
+
+    const recorder = intercept((_ctx, frame) => {
+      seen.push(frame);
+      return { rewritten: true };
+    });
+    const second = intercept((_ctx, frame) => {
+      seen.push(frame);
+    });
+
+    const start: InterceptFrame = {
+      event: 'chat',
+      payload: { v: 1 },
+      kind: 'incoming',
+      routing: {},
+      owner: { kind: 'app' },
+    };
+    const next = await runIntercepts(makeRuntime(), connection, {
+      intercepts: [recorder, second],
+      frame: start,
+      getCtx,
+    });
+
+    expect(seen[0]?.owner).toEqual({ kind: 'app' });
+    // Owner survives even though the first intercept rewrote the payload.
+    expect(seen[1]?.owner).toEqual({ kind: 'app' });
+    expect(seen[1]?.payload).toEqual({ rewritten: true });
+    expect(next.owner).toEqual({ kind: 'app' });
+  });
+
+  it('runs an app intercept for an app frame and for a plugin frame', async () => {
+    const connection = createConnection();
+    const seen: string[] = [];
+    const appHook = intercept((_ctx, frame) => {
+      seen.push(frame.event);
+    });
+
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [appHook],
+      frame: makeFrame('chat', {}),
+      getCtx,
+    });
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [appHook],
+      frame: { ...makeFrame('__a:p::beat', {}), owner: { kind: 'plugin', id: 'a:p' } },
+      getCtx,
+    });
+
+    // The app sees both frames; the plugin frame keeps its wire name for the app.
+    expect(seen).toEqual(['chat', '__a:p::beat']);
+  });
+
+  it('runs a plugin intercept for its own frame (short name) but NOT for an app frame', async () => {
+    const connection = createConnection();
+    const seen: string[] = [];
+    const hook = ownedIntercept('a:p', false, (_ctx, frame) => {
+      seen.push(frame.event);
+    });
+
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [hook],
+      frame: { ...makeFrame('__a:p::beat', {}), owner: { kind: 'plugin', id: 'a:p' } },
+      getCtx,
+    });
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [hook],
+      frame: makeFrame('chat', {}),
+      getCtx,
+    });
+
+    // Only its own frame fired, presented with the SHORT declared name.
+    expect(seen).toEqual(['beat']);
+  });
+
+  it('does NOT run a plugin intercept for a sibling plugin frame', async () => {
+    const connection = createConnection();
+    let fired = false;
+    const hook = ownedIntercept('a:p', true, () => {
+      fired = true;
+    });
+
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [hook],
+      frame: { ...makeFrame('__b:q::beat', {}), owner: { kind: 'plugin', id: 'b:q' } },
+      getCtx,
+    });
+
+    // Sibling isolation holds even with host observation granted.
+    expect(fired).toBe(false);
+  });
+
+  it('runs a host-observing plugin intercept for an app frame, with frame.owner = app', async () => {
+    const connection = createConnection();
+    const owners: FrameOwner[] = [];
+    const events: string[] = [];
+    const hook = ownedIntercept('a:p', true, (_ctx, frame) => {
+      owners.push(frame.owner);
+      events.push(frame.event);
+    });
+
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [hook],
+      frame: makeFrame('chat', {}),
+      getCtx,
+    });
+    await runIntercepts(makeRuntime(), connection, {
+      intercepts: [hook],
+      frame: { ...makeFrame('__a:p::beat', {}), owner: { kind: 'plugin', id: 'a:p' } },
+      getCtx,
+    });
+
+    // The app frame keeps its name and app owner; its own frame is short + plugin owner.
+    expect(events).toEqual(['chat', 'beat']);
+    expect(owners[0]).toEqual({ kind: 'app' });
+    expect(owners[1]).toEqual({ kind: 'plugin', id: 'a:p' });
   });
 
   it('runs the scoped callback inside the connection async context, auto-scoped on throw', async () => {

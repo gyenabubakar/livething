@@ -18,6 +18,7 @@ import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
+import { frameOwner } from '~/plugin-scope.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
 import * as v from 'valibot';
@@ -264,7 +265,7 @@ interface HandleDispatchErrorOptions {
  * Main inbound event dispatcher.
  *
  * Runs plugin hooks, intercepts, validation, incoming handlers, requests, and
- * streams in the order described by the server spec.
+ * streams in that fixed order.
  */
 export async function dispatchIncoming(
   runtime: DispatchRuntime,
@@ -341,12 +342,6 @@ export async function dispatchIncoming(
         const next = hook(message);
         if (next !== undefined) message = { event: message.event, payload: next };
       }
-
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (!pluginRuntime.onIncoming) continue;
-        const next = pluginRuntime.onIncoming(message);
-        if (next !== undefined) message = { event: message.event, payload: next };
-      }
     }
 
     if (attempt === 0) {
@@ -360,6 +355,7 @@ export async function dispatchIncoming(
         payload: message.payload,
         kind: interceptKind,
         routing: interceptRouting,
+        owner: frameOwner(event),
       };
       frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
         intercepts: runtime.compiled.intercepts,
@@ -965,6 +961,7 @@ export async function processTextMessage(
             payload: frame.payload,
             kind: 'nudge',
             routing: buildInterceptRouting(wskit),
+            owner: frameOwner(event),
           };
           nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
             intercepts: topIntercepts,

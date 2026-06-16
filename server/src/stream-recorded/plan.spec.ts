@@ -1,89 +1,69 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
-import { implement } from '~/_api/implement.ts';
-import { channel } from '~/channel/definition.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-import { recordedStream } from './definition.ts';
+import { recordedStream } from './capability.ts';
+import { compileRecordedStreamDef } from './compile.ts';
+import { recordedStream as recordedStreamDef } from './definition.ts';
 
 describe('recordedStream build-time validation', () => {
   it('throws when recordedStream is declared without persistence: true', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        recordedStream('tokens', {
-          payload: v.object({}),
-          chunk: v.object({ token: v.string() }),
-        }),
-      ],
+    const base = define({ env: t<Record<string, unknown>>(), capabilities: [recordedStream()] });
+    const handle = base.recordedStream('tokens', {
+      input: v.object({}),
+      chunk: v.object({ token: v.string() }),
+      async *run() {
+        yield { token: 'hi' };
+      },
     });
-    expect(() =>
-      implement(c)
-        .recordedStream('tokens', async function* () {
-          yield { token: 'hi' };
-        })
-        .build(),
-    ).toThrow(/persistence: true/);
+    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
   });
 
   it('builds when declared inside a channel', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        channel('rooms', {
-          definitions: [
-            recordedStream('tokens', {
-              payload: v.object({}),
-              chunk: v.object({ token: v.string() }),
-            }),
-          ],
-        }),
-      ],
+      capabilities: [persistence(), channels(), recordedStream()],
     });
-    expect(() =>
-      implement(c)
-        .channel('rooms', (ch) =>
-          ch.recordedStream('tokens', async function* () {
-            yield { token: 'hi' };
-          }),
-        )
-        .build(),
-    ).not.toThrow();
+    const rooms = base.channel('rooms');
+    const handle = rooms.recordedStream('tokens', {
+      input: v.object({}),
+      chunk: v.object({ token: v.string() }),
+      async *run() {
+        yield { token: 'hi' };
+      },
+    });
+    expect(() => base.assemble(handle)).not.toThrow();
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        recordedStream('tokens', {
-          payload: v.object({}),
-          chunk: v.object({ token: v.string() }),
-        }),
-      ],
+      capabilities: [persistence(), recordedStream()],
     });
-    expect(() =>
-      implement(c)
-        .recordedStream('tokens', async function* () {
-          yield { token: 'hi' };
-        })
-        .build(),
-    ).not.toThrow();
+    const handle = base.recordedStream('tokens', {
+      input: v.object({}),
+      chunk: v.object({ token: v.string() }),
+      async *run() {
+        yield { token: 'hi' };
+      },
+    });
+    expect(() => base.assemble(handle)).not.toThrow();
   });
 
+  // FLAGGED: the new API has no "declaration without a handler" state — a
+  // base.recordedStream(...) call always carries its generator, so the missing-
+  // generator path in compile.ts is unreachable through define()/assemble(). The
+  // assertion is preserved by driving compileRecordedStreamDef directly with an
+  // empty handler map, the same path the capability builder feeds.
   it('throws at build when a recordedStream declaration has no handler', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        recordedStream('tokens', {
-          payload: v.object({}),
-          chunk: v.object({ token: v.string() }),
-        }),
-      ],
+    const def = recordedStreamDef('tokens', {
+      payload: v.object({}),
     });
-    expect(() => implement(c).build()).toThrow(/No generator registered for recordedStream/);
+    expect(() => compileRecordedStreamDef(def, new Map())).toThrow(
+      /No generator registered for recordedStream/,
+    );
   });
 });

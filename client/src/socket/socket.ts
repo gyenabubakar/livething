@@ -869,7 +869,7 @@ export class WSKitSocket {
 
     // A send counts as activity. In lazy mode with no active listeners the idle
     // timer is running; restart it so a send-only client isn't closed mid-stream
-    // (matches the "no recent send()" idle condition in the spec).
+    // (matches the "no recent send()" idle condition).
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
       this._startLazyIdleTimer();
     }

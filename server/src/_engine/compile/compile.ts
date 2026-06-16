@@ -93,10 +93,6 @@ function visitCompiledPrimitives(
       case 'intercept':
         compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
         continue;
-
-      case 'plugin':
-        compiled.plugins.push(primitive as EngineCompileTypes.AnyPlugin);
-        continue;
     }
 
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
@@ -149,16 +145,12 @@ export function compileHandlerDefinition(
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
   };
 
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
-  validateUniquePluginIds(compiled);
-  validateUniquePluginEventNames(compiled);
-  validatePluginDependencies(compiled, handler.__features);
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   const declaredPluginEvents = collectPluginEventNames(compiled);
@@ -167,51 +159,6 @@ export function compileHandlerDefinition(
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
-}
-
-/**
- * Refuse to boot when two mounted plugins share the same id. Plugin ids own a
- * wire prefix (`__<id>:<event>`) and the plugin's `<Plugin>.use(ctx)` API
- * lookup keys off the id. Two plugins with the same id would silently overwrite
- * each other's prefixed event ownership and make the .use() lookup ambiguous.
- */
-function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): void {
-  const seen = new Set<string>();
-  for (const plugin of compiled.plugins) {
-    if (seen.has(plugin.id)) {
-      throw new Error(
-        `[wskit] Duplicate plugin id "${plugin.id}". Each plugin id must be unique across all mounted plugins.`,
-      );
-    }
-    seen.add(plugin.id);
-  }
-}
-
-/**
- * Refuse to boot when a plugin lists a `dependencies: [...]` feature that the
- * host contract did not turn on. Without this, the plugin's `setup()` would
- * only fail later when it reached for the missing capability — often on the
- * first request, deep in the handler stack, far from the real cause.
- *
- * Checks against `features`, the set of flags read straight from the contract
- * config (`replay`, `persistence`, and so on). So a flag set to
- * `false` reads as off and a flag set to `true` reads as on, whatever handlers
- * the contract did or did not register.
- */
-function validatePluginDependencies(
-  compiled: EngineCompileTypes.CompiledServer,
-  features: ReadonlySet<string> | undefined,
-): void {
-  for (const plugin of compiled.plugins) {
-    for (const dep of plugin.dependencies) {
-      if (!features?.has(dep)) {
-        throw new Error(
-          `[wskit] Plugin "${plugin.id}" declares a dependency on "${dep}", ` +
-            `but the contract did not enable it. Add \`${dep}: true\` to the contract config.`,
-        );
-      }
-    }
-  }
 }
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
@@ -262,22 +209,6 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
     throw new Error(
       `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
     );
-  }
-}
-
-function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledServer): void {
-  const seen = new Map<string, string>();
-  for (const plugin of compiled.plugins) {
-    for (const eventName of Object.keys(plugin.outgoing)) {
-      const prefixed = `__${plugin.id}:${eventName}`;
-      const owner = seen.get(prefixed);
-      if (owner !== undefined) {
-        throw new Error(
-          `[wskit] Duplicate plugin event "${prefixed}" declared by plugins "${owner}" and "${plugin.id}".`,
-        );
-      }
-      seen.set(prefixed, plugin.id);
-    }
   }
 }
 
@@ -472,12 +403,6 @@ function validateNoCrossPrimitiveEventCollisions(
 // underscore events.
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
-
-  for (const pluginInstance of compiled.plugins) {
-    for (const eventName of Object.keys(pluginInstance.outgoing)) {
-      names.add(EngineCompileUtils.prefixedPluginEvent(pluginInstance.id, eventName));
-    }
-  }
 
   // New-model plugins contribute namespaced incoming/request/outgoing/stream
   // primitives that carry a `__plugin` provenance marker. Collecting their wire

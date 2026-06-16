@@ -136,11 +136,6 @@ export interface ContextCommonDeps {
     connection: EngineRuntimeTypes.RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
-  attachPluginApis(
-    ctx: Record<PropertyKey, unknown>,
-    connection?: EngineRuntimeTypes.RuntimeConnection,
-  ): void;
-
   /** Look up a `plugin(...)` API factory by id for the `ctx.plugin(id)` accessor. */
   getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
 
@@ -195,4 +190,4 @@ export type {
 
 export type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 
-export type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
+export type { RuntimeConnection } from '~/_engine/runtime/types.ts';

@@ -1,132 +1,103 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
-import { implement } from '~/_api/implement.ts';
-import { channel } from '~/channel/definition.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-import { resumableStream } from './definition.ts';
+import { resumableStream } from './capability.ts';
+import { compileResumableStreamDef } from './compile.ts';
+import { resumableStream as resumableStreamDef } from './definition.ts';
 
 describe('resumableStream build-time validation', () => {
   it('throws when resumableStream is declared without persistence: true', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-        }),
-      ],
+    const base = define({ env: t<Record<string, unknown>>(), capabilities: [resumableStream()] });
+    const handle = base.resumableStream('feed', {
+      input: v.object({}),
+      chunk: v.object({ idx: v.number() }),
+      async *run() {
+        yield { idx: 1 };
+      },
     });
-    expect(() =>
-      implement(c)
-        .resumableStream('feed', async function* () {
-          yield { idx: 1 };
-        })
-        .build(),
-    ).toThrow(/persistence: true/);
+    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-        }),
-      ],
+      capabilities: [persistence(), resumableStream()],
     });
-    expect(() =>
-      implement(c)
-        .resumableStream('feed', async function* () {
-          yield { idx: 1 };
-        })
-        .build(),
-    ).not.toThrow();
+    const handle = base.resumableStream('feed', {
+      input: v.object({}),
+      chunk: v.object({ idx: v.number() }),
+      async *run() {
+        yield { idx: 1 };
+      },
+    });
+    expect(() => base.assemble(handle)).not.toThrow();
   });
 
   it('builds when declared inside a channel', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        channel('rooms', {
-          definitions: [
-            resumableStream('feed', {
-              payload: v.object({}),
-              chunk: v.object({ idx: v.number() }),
-            }),
-          ],
-        }),
-      ],
+      capabilities: [persistence(), channels(), resumableStream()],
     });
-    expect(() =>
-      implement(c)
-        .channel('rooms', (ch) =>
-          ch.resumableStream('feed', async function* () {
-            yield { idx: 1 };
-          }),
-        )
-        .build(),
-    ).not.toThrow();
+    const rooms = base.channel('rooms');
+    const handle = rooms.resumableStream('feed', {
+      input: v.object({}),
+      chunk: v.object({ idx: v.number() }),
+      async *run() {
+        yield { idx: 1 };
+      },
+    });
+    expect(() => base.assemble(handle)).not.toThrow();
   });
 
+  // FLAGGED: the new API has no "declaration without a handler" state — a
+  // base.resumableStream(...) call always carries its generator, so the missing-
+  // generator path in compile.ts is unreachable through define()/assemble(). The
+  // assertion is preserved by driving compileResumableStreamDef directly with an
+  // empty handler map, the same path the capability builder feeds.
   it('throws at build when a resumableStream declaration has no handler', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-        }),
-      ],
+    const def = resumableStreamDef('feed', {
+      payload: v.object({}),
     });
-    expect(() => implement(c).build()).toThrow(/No generator registered for resumableStream/);
+    expect(() => compileResumableStreamDef(def, new Map())).toThrow(
+      /No generator registered for resumableStream/,
+    );
   });
 
   it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-          onDisconnect: 'keep-running',
-        }),
-      ],
+      capabilities: [persistence(), resumableStream()],
     });
     expect(() =>
-      implement(c)
-        .resumableStream('feed', async function* () {
+      base.resumableStream('feed', {
+        input: v.object({}),
+        chunk: v.object({ idx: v.number() }),
+        onDisconnect: 'keep-running',
+        async *run() {
           yield { idx: 1 };
-        })
-        .build(),
+        },
+      }),
     ).toThrow(/keep-running.*broadcast/);
   });
 
   it('allows keep-running on a broadcast resumableStream', () => {
-    const c = contract('app', {
+    const base = define({
       env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-          broadcast: true,
-          onDisconnect: 'keep-running',
-        }),
-      ],
+      capabilities: [persistence(), resumableStream()],
     });
-    expect(() =>
-      implement(c)
-        .resumableStream('feed', async function* () {
-          yield { idx: 1 };
-        })
-        .build(),
-    ).not.toThrow();
+    const handle = base.resumableStream('feed', {
+      input: v.object({}),
+      chunk: v.object({ idx: v.number() }),
+      broadcast: true,
+      onDisconnect: 'keep-running',
+      async *run() {
+        yield { idx: 1 };
+      },
+    });
+    expect(() => base.assemble(handle)).not.toThrow();
   });
 });

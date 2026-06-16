@@ -52,6 +52,12 @@ export interface ChannelDeps {
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
   readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
+  /**
+   * Merge a channel's own `outgoing.requests` declarations into the engine's
+   * server→client request table. Present only when `requests()` is listed, so a
+   * channel declaring `outgoing.requests` without it is a build error.
+   */
+  readonly registerServerRequests?: (decls: Record<string, any>) => void;
 }
 
 /** Compose the channel-context alias onto whatever a handler already adapts. */
@@ -105,6 +111,17 @@ export class ChannelBuilder {
     const emits = cfg.outgoing?.emits as Record<string, unknown> | undefined;
     if (emits) {
       for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
+    }
+    const serverRequests = cfg.outgoing?.requests as Record<string, unknown> | undefined;
+    if (serverRequests && Object.keys(serverRequests).length > 0) {
+      const register = deps.registerServerRequests;
+      if (!register) {
+        throw new Error(
+          `[wskit] channel '${this.__key}' declares outgoing.requests but the requests() ` +
+            'capability is not listed. Add requests() to capabilities.',
+        );
+      }
+      register(serverRequests);
     }
     if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
     if (cfg.replay !== undefined) {

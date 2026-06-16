@@ -22,7 +22,6 @@ function lifecycleRuntime(
   return {
     connectHooks: [push(trace, 'app')],
     disconnectHooks: [push(trace, 'app')],
-    pluginRuntimes: [],
     asyncContext: noopAsyncContext,
     createPluginScopedContext: (_id: string, ctx: any) => ctx,
     ...overrides,
@@ -64,7 +63,6 @@ describe('plugin onion ordering — shutdown', () => {
       connections: new Map(),
       shutdownHooks: [push(trace, 'app')],
       pluginShutdownHooks: [{ handler: push(trace, 'p1') }, { handler: push(trace, 'p2') }],
-      pluginRuntimes: [],
       createShutdownContext: () => ({}),
       cancelActiveStreamsForConnection: async () => {},
       handleConnectionClose: async () => {},

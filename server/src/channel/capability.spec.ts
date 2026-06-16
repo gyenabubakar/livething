@@ -189,6 +189,38 @@ describe('channels() capability', () => {
     );
   });
 
+  it('throws when a channel declares outgoing.requests without the requests() capability', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const escapeHatch = base as unknown as {
+      channel(name: string, config?: any): unknown;
+    };
+    expect(() =>
+      escapeHatch.channel('room', {
+        outgoing: {
+          requests: { 'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })] },
+        },
+      }),
+    ).toThrow(/declares outgoing\.requests but the requests\(\) capability is not listed/);
+  });
+
+  it('registers channel outgoing.requests with the requests() capability and gates broadcast', () => {
+    const reqCap = requests();
+    const base = define({ env: t<Env>(), capabilities: [reqCap, channels()] });
+    base.channel('room', {
+      outgoing: {
+        requests: {
+          'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })],
+          vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+        },
+      },
+    });
+    const decls = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
+      .__serverRequests;
+    expect(decls.get('confirm-kick')?.broadcast).toBe(false);
+    expect(decls.get('vol')?.broadcast).toBe(true);
+    expect(decls.get('confirm-kick')?.responseValidator).toBeDefined();
+  });
+
   it('throws when a channel stream is used without the stream() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', {});

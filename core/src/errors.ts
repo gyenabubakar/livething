@@ -171,10 +171,9 @@ function createMatchesFn<TCode extends string, TDetail>(
  * the handler never fires (or stops executing if thrown mid-handler).
  *
  * ```ts
- * implement(contract)
- *   .intercept((ctx, frame) => {
- *     if (isBanned(ctx.meta.userId)) throw Block;
- *   })
+ * base.intercept((ctx, frame) => {
+ *   if (isBanned(ctx.meta.userId)) throw Block;
+ * });
  * ```
  */
 export const Block = Object.freeze({ __wskit: 'block' as const });

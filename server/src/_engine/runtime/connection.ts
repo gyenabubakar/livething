@@ -142,7 +142,7 @@ export async function runConnectionLifecycle(
     /**
      * New-model plugin connect/disconnect hooks, in registration order. Inbound
      * (`connect`) runs these head-first before the app; outbound (`disconnect`)
-     * runs the app first, then these in reverse (LIFO) — the onion (§25). The
+     * runs the app first, then these in reverse (LIFO) — the onion. The
      * handlers are already wrapped in a plugin-scoped context.
      */
     pluginConnectHooks?: readonly {
@@ -151,16 +151,7 @@ export async function runConnectionLifecycle(
     pluginDisconnectHooks?: readonly {
       handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
     }[];
-    pluginRuntimes: readonly {
-      instance: { id: string };
-      onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-      onDisconnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-    }[];
     asyncContext: EngineAsyncContext;
-    createPluginScopedContext(
-      pluginId: string,
-      ctx: Record<PropertyKey, unknown>,
-    ): Record<PropertyKey, unknown>;
   },
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
@@ -174,13 +165,6 @@ export async function runConnectionLifecycle(
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
       }
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (pluginRuntime.onConnect) {
-          await pluginRuntime.onConnect(
-            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
-          );
-        }
-      }
     } else {
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
@@ -189,13 +173,6 @@ export async function runConnectionLifecycle(
       const disconnects = runtime.pluginDisconnectHooks ?? [];
       for (let i = disconnects.length - 1; i >= 0; i -= 1) {
         await disconnects[i]!.handler(ctx);
-      }
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (pluginRuntime.onDisconnect) {
-          await pluginRuntime.onDisconnect(
-            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
-          );
-        }
       }
     }
   });
@@ -598,7 +575,7 @@ export async function handleUpgrade(
         }>)[];
     /**
      * New-model plugin `upgrade` hooks, in registration order. Run before the
-     * app's builder hook (inbound onion, §25). Each may own `identity`, but the
+     * app's builder hook (inbound onion). Each may own `identity`, but the
      * single-owner rule below allows at most one identity source overall.
      */
     pluginUpgradeHooks?: readonly {
@@ -659,7 +636,7 @@ export async function handleUpgrade(
     // primitive hooks, then the app's builder hook last. Each result's meta is
     // shallow-merged into the running total — since the app applies last it
     // wins on key conflict; tags are concatenated (TagRef equality is by
-    // identity). At most one hook may own `identity` (§25).
+    // identity). At most one hook may own `identity`.
     let mergedMeta: Record<string, unknown> | undefined;
     let builderIdentity: string | undefined;
     let identityOwner: string | undefined;
@@ -748,10 +725,9 @@ export async function handleShutdown(
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
     /**
      * New-model plugin shutdown hooks, in registration order. Run after the
-     * app's, in reverse (LIFO) — the outbound onion (§25). Already scoped.
+     * app's, in reverse (LIFO) — the outbound onion. Already scoped.
      */
     pluginShutdownHooks?: readonly { handler: (ctx: unknown) => void | Promise<void> }[];
-    pluginRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
@@ -789,17 +765,6 @@ export async function handleShutdown(
   for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
     try {
       await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
-    } catch (error) {
-      runtime.logger?.error('[wskit] plugin shutdown hook threw', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  for (const pluginRuntime of runtime.pluginRuntimes) {
-    if (!pluginRuntime.onShutdown) continue;
-    try {
-      await pluginRuntime.onShutdown();
     } catch (error) {
       runtime.logger?.error('[wskit] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),

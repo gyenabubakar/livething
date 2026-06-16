@@ -81,6 +81,14 @@ export interface RequestsCapability<
   readonly __buildRequest: (event: string, config: RequestBuildConfig) => Primitive;
   /** Resolved server→client request declarations, keyed by event. @internal */
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
+  /**
+   * Merge a channel's own `outgoing.requests` declarations into the engine's
+   * server→client request table, so `ctx.channel.request` /
+   * `ctx.channel.broadcastRequest` validate responses and gate the broadcast
+   * flag the same way top-level decls do. The channels capability borrows this
+   * seam so it never imports the request engine. @internal
+   */
+  readonly __registerServerRequests: (decls: Record<string, ServerRequestDecl>) => void;
 }
 
 /** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
@@ -150,8 +158,14 @@ export const requests = withCapabilityKind(function requests<
   const writable = cap as {
     __buildRequest: RequestsCapability['__buildRequest'];
     __serverRequests: RequestsCapability['__serverRequests'];
+    __registerServerRequests: RequestsCapability['__registerServerRequests'];
   };
   writable.__serverRequests = serverRequests;
+  writable.__registerServerRequests = (channelDecls) => {
+    for (const [event, decl] of Object.entries(channelDecls)) {
+      serverRequests.set(event, resolveServerRequest(decl));
+    }
+  };
   writable.__buildRequest = (event, config) => {
     const run = config.run;
     return requestFactory(

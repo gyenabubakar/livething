@@ -1,6 +1,6 @@
 import { define, t } from '@wskit/server';
-import { requests } from '@wskit/server/requests';
 import { channels } from '@wskit/server/channels';
+import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';

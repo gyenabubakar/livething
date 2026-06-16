@@ -1,20 +1,20 @@
 import type { InferClient } from '@wskit/server';
 import { base } from './contract.ts';
 import {
-  handleChat,
-  handleBang,
   handleBadPayload,
-  handleCheckInit,
+  handleBang,
+  handleChat,
   handleCheckDisconnectLog,
+  handleCheckInit,
   handleCheckScheduled,
-  handleStartTick,
   handleEmitReplayMarker,
-  handleLookup,
   handleFeed,
+  handleLookup,
   handlePaginate,
-  handleTokens,
-  handleTick,
   handleRoomSendMsg,
+  handleStartTick,
+  handleTick,
+  handleTokens,
 } from './group.ts';
 
 export const groupFullSurfaceHandler = base.assemble(

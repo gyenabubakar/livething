@@ -1,11 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { ack } from '~/ack/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
 import { persistence } from '~/persistence/capability.ts';
+import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
@@ -15,6 +17,16 @@ import { plugin } from './plugin.ts';
 
 interface Env {
   SECRET: string;
+}
+
+/** Pull a plugin's namespaced incoming handler out of its built primitives. */
+function incomingHandler(
+  primitives: readonly any[],
+  wireEvent: string,
+): (ctx: any, payload: any) => any {
+  const found = primitives.find((p) => p.__wskit === 'incoming' && p.event === wireEvent);
+  if (!found) throw new Error(`no incoming primitive for ${wireEvent}`);
+  return found.handler;
 }
 
 describe('plugin namespacing — streams', () => {
@@ -28,7 +40,7 @@ describe('plugin namespacing — streams', () => {
       },
     });
     const Plug = plugin('acme:ticker', { handler: h.assemble(ticker) });
-    const base = define({ env: t<Env>(), capabilities: [Plug] });
+    const base = define({ env: t<Env>(), capabilities: [Plug()] });
     const compiled = compileHandlerDefinition(base.assemble());
     expect(compiled.streams.has('__acme:ticker::ticks')).toBe(true);
     const gen = compiled.streams.get('__acme:ticker::ticks')!;
@@ -42,7 +54,7 @@ describe('plugin namespacing — channels', () => {
     const room = h.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
     const onSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
     const Plug = plugin('acme:room', { handler: h.assemble(onSay) });
-    const base = define({ env: t<Env>(), capabilities: [Plug] });
+    const base = define({ env: t<Env>(), capabilities: [Plug()] });
     const compiled = compileHandlerDefinition(base.assemble());
     expect(compiled.channels.has('__acme:room::room')).toBe(true);
     const ch = compiled.channels.get('__acme:room::room')!;
@@ -56,7 +68,7 @@ describe('plugin namespacing — scheduled', () => {
     const h = define({ scoped: true, capabilities: [scheduled({ sweep: { every: 1000 } })] });
     const sweep = h.scheduled('sweep', { run() {} });
     const Plug = plugin('acme:presence', { handler: h.assemble(sweep) });
-    const base = define({ env: t<Env>(), capabilities: [Plug] });
+    const base = define({ env: t<Env>(), capabilities: [Plug()] });
     const compiled = compileHandlerDefinition(base.assemble());
     expect(compiled.scheduled.has('__acme:presence::sweep')).toBe(true);
   });
@@ -73,7 +85,7 @@ describe('plugin namespacing — scheduled', () => {
         ctx.schedule('sweep', { time: 0 });
       },
     });
-    const { __primitives } = plugin('acme:presence', { handler: h.assemble(trigger, sweep) });
+    const { __primitives } = plugin('acme:presence', { handler: h.assemble(trigger, sweep) })();
     const incoming = __primitives.find(
       (p: any) => p.__wskit === 'incoming' && p.event === '__acme:presence::go',
     ) as any;
@@ -98,7 +110,7 @@ describe('plugin namespacing — tags', () => {
         ctx.tags.ephemeral('role').add('admin');
       },
     });
-    const Plug = plugin('acme:roles', { handler: h.assemble(handler) });
+    const Plug = plugin('acme:roles', { handler: h.assemble(handler) })();
     const base = define({ env: t<Env>(), capabilities: [Plug] });
     // Compiles without tripping the identifier guard on the namespaced group.
     expect(() => compileHandlerDefinition(base.assemble())).not.toThrow();
@@ -119,7 +131,7 @@ describe('plugin namespacing — errors', () => {
     const Denied = error('denied', v.object({ why: v.string() }));
     const h = define({ scoped: true, capabilities: [emits({ done: t<{}>() }), errors([Denied])] });
     const handler = h.on('go', { input: v.object({}), run() {} });
-    const Plug = plugin('acme:auth', { handler: h.assemble(handler) });
+    const Plug = plugin('acme:auth', { handler: h.assemble(handler) })();
     const errorsPrimitive = Plug.__primitives.find((p: any) => p.__wskit === 'errors') as any;
     expect(errorsPrimitive.defs.map((d: any) => d.code)).toContain('__acme:auth::denied');
 
@@ -137,7 +149,165 @@ describe('plugin namespacing — durable kinds need persistence on the host', ()
     const room = h.channel('room');
     room.on('say', { input: v.object({}), run() {} });
     const Plug = plugin('acme:room', { handler: h.assemble(room) });
-    const base = define({ env: t<Env>(), capabilities: [persistence(), Plug] });
+    const base = define({ env: t<Env>(), capabilities: [persistence(), Plug()] });
     expect(() => compileHandlerDefinition(base.assemble())).not.toThrow();
+  });
+});
+
+describe('plugin namespacing — server→client requests', () => {
+  it('prefixes ctx.request / ctx.broadcastRequest / ctx.sendWithAck event names', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [
+        emits({ done: t<{}>() }),
+        requests({
+          confirm: [t<{ q: string }>(), v.object({ ok: v.boolean() })],
+          poll: [t<{}>(), v.object({ v: v.number() })],
+        }),
+      ],
+    });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx: any) {
+        ctx.request('confirm', { q: 'sure?' });
+        ctx.broadcastRequest('poll', {});
+        ctx.sendWithAck('done', {});
+      },
+    });
+    const { __primitives } = plugin('acme:ask', { handler: h.assemble(trigger) })();
+    const handler = incomingHandler(__primitives, '__acme:ask::go');
+
+    const request = vi.fn();
+    const broadcastRequest = vi.fn();
+    const sendWithAck = vi.fn();
+    handler({ id: 'c1', request, broadcastRequest, sendWithAck }, {});
+
+    expect(request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'sure?' });
+    expect(broadcastRequest).toHaveBeenCalledWith('__acme:ask::poll', {});
+    expect(sendWithAck).toHaveBeenCalledWith('__acme:ask::done', {});
+  });
+
+  it('prefixes ctx.connection(ref).request / .sendWithAck event names', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [
+        emits({ done: t<{}>() }),
+        requests({ confirm: [t<{ q: string }>(), v.object({ ok: v.boolean() })] }),
+      ],
+    });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx: any) {
+        ctx.connection(ctx.self).request('confirm', { q: 'sure?' });
+        ctx.connection(ctx.self).sendWithAck('done', {});
+        ctx.connection(ctx.self).send('done', {});
+      },
+    });
+    const { __primitives } = plugin('acme:ask', { handler: h.assemble(trigger) })();
+    const handler = incomingHandler(__primitives, '__acme:ask::go');
+
+    const request = vi.fn();
+    const sendWithAck = vi.fn();
+    const send = vi.fn();
+    const connection = vi.fn(() => ({ request, sendWithAck, send }));
+    handler({ id: 'c1', self: { id: 'c1' }, connection }, {});
+
+    expect(request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'sure?' });
+    expect(sendWithAck).toHaveBeenCalledWith('__acme:ask::done', {});
+    expect(send).toHaveBeenCalledWith('__acme:ask::done', {});
+  });
+});
+
+describe('plugin namespacing — kv keys', () => {
+  it('namespaces ctx.kv get / set / delete keys and the list prefix', async () => {
+    const h = define({ scoped: true, capabilities: [emits({ done: t<{}>() })] });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      async run(ctx: any) {
+        await ctx.kv.set('count', 1);
+        await ctx.kv.get('count');
+        await ctx.kv.delete('count');
+        await ctx.kv.list('c');
+        await ctx.kv.list();
+      },
+    });
+    const { __primitives } = plugin('acme:store', { handler: h.assemble(trigger) })();
+    const handler = incomingHandler(__primitives, '__acme:store::go');
+
+    const set = vi.fn(async () => {});
+    const get = vi.fn(async () => undefined);
+    const del = vi.fn(async () => {});
+    const list = vi.fn(async () => []);
+    await handler({ id: 'c1', kv: { set, get, delete: del, list } }, {});
+
+    expect(set).toHaveBeenCalledWith('__acme:store::count', 1);
+    expect(get).toHaveBeenCalledWith('__acme:store::count');
+    expect(del).toHaveBeenCalledWith('__acme:store::count');
+    expect(list).toHaveBeenNthCalledWith(1, '__acme:store::c');
+    // A bare list() scopes to the plugin's whole namespace.
+    expect(list).toHaveBeenNthCalledWith(2, '__acme:store::');
+  });
+});
+
+describe('plugin namespacing — channel runtime sends', () => {
+  it('prefixes ctx.channel.send / broadcast event names from a plugin channel handler', () => {
+    const h = define({ scoped: true, capabilities: [channels()] });
+    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    room.on('say', {
+      input: v.object({}),
+      run(ctx: any) {
+        ctx.channel.send('roster', { who: 'a' });
+        ctx.channel.broadcast('roster', { who: 'b' });
+      },
+    });
+    const { __primitives } = plugin('acme:room', { handler: h.assemble(room) })();
+    const channelPrim = __primitives.find((p: any) => p.__wskit === 'channel') as any;
+    const child = channelPrim.primitives.find(
+      (p: any) => p.__wskit === 'incoming' && p.event === '__acme:room::say',
+    ) as any;
+
+    const send = vi.fn();
+    const broadcast = vi.fn();
+    child.handler({ id: 'c1', channel: { send, broadcast } }, {});
+
+    expect(send).toHaveBeenCalledWith('__acme:room::roster', { who: 'a' });
+    expect(broadcast).toHaveBeenCalledWith('__acme:room::roster', { who: 'b' });
+  });
+});
+
+describe('plugin namespacing — app ctx is untouched', () => {
+  it('does not prefix events / kv keys for a non-plugin app handler', async () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [
+        emits({ done: t<{}>() }),
+        ack(),
+        requests({ confirm: [t<{}>(), v.object({ ok: v.boolean() })] }),
+      ],
+    });
+    const send = vi.fn();
+    const request = vi.fn();
+    const sendWithAck = vi.fn();
+    const kvSet = vi.fn(async () => {});
+
+    const trigger = base.on('go', {
+      input: v.object({}),
+      async run(ctx: any) {
+        ctx.send('done', {});
+        ctx.request('confirm', {});
+        ctx.sendWithAck('done', {});
+        await ctx.kv.set('count', 1);
+      },
+    });
+    const incoming = base
+      .assemble(trigger)
+      .primitives.find((p: any) => p.__wskit === 'incoming' && p.event === 'go') as any;
+
+    await incoming.handler({ id: 'c1', send, request, sendWithAck, kv: { set: kvSet } }, {});
+
+    expect(send).toHaveBeenCalledWith('done', {});
+    expect(request).toHaveBeenCalledWith('confirm', {});
+    expect(sendWithAck).toHaveBeenCalledWith('done', {});
+    expect(kvSet).toHaveBeenCalledWith('count', 1);
   });
 });

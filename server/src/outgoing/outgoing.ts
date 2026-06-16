@@ -20,10 +20,9 @@ export interface OutgoingPrimitive<
 const OUTGOING_KEY = Symbol('outgoing');
 
 /**
- * Internal primitive factory. The user-facing `outgoing()` for declaring an
- * outgoing event in a contract lives at `~/outgoing/definition.ts`. This
- * factory is called by the implementer's compile step to produce the
- * engine-side primitive from a contract's `outgoing(...)` declaration.
+ * Internal primitive factory. The user-facing surface for declaring an outgoing
+ * event is the `emits({...})` capability. This factory is called by the compile
+ * step to produce the engine-side primitive from each declared emit.
  *
  * @param event The event name exactly as the client will receive it.
  */

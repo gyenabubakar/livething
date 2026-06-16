@@ -10,19 +10,19 @@ import type { Primitive } from '~/primitive.ts';
  * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
  * etc.) also consume it so the handler and its adapter agree on one contract.
  *
- * **The naming is client-oriented, which flips against the contract config.**
+ * **The naming is client-oriented, which flips against how you author the server.**
  * The table below is the one thing most readers get wrong:
  *
- * | Contract definition         | ServerContract field | Meaning for the client    |
+ * | Server authoring            | ServerContract field | Meaning for the client    |
  * | --------------------------- | -------------------- | ------------------------- |
- * | `outgoing('msg', …)`        | `incoming`           | events the client receives|
- * | `incoming('msg', …)`        | `outgoing`           | events the client sends   |
- * | `request('r', …)`           | `requests`           | req/response pairs        |
- * | `stream('s', …)`            | `streams`            | server-sent streams       |
- * | `resumableStream('s', …)`   | `streams`            | server-sent streams       |
- * | `recordedStream('s', …)`    | `streams`            | server-sent streams       |
- * | `errors: [...]`             | `errors`             | typed server errors       |
- * | `channel('x', …)`           | `channels`           | per-channel sub-contracts |
+ * | `emits({ 'msg': … })`       | `incoming`           | events the client receives|
+ * | `base.on('msg', …)`         | `outgoing`           | events the client sends   |
+ * | `base.request('r', …)`      | `requests`           | req/response pairs        |
+ * | `base.stream('s', …)`       | `streams`            | server-sent streams       |
+ * | `base.resumableStream('s', …)` | `streams`         | server-sent streams       |
+ * | `base.recordedStream('s', …)`  | `streams`         | server-sent streams       |
+ * | `errors([...])`             | `errors`             | typed server errors       |
+ * | `base.channel('x', …)`      | `channels`           | per-channel sub-contracts |
  *
  * `resumableStream` and `recordedStream` collapse into the same client
  * `streams` slot as plain `stream` — the durability mechanism is a server
@@ -30,12 +30,14 @@ import type { Primitive } from '~/primitive.ts';
  *
  * @example
  * ```ts
- * import { contract, incoming, outgoing, implement } from '@wskit/server';
+ * import { define, emits, t } from '@wskit/server';
  *
- * const chatContract = contract('chat', { env: t<Env>(),
- *   definitions: [outgoing('message', Message), incoming('send', Send)],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [emits({ message: Message })],
  * });
- * const chat = implement(chatContract).on('send', ...).build();
+ * const handleSend = base.on('send', { input: Send, run() {} });
+ * const chat = base.assemble(handleSend);
  *
  * type ChatClient = InferClient<typeof chat>;
  * // ChatClient.incoming.message   ← server-sent events
@@ -43,13 +45,13 @@ import type { Primitive } from '~/primitive.ts';
  * ```
  */
 export interface ServerContract {
-  /** Events the **client** receives — declared on the server with `outgoing(...)`. */
+  /** Events the **client** receives — declared on the server with `emits({...})`. */
   readonly incoming: Record<string, any>;
 
-  /** Events the **client** sends — declared on the server with `incoming(...)`. */
+  /** Events the **client** sends — declared on the server with `base.on(...)`. */
   readonly outgoing: Record<string, any>;
 
-  /** Request/response pairs the client can invoke (declared with `request(...)`). */
+  /** Request/response pairs the client can invoke (declared with `base.request(...)`). */
   readonly requests: Record<string, any>;
 
   /**
@@ -74,17 +76,22 @@ export interface ServerContract {
   /** Per-channel sub-contracts. Each entry mirrors this shape for one channel. */
   readonly channels: Record<string, any>;
 
-  /** Per-plugin contract slices, surfaced on `InferClient.plugins[id]`. */
+  /**
+   * Per-plugin contract slices. Each carries the plugin's scoped contract and
+   * `api` type. The contract feeds `InferClient`, which folds every plugin event
+   * into the top-level client maps under its `__<id>::` wire name; the `api`
+   * feeds the server ctx's `ctx.plugin(id)`.
+   */
   readonly plugins?: Record<string, any>;
 }
 
 /**
  * The finalized blueprint for a WSKit server.
  *
- * You get a `ServerDefinition` by calling `.build()` at the end of an
- * `implement(contract)` chain. It is an immutable, frozen object that holds
- * all registered primitives plus the contract type that `InferClient` uses to
- * generate the client-side API.
+ * You get a `ServerDefinition` by calling `base.assemble(...)` with your
+ * handlers. It is an immutable, frozen object that holds all registered
+ * primitives plus the contract type that `InferClient` uses to generate the
+ * client-side API.
  *
  * Pass a `ServerDefinition` directly to your platform adapter:
  *
@@ -102,9 +109,19 @@ export interface ServerContract {
 export interface ServerDefinition<
   TPrimitives extends readonly Primitive[] = readonly Primitive[],
   TContract extends ServerContract = ServerContract,
+  TScopedCtx = unknown,
 > {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
+  /**
+   * Type-only field — never set at runtime.
+   *
+   * A scoped handler (`define({ scoped: true })`) brands its assembled
+   * definition with the `ctx` type its own handlers receive. `plugin(...)`
+   * reads this to type the `api` callback's `ctx` to the plugin's own scoped
+   * surface. Absent (`unknown`) on app servers.
+   */
+  readonly __scopedCtx?: TScopedCtx;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
   /**

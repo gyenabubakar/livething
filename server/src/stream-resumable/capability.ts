@@ -1,6 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
+import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
+import { scheduled as scheduledFactory } from '~/scheduled/scheduled.ts';
 import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
 import { resumableStream as resumableStreamDef } from '~/stream-resumable/definition.ts';
 import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
@@ -11,6 +14,17 @@ import type { Primitive } from '~/primitive.ts';
 export interface ResumableStreamCapability extends Capability<{}, never, 'resumableStream'> {
   /** Build a resumable-stream primitive from a `base.resumableStream(...)` config. @internal */
   readonly __streamBuild: { kind: 'resumable'; build: (event: string, config: any) => Primitive };
+  /** Build the recurring durable-stream retention sweep primitive. @internal */
+  readonly __durableSweep: () => Primitive;
+}
+
+function buildDurableSweep(): Primitive {
+  return scheduledFactory('__wskit:stream-durable-sweep', (b) =>
+    b.every(60_000).run((ctx: { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] }) => {
+      ensureDurableStreamSchema(ctx.sql);
+      sweepDurableStreams({ sql: ctx.sql });
+    }),
+  );
 }
 
 /**
@@ -67,6 +81,8 @@ export const resumableStream = withCapabilityKind(
         return compileResumableStreamDef(def, handlers);
       },
     };
+    (cap as { __durableSweep: ResumableStreamCapability['__durableSweep'] }).__durableSweep =
+      buildDurableSweep;
     return stampKind(cap, CAPABILITY_KIND.resumableStream);
   },
   CAPABILITY_KIND.resumableStream,

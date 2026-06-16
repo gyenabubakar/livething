@@ -26,7 +26,6 @@ import type * as DefineServer from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 type ActiveStream = EngineRuntimeTypes.ActiveStream;
 type Primitive = PrimitiveCore.Primitive;
 
@@ -134,7 +133,6 @@ export class EngineCore {
   readonly scheduledRunsPersisted = new Map<string, string>();
   readonly scheduledDlqPersisted = new Map<string, string>();
   readonly installedFeatures = new Set<symbol>();
-  readonly pluginRuntimes: PluginRuntime[] = [];
 
   alarmHandle: unknown = null;
   idCounter = 0;

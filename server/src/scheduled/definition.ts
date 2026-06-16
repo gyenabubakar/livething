@@ -2,9 +2,9 @@
 import type { Validator } from '~/types.ts';
 
 /**
- * Contract-side declaration of a scheduled task. Produced by `scheduled()`;
- * the matching body is attached later via
- * `implement(contract).scheduled(id, (ctx, data) => { ... })`.
+ * Contract-side declaration of a scheduled task. Produced by the `scheduled({...})`
+ * capability; the matching body is bound via
+ * `base.scheduled(id, { run(ctx, data) { ... } })`.
  */
 export interface ScheduledDef<TId extends string = string, TData = unknown> {
   readonly _: 'scheduled';
@@ -16,7 +16,7 @@ export interface ScheduledDef<TId extends string = string, TData = unknown> {
 
 /**
  * Declare a scheduled task. Bind its body via
- * `implement(contract).scheduled(id, (ctx, data) => { ... })`.
+ * `base.scheduled(id, { run(ctx, data) { ... } })`.
  */
 export function scheduled<TId extends string, TData = unknown>(
   id: TId,

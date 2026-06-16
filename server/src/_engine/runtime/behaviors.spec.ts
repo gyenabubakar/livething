@@ -41,7 +41,6 @@ function baseCompiled() {
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set(),
   };
@@ -53,7 +52,6 @@ function baseDispatchRuntime(
   return {
     compiled: baseCompiled() as any,
     connections: new Map(),
-    pluginRuntimes: [],
     activeStreams: new Map(),
     protocolHandlers: new Map(),
     incomingHooks: [],
@@ -647,7 +645,6 @@ describe('onAfterSend async rejection', () => {
           ...baseCompiled(),
           outgoing: new Map([['tick', { event: 'tick' }]]),
         } as any,
-        pluginRuntimes: [],
         outgoingHooks: [],
         beforeSendHooks: [],
         wskitStampHooks: [],

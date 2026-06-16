@@ -1,12 +1,13 @@
-import { contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { define, emits, t } from '@wskit/server';
+import { observeHost } from '@wskit/server/plugin';
+import { stream } from '@wskit/server/streams';
+import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { Drizzle } from './drizzle-plugin.ts';
 import {
   DeleteRecord,
   DisconnectCount,
-  ErrorResult,
   GeneratedId,
   GetAllRecords,
   GetDisconnectCount,
@@ -21,27 +22,14 @@ import {
   LastState,
   MessageCount,
   OutgoingCount,
-  PluginDlqResult,
-  PluginEveryTick,
-  PluginFlakyResult,
   PluginRewriteProbe,
   PluginRewriteResult,
-  PluginTaskDataResult,
   RecordCount,
   RecordDeleted,
   RecordInserted,
   RecordList,
   ShutdownCount,
   SingleRecord,
-  TriggerPluginAlwaysFail,
-  TriggerPluginDenied,
-  TriggerPluginError,
-  TriggerPluginEvery,
-  TriggerPluginFlaky,
-  TriggerPluginQueryDlq,
-  TriggerPluginTaskWithData,
-  TriggerVacuum,
-  VacuumDone,
 } from './events.ts';
 
 const StreamConnectionIdPayload = v.object({ count: v.number() });
@@ -50,170 +38,135 @@ const StreamConnectionIdChunk = v.object({ id: v.string() });
 const StreamThrowOnCancelPayload = v.object({});
 const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
-export const pluginsContract = contract('plugins-test', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  plugins: [Drizzle({ migrate: true })],
-  definitions: [
-    incoming('insert-record', InsertRecord),
-    incoming('get-all-records', GetAllRecords),
-    incoming('get-record', GetRecord),
-    incoming('delete-record', DeleteRecord),
-    incoming('get-record-count', GetRecordCount),
-    incoming('get-message-count', GetMessageCount),
-    incoming('trigger-vacuum', TriggerVacuum),
-    incoming('get-outgoing-count', GetOutgoingCount),
-    incoming('get-disconnect-count', GetDisconnectCount),
-    incoming('get-generated-id', GetGeneratedId),
-    incoming('get-last-state', GetLastState),
-    incoming('get-shutdown-count', GetShutdownCount),
-    incoming('plugin-rewrite-probe', PluginRewriteProbe),
-    incoming('trigger-plugin-every', TriggerPluginEvery),
-    incoming('trigger-plugin-flaky', TriggerPluginFlaky),
-    incoming('trigger-plugin-always-fail', TriggerPluginAlwaysFail),
-    incoming('trigger-plugin-query-dlq', TriggerPluginQueryDlq),
-    incoming('trigger-plugin-denied', TriggerPluginDenied),
-    incoming('trigger-plugin-error', TriggerPluginError),
-    incoming('trigger-plugin-task-with-data', TriggerPluginTaskWithData),
-
-    outgoing('record-inserted', RecordInserted),
-    outgoing('record-list', RecordList),
-    outgoing('single-record', SingleRecord),
-    outgoing('record-deleted', RecordDeleted),
-    outgoing('record-count', RecordCount),
-    outgoing('message-count', MessageCount),
-    outgoing('drizzle-vacuum-done', VacuumDone),
-    outgoing('outgoing-count', OutgoingCount),
-    outgoing('disconnect-count', DisconnectCount),
-    outgoing('generated-id', GeneratedId),
-    outgoing('last-state', LastState),
-    outgoing('shutdown-count', ShutdownCount),
-    outgoing('plugin-rewrite-result', PluginRewriteResult),
-    outgoing('plugin-every-tick', PluginEveryTick),
-    outgoing('plugin-flaky-result', PluginFlakyResult),
-    outgoing('plugin-dlq-result', PluginDlqResult),
-    outgoing('error-result', ErrorResult),
-    outgoing('plugin-task-data-result', PluginTaskDataResult),
-
-    stream('stream-connection-id', {
-      payload: StreamConnectionIdPayload,
-      chunk: StreamConnectionIdChunk,
-    }),
-    stream('stream-throw-on-cancel', {
-      payload: StreamThrowOnCancelPayload,
-      chunk: StreamThrowOnCancelChunk,
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    stream(),
+    observeHost(Drizzle()),
+    emits({
+      'record-inserted': RecordInserted,
+      'record-list': RecordList,
+      'single-record': SingleRecord,
+      'record-deleted': RecordDeleted,
+      'record-count': RecordCount,
+      'message-count': MessageCount,
+      'outgoing-count': OutgoingCount,
+      'disconnect-count': DisconnectCount,
+      'generated-id': GeneratedId,
+      'last-state': LastState,
+      'shutdown-count': ShutdownCount,
+      'plugin-rewrite-result': PluginRewriteResult,
     }),
   ],
 });
 
-export const pluginsHandler = implement(pluginsContract)
-  .onUpgrade((request) => {
-    const url = new URL(request.url);
-    const username = url.searchParams.get('username');
-    if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { identity: username, meta: { username } };
-  })
-  .onConnect((ctx) => {
-    ctx.log.info('Plugin handler: client connected', { id: ctx.id });
-  })
-  .on('insert-record', (ctx, payload) => {
-    const db = Drizzle.use(ctx);
-    const row = db.insert({ name: payload.name, value: payload.value });
+base.connect((ctx) => {
+  ctx.log.info('Plugin handler: client connected', { id: ctx.id });
+});
+
+const handleInsert = base.on('insert-record', {
+  input: InsertRecord,
+  run(ctx, payload) {
+    const row = ctx.plugin('e2e:drizzle').insert({ name: payload.name, value: payload.value });
     ctx.send('record-inserted', { id: row.id });
-  })
-  .on('get-all-records', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('record-list', { records: db.findAll() });
-  })
-  .on('get-record', (ctx, payload) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('single-record', { record: db.findById(payload.id) ?? null });
-  })
-  .on('delete-record', (ctx, payload) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('record-deleted', { success: db.deleteById(payload.id) });
-  })
-  .on('get-record-count', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('record-count', { count: db.count() });
-  })
-  .on('get-message-count', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('message-count', { count: db.getMessageCount() });
-  })
-  .on('trigger-vacuum', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-vacuum', {
-      time: Date.now() + 200,
-    });
-  })
-  .on('get-outgoing-count', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('outgoing-count', { count: db.getOutgoingCount() });
-  })
-  .on('get-disconnect-count', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('disconnect-count', { count: db.getDisconnectCount() });
-  })
-  .on('get-generated-id', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('generated-id', { value: db.getLastGeneratedId() });
-  })
-  .on('get-last-state', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('last-state', { state: db.getLastState() });
-  })
-  .on('get-shutdown-count', (ctx) => {
-    const db = Drizzle.use(ctx);
-    ctx.send('shutdown-count', { count: db.getShutdownCount() });
-  })
-  .on('plugin-rewrite-probe', (ctx, payload) => {
-    const observed = payload as unknown as { text: string; rewritten?: boolean };
-    ctx.send('plugin-rewrite-result', {
-      text: observed.text,
-      rewritten: observed.rewritten,
-    });
-  })
-  .on('trigger-plugin-every', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-every-tick', { time: Date.now() + 100 });
-  })
-  .on('trigger-plugin-flaky', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-flaky', { time: Date.now() + 100 });
-  })
-  .on('trigger-plugin-always-fail', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-module-always-fail', { time: Date.now() + 100 });
-  })
-  .on('trigger-plugin-query-dlq', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
-  })
-  .on('trigger-plugin-denied', () => {
-    throw Drizzle.errors.denied({ reason: 'test denial', op: 'insert' });
-  })
-  .on('trigger-plugin-error', (ctx) => {
-    try {
-      throw Drizzle.errors.denied({ reason: 'test denial', op: 'insert' });
-    } catch (err: unknown) {
-      const error = err as { code: string; detail?: { reason: string } };
-      const reason = error.detail?.reason ?? 'unknown';
-      ctx.send('error-result', {
-        code: error.code,
-        message: reason,
-      });
-    }
-  })
-  .on('trigger-plugin-task-with-data', (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-task-with-data', {
-      time: Date.now() + 100,
-      data: { value: 'test-data' },
-    });
-  })
-  .stream('stream-connection-id', async function* (ctx, payload) {
-    const db = Drizzle.use(ctx);
+  },
+});
+
+const handleGetAll = base.on('get-all-records', {
+  input: GetAllRecords,
+  run(ctx) {
+    ctx.send('record-list', { records: ctx.plugin('e2e:drizzle').findAll() });
+  },
+});
+
+const handleGetRecord = base.on('get-record', {
+  input: GetRecord,
+  run(ctx, payload) {
+    ctx.send('single-record', { record: ctx.plugin('e2e:drizzle').findById(payload.id) ?? null });
+  },
+});
+
+const handleDelete = base.on('delete-record', {
+  input: DeleteRecord,
+  run(ctx, payload) {
+    ctx.send('record-deleted', { success: ctx.plugin('e2e:drizzle').deleteById(payload.id) });
+  },
+});
+
+const handleCount = base.on('get-record-count', {
+  input: GetRecordCount,
+  run(ctx) {
+    ctx.send('record-count', { count: ctx.plugin('e2e:drizzle').count() });
+  },
+});
+
+const handleMessageCount = base.on('get-message-count', {
+  input: GetMessageCount,
+  run(ctx) {
+    ctx.send('message-count', { count: ctx.plugin('e2e:drizzle').getMessageCount() });
+  },
+});
+
+const handleOutgoingCount = base.on('get-outgoing-count', {
+  input: GetOutgoingCount,
+  run(ctx) {
+    ctx.send('outgoing-count', { count: ctx.plugin('e2e:drizzle').getOutgoingCount() });
+  },
+});
+
+const handleDisconnectCount = base.on('get-disconnect-count', {
+  input: GetDisconnectCount,
+  run(ctx) {
+    ctx.send('disconnect-count', { count: ctx.plugin('e2e:drizzle').getDisconnectCount() });
+  },
+});
+
+const handleGeneratedId = base.on('get-generated-id', {
+  input: GetGeneratedId,
+  run(ctx) {
+    ctx.send('generated-id', { value: ctx.plugin('e2e:drizzle').getLastGeneratedId() });
+  },
+});
+
+const handleLastState = base.on('get-last-state', {
+  input: GetLastState,
+  run(ctx) {
+    ctx.send('last-state', { state: ctx.plugin('e2e:drizzle').getLastState() });
+  },
+});
+
+const handleShutdownCount = base.on('get-shutdown-count', {
+  input: GetShutdownCount,
+  run(ctx) {
+    ctx.send('shutdown-count', { count: ctx.plugin('e2e:drizzle').getShutdownCount() });
+  },
+});
+
+const handleRewriteProbe = base.on('plugin-rewrite-probe', {
+  input: PluginRewriteProbe,
+  run(ctx, payload) {
+    const observed = payload as { text: string; rewritten?: boolean };
+    ctx.send('plugin-rewrite-result', { text: observed.text, rewritten: observed.rewritten });
+  },
+});
+
+const handleStreamConnectionId = base.stream('stream-connection-id', {
+  input: StreamConnectionIdPayload,
+  chunk: StreamConnectionIdChunk,
+  async *run(ctx, payload) {
+    const db = ctx.plugin('e2e:drizzle');
     for (let i = 0; i < payload.count; i++) {
       yield { id: db.getCurrentConnectionId() ?? '' };
       await new Promise((r) => setTimeout(r, 5));
     }
-  })
-  .stream('stream-throw-on-cancel', async function* () {
+  },
+});
+
+const handleStreamThrowOnCancel = base.stream('stream-throw-on-cancel', {
+  input: StreamThrowOnCancelPayload,
+  chunk: StreamThrowOnCancelChunk,
+  async *run() {
     try {
       let i = 0;
       while (true) {
@@ -224,7 +177,24 @@ export const pluginsHandler = implement(pluginsContract)
       // oxlint-disable-next-line no-unsafe-finally
       throw new Error('e2e: stream finally threw');
     }
-  })
-  .build();
+  },
+});
+
+export const pluginsHandler = base.assemble(
+  handleInsert,
+  handleGetAll,
+  handleGetRecord,
+  handleDelete,
+  handleCount,
+  handleMessageCount,
+  handleOutgoingCount,
+  handleDisconnectCount,
+  handleGeneratedId,
+  handleLastState,
+  handleShutdownCount,
+  handleRewriteProbe,
+  handleStreamConnectionId,
+  handleStreamThrowOnCancel,
+);
 
 export type PluginsClient = InferClient<typeof pluginsHandler>;

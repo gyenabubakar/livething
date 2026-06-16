@@ -3,6 +3,7 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
@@ -141,10 +142,15 @@ export interface EngineAccess {
   /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
+   * The handler gets the active connection's context (or `undefined` for a
+   * fan-out broadcast) and the `OutgoingFrame` (`event`, `payload`, `owner`).
    * Return a value to replace the payload, or return nothing to keep the
    * original. Same locked-event semantics as `onIncoming`.
    */
-  onOutgoing(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
+  onOutgoing(
+    handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => unknown | void,
+    owner?: InterceptPrimitive.HookOwner,
+  ): void;
 
   /**
    * Contribute `__wskit` metadata to every outgoing user frame.
@@ -487,7 +493,7 @@ export interface EngineAccess {
 
   /**
    * Register one new-model plugin lifecycle hook. Kept apart from the app's so
-   * the engine can run them in onion order (§25). Hooks land in install order,
+   * the engine can run them in onion order. Hooks land in install order,
    * which equals host capability (registration) order, so inbound kinds run the
    * list head-first and outbound kinds run it in reverse (LIFO). The handler is
    * already wrapped in a plugin-scoped context.
@@ -502,7 +508,7 @@ export interface EngineAccess {
 
   /**
    * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
-   * (inbound onion, §25); it may own `identity`, but the single-owner rule is
+   * (inbound onion); it may own `identity`, but the single-owner rule is
    * enforced at runtime.
    *
    * @internal

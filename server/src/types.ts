@@ -5,17 +5,23 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * A validator for an incoming message payload — any Standard Schema (valibot,
  * zod, arktype, or any other compliant library).
  *
- * Accepted everywhere WSKit expects validation: `incoming`, `request`,
- * `stream`, `nudge`, `check`. TypeScript infers the payload type
- * from the schema, so your handler is typed automatically.
+ * Accepted everywhere WSKit expects validation: the `input` of `base.on`,
+ * `base.request`, and `base.stream`, plus `nudges` and a channel `subscribe`
+ * schema. TypeScript infers the payload type from the schema, so your handler
+ * is typed automatically.
  *
  * ```ts
  * import * as v from 'valibot';
  *
- * incoming('send-message', v.object({ text: v.string() }));
- * request('get-user', {
- *   payload: v.object({ id: v.string() }),
- *   response: v.object({ name: v.string() }),
+ * base.on('send-message', {
+ *   input: v.object({ text: v.string() }),
+ *   run(ctx, input) { ... },
+ * });
+ * base.request('get-user', {
+ *   input: v.object({ id: v.string() }),
+ *   run(ctx, input) {
+ *     return { name: 'Ada' };
+ *   },
  * });
  * ```
  */

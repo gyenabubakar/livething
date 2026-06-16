@@ -12,7 +12,6 @@ import * as EngineContextTypes from './types.ts';
 export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 export { createTaskContext } from '~/scheduled/context.ts';
 export { buildChannelHandle } from '~/channel/context.ts';
-export { attachPluginApis, createPluginScopedContext } from '~/plugins/context.ts';
 export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
@@ -218,9 +217,6 @@ export function buildConnectionContext(
     Object.assign(base, extend(base));
   }
 
-  // Adds a hidden non-enumerable plugin API map via defineProperty. Runs
-  // last because spread can't preserve non-enumerable properties.
-  deps.attachPluginApis(base, connection);
   return base;
 }
 

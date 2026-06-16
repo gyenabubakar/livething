@@ -93,7 +93,6 @@ describe('message runtime', () => {
           ],
         ]),
       },
-      pluginRuntimes: [],
       outgoingHooks: [],
       beforeSendHooks: [],
       wskitStampHooks: [],
@@ -161,7 +160,6 @@ describe('message runtime', () => {
           ],
         ]),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -173,7 +171,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return {
@@ -261,7 +258,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -272,7 +268,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -343,7 +338,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -354,7 +348,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -417,7 +410,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -428,7 +420,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -490,7 +481,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -501,7 +491,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -590,7 +579,6 @@ describe('message runtime', () => {
         channels: new Map([['room', channel]]),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -602,7 +590,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -668,7 +655,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -679,7 +665,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -748,7 +733,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -759,7 +743,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -843,7 +826,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -858,7 +840,6 @@ describe('message runtime', () => {
       wskitStampHooks: [],
       beforeSendHooks: [],
       afterSendHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       buildConnectionContext() {
         return sharedCtx;
@@ -938,7 +919,6 @@ describe('message runtime', () => {
         ]),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -950,7 +930,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1015,7 +994,6 @@ describe('message runtime', () => {
           ],
         ]),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1026,7 +1004,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1088,7 +1065,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1099,7 +1075,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1156,7 +1131,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1167,7 +1141,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1226,7 +1199,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1234,7 +1206,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1290,7 +1261,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1298,7 +1268,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       // no `sql` → storage absent
@@ -1367,7 +1336,6 @@ function makeNudgeRuntime(
       channels,
       channelFamilies: new Map(),
       scheduled: new Map(),
-      plugins: [],
       requires: {},
       replayClaimedChannelKeys: new Set(),
     },
@@ -1375,7 +1343,6 @@ function makeNudgeRuntime(
     activeStreams,
     protocolHandlers: new Map(),
     incomingHooks: [],
-    pluginRuntimes: [],
     errorHooks: [],
     activityHooks: [],
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -1607,7 +1574,6 @@ describe('Defer retry hook isolation', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -1622,7 +1588,6 @@ describe('Defer retry hook isolation', () => {
             hookCallCount += 1;
           },
         ],
-        pluginRuntimes: [],
         errorHooks: [],
         requireTimers() {
           return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1710,7 +1675,6 @@ describe('Defer retry hook isolation', () => {
           channels: new Map([['room', channel]]),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -1722,7 +1686,6 @@ describe('Defer retry hook isolation', () => {
         activeStreams: new Map(),
         protocolHandlers: new Map(),
         incomingHooks: [],
-        pluginRuntimes: [],
         errorHooks: [
           (ctx: { id?: string; channel?: string }) => {
             capturedCtx = ctx;

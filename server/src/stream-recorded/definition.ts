@@ -38,8 +38,8 @@ interface CommonRecordedConfig {
 }
 
 /**
- * Contract-side declaration produced by `recordedStream()`. Pass it into a
- * contract's `definitions: [...]` array.
+ * Contract-side declaration produced internally when you register a stream with
+ * `base.recordedStream(...)`.
  */
 export interface RecordedStreamDef<
   TName extends string = string,
@@ -85,39 +85,39 @@ interface RecordedStreamConfig<
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`
  * and survive a resume.
  *
- * Requires `persistence: true` on the contract. Build throws otherwise.
+ * Requires the `persistence()` capability. Build throws otherwise.
  *
  * @example
  * ```ts
- * import { contract, recordedStream } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
  * import { StreamAborted } from '@wskit/server/errors';
+ * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
  * const TokenChunk = v.object({ idx: v.number() });
  *
- * const myContract = contract('ai', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     recordedStream('count-tokens', {
- *       payload: v.object({}),
- *       chunk: TokenChunk,
- *       maxChunks: 100,
- *       maxAgeMs: 60_000,
- *       retentionAfterEndMs: 30_000,
- *     }),
- *   ],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), recordedStream()],
  * });
  *
- * // In the handler:
- * implement(myContract).recordedStream('count-tokens', async function* () {
- *   for (let i = 1; i <= 5; i += 1) {
- *     try {
- *       yield { idx: i };
- *     } catch (err) {
- *       if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') return;
- *       throw err;
+ * const handleCountTokens = base.recordedStream('count-tokens', {
+ *   input: v.object({}),
+ *   chunk: TokenChunk,
+ *   maxChunks: 100,
+ *   maxAgeMs: 60_000,
+ *   retentionAfterEndMs: 30_000,
+ *   async *run() {
+ *     for (let i = 1; i <= 5; i += 1) {
+ *       try {
+ *         yield { idx: i };
+ *       } catch (err) {
+ *         if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') return;
+ *         throw err;
+ *       }
  *     }
- *   }
+ *   },
  * });
  * ```
  */

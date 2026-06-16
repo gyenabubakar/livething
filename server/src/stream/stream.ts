@@ -279,7 +279,7 @@ export function stream<
  *
  * You never call `generate()` directly. The implementer's compile step
  * (`compileStreamDef`) calls it, pairing the stream declaration with the
- * generator registered via `implement(c).stream(name, ...)`.
+ * generator registered via `base.stream(name, ...)`.
  *
  * @param streamDecl The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.

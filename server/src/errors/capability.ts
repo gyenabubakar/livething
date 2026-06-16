@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { collectUnique } from '~/_engine/compile/utils.ts';
 import { errors as errorsPrimitive } from '~/errors/primitive.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { ErrorSlot } from '~/_define/contract.ts';
@@ -33,6 +34,7 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
 export const errors = withCapabilityKind(function errors<
   const TDefs extends readonly [ErrorDef<string, any>, ...ErrorDef<string, any>[]],
 >(defs: TDefs): Capability<ErrorsSlot<TDefs>> {
+  collectUnique(defs, (def) => def.code, { kind: 'error code', context: 'errors([...])' });
   return stampKind(
     capability<ErrorsSlot<TDefs>>([errorsPrimitive(...defs)]),
     CAPABILITY_KIND.errors,

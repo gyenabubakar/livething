@@ -43,6 +43,5 @@ export function createTaskContext(
     platform: deps.platform,
   };
 
-  deps.attachPluginApis(ctx as unknown as Record<PropertyKey, unknown>, undefined);
   return ctx;
 }

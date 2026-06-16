@@ -2,8 +2,8 @@
 // imports the handler and passes it to `assemble()`, which drags the whole
 // channel in by reference. The channel's ctx is typed against the base (which
 // includes ctx.meta.username) — proving type state survives the file boundary.
-import { base } from './setup.ts';
 import { RoomMessagePayload, SendRoomMessagePayload } from './events.ts';
+import { base } from './setup.ts';
 
 const lobby = base.channel('lobby', {
   outgoing: { emits: { 'room-message': RoomMessagePayload } },

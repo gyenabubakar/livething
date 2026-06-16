@@ -4,6 +4,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ValidationTypes from '~/types.ts';
 
@@ -76,7 +77,7 @@ export interface PluginLifecycleHooks {
 
 /**
  * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
- * inbound onion (§25). It may own `identity` — but only one upgrade hook (a
+ * inbound onion. It may own `identity` — but only one upgrade hook (a
  * plugin's or the app's) may, enforced at runtime.
  */
 export interface PluginUpgradeEntry {
@@ -87,6 +88,15 @@ export interface PluginUpgradeEntry {
   ) =>
     | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
     | Promise<{ identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
+}
+
+/**
+ * One registered outgoing hook plus its owner, so the pipeline can scope it to
+ * the frames its owner is allowed to see.
+ */
+export interface OutgoingHookEntry {
+  handler: (frame: InterceptPrimitive.OutgoingFrame) => unknown | void;
+  owner: InterceptPrimitive.HookOwner;
 }
 
 /**
@@ -123,8 +133,13 @@ export interface RegisteredEngineHooks {
    */
   ackFrame: ((connectionId: string, ackId: string) => boolean)[];
 
-  /** Runs before wire serialization — can observe or rewrite the payload (event is locked). */
-  outgoing: ((message: { event: string; payload: unknown }) => unknown | void)[];
+  /**
+   * Runs before wire serialization — can observe or rewrite the payload (event
+   * is locked). Each entry carries its owner so the pipeline runs it only for
+   * the frames that owner is allowed to see (the app sees all; a plugin sees its
+   * own frames, plus the app's when granted host observation).
+   */
+  outgoing: OutgoingHookEntry[];
 
   /**
    * Contributors of `__wskit` metadata on outgoing user frames — the sequence
@@ -215,7 +230,7 @@ export interface RegisteredEngineHooks {
 
   /**
    * New-model plugin lifecycle hooks, kept apart from the app's so they run in
-   * the onion order (§25): inbound (`init`/`connect`) runs plugins → app, and
+   * the onion order: inbound (`init`/`connect`) runs plugins → app, and
    * outbound (`disconnect`/`shutdown`) runs app → plugins (LIFO). Each entry
    * carries its plugin id and a global registration index so the engine can sort
    * deterministically. Handlers are already wrapped in a plugin-scoped ctx.
@@ -226,7 +241,7 @@ export interface RegisteredEngineHooks {
    * New-model plugin `upgrade` hooks, in registration order. Run before the
    * app's builder upgrade hook; meta is shallow-merged (the app wins on key
    * conflict), tags concatenated, and at most one hook (these or the app's) may
-   * return `identity` (§25).
+   * return `identity`.
    */
   pluginUpgrade: PluginUpgradeEntry[];
 
@@ -452,30 +467,6 @@ export interface ActiveStream {
    * captures the resolved value directly; this field records it for diagnostics.
    */
   highWaterMark?: number;
-}
-
-/**
- * Runtime hooks and context factory for one installed plugin.
- *
- * Each installed plugin gets one of these records so the engine can call the
- * plugin's hooks and build its scoped helper API when needed.
- */
-export interface PluginRuntime {
-  instance: EngineCompileTypes.AnyPlugin;
-
-  onInit?: (ctx: any) => void | Promise<void>;
-
-  onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;
-
-  onOutgoing?: (message: { event: string; payload: unknown }) => unknown | void;
-
-  onConnect?: (ctx: any) => void | Promise<void>;
-
-  onDisconnect?: (ctx: any) => void | Promise<void>;
-
-  onShutdown?: () => void | Promise<void>;
-
-  contextFactory: (ctx: any) => unknown;
 }
 
 /**

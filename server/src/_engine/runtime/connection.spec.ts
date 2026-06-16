@@ -42,7 +42,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -111,7 +110,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -189,7 +187,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -257,7 +254,6 @@ describe('connection runtime', () => {
       channels: new Map(),
       channelFamilies: new Map(),
       scheduled: new Map(),
-      plugins: [],
       requires: {},
       replayClaimedChannelKeys: new Set<string>(),
     };
@@ -365,7 +361,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -438,7 +433,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -490,7 +484,6 @@ describe('connection runtime', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -552,7 +545,6 @@ describe('connection runtime', () => {
     const shutdownPromise = handleShutdown({
       connections: connections as never,
       shutdownHooks: [],
-      pluginRuntimes: [],
       createShutdownContext: () => ({}),
       async cancelActiveStreamsForConnection() {},
       async handleConnectionClose() {
@@ -599,9 +591,9 @@ describe('connection runtime', () => {
           events.push('server-shutdown');
         },
       ],
-      pluginRuntimes: [
+      pluginShutdownHooks: [
         {
-          async onShutdown() {
+          async handler() {
             events.push('plugin-shutdown');
           },
         },
@@ -667,9 +659,9 @@ describe('connection runtime', () => {
           throw new Error('boom from onShutdown');
         },
       ],
-      pluginRuntimes: [
+      pluginShutdownHooks: [
         {
-          async onShutdown() {
+          async handler() {
             throw new Error('boom from plugin onShutdown');
           },
         },
@@ -717,11 +709,7 @@ describe('connection runtime', () => {
           },
         ],
         disconnectHooks: [],
-        pluginRuntimes: [],
         asyncContext,
-        createPluginScopedContext(_id, ctx) {
-          return ctx;
-        },
       },
       'connect',
       { id: 'conn_42' },
@@ -744,11 +732,7 @@ describe('connection runtime', () => {
             },
           ],
           disconnectHooks: [],
-          pluginRuntimes: [],
           asyncContext,
-          createPluginScopedContext(_id, ctx) {
-            return ctx;
-          },
         },
         'connect',
         { id: 'conn_42' },

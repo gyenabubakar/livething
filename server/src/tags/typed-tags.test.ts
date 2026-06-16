@@ -1,28 +1,25 @@
-import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { describe, expectTypeOf, it } from 'vitest';
+import type { SlotsOf } from '~/_define/capability.ts';
+import { tags } from './capability.ts';
 
-const c = contract('tags-typing', {
-  env: t<Record<string, unknown>>(),
-  tags: (ephemeral, persistent) => [
-    ephemeral('user', t<string>()),
-    ephemeral('role', t<'admin' | 'moderator' | 'viewer'>()),
-    persistent('favourite', t<string>()),
-  ],
-  definitions: [],
-});
+const cap = tags((ephemeral, persistent) => [
+  ephemeral('user', t<string>()),
+  ephemeral('role', t<'admin' | 'moderator' | 'viewer'>()),
+  persistent('favourite', t<string>()),
+]);
 
-describe('typed tags — contract value-map derivation', () => {
+type Slots = SlotsOf<typeof cap>;
+
+describe('typed tags — capability slot derivation', () => {
   it('derives the ephemeral group→value map from the tags builder', () => {
-    expectTypeOf<(typeof c)['tagGroups']['ephemeral']>().toEqualTypeOf<{
-      user: string;
-      role: 'admin' | 'moderator' | 'viewer';
-    }>();
+    expectTypeOf<Slots['ephemeralTags']['user']>().toEqualTypeOf<string>();
+    expectTypeOf<Slots['ephemeralTags']['role']>().toEqualTypeOf<
+      'admin' | 'moderator' | 'viewer'
+    >();
   });
 
   it('derives the persistent group→value map from the tags builder', () => {
-    expectTypeOf<(typeof c)['tagGroups']['persistent']>().toEqualTypeOf<{
-      favourite: string;
-    }>();
+    expectTypeOf<Slots['persistentTags']['favourite']>().toEqualTypeOf<string>();
   });
 });

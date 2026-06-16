@@ -377,7 +377,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  *
  * `TOutgoing` is typed to the events declared inside the channel's
  * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
- * the per-connection metadata shape from your `.onUpgrade()`.
+ * the per-connection metadata shape returned by your `upgrade(...)` hook.
  */
 export interface ChannelHandle<
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
@@ -510,14 +510,14 @@ export interface ChannelsManager<
  * `ctx` argument in a connection-scoped handler.
  *
  * Most users do not need to reference this type directly. What you actually get
- * as `ctx` inside an `incoming(...)` handler is a narrowed view that only
+ * as `ctx` inside a `base.on(...)` handler is a narrowed view that only
  * exposes the fields relevant to what you registered on the builder. This
  * interface lists **everything the engine might provide**; your handler type
  * trims it down.
  *
- * `ConnectionContext` is passed to handlers registered with: `incoming`,
- * `request`, `stream`, `onConnect`, `onDisconnect`, `onError`,
- * and `onValidationError`.
+ * `ConnectionContext` is passed to handlers registered with: `base.on`,
+ * `base.request`, `base.stream`, `base.connect`, `base.disconnect`,
+ * `base.error`, and `base.validationError`.
  *
  * @template Env      Environment variables exposed by the adapter.
  * @template Meta     Per-connection metadata set in the upgrade step.
@@ -525,15 +525,18 @@ export interface ChannelsManager<
  *
  * @example
  * ```ts
- * implement(chat).on('send', (ctx, payload) => {
- *   const delivered: boolean = ctx.send('message', { text: payload.text });
- *   ctx.broadcast('message', { text: payload.text });
- *   if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ * base.on('send', {
+ *   input: v.object({ text: v.string() }),
+ *   run(ctx, input) {
+ *     const delivered: boolean = ctx.send('message', { text: input.text });
+ *     ctx.broadcast('message', { text: input.text });
+ *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ *   },
  * });
  * ```
  *
  * Mental model, grouped by purpose:
- * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
+ * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when the `tags()` capability is listed)
  * - **messaging** — `send`, `broadcast`, `connection(ref).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
@@ -718,6 +721,16 @@ export interface InitContext<Env = Record<string, unknown>, Platform = unknown> 
 }
 
 /**
+ * The server→client (`emits`) events read off the merged contract slots, used
+ * to type `ShutdownContext.broadcast`. Falls back to a permissive map when the
+ * slots type is `unknown` (the broad runtime type), so the precise app-facing
+ * builder narrows it while the bare interface stays usable.
+ */
+type ShutdownOutgoing<TSlots> = 'outgoing' extends keyof TSlots
+  ? TSlots['outgoing']
+  : Record<string, unknown>;
+
+/**
  * The context passed to `onShutdown` handlers.
  *
  * `onShutdown` runs when the server is shutting down. Connections that were
@@ -735,16 +748,22 @@ export interface ShutdownContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
+  TSlots = unknown,
 > {
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
 
   /**
-   * Broadcast an event to every live connection. To target only members of
-   * a specific channel, resolve the channel through your handler's typed
-   * channel surface — the shutdown context does not filter by channel.
+   * Broadcast an event to every live connection. Typed against the server's
+   * `emits(...)` events, so a typo or wrong payload is a compile error. To
+   * target only members of a specific channel, resolve the channel through
+   * your handler's typed channel surface — the shutdown context does not
+   * filter by channel.
    */
-  broadcast(event: string, payload: unknown): void;
+  broadcast<E extends keyof ShutdownOutgoing<TSlots> & string>(
+    event: E,
+    payload: ShutdownOutgoing<TSlots>[E],
+  ): void;
 
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;

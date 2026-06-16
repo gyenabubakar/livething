@@ -52,7 +52,6 @@ function makeRuntime(cap: number) {
     errorHooks: [],
     incomingDedupCap: cap,
     connections: new Map(),
-    pluginRuntimes: [],
     logger: { warn() {}, error() {} },
     buildConnectionContext: () => ({}),
     sendProtocolMessage() {},

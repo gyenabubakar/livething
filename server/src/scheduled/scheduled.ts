@@ -221,9 +221,9 @@ export class ScheduledBuilder<
 
 /**
  * Internal factory that builds the scheduled-task primitive from a fluent
- * builder callback. Called by the implementer's `.build()` when compiling
- * a `ScheduledDef`. Most apps interact with scheduled tasks through the
- * contract's `definitions` array and `implement(contract).scheduled(id, handler)`.
+ * builder callback. Called by `assemble(...)` when compiling a `ScheduledDef`.
+ * Most apps interact with scheduled tasks through the `scheduled({...})`
+ * capability and `base.scheduled(id, { run })`.
  */
 export function scheduled<
   TTaskId extends string,

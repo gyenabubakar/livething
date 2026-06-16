@@ -151,8 +151,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
-    attachPluginApis: (ctx, connection) =>
-      EngineContexts.attachPluginApis(core.pluginRuntimes, ctx, connection),
     getPluginApiFactory: (id: string) => core.pluginApiFactories.get(id),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
@@ -171,7 +169,6 @@ export function outgoingRuntime(core: EngineCore) {
 function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
-    pluginRuntimes: core.pluginRuntimes,
     outgoingHooks: core.hooks.outgoing,
     wskitStampHooks: core.hooks.wskitStamp,
     beforeSendHooks: core.hooks.beforeSend,
@@ -448,10 +445,16 @@ function buildConnectionRuntime(core: EngineCore) {
 /** Callbacks needed by `createEngineAccess` and `initialize`. */
 export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const createTaskContext = buildTaskContextFactory(core);
+  const buildCtx = buildConnectionContext(core);
   return {
     ensureScheduledRuntime: () => Scheduling.ensureScheduledRuntime(core, createTaskContext),
     createTaskContext,
     rescheduleAlarm: () => Scheduling.rescheduleAlarm(core),
+    buildCurrentContext: () => {
+      const activeId = core.asyncContext.getStore()?.connectionId;
+      const connection = activeId ? core.connections.get(activeId) : undefined;
+      return connection ? buildCtx(connection) : undefined;
+    },
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
@@ -489,14 +492,11 @@ export function runConnectionLifecycle(
 ): Promise<void> {
   return EngineConnectionRuntime.runConnectionLifecycle(
     {
-      pluginRuntimes: core.pluginRuntimes,
       asyncContext: core.asyncContext,
       connectHooks: core.hooks.connect,
       disconnectHooks: core.hooks.disconnect,
       pluginConnectHooks: core.hooks.pluginLifecycle.connect,
       pluginDisconnectHooks: core.hooks.pluginLifecycle.disconnect,
-      createPluginScopedContext: (pluginId, targetCtx) =>
-        EngineContexts.createPluginScopedContext(pluginId, targetCtx),
     },
     kind,
     ctx,

@@ -1,0 +1,179 @@
+/* oxlint-disable no-unused-vars */
+/**
+ * Compile-time fixtures for the plugin authoring surface and how a plugin's
+ * contract lands on the host's `InferClient`.
+ *
+ * Covers: the plugin `api` ctx is the scoped ctx (gap 1); `api` return type is
+ * inferred without an annotation, surfaced on the server ctx via `ctx.plugin(id)`
+ * (gap 2); a plugin's events fold into the host's TOP-LEVEL client maps under
+ * their `__<id>::` wire-prefixed names — to the client a plugin event is just an
+ * event with a prefixed name (gap 3); and a plugin channel lands in the
+ * top-level `channels` map under its prefixed family name, flipped into the
+ * client view, with its inner events unprefixed (gap 4).
+ */
+import { t } from '~/_api/index.ts';
+import { define } from '~/_define/define.ts';
+import { plugin } from '~/_define/plugin.ts';
+import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { scheduled } from '~/scheduled/capability.ts';
+import * as v from 'valibot';
+import { expectTypeOf } from 'vitest';
+import type { InferClient } from '~/infer-client.ts';
+
+// ---------------------------------------------------------------------------
+// Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
+// ---------------------------------------------------------------------------
+const scopedBase = define({
+  scoped: true,
+  capabilities: [emits({ 'p-online': t<{ id: string }>() }), scheduled({ 'p-task': null })],
+});
+
+const scopedHandler = scopedBase.on('beat', {
+  input: v.object({}),
+  run(ctx) {
+    ctx.send('p-online', { id: ctx.id });
+  },
+});
+
+const ApiPlugin = plugin('acme:presence', {
+  handler: scopedBase.assemble(scopedHandler),
+  api: (ctx) => {
+    // The declared emit with the right payload is allowed.
+    ctx.send('p-online', { id: ctx.id });
+
+    // @ts-expect-error — wrong payload shape for a declared emit
+    ctx.send('p-online', { id: 123 });
+
+    // @ts-expect-error — undeclared method does not exist on the scoped ctx
+    ctx.nope();
+
+    // The `scheduled()` capability arm is present because it was listed.
+    ctx.schedule('p-task', { time: 0 });
+
+    return { ok: true };
+  },
+});
+void ApiPlugin;
+
+// ---------------------------------------------------------------------------
+// Gap 2 — `api` return type is inferred (no annotation) and reaches the host
+// through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server
+// ctx / contract slot, not on the client `InferClient`.
+// ---------------------------------------------------------------------------
+const inferBase = define({ scoped: true, capabilities: [emits({ e: t<{ n: number }>() })] });
+const inferHandler = inferBase.on('x', {
+  run(ctx) {
+    ctx.send('e', { n: 1 });
+  },
+});
+const InferApiPlugin = plugin('acme:infer', {
+  handler: inferBase.assemble(inferHandler),
+  api: (ctx) => {
+    void ctx;
+    return { foo: 1, bar: () => 'x' };
+  },
+});
+
+const inferHost = define({ env: t<{}>(), capabilities: [InferApiPlugin()] });
+inferHost.on('host-probe', {
+  run(ctx) {
+    const api = ctx.plugin('acme:infer');
+    // Not `any` — a regression to `any` would make `not.toBeAny` fail.
+    expectTypeOf(api).not.toBeAny();
+    expectTypeOf(api.foo).toEqualTypeOf<number>();
+    // Bidirectional assignment pins `bar` to exactly `() => string`.
+    const _apiForward: { foo: number; bar: () => string } = api;
+    const _apiBack: typeof api = { foo: 1, bar: () => 'x' };
+    void [_apiForward, _apiBack];
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Gap 3 — a plain plugin's events fold into the host's TOP-LEVEL client maps
+// under their `__<id>::` wire-prefixed names, flipped into the client view. The
+// client carries no `plugins` key; short names never appear; a made-up prefixed
+// name is rejected. (No channel here on purpose — a channel-bearing scoped
+// handler degrades its captured contract to `any`, which would mask the
+// per-name discrimination this gap proves; the channel itself is covered by
+// gap 4 below.)
+// ---------------------------------------------------------------------------
+const leakScoped = define({
+  scoped: true,
+  capabilities: [emits({ 'pl-out': t<{ a: number }>() })],
+});
+
+const leakOn = leakScoped.on('pl-in', { input: v.object({ a: v.number() }), run() {} });
+const leakReq = leakScoped.on('pl-also-in', { run() {} });
+
+const LeakPlugin = plugin('acme:leak', {
+  handler: leakScoped.assemble(leakOn, leakReq),
+  api: (ctx) => {
+    void ctx;
+    return {};
+  },
+});
+
+const leakHost = define({
+  env: t<{}>(),
+  capabilities: [emits({ 'host-out': t<{ h: number }>() }), LeakPlugin()],
+});
+const leakHostOn = leakHost.on('host-in', { input: v.object({ h: v.number() }), run() {} });
+const leakHostDef = leakHost.assemble(leakHostOn);
+type LeakClient = InferClient<typeof leakHostDef>;
+
+// The host's own names are present at the top level (discrimination guard so the
+// checks below are not vacuously satisfied by an empty/any map).
+expectTypeOf<LeakClient['incoming']>().toHaveProperty('host-out');
+expectTypeOf<LeakClient['outgoing']>().toHaveProperty('host-in');
+
+// Short (un-prefixed) plugin names never appear anywhere on the client.
+expectTypeOf<LeakClient['incoming']>().not.toHaveProperty('pl-out');
+expectTypeOf<LeakClient['outgoing']>().not.toHaveProperty('pl-in');
+expectTypeOf<LeakClient['outgoing']>().not.toHaveProperty('pl-also-in');
+
+// The plugin's events ARE present at the TOP LEVEL under their `__<id>::` wire
+// names, flipped into the client's perspective — to the client, just an event
+// with a prefixed name.
+expectTypeOf<LeakClient['incoming']>().toHaveProperty('__acme:leak::pl-out'); // server emit -> client incoming
+expectTypeOf<LeakClient['incoming']['__acme:leak::pl-out']>().toEqualTypeOf<{ a: number }>();
+expectTypeOf<LeakClient['outgoing']>().toHaveProperty('__acme:leak::pl-in'); // server on -> client outgoing
+expectTypeOf<LeakClient['outgoing']>().toHaveProperty('__acme:leak::pl-also-in');
+
+// A made-up prefixed name is still rejected (discrimination guard) — the keys
+// are concrete literals, not a `__id::${string}` index signature.
+expectTypeOf<LeakClient['incoming']>().not.toHaveProperty('__acme:leak::nope');
+
+// The client no longer carries a `plugins` key — plugin events live in the
+// normal maps, not a separate grouping.
+expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
+
+// ---------------------------------------------------------------------------
+// Gap 4 — a plugin channel folds into the top-level `channels` map under its
+// prefixed `__<id>::family` name, flipped into the client view. The channel's
+// inner events stay scoped to it and are NOT prefixed.
+// ---------------------------------------------------------------------------
+const chScoped = define({ scoped: true, capabilities: [channels()] });
+const chFam = chScoped.channel(['fam', 'fam:{id}'], {
+  subscribe: v.object({ token: v.string() }),
+  outgoing: { emits: { 'fam-tick': t<{ n: number }>() } },
+});
+const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
+const ChPlugin = plugin('acme:chan', { handler: chScoped.assemble(chFamHandler), api: () => ({}) });
+
+const chHost = define({ env: t<{}>(), capabilities: [ChPlugin()] });
+const chHostDef = chHost.assemble(chHost.on('host-noop', { run() {} }));
+type ChClient = InferClient<typeof chHostDef>;
+
+// The short family name never appears; the prefixed one is the address.
+expectTypeOf<ChClient['channels']>().not.toHaveProperty('fam');
+expectTypeOf<ChClient['channels']>().toHaveProperty('__acme:chan::fam');
+
+type ChFamScope = ChClient['channels']['__acme:chan::fam'];
+// Server `outgoing` emit becomes the client's `incoming` for the channel.
+expectTypeOf<ChFamScope['incoming']>().toHaveProperty('fam-tick');
+// Server channel `on` becomes the client's `outgoing`.
+expectTypeOf<ChFamScope['outgoing']>().toHaveProperty('fam-ping');
+// Addressing discriminator + subscribe payload survive the flip.
+expectTypeOf<ChFamScope['addressing']>().toEqualTypeOf<'dynamic'>();
+expectTypeOf<ChFamScope['subscribePayload']>().toEqualTypeOf<{ token: string }>();

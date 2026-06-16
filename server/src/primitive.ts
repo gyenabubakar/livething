@@ -48,8 +48,9 @@ export type PrimitiveIdentity =
   | readonly [key: symbol, registrationId: string];
 
 /**
- * Base type for every primitive. Every factory function (`ack()`,
- * `incoming()`, `channel()`, etc.) returns an object that extends `Primitive`.
+ * Base type for every primitive. Every primitive factory (a capability like
+ * `ack()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
+ * returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
  * variable or function parameter that must accept any WSKit primitive.
@@ -128,9 +129,9 @@ export interface PrimitiveFactory<
 /**
  * Create a built-in primitive factory.
  *
- * This is an internal WSKit API — product developers use `definePlugin`
- * for custom primitives. `definePrimitive` is for the primitives that
- * ship with WSKit itself (ack, incoming, channel, etc.).
+ * This is an internal WSKit API — product developers use `plugin()` to ship
+ * custom behavior. `definePrimitive` is for the primitives that ship with
+ * WSKit itself (ack, incoming, channel, etc.).
  *
  * The returned factory function:
  * 1. When **called** — produces a `Primitive` instance with base fields

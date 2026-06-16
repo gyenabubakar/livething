@@ -1,7 +1,7 @@
 import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
 import { Disconnect } from '@wskit/server/errors';
 import { persistence } from '@wskit/server/persistence';
-import { channels } from '@wskit/server/channels';
 import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';

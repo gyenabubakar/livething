@@ -168,7 +168,7 @@ test.describe('plugins handler', () => {
         const url = `${protocol}//${location.host}/ws/plugins?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'trigger-plugin-denied', payload: {} }));
+          ws.send(JSON.stringify({ event: '__e2e:drizzle::trigger-plugin-denied', payload: {} }));
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
@@ -184,7 +184,7 @@ test.describe('plugins handler', () => {
     }, room);
 
     const payload = err.payload as { code: string; detail?: { reason?: string; op?: string } };
-    expect(payload.code).toBe('__e2e:drizzle:denied');
+    expect(payload.code).toBe('__e2e:drizzle::denied');
     expect(payload.detail?.reason).toBe('test denial');
     expect(payload.detail?.op).toBe('insert');
   });

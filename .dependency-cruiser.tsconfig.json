@@ -1,0 +1,9 @@
+{
+  "//": "Path mapping only, consumed by dependency-cruiser so it resolves the server's `~/*` alias. Intentionally has no `include`/`files`.",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./server/src/*"]
+    }
+  }
+}

@@ -44,7 +44,7 @@ describe('plugin init — onion order end-to-end', () => {
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Plug = plugin('acme:boot', { handler: ph.assemble(beat) });
 
-    const base = define({ env: t<{}>(), capabilities: [Plug] });
+    const base = define({ env: t<{}>(), capabilities: [Plug()] });
     base.init(() => {
       trace.push('app');
     });

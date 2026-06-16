@@ -14,17 +14,20 @@ const PERSISTENCE_KEY = Symbol('persistence');
  * reconnects. Channels persist by default; set `persistent: false` in a
  * channel's definition config to opt out per channel.
  *
- * Enable this via `persistence: true` on the contract config instead of
- * calling this primitive directly.
+ * Enable this by listing the `persistence()` capability instead of calling this
+ * primitive directly.
  *
  * @example
  * ```ts
- * const chat = contract('chat', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     channel('team-eng', { definitions: [...] }),
- *   ],
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
+ * import { channels } from '@wskit/server/channels';
+ *
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), channels()],
  * });
+ * const teamEng = base.channel('team-eng');
  * ```
  */
 export function persistence(): PersistencePrimitive {
