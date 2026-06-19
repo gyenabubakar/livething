@@ -1497,18 +1497,18 @@ describe('matchScopeParams', () => {
   });
 
   it('captures a single param from a family template', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(matchScopeParams(decl, 'room:alpha-42')).toEqual({ id: 'alpha-42' });
+    const declaration = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(declaration, 'room:alpha-42')).toEqual({ id: 'alpha-42' });
   });
 
   it('captures multiple params separated by literals', () => {
-    const decl = scope('threads', 'org:{org}/thread:{tid}');
-    expect(matchScopeParams(decl, 'org:acme/thread:42')).toEqual({ org: 'acme', tid: '42' });
+    const declaration = scope('threads', 'org:{org}/thread:{tid}');
+    expect(matchScopeParams(declaration, 'org:acme/thread:42')).toEqual({ org: 'acme', tid: '42' });
   });
 
   it('returns an empty object when the name does not match the family', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(matchScopeParams(decl, 'lobby:1')).toEqual({});
+    const declaration = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(declaration, 'lobby:1')).toEqual({});
   });
 });
 

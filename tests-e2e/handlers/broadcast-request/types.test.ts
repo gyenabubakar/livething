@@ -9,15 +9,12 @@ describe('BroadcastRequestClient — no-any guard', () => {
   });
 });
 
-describe('BroadcastRequestClient — broadcast serverRequest flows through InferClient', () => {
-  it('carries the volunteer broadcast request, typed', () => {
-    expectTypeOf<BroadcastRequestClient['serverRequests']>().toHaveProperty('volunteer');
-    expectTypeOf<BroadcastRequestClient['serverRequests']['volunteer']['payload']>().toEqualTypeOf<{
-      turn: number;
-    }>();
-    expectTypeOf<
-      BroadcastRequestClient['serverRequests']['volunteer']['response']
-    >().toEqualTypeOf<{ ready: boolean }>();
+describe('BroadcastRequestClient — channel broadcast serverRequest flows through InferClient', () => {
+  it('carries the lobby channel volunteer broadcast request, typed', () => {
+    type LobbyRequests = BroadcastRequestClient['channels']['lobby']['serverRequests'];
+    expectTypeOf<LobbyRequests>().toHaveProperty('volunteer');
+    expectTypeOf<LobbyRequests['volunteer']['payload']>().toEqualTypeOf<{ turn: number }>();
+    expectTypeOf<LobbyRequests['volunteer']['response']>().toEqualTypeOf<{ ready: boolean }>();
   });
 
   it('the observable triggers and outcomes are present', () => {

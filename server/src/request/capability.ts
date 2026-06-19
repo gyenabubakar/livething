@@ -24,10 +24,10 @@ export interface ServerRequestOptions {
  * `[0]` is the type the server sends (a `t<…>()` marker or a validator —
  * trusted, not validated outbound), `[1]` is the schema the client's answer is
  * validated against, and the optional `[2]` carries `{ broadcast?: boolean }`. A
- * `broadcast: true` decl is answerable only via `broadcastRequest` (Phase 3);
- * the default targeted decl is answerable only via `request`.
+ * `broadcast: true` declaration is answerable only via `broadcastRequest` (Phase 3);
+ * the default targeted declaration is answerable only via `request`.
  */
-export type ServerRequestDecl =
+export type ServerRequestDeclaration =
   | readonly [payload: TypeMarker<any> | Validator, response: Validator]
   | readonly [
       payload: TypeMarker<any> | Validator,
@@ -36,7 +36,7 @@ export type ServerRequestDecl =
     ];
 
 /** The payload type one server→client request declaration carries. */
-type PayloadOf<TDecl> = TDecl extends readonly [infer P, ...unknown[]]
+type PayloadOf<TDeclaration> = TDeclaration extends readonly [infer P, ...unknown[]]
   ? P extends TypeMarker<infer U>
     ? U
     : P extends Validator<infer U>
@@ -45,22 +45,30 @@ type PayloadOf<TDecl> = TDecl extends readonly [infer P, ...unknown[]]
   : unknown;
 
 /** The response type one server→client request declaration carries. */
-type ResponseOf<TDecl> = TDecl extends readonly [unknown, Validator<infer U>, ...unknown[]]
+type ResponseOf<TDeclaration> = TDeclaration extends readonly [
+  unknown,
+  Validator<infer U>,
+  ...unknown[],
+]
   ? U
   : unknown;
 
 /** Whether one declaration is a broadcast request. */
-type BroadcastOf<TDecl> = TDecl extends readonly [unknown, unknown, { broadcast: true }]
+type BroadcastOf<TDeclaration> = TDeclaration extends readonly [
+  unknown,
+  unknown,
+  { broadcast: true },
+]
   ? true
   : false;
 
 /** The contract slot `requests({...})` declares — event → { payload, response, broadcast }. */
-type ServerRequestsSlot<TDecls extends Record<string, ServerRequestDecl>> = {
+type ServerRequestsSlot<TDeclarations extends Record<string, ServerRequestDeclaration>> = {
   serverRequests: {
-    [K in keyof TDecls & string]: {
-      payload: PayloadOf<TDecls[K]>;
-      response: ResponseOf<TDecls[K]>;
-      broadcast: BroadcastOf<TDecls[K]>;
+    [K in keyof TDeclarations & string]: {
+      payload: PayloadOf<TDeclarations[K]>;
+      response: ResponseOf<TDeclarations[K]>;
+      broadcast: BroadcastOf<TDeclarations[K]>;
     };
   };
 };
@@ -69,20 +77,23 @@ type ServerRequestsSlot<TDecls extends Record<string, ServerRequestDecl>> = {
 export interface ResolvedServerRequest {
   /** The schema the client's answer is validated against. */
   readonly responseValidator?: Validator;
-  /** Whether this decl is broadcast-only (Phase 3). */
+  /** Whether this declaration is broadcast-only (Phase 3). */
   readonly broadcast: boolean;
 }
 
 /** A `requests()` capability, carrying the builder so the core never imports the request factory. */
 export interface RequestsCapability<
-  TDecls extends Record<string, ServerRequestDecl> = Record<string, ServerRequestDecl>,
-> extends Capability<ServerRequestsSlot<TDecls>, never, 'requests'> {
+  TDeclarations extends Record<string, ServerRequestDeclaration> = Record<
+    string,
+    ServerRequestDeclaration
+  >,
+> extends Capability<ServerRequestsSlot<TDeclarations>, never, 'requests'> {
   /** Build a request primitive from a `base.request(...)` / channel `request(...)` config. @internal */
   readonly __buildRequest: (event: string, config: RequestBuildConfig) => Primitive;
   /**
    * Resolved server→client request declarations, keyed by
-   * `serverRequestKey(channelKey, event)` so a channel's decls never collide
-   * with another channel's or with a top-level decl of the same event name.
+   * `serverRequestKey(channelKey, event)` so a channel's declarations never collide
+   * with another channel's or with a top-level declaration of the same event name.
    * @internal
    */
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
@@ -90,13 +101,13 @@ export interface RequestsCapability<
    * Merge a channel's own `outgoing.requests` declarations into the engine's
    * server→client request table, keyed by the channel's definition key, so
    * `ctx.channel.request` / `ctx.channel.broadcastRequest` validate responses
-   * and gate the broadcast flag the same way top-level decls do without
-   * clobbering same-named decls on other channels. The channels capability
+   * and gate the broadcast flag the same way top-level declarations do without
+   * clobbering same-named declarations on other channels. The channels capability
    * borrows this seam so it never imports the request engine. @internal
    */
   readonly __registerServerRequests: (
     channelKey: string,
-    decls: Record<string, ServerRequestDecl>,
+    declarations: Record<string, ServerRequestDeclaration>,
   ) => void;
 }
 
@@ -107,11 +118,11 @@ function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
   );
 }
 
-function resolveServerRequest(decl: ServerRequestDecl): ResolvedServerRequest {
-  const response = decl[1];
+function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
+  const response = declaration[1];
   return {
     responseValidator: isTypeMarker(response) ? undefined : (response as Validator),
-    broadcast: decl[2]?.broadcast === true,
+    broadcast: declaration[2]?.broadcast === true,
   };
 }
 
@@ -153,16 +164,16 @@ function resolveServerRequest(decl: ServerRequestDecl): ResolvedServerRequest {
  * ```
  */
 export const requests = withCapabilityKind(function requests<
-  const TDecls extends Record<string, ServerRequestDecl> = {},
->(decls: TDecls = {} as TDecls): RequestsCapability<TDecls> {
+  const TDeclarations extends Record<string, ServerRequestDeclaration> = {},
+>(declarations: TDeclarations = {} as TDeclarations): RequestsCapability<TDeclarations> {
   const serverRequests = new Map<string, ResolvedServerRequest>();
-  for (const [event, decl] of Object.entries(decls)) {
-    serverRequests.set(serverRequestKey(null, event), resolveServerRequest(decl));
+  for (const [event, declaration] of Object.entries(declarations)) {
+    serverRequests.set(serverRequestKey(null, event), resolveServerRequest(declaration));
   }
 
-  const cap = capability<ServerRequestsSlot<TDecls>, never, 'requests'>([
+  const cap = capability<ServerRequestsSlot<TDeclarations>, never, 'requests'>([
     makeServerRequestsPrimitive(serverRequests),
-  ]) as RequestsCapability<TDecls>;
+  ]) as RequestsCapability<TDeclarations>;
 
   const writable = cap as {
     __buildRequest: RequestsCapability['__buildRequest'];
@@ -170,9 +181,9 @@ export const requests = withCapabilityKind(function requests<
     __registerServerRequests: RequestsCapability['__registerServerRequests'];
   };
   writable.__serverRequests = serverRequests;
-  writable.__registerServerRequests = (channelKey, channelDecls) => {
-    for (const [event, decl] of Object.entries(channelDecls)) {
-      serverRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(decl));
+  writable.__registerServerRequests = (channelKey, channelDeclarations) => {
+    for (const [event, declaration] of Object.entries(channelDeclarations)) {
+      serverRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
     }
   };
   writable.__buildRequest = (event, config) => {

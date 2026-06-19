@@ -49,6 +49,19 @@ export type BroadcastServerRequests<TSlots> = {
     : never]: SlotOr<TSlots, 'serverRequests'>[K];
 };
 
+declare const CHANNEL_CONTRACT: unique symbol;
+
+/**
+ * A channel reference that `ctx.channels.get(...)` can fully type: a static
+ * channel declaration passed directly, or a dynamic family's `.at(params)` result. The
+ * phantom carries the channel's emit + request contract so the resolved handle
+ * types `send`/`broadcast`/`broadcastRequest` to that channel — never read at
+ * runtime.
+ */
+export interface ChannelRef<TOutgoing = Record<string, unknown>, TServerRequests = {}> {
+  readonly [CHANNEL_CONTRACT]: { outgoing: TOutgoing; serverRequests: TServerRequests };
+}
+
 /** What a `broadcastRequest(...)` resolves to: the winning answer and who gave it. */
 export interface BroadcastAnswer<R> {
   /** The first valid answer, validated against the request's `response` schema. */
@@ -60,7 +73,7 @@ export interface BroadcastAnswer<R> {
 /**
  * The `broadcastRequest` arm a `requests()` server adds to every fan-out
  * surface. Usable ONLY for declarations marked `{ broadcast: true }`; a targeted
- * decl used here is a compile error. Resolves with the first valid answer and
+ * declaration used here is a compile error. Resolves with the first valid answer and
  * its `from` ref, or rejects with `timeout` when nobody answers in time.
  *
  * @template SR The broadcast-only server→client request map for this scope.
@@ -404,15 +417,33 @@ type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = 
 > &
   ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
 
+/**
+ * The fully-typed `ctx.channels.get(ref)` handle. `send`/`broadcast` are typed to
+ * the referenced channel's emits, and `broadcastRequest` to its broadcast requests
+ * when `requests()` is listed. The channel handle has no current connection, so
+ * only the broadcast verb is added (not the targeted `request`).
+ */
+type TypedChannelsGetHandle<R, TMeta, TCaps extends readonly AnyCapability[]> =
+  R extends ChannelRef<infer TOutgoing extends Record<string, unknown>, infer TServerRequests>
+    ? ChannelHandle<TOutgoing, TMeta> &
+        ('requests' extends BrandsOf<TCaps>
+          ? BroadcastRequestArm<BroadcastServerRequests<{ serverRequests: TServerRequests }>>
+          : {})
+    : never;
+
 /** The `ctx.channels` surface — owned by the `channels()` capability. */
 export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
-   * Look up a channel by name (or family + name) to send into it or read its
-   * members from outside a channel handler. With `requests()` listed, the handle
-   * also carries `broadcastRequest(...)` to ask all members a top-level broadcast
-   * request.
+   * Look up a channel to send into it, read its members, or ask its members a
+   * broadcast request — from any handler.
+   *
+   * Pass a channel declaration (or a dynamic family's `.at(params)` ref) for a fully
+   * typed handle: `send`/`broadcast` are checked against the channel's emits and
+   * `broadcastRequest` against its requests. Pass a raw name (or `family, name`)
+   * for the loose escape hatch when the name is only known at runtime.
    */
   readonly channels: {
+    get<R extends ChannelRef>(ref: R): TypedChannelsGetHandle<R, TMeta, TCaps>;
     get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
     get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
   };

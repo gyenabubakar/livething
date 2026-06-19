@@ -141,11 +141,11 @@ describe('serverRequest — answering server-initiated requests', () => {
     });
   });
 
-  it('lets a top-level onRequest answer a channel-marked request as a fallback', async () => {
-    // A top-level request can be fanned out to a channel's members (e.g. via
-    // ctx.channels.get(name).broadcastRequest), so the frame carries a channel
-    // marker but the handler is top-level. With no channel-scoped handler, the
-    // top-level one answers it.
+  it('does not let a top-level onRequest answer a channel-marked request', async () => {
+    // Every server→client request is scoped to where it was declared: a channel
+    // request carries channel markers, a top-level one does not. So a top-level
+    // handler must not answer a channel-marked frame; with no channel handler it
+    // fast-fails with request-no-response.
     const { socket, ws } = build();
     const hits: unknown[] = [];
     (socket as any).onRequest('ask-permission', (p: unknown) => {
@@ -165,10 +165,13 @@ describe('serverRequest — answering server-initiated requests', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(hits).toHaveLength(1);
-    const answer = ws.sentFrames().find((f) => f.event === 'ask-permission');
-    expect(answer).toMatchObject({ payload: { allowed: true }, __wskit: { correlationId: 'x5' } });
-    expect(ws.sentFrames().find((f) => f.event === '__error__')).toBeUndefined();
+    expect(hits).toHaveLength(0);
+    expect(ws.sentFrames().find((f) => f.event === 'ask-permission')).toBeUndefined();
+    const nak = ws.sentFrames().find((f) => f.event === '__error__');
+    expect(nak).toMatchObject({
+      payload: { code: 'request-no-response' },
+      __wskit: { correlationId: 'x5' },
+    });
   });
 
   it('prefers the channel onRequest over a top-level one for a channel-marked frame', async () => {

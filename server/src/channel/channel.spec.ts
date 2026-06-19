@@ -4,36 +4,36 @@ import { channel, scope } from './channel.ts';
 
 describe('scope() template compilation', () => {
   it('builds a declaration with key, template, compiled matcher, and param names', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(decl.key).toBe('rooms');
-    expect(decl.template).toBe('room:{id}');
-    expect(decl.pattern).toBeInstanceOf(RegExp);
-    expect(decl.paramNames).toEqual(['id']);
+    const declaration = scope('rooms', 'room:{id}');
+    expect(declaration.key).toBe('rooms');
+    expect(declaration.template).toBe('room:{id}');
+    expect(declaration.pattern).toBeInstanceOf(RegExp);
+    expect(declaration.paramNames).toEqual(['id']);
   });
 
   it('matches a concrete name and captures the param', () => {
-    const decl = scope('rooms', 'room:{id}');
-    const match = decl.pattern.exec('room:alpha-42');
+    const declaration = scope('rooms', 'room:{id}');
+    const match = declaration.pattern.exec('room:alpha-42');
     expect(match).not.toBeNull();
     expect(match!.groups).toMatchObject({ id: 'alpha-42' });
   });
 
   it('a trailing param captures the rest, separators included', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(decl.pattern.test('room:a:b:c')).toBe(true);
-    expect(decl.pattern.exec('room:a:b:c')!.groups!.id).toBe('a:b:c');
+    const declaration = scope('rooms', 'room:{id}');
+    expect(declaration.pattern.test('room:a:b:c')).toBe(true);
+    expect(declaration.pattern.exec('room:a:b:c')!.groups!.id).toBe('a:b:c');
   });
 
   it('rejects a name that does not match the template', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(decl.pattern.test('lobby:1')).toBe(false);
-    expect(decl.pattern.test('room:')).toBe(false); // {id} needs >= 1 char
+    const declaration = scope('rooms', 'room:{id}');
+    expect(declaration.pattern.test('lobby:1')).toBe(false);
+    expect(declaration.pattern.test('room:')).toBe(false); // {id} needs >= 1 char
   });
 
   it('supports multiple params separated by literals', () => {
-    const decl = scope('threads', 'org:{org}/thread:{tid}');
-    expect(decl.paramNames).toEqual(['org', 'tid']);
-    const m = decl.pattern.exec('org:acme/thread:42');
+    const declaration = scope('threads', 'org:{org}/thread:{tid}');
+    expect(declaration.paramNames).toEqual(['org', 'tid']);
+    const m = declaration.pattern.exec('org:acme/thread:42');
     expect(m!.groups).toMatchObject({ org: 'acme', tid: '42' });
   });
 

@@ -11,6 +11,7 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
+import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
@@ -57,7 +58,7 @@ export interface ChannelDeps {
    * server→client request table. Present only when `requests()` is listed, so a
    * channel declaring `outgoing.requests` without it is a build error.
    */
-  readonly registerServerRequests?: (channelKey: string, decls: Record<string, any>) => void;
+  readonly registerServerRequests?: (channelKey: string, declarations: Record<string, any>) => void;
 }
 
 /** Compose the channel-context alias onto whatever a handler already adapts. */
@@ -148,6 +149,22 @@ export class ChannelBuilder {
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)
       this.children.push(revalidateFactory(withChannelCtx(cfg.revalidate) as any));
+  }
+
+  /**
+   * Resolve a dynamic family to a concrete instance ref for `ctx.channels.get(...)`.
+   * Fills the family template with `params` (e.g. `room:{id}` + `{ id: 'abc' }`
+   * → `room:abc`). Only valid on a family channel; a static channel throws.
+   */
+  at(params: Record<string, string>): ChannelRefValue {
+    if (typeof this.pattern === 'string') {
+      throw new Error(
+        `[wskit] .at(...) is only available on dynamic family channels; '${this.__key}' is a ` +
+          'static channel — pass it to ctx.channels.get(...) directly.',
+      );
+    }
+    const name = fillChannelTemplate(this.pattern.template, params, `channel '${this.__key}'`);
+    return { __wskitChannelRef: true, family: this.__key, name };
   }
 
   on(event: string, config: any): ChannelHandlerValue {
@@ -275,6 +292,17 @@ export class ChannelBuilder {
 export interface ChannelHandlerValue {
   readonly __wskitChannelHandler: true;
   readonly __channel: ChannelBuilder;
+}
+
+/**
+ * A resolved channel-instance reference produced by a family declaration's `.at(params)`.
+ * `ctx.channels.get(ref)` reads it to address one channel; the public typed shape
+ * is `ChannelRef` (it carries the channel's emit + request contract). @internal
+ */
+export interface ChannelRefValue {
+  readonly __wskitChannelRef: true;
+  readonly family: string;
+  readonly name: string;
 }
 
 /** A `channels()` capability, carrying the factory that builds channel objects. */

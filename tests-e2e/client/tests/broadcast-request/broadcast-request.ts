@@ -49,8 +49,9 @@ export function setup(): void {
   });
 
   // Answer the broadcast question. Records the asked turn so the spec can prove
-  // every member was reached, then answers per mode.
-  socket.onRequest('volunteer', (payload) => {
+  // every member was reached, then answers per mode. `volunteer` is a channel
+  // request, so it is answered through the channel handle.
+  lobby.onRequest('volunteer', (payload) => {
     el('last-turn').textContent = String(payload.turn);
     if (mode === 'drop') return new Promise<{ ready: boolean }>(() => {});
     if (mode === 'bad') return { ready: 'sure' } as unknown as { ready: boolean };

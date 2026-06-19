@@ -35,7 +35,7 @@ import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayHooks, ReplayCustomCapability } from '~/replay/capability.ts';
-import type { ServerRequestDecl } from '~/request/capability.ts';
+import type { ServerRequestDeclaration } from '~/request/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -45,6 +45,7 @@ import type {
   AppCtx,
   BroadcastRequestArm,
   BroadcastServerRequests,
+  ChannelRef,
   ReplayWire,
   SendWithAckArm,
 } from './app-ctx.ts';
@@ -506,7 +507,7 @@ type EmitPayloadOf<T> =
 type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
 
 /** The payload type one channel server→client request declaration carries. */
-type ServerRequestPayloadOf<TDecl> = TDecl extends readonly [infer P, ...unknown[]]
+type ServerRequestPayloadOf<TDeclaration> = TDeclaration extends readonly [infer P, ...unknown[]]
   ? P extends TypeMarker<infer U>
     ? U
     : P extends Validator<infer U>
@@ -515,7 +516,7 @@ type ServerRequestPayloadOf<TDecl> = TDecl extends readonly [infer P, ...unknown
   : unknown;
 
 /** The response type one channel server→client request declaration carries. */
-type ServerRequestResponseOf<TDecl> = TDecl extends readonly [
+type ServerRequestResponseOf<TDeclaration> = TDeclaration extends readonly [
   unknown,
   Validator<infer U>,
   ...unknown[],
@@ -524,7 +525,7 @@ type ServerRequestResponseOf<TDecl> = TDecl extends readonly [
   : unknown;
 
 /** Whether one channel server→client request declaration is a broadcast request. */
-type ServerRequestBroadcastOf<TDecl> = TDecl extends readonly [
+type ServerRequestBroadcastOf<TDeclaration> = TDeclaration extends readonly [
   unknown,
   unknown,
   { broadcast: true },
@@ -532,12 +533,12 @@ type ServerRequestBroadcastOf<TDecl> = TDecl extends readonly [
   ? true
   : false;
 
-/** The channel's `serverRequests` contract slot, built from its `outgoing.requests` decls. */
-type ServerRequestMap<TDecls> = {
-  [K in keyof TDecls & string]: {
-    payload: ServerRequestPayloadOf<TDecls[K]>;
-    response: ServerRequestResponseOf<TDecls[K]>;
-    broadcast: ServerRequestBroadcastOf<TDecls[K]>;
+/** The channel's `serverRequests` contract slot, built from its `outgoing.requests` declarations. */
+type ServerRequestMap<TDeclarations> = {
+  [K in keyof TDeclarations & string]: {
+    payload: ServerRequestPayloadOf<TDeclarations[K]>;
+    response: ServerRequestResponseOf<TDeclarations[K]>;
+    broadcast: ServerRequestBroadcastOf<TDeclarations[K]>;
   };
 };
 
@@ -677,14 +678,16 @@ type ChannelRateLimitField<TCaps extends readonly AnyCapability[]> =
 
 /**
  * The constraint on a channel's inferred `outgoing.requests` map. With the
- * `requests()` capability listed it is the normal decl map; without it, every
+ * `requests()` capability listed it is the normal declaration map; without it, every
  * value must be `never`, so declaring any channel request without `requests()`
  * is a compile error (the inferred map fails this constraint). Gating the
  * constraint — rather than the field — is what enforces it through the `const
  * TRequests` inference position. The runtime also throws as a backstop.
  */
-type RequestsDeclConstraint<TCaps extends readonly AnyCapability[]> =
-  'requests' extends BrandsOf<TCaps> ? Record<string, ServerRequestDecl> : Record<string, never>;
+type RequestsDeclarationConstraint<TCaps extends readonly AnyCapability[]> =
+  'requests' extends BrandsOf<TCaps>
+    ? Record<string, ServerRequestDeclaration>
+    : Record<string, never>;
 
 /** Configuration object for `base.channel(...)`. */
 export type ChannelConfig<
@@ -704,7 +707,7 @@ export type ChannelConfig<
      * capability listed; the channel overloads gate it at compile time and the
      * runtime throws as a backstop.
      */
-    readonly requests?: Record<string, ServerRequestDecl>;
+    readonly requests?: Record<string, ServerRequestDeclaration>;
   };
   /** Schema validating the payload a client sends on subscribe. */
   readonly subscribe?: TSubscribe;
@@ -1086,7 +1089,23 @@ export type ChannelObject<
     BrandsOf<TCaps>,
     TCaps,
     TServerRequests
-  >;
+  > &
+  ChannelRefForm<TParams, TOutgoing, TAddressing, TServerRequests>;
+
+/**
+ * How a channel declaration is referenced in `ctx.channels.get(...)`. A static channel
+ * IS a ref (pass it directly). A dynamic family is not — it exposes `.at(params)`
+ * to bind an instance, and only that ref carries the channel's contract. So
+ * `.at(...)` exists only on family declarations.
+ */
+type ChannelRefForm<
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TServerRequests,
+> = TAddressing extends 'dynamic'
+  ? { at(params: TParams): ChannelRef<TOutgoing, TServerRequests> }
+  : ChannelRef<TOutgoing, TServerRequests>;
 
 /**
  * The channel methods present whatever stream capabilities are listed. It drops
@@ -1118,6 +1137,7 @@ export type ChannelObjectCore<
   | 'sessionEnd'
   | 'intercept'
   | 'replay'
+  | 'at'
 > &
   Contribution<{
     channels: {
@@ -1215,7 +1235,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
   channel<
     TName extends string,
     const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends RequestsDeclConstraint<TCaps> = {},
+    const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
   >(
@@ -1243,7 +1263,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TFamily extends string,
     TPattern extends string,
     const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends RequestsDeclConstraint<TCaps> = {},
+    const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
   >(

@@ -17,9 +17,7 @@ export const broadcastRequestContract = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
-    requests({
-      volunteer: [t<{ turn: number }>(), v.object({ ready: v.boolean() }), { broadcast: true }],
-    }),
+    requests(),
     emits({
       outcome: t<{ from: string; ready: boolean }>(),
       'error-outcome': t<{ code: string }>(),
@@ -34,7 +32,12 @@ function describeError(error: unknown): string {
 }
 
 const lobby = broadcastRequestContract.channel('lobby', {
-  outgoing: { emits: {} },
+  outgoing: {
+    emits: {},
+    requests: {
+      volunteer: [t<{ turn: number }>(), v.object({ ready: v.boolean() }), { broadcast: true }],
+    },
+  },
 });
 
 const handleTrigger = broadcastRequestContract.on('trigger', {
@@ -42,7 +45,7 @@ const handleTrigger = broadcastRequestContract.on('trigger', {
   async run(ctx, input) {
     try {
       const { response, from } = await ctx.channels
-        .get('lobby')
+        .get(lobby)
         .broadcastRequest('volunteer', { turn: input.turn });
       ctx.send('outcome', { from: from.identity, ready: response.ready });
     } catch (error) {
@@ -56,7 +59,7 @@ const handleTriggerTimeout = broadcastRequestContract.on('trigger-timeout', {
   async run(ctx, input) {
     try {
       const { response, from } = await ctx.channels
-        .get('lobby')
+        .get(lobby)
         .broadcastRequest('volunteer', { turn: input.turn }, { timeout: 500 });
       ctx.send('outcome', { from: from.identity, ready: response.ready });
     } catch (error) {

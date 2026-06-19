@@ -102,16 +102,12 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
             frameMarkers.channelScope = wskit.channelScope;
           }
 
-          // Match the channel-scoped handler first. A channel-marked frame may
-          // carry a TOP-LEVEL request fanned out to a channel's members (e.g. via
-          // ctx.channels.get(name).broadcastRequest), so fall back to a top-level
-          // handler when no channel-scoped one is registered. A frame with no
-          // channel marker only ever matches a top-level handler — so a channel
-          // handler never answers an unscoped request (the original bug).
-          let handler = handlers.get(handlerKey(frameMarkers, message.event));
-          if (!handler && frameMarkers.channel !== undefined) {
-            handler = handlers.get(handlerKey({}, message.event));
-          }
+          // Strict scope match: a channel-marked frame only reaches that channel's
+          // handler, and an unscoped frame only reaches a top-level handler. Every
+          // server→client request is scoped to where it was declared — a channel
+          // request goes out with channel markers, a top-level one without — so a
+          // channel handler never answers an unscoped request and vice versa.
+          const handler = handlers.get(handlerKey(frameMarkers, message.event));
           if (!handler) {
             // No handler in this scope. If the server marked this as a
             // server→client request, fast-fail so its pending promise rejects

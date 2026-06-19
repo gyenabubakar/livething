@@ -66,6 +66,24 @@ export function buildChannelHandle(
 type ChannelsApiDeps = ChannelHandleDeps &
   Pick<EngineContextTypes.BuildConnectionContextDeps, 'resolveChannel'>;
 
+/**
+ * Normalize the arguments of `ctx.channels.get(...)` to a resolve target. Accepts
+ * a static channel declaration, a family declaration's `.at(params)` ref, a raw channel name,
+ * or a `(family, name)` pair.
+ */
+function toChannelTarget(args: unknown[]): string | { family: string; name: string } {
+  if (args.length >= 2) return { family: args[0] as string, name: args[1] as string };
+  const arg = args[0];
+  if (arg && typeof arg === 'object') {
+    if ('__wskitChannelRef' in arg) {
+      const ref = arg as unknown as { family: string; name: string };
+      return { family: ref.family, name: ref.name };
+    }
+    if ('__wskitChannel' in arg) return (arg as unknown as { __key: string }).__key;
+  }
+  return arg as string;
+}
+
 /** Build the `ctx.channels` helper surface — only `get(...)`. */
 export function buildChannelsApi(
   connection: EngineContextTypes.RuntimeConnection,
@@ -73,11 +91,7 @@ export function buildChannelsApi(
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {
-      const target =
-        args.length >= 2
-          ? { family: args[0] as string, name: args[1] as string }
-          : (args[0] as string);
-      const resolved = deps.resolveChannel(target);
+      const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
       return buildChannelHandle(connection, resolved, deps);
     },

@@ -247,7 +247,7 @@ const GENERATE_KEY = Symbol('generate');
  * compile step (`compileStreamDef`) calls it from a contract-side `stream(...)`
  * declaration, then pairs it with `generate()` and the registered handler.
  *
- * @param startDecl Trigger event name, optional validator, and broadcast flag.
+ * @param startDeclaration Trigger event name, optional validator, and broadcast flag.
  * @param nudges    Zero or more nudge declarations from `nudge()`.
  */
 export function stream<
@@ -256,20 +256,20 @@ export function stream<
   TChunks,
   const TNudges extends readonly NudgeDeclaration[],
 >(
-  startDecl: StreamStartDeclaration<TEvent, TPayload>,
+  startDeclaration: StreamStartDeclaration<TEvent, TPayload>,
   ...nudges: TNudges
 ): StreamPrimitive<TEvent, TPayload, TChunks, TNudges> {
   return {
     __wskit: 'stream',
     __kind: 'handler',
-    __identity: [STREAM_KEY, startDecl.event],
+    __identity: [STREAM_KEY, startDeclaration.event],
     __requires: {},
-    event: startDecl.event,
-    validator: startDecl.validator,
+    event: startDeclaration.event,
+    validator: startDeclaration.validator,
     nudges,
-    broadcast: startDecl.broadcast ?? false,
-    allowConcurrent: startDecl.allowConcurrent ?? false,
-    highWaterMark: startDecl.highWaterMark,
+    broadcast: startDeclaration.broadcast ?? false,
+    allowConcurrent: startDeclaration.allowConcurrent ?? false,
+    highWaterMark: startDeclaration.highWaterMark,
   };
 }
 
@@ -281,11 +281,11 @@ export function stream<
  * (`compileStreamDef`) calls it, pairing the stream declaration with the
  * generator registered via `base.stream(name, ...)`.
  *
- * @param streamDecl The stream declaration to attach the generator to.
+ * @param streamDeclaration The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.
  */
 export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>(
-  streamDecl: TStream,
+  streamDeclaration: TStream,
   generator: GeneratorFn<
     StreamHandlerContext<TBaseCtx, StreamNudges<TStream>>,
     StreamPayload<TStream>,
@@ -296,10 +296,10 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
   return {
     __wskit: 'stream-generate',
     __kind: 'handler',
-    __identity: [GENERATE_KEY, streamDecl.event],
+    __identity: [GENERATE_KEY, streamDeclaration.event],
     __requires: {},
-    stream: streamDecl,
-    event: streamDecl.event,
+    stream: streamDeclaration,
+    event: streamDeclaration.event,
     generator,
   };
 }

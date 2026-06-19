@@ -215,15 +215,17 @@ describe('channels() capability', () => {
         },
       },
     });
-    const decls = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
+    const declarations = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
       .__serverRequests;
-    // Channel decls are keyed by the channel definition so they never collide
-    // with another channel's or with a top-level decl of the same name.
-    expect(decls.get(serverRequestKey('room', 'confirm-kick'))?.broadcast).toBe(false);
-    expect(decls.get(serverRequestKey('room', 'vol'))?.broadcast).toBe(true);
-    expect(decls.get(serverRequestKey('room', 'confirm-kick'))?.responseValidator).toBeDefined();
+    // Channel declarations are keyed by the channel definition so they never collide
+    // with another channel's or with a top-level declaration of the same name.
+    expect(declarations.get(serverRequestKey('room', 'confirm-kick'))?.broadcast).toBe(false);
+    expect(declarations.get(serverRequestKey('room', 'vol'))?.broadcast).toBe(true);
+    expect(
+      declarations.get(serverRequestKey('room', 'confirm-kick'))?.responseValidator,
+    ).toBeDefined();
     // The bare event name is NOT a key (the collision fix).
-    expect(decls.get('confirm-kick')).toBeUndefined();
+    expect(declarations.get('confirm-kick')).toBeUndefined();
   });
 
   it('throws when a channel stream is used without the stream() capability', () => {

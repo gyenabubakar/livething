@@ -83,8 +83,8 @@ interface BroadcastRequestOptions extends RequestOptions {
 /**
  * Compose the lookup key for one server→client request declaration. Keyed by
  * `[channelKey, event]` (channelKey is `null` for a top-level `requests({...})`
- * decl, or the channel's family key / static name for an `outgoing.requests`
- * decl), JSON-encoded so two channels can declare the same event name — and a
+ * declaration, or the channel's family key / static name for an `outgoing.requests`
+ * declaration), JSON-encoded so two channels can declare the same event name — and a
  * channel can reuse a top-level name — without clobbering each other. JSON keeps
  * the key unambiguous for any name without relying on a reserved separator.
  */
@@ -95,9 +95,9 @@ export function serverRequestKey(channelKey: string | null, event: string): stri
 /**
  * The channel-definition key for a runtime channel handle: its family key for a
  * dynamic channel, its static name otherwise — matching how `requests()` keys
- * the channel's own `outgoing.requests` decls. Top-level surfaces pass `null`.
+ * the channel's own `outgoing.requests` declarations. Top-level surfaces pass `null`.
  */
-function channelDeclKey(handle: { name?: string; scope?: unknown }): string {
+function channelDeclarationKey(handle: { name?: string; scope?: unknown }): string {
   return typeof handle.scope === 'string' ? handle.scope : (handle.name ?? '');
 }
 
@@ -278,16 +278,18 @@ function createOutgoingRequestRuntime(
       connectionId: string;
       channel?: string;
       channelScope?: string | null;
-      /** The channel definition key whose decls to resolve, or null for top-level. */
-      declChannelKey?: string | null;
+      /** The channel definition key whose declarations to resolve, or null for top-level. */
+      declarationChannelKey?: string | null;
     };
     event: string;
     payload: unknown;
     options: RequestOptions | undefined;
   }): Promise<unknown> {
     const { target, event, payload, options } = args;
-    const decl = serverRequests.get(serverRequestKey(target.declChannelKey ?? null, event));
-    if (decl?.broadcast) {
+    const declaration = serverRequests.get(
+      serverRequestKey(target.declarationChannelKey ?? null, event),
+    );
+    if (declaration?.broadcast) {
       return Promise.reject(
         new Error(
           `[wskit] requests({ '${event}': { broadcast: true } }) is answerable only via broadcastRequest, not ctx.request.`,
@@ -309,7 +311,7 @@ function createOutgoingRequestRuntime(
         timer,
         connectionId: target.connectionId,
         event,
-        responseValidator: decl?.responseValidator,
+        responseValidator: declaration?.responseValidator,
       });
 
       const sent = engine.sendServerRequest(target.connectionId, {
@@ -342,12 +344,14 @@ function createOutgoingRequestRuntime(
     payload: unknown;
     options: RequestOptions | undefined;
     routing?: { channel?: string; channelScope?: string | null };
-    /** The channel definition key whose decls to resolve, or null for top-level. */
-    declChannelKey?: string | null;
+    /** The channel definition key whose declarations to resolve, or null for top-level. */
+    declarationChannelKey?: string | null;
   }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
     const { targets, event, payload, options, routing } = args;
-    const decl = serverRequests.get(serverRequestKey(args.declChannelKey ?? null, event));
-    if (!decl?.broadcast) {
+    const declaration = serverRequests.get(
+      serverRequestKey(args.declarationChannelKey ?? null, event),
+    );
+    if (!declaration?.broadcast) {
       return Promise.reject(
         new Error(
           `[wskit] requests({ '${event}': ... }) is not declared { broadcast: true }, so it is answerable only via ctx.request, not broadcastRequest.`,
@@ -360,7 +364,7 @@ function createOutgoingRequestRuntime(
         resolve,
         reject,
         event,
-        responseValidator: decl.responseValidator,
+        responseValidator: declaration.responseValidator,
         legs: new Set<string>(),
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -445,7 +449,9 @@ export function makeServerRequestsPrimitive(
           connection?: (ref: PublicApi.ConnectionRef) => PublicApi.ConnectionHandle;
           channel?: PublicApi.ChannelHandle;
         };
+
         const connectionId = ctx.id;
+
         const scope =
           (ctx[ENGINE_SCOPE_META] as
             | { channelName?: string; channelScope?: string | null }
@@ -462,11 +468,11 @@ export function makeServerRequestsPrimitive(
                 connectionId,
                 channel: scope.channelName,
                 channelScope: scope.channelScope,
-                // ctx.request resolves the TOP-LEVEL requests({...}) decls even
+                // ctx.request resolves the TOP-LEVEL requests({...}) declarations even
                 // inside a channel handler; the channel scope above is only for
                 // routing the answer back. ctx.channel.request resolves the
-                // channel's own decls.
-                declChannelKey: null,
+                // channel's own declarations.
+                declarationChannelKey: null,
               },
               event,
               payload,
@@ -480,11 +486,14 @@ export function makeServerRequestsPrimitive(
           extra.connection = (ref: PublicApi.ConnectionRef) => {
             const handle = coreConnection(ref) as PublicApi.ConnectionHandle &
               Record<string, unknown>;
+
             handle.request = (event: string, payload: unknown, options?: RequestOptions) => {
               const self = (ctx as { self?: PublicApi.ConnectionRef }).self;
+
               assertLocalRef(ref, self?.instance, 'ctx.connection(ref).request');
+
               return runtime.sendRequest({
-                target: { connectionId: ref.id, declChannelKey: null },
+                target: { connectionId: ref.id, declarationChannelKey: null },
                 event,
                 payload,
                 options,
@@ -500,6 +509,7 @@ export function makeServerRequestsPrimitive(
         const channelHandle = ctx.channel as
           | (PublicApi.ChannelHandle & Record<string, unknown>)
           | undefined;
+
         if (channelHandle && connectionId) {
           channelHandle.request = (event: string, payload: unknown, options?: RequestOptions) =>
             runtime.sendRequest({
@@ -507,7 +517,7 @@ export function makeServerRequestsPrimitive(
                 connectionId,
                 channel: channelHandle.name,
                 channelScope: channelHandle.scope ?? null,
-                declChannelKey: channelDeclKey(channelHandle),
+                declarationChannelKey: channelDeclarationKey(channelHandle),
               },
               event,
               payload,
@@ -533,7 +543,7 @@ export function makeServerRequestsPrimitive(
               payload,
               options,
               routing: { channel: channelHandle.name, channelScope: channelHandle.scope ?? null },
-              declChannelKey: channelDeclKey(channelHandle),
+              declarationChannelKey: channelDeclarationKey(channelHandle),
             });
         }
 
@@ -555,16 +565,15 @@ export function makeServerRequestsPrimitive(
               event,
               payload,
               options,
-              declChannelKey: null,
+              declarationChannelKey: null,
             });
         }
 
-        // ctx.channels.get(name).broadcastRequest — fan a TOP-LEVEL broadcast
-        // request out to a named channel's members from any handler. A top-level
-        // handler cannot see a channel's own request types, so this resolves the
-        // top-level decls; only the active ctx.channel handle resolves a channel's
-        // own decls. The channel handle has no current connection, so only the
-        // broadcast verb is added.
+        // ctx.channels.get(...).broadcastRequest — fan a channel broadcast request
+        // out to a named channel's members from any handler. It resolves the
+        // CHANNEL's own request declarations (keyed by the channel's family or static
+        // name), matching the active ctx.channel handle. The channel handle has no
+        // current connection, so only the broadcast verb is added.
         const channelsApi = ctx.channels as
           | { get(...args: unknown[]): PublicApi.ChannelHandle & Record<string, unknown> }
           | undefined;
@@ -579,7 +588,7 @@ export function makeServerRequestsPrimitive(
                 payload,
                 options,
                 routing: { channel: handle.name, channelScope: handle.scope ?? null },
-                declChannelKey: null,
+                declarationChannelKey: handle.scope ?? handle.name,
               });
             return handle;
           };
@@ -592,18 +601,23 @@ export function makeServerRequestsPrimitive(
           for (const kind of ['ephemeral', 'persistent'] as const) {
             const coreFn = tagsApi[kind];
             if (typeof coreFn !== 'function') continue;
+
             tagsApi[kind] = (group: string) => {
               const handle = (coreFn as (g: string) => MemberHandle).call(
                 tagsApi,
                 group,
               ) as MemberHandle & { ref(key: string): MemberHandle };
+
               addTagBroadcastRequest(handle, runtime);
+
               const coreRef = handle.ref.bind(handle);
+
               handle.ref = (key: string) => {
                 const refHandle = coreRef(key);
                 addTagBroadcastRequest(refHandle, runtime);
                 return refHandle;
               };
+
               return handle;
             };
           }

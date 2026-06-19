@@ -78,7 +78,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('adds broadcastRequest on every fan-out surface only for broadcast decls', () => {
+  it('adds broadcastRequest on every fan-out surface only for broadcast declarations', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [
