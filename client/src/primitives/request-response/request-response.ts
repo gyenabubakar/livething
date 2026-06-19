@@ -33,17 +33,11 @@ export function requestResponse(
 
   return {
     _tag: 'requestResponse',
-    // Run after serverRequest so a server-initiated request (a correlated frame
-    // for a serverRequests event) is claimed there first; this primitive then
-    // only sees replies to the client's own requests.
     optionalAfter: ['serverRequest'],
     setup(helpers) {
       const pending = new Map<string, Pending>();
-      // Frames for requests made before the socket is open when no buffering is
-      // installed to hold them. helpers.send drops while not open, so we keep them
-      // here and flush on onOpen — otherwise a request made during the connect
-      // window would be dropped and only fail by timing out. Each carries its owner
-      // so a serialization failure on flush rejects that exact request.
+      // frames for requests made before the socket is open when no buffering is
+      // installed to hold them.
       const outbox = new Map<string, { message: WireMessage; owner: FrameOwner }>();
 
       function ownerFor(correlationId: string): FrameOwner {
@@ -60,7 +54,9 @@ export function requestResponse(
       ): Promise<unknown> {
         const eventError = wireIdError(event, event, 'event');
         if (eventError) return Promise.reject(eventError);
+
         const correlationId = helpers.generateId('req');
+
         helpers.lazyAcquire();
         helpers.ensureConnected();
 
@@ -95,7 +91,8 @@ export function requestResponse(
             payload,
             __wskit: { correlationId, ...callOptions.markers },
           };
-          // Send through the normal path so buffering can take it — queueing it
+
+          // send through the normal path so buffering can take it — queueing it
           // while offline, or behind a still-draining staggered flush so it can't
           // race ahead of not-yet-flushed messages. With no buffering, hold it only
           // while a connect is in progress (flushed on onOpen); on a closed socket
@@ -106,12 +103,12 @@ export function requestResponse(
           try {
             result = helpers.send(frame, { owner });
           } catch (error) {
-            // A throwing send must still tear down the timer, pending, and hold.
             clearTimeout(timer);
             done();
             reject(error);
             return;
           }
+
           if (result === 'connecting') {
             outbox.set(correlationId, { message: frame, owner });
           } else if (result === 'closed' || result === 'blocked') {
@@ -126,14 +123,13 @@ export function requestResponse(
         id: 'requestResponse',
 
         onOpen() {
-          // Flush held request frames once the socket opens. Skip any whose owner
-          // already settled (timed out / disconnected), and let rawSend reject the
-          // owner if its frame can't serialize so a later bad frame can't strand it.
           const entries = [...outbox.values()];
           outbox.clear();
+
           for (const { message, owner } of entries) {
             if (owner.isPending()) helpers.rawSend(message, owner);
           }
+
           return null;
         },
 
@@ -142,9 +138,6 @@ export function requestResponse(
           if (typeof correlationId !== 'string') return message;
 
           const waiter = pending.get(correlationId);
-          // A reply with no pending waiter is a late/duplicate response to a request
-          // that already settled (timed out, rejected on disconnect, or resolved by an
-          // earlier reply). Drop it so it can't leak to on() handlers or onError.
           if (!waiter) return null;
 
           helpers.log.info(`matched response for request '${correlationId}'`);

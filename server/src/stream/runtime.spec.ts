@@ -346,7 +346,11 @@ describe('stream/runtime', () => {
       closed: false,
     });
 
-    await cancelStream({ activeStreams }, stranger, streamId);
+    await cancelStream(
+      { activeStreams, connections: new Map(), sendProtocolMessage: vi.fn() },
+      stranger,
+      streamId,
+    );
 
     expect(generator.return as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(activeStreams.has(streamId)).toBe(true);
@@ -382,7 +386,11 @@ describe('stream/runtime', () => {
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
 
     await expect(
-      cancelStream({ activeStreams, logger }, owner, 'stream_1'),
+      cancelStream(
+        { activeStreams, logger, connections: new Map(), sendProtocolMessage: vi.fn() },
+        owner,
+        'stream_1',
+      ),
     ).resolves.toBeUndefined();
 
     expect(activeStreams.has('stream_1')).toBe(false);
@@ -390,6 +398,85 @@ describe('stream/runtime', () => {
     const [message, fields] = logger.error.mock.calls[0]!;
     expect(message).toMatch(/stream cleanup threw on __streamCancel__/);
     expect((fields as { streamId?: string }).streamId).toBe('stream_1');
+  });
+
+  it('cancelStream fans a terminal __streamEnd__ out to broadcast peers (Minor 2)', async () => {
+    const owner = createConnection('owner');
+    const bob = createConnection('bob');
+    const generator = (async function* () {
+      yield 1;
+    })();
+    await generator.next();
+
+    const activeStreams = new Map<string, ActiveStream>();
+    const streamId = 'bstream';
+    activeStreams.set(streamId, {
+      id: streamId,
+      connectionId: owner.id,
+      event: 'feed',
+      generator: generator as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      abortController: new AbortController(),
+      closed: false,
+      scope: {},
+      broadcast: true,
+    });
+    const connections = new Map([
+      [owner.id, owner],
+      [bob.id, bob],
+    ]);
+    const sendProtocolMessage = vi.fn();
+
+    await cancelStream({ activeStreams, connections, sendProtocolMessage }, owner, streamId);
+
+    expect(activeStreams.has(streamId)).toBe(false);
+    // Only the peer gets the terminal; the creator initiated the cancel.
+    expect(sendProtocolMessage).toHaveBeenCalledTimes(1);
+    const [target, opts] = sendProtocolMessage.mock.calls[0]!;
+    expect((target as RuntimeConnection).id).toBe('bob');
+    expect((opts as { event: string }).event).toBe('__streamEnd__');
+    const wskit = (opts as { wskit: Record<string, unknown> }).wskit;
+    expect(wskit.streamId).toBe(streamId);
+    expect(wskit.eventName).toBe('feed');
+  });
+
+  it('cancelStream does not fan out for a non-broadcast stream', async () => {
+    const owner = createConnection('owner');
+    const bob = createConnection('bob');
+    const generator = (async function* () {
+      yield 1;
+    })();
+    await generator.next();
+
+    const activeStreams = new Map<string, ActiveStream>();
+    activeStreams.set('s', {
+      id: 's',
+      connectionId: owner.id,
+      event: 'feed',
+      generator: generator as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      abortController: new AbortController(),
+      closed: false,
+      scope: {},
+    });
+    const sendProtocolMessage = vi.fn();
+
+    await cancelStream(
+      {
+        activeStreams,
+        connections: new Map([
+          [owner.id, owner],
+          [bob.id, bob],
+        ]),
+        sendProtocolMessage,
+      },
+      owner,
+      's',
+    );
+
+    expect(sendProtocolMessage).not.toHaveBeenCalled();
   });
 
   it('a cancel while the generator next() is pending emits no chunk and no __streamEnd__', async () => {

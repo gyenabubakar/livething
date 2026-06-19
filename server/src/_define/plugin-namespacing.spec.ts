@@ -275,6 +275,100 @@ describe('plugin namespacing — channel runtime sends', () => {
   });
 });
 
+describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
+  it('namespaces ctx.send and ctx.kv from a plugin intercept hook', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
+    });
+    h.intercept((ctx: any) => {
+      ctx.send('own-event', { ok: true });
+      void ctx.kv.set('count', 1);
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:presence', { handler: h.assemble(go) })();
+    const interceptPrim = __primitives.find((p: any) => p.__wskit === 'intercept') as any;
+    expect(interceptPrim.__owner).toEqual({ kind: 'plugin', id: 'acme:presence' });
+
+    const send = vi.fn();
+    const kvSet = vi.fn();
+    interceptPrim.handler({ id: 'c1', send, kv: { set: kvSet } }, { event: 'go', payload: {} });
+    expect(send).toHaveBeenCalledWith('__acme:presence::own-event', { ok: true });
+    expect(kvSet).toHaveBeenCalledWith('__acme:presence::count', 1);
+  });
+
+  it('namespaces ctx.send from a plugin outgoing hook', () => {
+    const h = define({ scoped: true, capabilities: [emits({ 'own-event': t<{}>() })] });
+    h.outgoing((ctx: any) => {
+      ctx.send('own-event', {});
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:store', { handler: h.assemble(go) })();
+    const hook = __primitives.find((p: any) => p.__wskit === 'outgoingHook') as any;
+    expect(hook.__owner).toEqual({ kind: 'plugin', id: 'acme:store' });
+
+    let registered: any;
+    hook.__setup({ onOutgoing: (fn: any) => (registered = fn) });
+    const send = vi.fn();
+    registered({ id: 'c1', send }, { event: 'x', payload: {} });
+    expect(send).toHaveBeenCalledWith('__acme:store::own-event', {});
+  });
+
+  it('passes a nullish outgoing-hook ctx through without proxying (broadcast safety)', () => {
+    const h = define({ scoped: true });
+    let received: any = 'unset';
+    h.outgoing((ctx: any) => {
+      received = ctx;
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:obs', { handler: h.assemble(go) })();
+    const hook = __primitives.find((p: any) => p.__wskit === 'outgoingHook') as any;
+    let registered: any;
+    hook.__setup({ onOutgoing: (fn: any) => (registered = fn) });
+    expect(() => registered(undefined, { event: 'x', payload: {} })).not.toThrow();
+    expect(received).toBeUndefined();
+  });
+});
+
+describe('plugin namespacing — channel hook is owned and scoped (Major 5)', () => {
+  it('owner-stamps and scopes a plugin channel intercept child', () => {
+    const h = define({ scoped: true, capabilities: [channels()] });
+    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    room.intercept((ctx: any) => {
+      ctx.channel.send('roster', { who: 'a' });
+    });
+    room.on('say', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:room', { handler: h.assemble(room) })();
+    const channelPrim = __primitives.find((p: any) => p.__wskit === 'channel') as any;
+    const interceptChild = channelPrim.primitives.find(
+      (p: any) => p.__wskit === 'intercept',
+    ) as any;
+    expect(interceptChild.__owner).toEqual({ kind: 'plugin', id: 'acme:room' });
+
+    const send = vi.fn();
+    interceptChild.handler({ id: 'c1', channel: { send } }, { event: 'say', payload: {} });
+    expect(send).toHaveBeenCalledWith('__acme:room::roster', { who: 'a' });
+  });
+
+  it('a plugin channel name does not collide with an app channel of the same name', () => {
+    const h = define({ scoped: true, capabilities: [channels()] });
+    const pGames = h.channel('games', { outgoing: { emits: { tick: t<{}>() } } });
+    pGames.on('play', { input: v.object({}), run() {} });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [channels(), plugin('acme:arcade', { handler: h.assemble(pGames) })()],
+    });
+    const appGames = base.channel('games', { outgoing: { emits: { tock: t<{}>() } } });
+    appGames.on('move', { input: v.object({}), run() {} });
+    const compiled = compileHandlerDefinition(base.assemble(appGames));
+
+    // The app keeps the bare name; the plugin's channel is namespaced — distinct
+    // keys, no collision.
+    expect(compiled.channels.has('games')).toBe(true);
+    expect(compiled.channels.has('__acme:arcade::games')).toBe(true);
+  });
+});
+
 describe('plugin namespacing — app ctx is untouched', () => {
   it('does not prefix events / kv keys for a non-plugin app handler', async () => {
     const base = define({

@@ -6,8 +6,10 @@
 	let outcome = $state('');
 	let errorOutcome = $state('');
 	// How to answer the next server→client request: 'good' echoes a valid
-	// response, 'bad' echoes a schema-violating one, 'drop' answers nothing.
-	let answerMode = $state<'good' | 'bad' | 'drop'>('good');
+	// response, 'bad' echoes a schema-violating one, 'drop' answers nothing,
+	// 'decline' replies with the `__error__` frame a typed client sends when its
+	// handler throws (or it has no handler) — the server must fast-fail.
+	let answerMode = $state<'good' | 'bad' | 'drop' | 'decline'>('good');
 
 	function connect() {
 		if (ws) return;
@@ -32,6 +34,16 @@
 			if (data.event === 'ask-permission' && correlationId) {
 				lastRequest = { action: data.payload?.action ?? '', correlationId };
 				if (answerMode === 'drop') return;
+				if (answerMode === 'decline') {
+					ws?.send(
+						JSON.stringify({
+							event: '__error__',
+							payload: { code: 'request-no-response' },
+							__wskit: { correlationId },
+						}),
+					);
+					return;
+				}
 				const payload =
 					answerMode === 'good' ? { allowed: true } : { allowed: 'not-a-boolean' };
 				ws?.send(JSON.stringify({ event: 'ask-permission', payload, __wskit: { correlationId } }));
@@ -62,6 +74,7 @@
 <button data-testid="answer-good" onclick={() => (answerMode = 'good')}>Answer good</button>
 <button data-testid="answer-bad" onclick={() => (answerMode = 'bad')}>Answer bad</button>
 <button data-testid="answer-drop" onclick={() => (answerMode = 'drop')}>Answer drop</button>
+<button data-testid="answer-decline" onclick={() => (answerMode = 'decline')}>Answer decline</button>
 <button data-testid="trigger" onclick={trigger}>Trigger</button>
 <button data-testid="trigger-timeout" onclick={triggerTimeout}>Trigger (timeout)</button>
 <span data-testid="status">{status}</span>

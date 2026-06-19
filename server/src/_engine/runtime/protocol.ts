@@ -298,6 +298,10 @@ export const OutgoingProtocolFrame = v.variant('event', [
  */
 export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
+  // Marks a server→client request so the client can fast-fail when it has no
+  // handler. Server→client only; the client never echoes it, so its presence
+  // here just keeps the strict schema accepting of the frames the server sends.
+  serverRequest: v.optional(v.boolean()),
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
   ackId: v.optional(WireId),

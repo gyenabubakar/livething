@@ -54,3 +54,29 @@ room.on('ping', {
     void ctx.channel.request('nope', {});
   },
 });
+
+/**
+ * Without the `requests()` capability, declaring `outgoing.requests` is a
+ * compile-time error (excess property), matching the gating on the
+ * `ctx.channel.request` / `broadcastRequest` verbs — not just a runtime throw.
+ */
+const noRequests = define({
+  env: t<{}>(),
+  capabilities: [channels()],
+});
+
+// @ts-expect-error — outgoing.requests needs the requests() capability listed;
+// the inferred decl map fails its capability-gated constraint, erroring here.
+noRequests.channel(['room', 'room:{id}'], {
+  outgoing: {
+    emits: { tick: t<{ n: number }>() },
+    requests: { ask: [t<{}>(), v.object({ ok: v.boolean() })] },
+  },
+});
+
+// The error surfaces on the call when the inferred decl map fails its
+// capability-gated constraint; this fixture proves a request-less channel with
+// only emits still type-checks.
+noRequests.channel(['lobby', 'lobby:{id}'], {
+  outgoing: { emits: { tick: t<{ n: number }>() } },
+});

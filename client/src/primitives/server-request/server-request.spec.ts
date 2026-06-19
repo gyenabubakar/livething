@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- install adds onRequest/request dynamically */
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { channels } from '~/primitives/channels/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { serverRequest } from '~/primitives/server-request/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -11,10 +12,18 @@ interface C {
   serverRequests: {
     'ask-permission': { payload: { action: string }; response: { allowed: boolean } };
   };
+  channels: {
+    rooms: {
+      addressing: 'dynamic';
+      serverRequests: {
+        'ask-permission': { payload: { action: string }; response: { allowed: boolean } };
+      };
+    };
+  };
 }
 
 function build() {
-  const socket = client<C>()(connect('wss://test'), requestResponse(), serverRequest());
+  const socket = client<C>()(connect('wss://test'), requestResponse(), serverRequest(), channels());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -84,9 +93,11 @@ describe('serverRequest — answering server-initiated requests', () => {
     expect(handlerHits).toHaveLength(0);
   });
 
-  it('echoes channel markers on the reply', async () => {
+  it('answers a channel-scoped request and echoes channel markers on the reply', async () => {
     const { socket, ws } = build();
-    (socket as any).onRequest('ask-permission', () => ({ allowed: true }));
+    (socket as any).channel('rooms', 'room-1').onRequest('ask-permission', () => ({
+      allowed: true,
+    }));
 
     ws.emit({
       event: 'ask-permission',
@@ -101,5 +112,123 @@ describe('serverRequest — answering server-initiated requests', () => {
       channel: 'room-1',
       channelScope: 'rooms',
     });
+  });
+
+  it('does not let a channel onRequest answer a top-level request', async () => {
+    const { socket, ws } = build();
+    const hits: unknown[] = [];
+    (socket as any).channel('rooms', 'room-1').onRequest('ask-permission', (p: unknown) => {
+      hits.push(p);
+      return { allowed: true };
+    });
+
+    // A server→client request with NO channel marker must not reach the channel
+    // handler; with no top-level handler it fast-fails on the serverRequest flag.
+    ws.emit({
+      event: 'ask-permission',
+      payload: { action: 'x' },
+      __wskit: { correlationId: 'x4', serverRequest: true },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(hits).toHaveLength(0);
+    const answer = ws.sentFrames().find((f) => f.event === 'ask-permission');
+    expect(answer).toBeUndefined();
+    const nak = ws.sentFrames().find((f) => f.event === '__error__');
+    expect(nak).toMatchObject({
+      payload: { code: 'request-no-response' },
+      __wskit: { correlationId: 'x4' },
+    });
+  });
+
+  it('lets a top-level onRequest answer a channel-marked request as a fallback', async () => {
+    // A top-level request can be fanned out to a channel's members (e.g. via
+    // ctx.channels.get(name).broadcastRequest), so the frame carries a channel
+    // marker but the handler is top-level. With no channel-scoped handler, the
+    // top-level one answers it.
+    const { socket, ws } = build();
+    const hits: unknown[] = [];
+    (socket as any).onRequest('ask-permission', (p: unknown) => {
+      hits.push(p);
+      return { allowed: true };
+    });
+
+    ws.emit({
+      event: 'ask-permission',
+      payload: { action: 'x' },
+      __wskit: {
+        correlationId: 'x5',
+        channel: 'room-1',
+        channelScope: 'rooms',
+        serverRequest: true,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(hits).toHaveLength(1);
+    const answer = ws.sentFrames().find((f) => f.event === 'ask-permission');
+    expect(answer).toMatchObject({ payload: { allowed: true }, __wskit: { correlationId: 'x5' } });
+    expect(ws.sentFrames().find((f) => f.event === '__error__')).toBeUndefined();
+  });
+
+  it('prefers the channel onRequest over a top-level one for a channel-marked frame', async () => {
+    const { socket, ws } = build();
+    const topHits: unknown[] = [];
+    const chanHits: unknown[] = [];
+    (socket as any).onRequest('ask-permission', (p: unknown) => {
+      topHits.push(p);
+      return { allowed: false };
+    });
+    (socket as any).channel('rooms', 'room-1').onRequest('ask-permission', (p: unknown) => {
+      chanHits.push(p);
+      return { allowed: true };
+    });
+
+    ws.emit({
+      event: 'ask-permission',
+      payload: { action: 'x' },
+      __wskit: {
+        correlationId: 'x7',
+        channel: 'room-1',
+        channelScope: 'rooms',
+        serverRequest: true,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(chanHits).toHaveLength(1);
+    expect(topHits).toHaveLength(0);
+  });
+
+  it('fast-fails a marked server request with no handler (no-handler decline)', async () => {
+    const { socket, ws } = build();
+    void socket; // no handler registered
+
+    ws.emit({
+      event: 'ask-permission',
+      payload: { action: 'x' },
+      __wskit: { correlationId: 'x6', serverRequest: true },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const nak = ws.sentFrames().find((f) => f.event === '__error__');
+    expect(nak).toMatchObject({
+      payload: { code: 'request-no-response' },
+      __wskit: { correlationId: 'x6' },
+    });
+  });
+
+  it('passes through an unmarked correlated frame with no handler (a reply)', async () => {
+    const { socket, ws } = build();
+    // A reply to the client's own request: correlated, NOT marked serverRequest,
+    // no serverRequest handler. It must not be NAK'd — requestResponse claims it.
+    const pending = (socket as any).request('get-balance', { user: 'a' });
+    const reqFrame = ws.sentFrames().find((f) => f.event === 'get-balance');
+    const correlationId = reqFrame.__wskit.correlationId;
+
+    ws.emit({ event: 'get-balance', payload: { balance: 7 }, __wskit: { correlationId } });
+    await expect(pending).resolves.toEqual({ balance: 7 });
+    const nak = ws.sentFrames().find((f) => f.event === '__error__');
+    expect(nak).toBeUndefined();
   });
 });

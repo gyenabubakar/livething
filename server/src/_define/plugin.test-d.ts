@@ -16,6 +16,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -177,3 +178,25 @@ expectTypeOf<ChFamScope['outgoing']>().toHaveProperty('fam-ping');
 // Addressing discriminator + subscribe payload survive the flip.
 expectTypeOf<ChFamScope['addressing']>().toEqualTypeOf<'dynamic'>();
 expectTypeOf<ChFamScope['subscribePayload']>().toEqualTypeOf<{ token: string }>();
+
+// ---------------------------------------------------------------------------
+// dependsOn — host capability factories only. A plugin factory is a compile
+// error: a plugin dependency can never be satisfied at runtime (plugins carry
+// no host capability identity token), so the type forbids it up front.
+// ---------------------------------------------------------------------------
+const depScoped = define({ scoped: true });
+const DepPlugin = plugin('acme:dep', {
+  handler: depScoped.assemble(depScoped.on('noop', { run() {} })),
+});
+
+const depHost = define({ scoped: true });
+// A host capability factory is accepted.
+plugin('acme:ok', {
+  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  dependsOn: [requests],
+});
+plugin('acme:bad', {
+  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  // @ts-expect-error — a plugin factory is not a valid dependsOn target.
+  dependsOn: [DepPlugin],
+});

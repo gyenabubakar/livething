@@ -675,6 +675,17 @@ type ChannelRateLimitField<TCaps extends readonly AnyCapability[]> =
       }
     : {};
 
+/**
+ * The constraint on a channel's inferred `outgoing.requests` map. With the
+ * `requests()` capability listed it is the normal decl map; without it, every
+ * value must be `never`, so declaring any channel request without `requests()`
+ * is a compile error (the inferred map fails this constraint). Gating the
+ * constraint — rather than the field — is what enforces it through the `const
+ * TRequests` inference position. The runtime also throws as a backstop.
+ */
+type RequestsDeclConstraint<TCaps extends readonly AnyCapability[]> =
+  'requests' extends BrandsOf<TCaps> ? Record<string, ServerRequestDecl> : Record<string, never>;
+
 /** Configuration object for `base.channel(...)`. */
 export type ChannelConfig<
   TSlots,
@@ -689,10 +700,9 @@ export type ChannelConfig<
     readonly emits?: Record<string, TypeMarker<any> | Validator>;
     /**
      * Server→client requests this channel asks its members. Same tuple shape as
-     * the top-level `requests({...})` — `[payload, response, { broadcast? }?]`.
-     * Declaring these needs the `requests()` capability listed (the request
-     * engine is owned there); a channel that declares them without it is a
-     * build error.
+     * the top-level `requests({...})`. Declaring these needs the `requests()`
+     * capability listed; the channel overloads gate it at compile time and the
+     * runtime throws as a backstop.
      */
     readonly requests?: Record<string, ServerRequestDecl>;
   };
@@ -1205,13 +1215,16 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
   channel<
     TName extends string,
     const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends Record<string, ServerRequestDecl> = {},
+    const TRequests extends RequestsDeclConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
   >(
     name: TName,
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
-      readonly outgoing?: { readonly emits?: TEmits; readonly requests?: TRequests };
+      readonly outgoing?: {
+        readonly emits?: TEmits;
+        readonly requests?: TRequests;
+      };
     },
   ): ChannelObject<
     TSlots,
@@ -1230,13 +1243,16 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TFamily extends string,
     TPattern extends string,
     const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends Record<string, ServerRequestDecl> = {},
+    const TRequests extends RequestsDeclConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
   >(
     pattern: readonly [TFamily, TPattern],
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
-      readonly outgoing?: { readonly emits?: TEmits; readonly requests?: TRequests };
+      readonly outgoing?: {
+        readonly emits?: TEmits;
+        readonly requests?: TRequests;
+      };
     },
   ): ChannelObject<
     TSlots,
@@ -1864,15 +1880,6 @@ export function define(config: any): Base<any, any, any, any> {
       }
       if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
-      // Both resumable and recorded streams carry the same retention-sweep builder,
-      // but the engine rejects duplicate scheduled task names — register exactly one.
-      for (const cap of config.capabilities ?? []) {
-        const sweep = (cap as { __durableSweep?: () => Primitive }).__durableSweep;
-        if (typeof sweep === 'function') {
-          primitives.push(sweep());
-          break;
-        }
-      }
       if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);
       primitives.push(...lifecyclePrimitives);
       primitives.push(...handlerPrimitives);
@@ -1910,15 +1917,41 @@ export function define(config: any): Base<any, any, any, any> {
       }
       if (config.hibernation?.enabled) features.add('hibernation');
 
+      function isDurableGenerate(p: Primitive): boolean {
+        return (
+          p.__wskit === 'resumable-stream-generate' || p.__wskit === 'recorded-stream-generate'
+        );
+      }
+      // A durable stream can be declared at the top level or nested inside a
+      // channel, so scan both — otherwise a channel-only durable stream would
+      // miss both the persistence gate and the retention sweep below.
       const hasDurableStream = primitives.some(
         (p) =>
-          p.__wskit === 'resumable-stream-generate' || p.__wskit === 'recorded-stream-generate',
+          isDurableGenerate(p) ||
+          (p.__wskit === 'channel' &&
+            ((p as { primitives?: readonly Primitive[] }).primitives ?? []).some(
+              isDurableGenerate,
+            )),
       );
       if (hasDurableStream && !features.has('persistence')) {
         throw new Error(
           '[wskit] resumableStream / recordedStream require the persistence() capability. ' +
             'Add persistence() to capabilities.',
         );
+      }
+
+      // Install the durable-stream retention sweep only when a resumable/recorded
+      // stream handler actually exists — not merely because the capability is
+      // listed. Both stream capabilities carry the same sweep builder, and the
+      // engine rejects duplicate scheduled task names, so register exactly one.
+      if (hasDurableStream) {
+        for (const cap of config.capabilities ?? []) {
+          const sweep = (cap as { __durableSweep?: () => Primitive }).__durableSweep;
+          if (typeof sweep === 'function') {
+            primitives.push(sweep());
+            break;
+          }
+        }
       }
 
       const hasPersistentTags = primitives.some(

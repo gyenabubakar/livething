@@ -1,11 +1,26 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestInvalidResponse } from '@wskit/core';
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
-import { makeServerRequestsPrimitive } from '~/request/outgoing-runtime.ts';
+import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConnectionRef } from '~/context.ts';
 import type { ResolvedServerRequest } from '~/request/capability.ts';
+
+/** Re-key a bare-event decl map under one channel's definition key. */
+function chanDecls(
+  channelKey: string,
+  entries: ReadonlyMap<string, ResolvedServerRequest>,
+): Map<string, ResolvedServerRequest> {
+  return new Map([...entries].map(([event, decl]) => [serverRequestKey(channelKey, event), decl]));
+}
+
+/** Re-key a bare-event decl map as TOP-LEVEL decls (channelKey null). */
+function topDecls(
+  entries: ReadonlyMap<string, ResolvedServerRequest>,
+): Map<string, ResolvedServerRequest> {
+  return new Map([...entries].map(([event, decl]) => [serverRequestKey(null, event), decl]));
+}
 
 /**
  * Drive the install primitive against a fake `EngineAccess`, capturing the
@@ -103,7 +118,7 @@ const PERMISSION = new Map<string, ResolvedServerRequest>([
 
 describe('server→client request — outgoing runtime', () => {
   it('ctx.request resolves with the validated answer', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'delete' });
 
@@ -120,8 +135,23 @@ describe('server→client request — outgoing runtime', () => {
     await expect(promise).resolves.toEqual({ allowed: true });
   });
 
+  it('rejects with the typed error when the client declines via __error__', async () => {
+    const env = install(topDecls(PERMISSION));
+    const ctx = env.buildCtx('c1');
+    const promise = ctx.request('ask', { action: 'delete' });
+    const { correlationId } = env.sent[0]!.opts;
+
+    const handled = env.answerHook('c1', {
+      event: '__error__',
+      payload: { code: 'request-no-response' },
+      wskit: { correlationId },
+    });
+    expect(handled).toBe(true);
+    await expect(promise).rejects.toMatchObject({ code: 'request-no-response' });
+  });
+
   it('rejects with request-invalid-response when the answer fails its schema', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' });
     const { correlationId } = env.sent[0]!.opts;
@@ -132,7 +162,7 @@ describe('server→client request — outgoing runtime', () => {
 
   it('rejects with timeout when no answer arrives', async () => {
     vi.useFakeTimers();
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
@@ -142,7 +172,7 @@ describe('server→client request — outgoing runtime', () => {
   });
 
   it('rejects with disconnected when the target is not live', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     env.live.delete('c1');
     await expect(ctx.request('ask', { action: 'x' })).rejects.toMatchObject({
@@ -151,7 +181,7 @@ describe('server→client request — outgoing runtime', () => {
   });
 
   it('rejects pending requests for a connection that disconnects', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' });
     env.disconnectHook({ id: 'c1' });
@@ -159,7 +189,7 @@ describe('server→client request — outgoing runtime', () => {
   });
 
   it('ctx.connection(ref).request targets the addressed peer', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
       __wskit: 'connection-ref',
@@ -175,7 +205,7 @@ describe('server→client request — outgoing runtime', () => {
   });
 
   it('ctx.connection(ref).request to another instance throws cross-instance', () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
       __wskit: 'connection-ref',
@@ -187,7 +217,7 @@ describe('server→client request — outgoing runtime', () => {
   });
 
   it('ctx.channel.request stamps the channel routing', async () => {
-    const env = install(PERMISSION);
+    const env = install(chanDecls('rooms', PERMISSION));
     const ctx = env.buildCtx(
       'c1',
       { channelName: 'room-1', channelScope: 'rooms' },
@@ -205,7 +235,7 @@ describe('server→client request — outgoing runtime', () => {
     const decls = new Map<string, ResolvedServerRequest>([
       ['volunteer', { responseValidator: undefined, broadcast: true }],
     ]);
-    const env = install(decls);
+    const env = install(topDecls(decls));
     const ctx = env.buildCtx('c1');
     await expect(ctx.request('volunteer', { turn: 1 })).rejects.toThrow(/broadcastRequest/);
   });
@@ -217,7 +247,7 @@ const VOLUNTEER = new Map<string, ResolvedServerRequest>([
 
 describe('server→client broadcast request — first answer wins', () => {
   it('ctx.broadcastRequest resolves with the first valid answer and its from ref', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b', 'd'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 5 });
 
@@ -237,7 +267,7 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('ignores an invalid answer and resolves on a later valid one', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
 
@@ -263,7 +293,7 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('drops a loser late answer after a winner already resolved', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
     const legA = env.sent.find((s) => s.connectionId === 'a')!;
@@ -289,7 +319,7 @@ describe('server→client broadcast request — first answer wins', () => {
 
   it('rejects with timeout when nobody answers in time', async () => {
     vi.useFakeTimers();
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
@@ -300,7 +330,7 @@ describe('server→client broadcast request — first answer wins', () => {
 
   it('zero targets rejects with timeout', async () => {
     vi.useFakeTimers();
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     expect(env.sent).toHaveLength(0);
@@ -311,7 +341,7 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('one target disconnecting does not reject the broadcast', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
@@ -330,7 +360,7 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('ctx.channel.broadcastRequest fans out to channel members with channel routing', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(chanDecls('rooms', VOLUNTEER));
     env.live.add('a');
     env.live.add('b');
     const ctx = env.buildCtx(
@@ -365,7 +395,9 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('ctx.channels.get(name).broadcastRequest fans out to a named channel', async () => {
-    const env = install(VOLUNTEER);
+    // ctx.channels.get(name) resolves the TOP-LEVEL decl (fanned to the channel's
+    // members), not a channel-declared one — so the decl is registered bare.
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { channels: { lobby: ['a', 'b'] } });
     const promise = ctx.channels.get('lobby').broadcastRequest('volunteer', { turn: 1 });
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
@@ -382,7 +414,7 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('ctx.tags group and ref broadcastRequest fan out to their members', async () => {
-    const env = install(VOLUNTEER);
+    const env = install(topDecls(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, {
       tags: { group: ['a', 'b'], refs: { admin: ['b'] } },
     });
@@ -419,10 +451,164 @@ describe('server→client broadcast request — first answer wins', () => {
   });
 
   it('a non-broadcast event used via broadcastRequest rejects', async () => {
-    const env = install(PERMISSION);
+    const env = install(topDecls(PERMISSION));
     const ctx = env.buildCtx('c1', undefined, { connections: ['a'] });
     await expect(ctx.broadcastRequest('ask', { action: 'x' })).rejects.toThrow(
       /not declared.*broadcast: true/,
     );
+  });
+});
+
+describe('server→client request — per-channel decl isolation (Major 2)', () => {
+  const askAllowed: ResolvedServerRequest = {
+    responseValidator: v.object({ allowed: v.boolean() }),
+    broadcast: false,
+  };
+  const askCount: ResolvedServerRequest = {
+    responseValidator: v.object({ count: v.number() }),
+    broadcast: false,
+  };
+
+  function roomsCtx(env: ReturnType<typeof install>) {
+    return env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelScope: 'rooms' },
+      { channel: { name: 'room-1', scope: 'rooms', send: () => true } },
+    );
+  }
+
+  it('two channels declaring the same event keep their own response schemas', async () => {
+    const env = install(
+      new Map([
+        ...chanDecls('rooms', new Map([['ask', askAllowed]])),
+        ...chanDecls('games', new Map([['ask', askCount]])),
+      ]),
+    );
+    // rooms.ask validates { allowed }; a games-shaped answer is invalid for it.
+    const ctx = roomsCtx(env);
+    const promise = ctx.channel.request('ask', {});
+    const { correlationId } = env.sent[0]!.opts;
+    env.answerHook('c1', { event: 'ask', payload: { count: 5 }, wskit: { correlationId } });
+    await expect(promise).rejects.toMatchObject({ code: 'request-invalid-response' });
+  });
+
+  it('a channel event does not clobber the top-level event of the same name', async () => {
+    const env = install(
+      new Map([
+        [serverRequestKey(null, 'ask'), askAllowed],
+        ...chanDecls('rooms', new Map([['ask', askCount]])),
+      ]),
+    );
+    // Top-level ctx.request resolves the top-level { allowed } schema.
+    const topCtx = env.buildCtx('c1');
+    const topPromise = topCtx.request('ask', {});
+    const topId = env.sent[0]!.opts.correlationId;
+    env.answerHook('c1', {
+      event: 'ask',
+      payload: { allowed: true },
+      wskit: { correlationId: topId },
+    });
+    await expect(topPromise).resolves.toEqual({ allowed: true });
+
+    // The channel ctx.request resolves the channel's { count } schema instead.
+    env.sent.length = 0;
+    const chanCtx = roomsCtx(env);
+    const chanPromise = chanCtx.channel.request('ask', {});
+    const chanId = env.sent[0]!.opts.correlationId;
+    env.answerHook('c1', { event: 'ask', payload: { count: 9 }, wskit: { correlationId: chanId } });
+    await expect(chanPromise).resolves.toEqual({ count: 9 });
+  });
+});
+
+describe('server→client request — only the asked connection may answer (Minor 3)', () => {
+  it('ignores a targeted answer from a different connection', async () => {
+    const env = install(topDecls(PERMISSION));
+    const ctx = env.buildCtx('c1');
+    const promise = ctx.request('ask', { action: 'x' });
+    const { correlationId } = env.sent[0]!.opts;
+
+    let resolved = false;
+    void promise.then(() => (resolved = true));
+
+    // An attacker echoing the victim's correlationId is claimed but ignored.
+    const handled = env.answerHook('attacker', {
+      event: 'ask',
+      payload: { allowed: true },
+      wskit: { correlationId },
+    });
+    expect(handled).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(resolved).toBe(false);
+
+    // The real target can still answer.
+    env.answerHook('c1', { event: 'ask', payload: { allowed: false }, wskit: { correlationId } });
+    await expect(promise).resolves.toEqual({ allowed: false });
+  });
+
+  it('ignores a broadcast leg answer from a connection other than that leg target', async () => {
+    const env = install(topDecls(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
+    const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
+    const legA = env.sent.find((s) => s.connectionId === 'a')!;
+
+    // 'b' answering 'a's leg is ignored; the race stays open.
+    const handled = env.answerHook('b', {
+      event: 'volunteer',
+      payload: { ready: true },
+      wskit: { correlationId: legA.opts.correlationId },
+    });
+    expect(handled).toBe(true);
+
+    const legB = env.sent.find((s) => s.connectionId === 'b')!;
+    env.answerHook('b', {
+      event: 'volunteer',
+      payload: { ready: false },
+      wskit: { correlationId: legB.opts.correlationId },
+    });
+    await expect(promise).resolves.toEqual({
+      response: { ready: false },
+      from: expect.objectContaining({ id: 'b' }),
+    });
+  });
+});
+
+describe('server→client broadcast request — self-exclusion (Major 6)', () => {
+  function channelCtx(env: ReturnType<typeof install>) {
+    env.live.add('a');
+    env.live.add('b');
+    return env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelScope: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          scope: 'rooms',
+          send: () => true,
+          members: () =>
+            ['c1', 'a', 'b'].map((id) => ({ id, ref: () => ({ __wskit: 'connection-ref', id }) })),
+        },
+      },
+    );
+  }
+
+  it('ctx.channel.broadcastRequest excludes the caller by default', () => {
+    const env = install(chanDecls('rooms', VOLUNTEER));
+    const ctx = channelCtx(env);
+    void ctx.channel.broadcastRequest('volunteer', { turn: 1 });
+    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
+  });
+
+  it('ctx.channel.broadcastRequest includes the caller with excludeSelf: false', () => {
+    const env = install(chanDecls('rooms', VOLUNTEER));
+    const ctx = channelCtx(env);
+    void ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { excludeSelf: false });
+    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
+  });
+
+  it('ctx.broadcastRequest includes the caller with excludeSelf: false', () => {
+    const env = install(topDecls(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
+    void ctx.broadcastRequest('volunteer', { turn: 1 }, { excludeSelf: false });
+    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 });

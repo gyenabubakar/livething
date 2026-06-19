@@ -1,5 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
+import {
+  assertNonReservedEventName,
+  assertValidHighWaterMark,
+  collectUnique,
+} from '~/_engine/compile/utils.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
@@ -69,6 +73,7 @@ export function stream<
   },
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
+  assertValidHighWaterMark(config?.highWaterMark, `stream("${name}")`);
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
   return {

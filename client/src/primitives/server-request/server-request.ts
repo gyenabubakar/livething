@@ -1,5 +1,6 @@
 import { getAugmenters } from '~/internal/scoped.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
+import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
   ServerRequestOptions,
   ServerRequestTypeFn,
@@ -8,6 +9,17 @@ import type { Primitive } from '~/primitives/types.ts';
 
 /** A registered handler that answers one server→client request event. */
 type RequestHandler = (payload: unknown) => unknown | Promise<unknown>;
+
+/**
+ * The registry key for a handler: its scope (channel + family key, both `null`
+ * for a top-level handler) plus the event name, JSON-encoded. Channel
+ * `onRequest` handlers only answer frames carrying the same channel markers; a
+ * top-level handler only answers frames with no channel marker. JSON keeps the
+ * key unambiguous for any name without relying on a reserved separator.
+ */
+function handlerKey(markers: ScopeMarkers, event: string): string {
+  return JSON.stringify([markers.channel ?? null, markers.channelScope ?? null, event]);
+}
 
 /**
  * The receiving half of two-way requests: lets the **server** ask this client a
@@ -22,22 +34,34 @@ type RequestHandler = (payload: unknown) => unknown | Promise<unknown>;
 export function serverRequest(_options: ServerRequestOptions = {}): Primitive<ServerRequestTypeFn> {
   return {
     _tag: 'serverRequest',
-    // Runs BEFORE requestResponse/ack (they declare `optionalAfter:
-    // ['serverRequest']`). Those swallow any correlated frame with no pending
-    // waiter, so serverRequest must see a server-initiated request first. It
-    // only consumes frames whose event has a registered handler; a reply to the
-    // client's own request (a different event name) passes straight through.
+
     setup(helpers) {
+      // Keyed by handlerKey(scope, event): a channel `onRequest` answers only its
+      // own channel's frames, a top-level one answers only unscoped frames.
       const handlers = new Map<string, RequestHandler>();
 
-      function register(event: string, handler: RequestHandler): () => void {
-        if (handlers.has(event)) {
+      function register(event: string, handler: RequestHandler, markers: ScopeMarkers): () => void {
+        const key = handlerKey(markers, event);
+
+        if (handlers.has(key)) {
           helpers.log.warn(`onRequest('${event}') replaced an existing handler`);
         }
-        handlers.set(event, handler);
+
+        handlers.set(key, handler);
+
         return () => {
-          if (handlers.get(event) === handler) handlers.delete(event);
+          if (handlers.get(key) === handler) handlers.delete(key);
         };
+      }
+
+      /** The channel markers to echo back on a reply, taken from the request frame. */
+      function replyMarkers(message: WireMessage): WireMessage['__wskit'] {
+        const markers: WireMessage['__wskit'] = {};
+        if (message.__wskit?.channel !== undefined) markers.channel = message.__wskit.channel;
+        if (message.__wskit?.channelScope !== undefined) {
+          markers.channelScope = message.__wskit.channelScope;
+        }
+        return markers;
       }
 
       function reply(
@@ -50,17 +74,12 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
 
       async function answer(message: WireMessage, handler: RequestHandler): Promise<void> {
         const correlationId = message.__wskit?.correlationId as string;
-        const markers: WireMessage['__wskit'] = {};
-        if (message.__wskit?.channel !== undefined) markers.channel = message.__wskit.channel;
-        if (message.__wskit?.channelScope !== undefined) {
-          markers.channelScope = message.__wskit.channelScope;
-        }
+        const markers = replyMarkers(message);
+
         try {
           const result = await handler(message.payload);
           reply(correlationId, markers, { event: message.event, payload: result });
         } catch (error) {
-          // The handler threw — tell the server so its pending promise rejects
-          // fast instead of waiting out its timeout.
           helpers.log.warn(`onRequest('${message.event}') handler threw`, error);
           reply(correlationId, markers, {
             event: '__error__',
@@ -73,14 +92,42 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
         id: 'serverRequest',
 
         onIncoming(message) {
-          const correlationId = message.__wskit?.correlationId;
+          const wskit = message.__wskit;
+          const correlationId = wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
 
-          const handler = handlers.get(message.event);
-          // A correlated frame with no registered handler is not ours — pass it
-          // through (it may be a reply requestResponse/ack already settled, or a
-          // plain event the app handles).
-          if (!handler) return message;
+          const frameMarkers: ScopeMarkers = {};
+          if (wskit?.channel !== undefined) frameMarkers.channel = wskit.channel;
+          if (wskit?.channelScope !== undefined && wskit.channelScope !== null) {
+            frameMarkers.channelScope = wskit.channelScope;
+          }
+
+          // Match the channel-scoped handler first. A channel-marked frame may
+          // carry a TOP-LEVEL request fanned out to a channel's members (e.g. via
+          // ctx.channels.get(name).broadcastRequest), so fall back to a top-level
+          // handler when no channel-scoped one is registered. A frame with no
+          // channel marker only ever matches a top-level handler — so a channel
+          // handler never answers an unscoped request (the original bug).
+          let handler = handlers.get(handlerKey(frameMarkers, message.event));
+          if (!handler && frameMarkers.channel !== undefined) {
+            handler = handlers.get(handlerKey({}, message.event));
+          }
+          if (!handler) {
+            // No handler in this scope. If the server marked this as a
+            // server→client request, fast-fail so its pending promise rejects
+            // with `request-no-response` instead of hanging to timeout. Otherwise
+            // it's a reply to the client's own request (or a plain event) — pass
+            // it through for requestResponse/ack/on to claim.
+            if (wskit?.serverRequest === true) {
+              reply(correlationId, replyMarkers(message), {
+                event: '__error__',
+                payload: { code: 'request-no-response' },
+              });
+              return null;
+            }
+
+            return message;
+          }
 
           void answer(message, handler);
           return null;
@@ -88,11 +135,12 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
 
         install(socket) {
           // @ts-expect-error — install adds onRequest() to the socket dynamically
-          socket.onRequest = (event: string, handler: RequestHandler) => register(event, handler);
+          socket.onRequest = (event: string, handler: RequestHandler) =>
+            register(event, handler, {});
 
-          getAugmenters(socket).push((messaging) => {
+          getAugmenters(socket).push((messaging, scope) => {
             messaging.onRequest = (event: string, handler: RequestHandler) =>
-              register(event, handler);
+              register(event, handler, scope.markers());
           });
         },
       };

@@ -833,6 +833,25 @@ export async function processTextMessage(
 
   const event = (parsed as { event: string }).event;
 
+  // A declined server→client request comes back as an `__error__` frame echoing
+  // the request's correlationId. `__error__` is protocol-shaped, so without this
+  // it would route to dispatchProtocolFrame — which has no `__error__` case and
+  // would reject it as a validation error — and never reach the answer-frame
+  // settle hooks, leaving the server's pending ctx.request(...) promise to hang
+  // to timeout. Offer a correlated `__error__` to those hooks first; if none own
+  // it (no requests() capability, or the request already settled/timed out), drop
+  // it rather than emit a spurious protocol-validation error back to the client.
+  if (event === '__error__') {
+    const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;
+    if (declineWskit?.correlationId !== undefined) {
+      const payload = (parsed as { payload?: unknown }).payload;
+      for (const hook of runtime.answerFrameHooks) {
+        if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
+      }
+      return;
+    }
+  }
+
   // Protocol frames skip dedup and nudge buffering — a retried one must still
   // reach its handler.
   if (Protocol.isProtocolEventName(event)) {

@@ -40,4 +40,18 @@ test.describe('server→client request', () => {
     await expect(page.getByTestId('ask-action')).toHaveText('slow');
     await expect(page.getByTestId('error-outcome')).toHaveText('timeout');
   });
+
+  test('a declined request fast-fails with request-no-response, not a timeout', async ({
+    page,
+  }) => {
+    // The client replies with the `__error__` frame a typed client sends when
+    // its handler throws / it has no handler. The server must route it to the
+    // pending request and reject FAST — the default request timeout is 10s, so a
+    // ~5s assertion would fail if the decline were misrouted (the original bug).
+    await page.getByTestId('answer-decline').click();
+    await page.getByTestId('trigger').click();
+
+    await expect(page.getByTestId('ask-action')).toHaveText('delete');
+    await expect(page.getByTestId('error-outcome')).toHaveText('request-no-response');
+  });
 });

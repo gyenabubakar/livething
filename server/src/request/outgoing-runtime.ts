@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { error, RequestInvalidResponse } from '@wskit/core';
+import { error, RequestInvalidResponse, WSKitError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
@@ -74,6 +74,33 @@ interface RequestOptions {
   timeout?: number;
 }
 
+/** Per-broadcast-request options: a timeout plus self-exclusion control. */
+interface BroadcastRequestOptions extends RequestOptions {
+  /** Exclude the calling connection from the fan-out (default true). */
+  excludeSelf?: boolean;
+}
+
+/**
+ * Compose the lookup key for one server→client request declaration. Keyed by
+ * `[channelKey, event]` (channelKey is `null` for a top-level `requests({...})`
+ * decl, or the channel's family key / static name for an `outgoing.requests`
+ * decl), JSON-encoded so two channels can declare the same event name — and a
+ * channel can reuse a top-level name — without clobbering each other. JSON keeps
+ * the key unambiguous for any name without relying on a reserved separator.
+ */
+export function serverRequestKey(channelKey: string | null, event: string): string {
+  return JSON.stringify([channelKey, event]);
+}
+
+/**
+ * The channel-definition key for a runtime channel handle: its family key for a
+ * dynamic channel, its static name otherwise — matching how `requests()` keys
+ * the channel's own `outgoing.requests` decls. Top-level surfaces pass `null`.
+ */
+function channelDeclKey(handle: { name?: string; scope?: unknown }): string {
+  return typeof handle.scope === 'string' ? handle.scope : (handle.name ?? '');
+}
+
 /** A handle that can list its members and fan out a broadcast request. */
 interface MemberHandle {
   connections(): PublicApi.ConnectionInfo[];
@@ -126,17 +153,26 @@ function createOutgoingRequestRuntime(
 ) {
   const pending = new Map<string, PendingServerRequest>();
 
-  function settle(frame: {
-    event: string;
-    payload: unknown;
-    wskit: Protocol.WSKitProtocol | undefined;
-  }): boolean {
+  function settle(
+    connectionId: string,
+    frame: {
+      event: string;
+      payload: unknown;
+      wskit: Protocol.WSKitProtocol | undefined;
+    },
+  ): boolean {
     const correlationId = frame.wskit?.correlationId;
     if (correlationId === undefined) return false;
     const entry = pending.get(correlationId);
     if (!entry) return false;
 
-    if (entry.kind === 'broadcast') return settleBroadcastLeg(correlationId, entry, frame);
+    if (entry.kind === 'broadcast')
+      return settleBroadcastLeg({ connectionId, correlationId, entry, frame });
+
+    // Only the connection that was asked may answer. A frame from any other
+    // connection that happens to echo this correlationId is claimed (so it never
+    // routes on as a normal event) but ignored — the real target stays pending.
+    if (entry.connectionId !== connectionId) return true;
 
     // A second answer to the same id (or an answer to a request that already
     // timed out / dropped) finds no live entry above and falls through.
@@ -170,11 +206,17 @@ function createOutgoingRequestRuntime(
    * correlationId matched a leg we own — even an invalid answer must not fall
    * through to normal routing.
    */
-  function settleBroadcastLeg(
-    correlationId: string,
-    entry: Extract<PendingServerRequest, { kind: 'broadcast' }>,
-    frame: { event: string; payload: unknown },
-  ): boolean {
+  function settleBroadcastLeg(args: {
+    connectionId: string;
+    correlationId: string;
+    entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
+    frame: { event: string; payload: unknown };
+  }): boolean {
+    const { connectionId, correlationId, entry, frame } = args;
+    // Only the leg's own target may answer it; a mismatched connection echoing
+    // the leg's correlationId is claimed but ignored, leaving the leg live.
+    if (entry.connectionId !== connectionId) return true;
+
     const { group } = entry;
     pending.delete(correlationId);
     group.legs.delete(correlationId);
@@ -232,13 +274,19 @@ function createOutgoingRequestRuntime(
   }
 
   function sendRequest(args: {
-    target: { connectionId: string; channel?: string; channelScope?: string | null };
+    target: {
+      connectionId: string;
+      channel?: string;
+      channelScope?: string | null;
+      /** The channel definition key whose decls to resolve, or null for top-level. */
+      declChannelKey?: string | null;
+    };
     event: string;
     payload: unknown;
     options: RequestOptions | undefined;
   }): Promise<unknown> {
     const { target, event, payload, options } = args;
-    const decl = serverRequests.get(event);
+    const decl = serverRequests.get(serverRequestKey(target.declChannelKey ?? null, event));
     if (decl?.broadcast) {
       return Promise.reject(
         new Error(
@@ -294,9 +342,11 @@ function createOutgoingRequestRuntime(
     payload: unknown;
     options: RequestOptions | undefined;
     routing?: { channel?: string; channelScope?: string | null };
+    /** The channel definition key whose decls to resolve, or null for top-level. */
+    declChannelKey?: string | null;
   }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
     const { targets, event, payload, options, routing } = args;
-    const decl = serverRequests.get(event);
+    const decl = serverRequests.get(serverRequestKey(args.declChannelKey ?? null, event));
     if (!decl?.broadcast) {
       return Promise.reject(
         new Error(
@@ -356,7 +406,11 @@ function toRejection(payload: unknown): unknown {
       : 'request-no-response';
   const detail =
     payload && typeof payload === 'object' ? (payload as { detail?: unknown }).detail : undefined;
-  return error(code as string)(detail as never);
+  // Construct the error directly rather than through the public `error()`
+  // factory: a client legitimately declines with a framework-reserved code
+  // (e.g. `request-no-response`), which `error()` refuses — and that throw would
+  // otherwise escape settle and leave the pending request to hang.
+  return new WSKitError(code as string, detail);
 }
 
 /**
@@ -378,7 +432,7 @@ export function makeServerRequestsPrimitive(
     __setup(engine: EngineAccess) {
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 
-      engine.onAnswerFrame((_connectionId, frame) => runtime.settle(frame));
+      engine.onAnswerFrame((connectionId, frame) => runtime.settle(connectionId, frame));
 
       engine.onDisconnect((ctx) => {
         const connectionId = (ctx as { id?: string }).id;
@@ -408,6 +462,11 @@ export function makeServerRequestsPrimitive(
                 connectionId,
                 channel: scope.channelName,
                 channelScope: scope.channelScope,
+                // ctx.request resolves the TOP-LEVEL requests({...}) decls even
+                // inside a channel handler; the channel scope above is only for
+                // routing the answer back. ctx.channel.request resolves the
+                // channel's own decls.
+                declChannelKey: null,
               },
               event,
               payload,
@@ -425,7 +484,7 @@ export function makeServerRequestsPrimitive(
               const self = (ctx as { self?: PublicApi.ConnectionRef }).self;
               assertLocalRef(ref, self?.instance, 'ctx.connection(ref).request');
               return runtime.sendRequest({
-                target: { connectionId: ref.id },
+                target: { connectionId: ref.id, declChannelKey: null },
                 event,
                 payload,
                 options,
@@ -448,6 +507,7 @@ export function makeServerRequestsPrimitive(
                 connectionId,
                 channel: channelHandle.name,
                 channelScope: channelHandle.scope ?? null,
+                declChannelKey: channelDeclKey(channelHandle),
               },
               event,
               payload,
@@ -458,14 +518,22 @@ export function makeServerRequestsPrimitive(
           channelHandle.broadcastRequest = (
             event: string,
             payload: unknown,
-            options?: RequestOptions,
+            options?: BroadcastRequestOptions,
           ) =>
             runtime.sendBroadcastRequest({
-              targets: membersToTargets(channelHandle.members()),
+              // Exclude the calling connection by default, matching
+              // ctx.channel.broadcast and ctx.broadcastRequest; an author can
+              // opt back in with { excludeSelf: false }. With no current
+              // connection there is no self to drop.
+              targets: membersToTargets(
+                channelHandle.members(),
+                (options?.excludeSelf ?? true) ? connectionId : undefined,
+              ),
               event,
               payload,
               options,
               routing: { channel: channelHandle.name, channelScope: channelHandle.scope ?? null },
+              declChannelKey: channelDeclKey(channelHandle),
             });
         }
 
@@ -474,18 +542,29 @@ export function makeServerRequestsPrimitive(
         const getConnections = (ctx as { getConnections?: () => PublicApi.ConnectionInfo[] })
           .getConnections;
         if (typeof getConnections === 'function') {
-          extra.broadcastRequest = (event: string, payload: unknown, options?: RequestOptions) =>
+          extra.broadcastRequest = (
+            event: string,
+            payload: unknown,
+            options?: BroadcastRequestOptions,
+          ) =>
             runtime.sendBroadcastRequest({
-              targets: membersToTargets(getConnections(), connectionId),
+              targets: membersToTargets(
+                getConnections(),
+                (options?.excludeSelf ?? true) ? connectionId : undefined,
+              ),
               event,
               payload,
               options,
+              declChannelKey: null,
             });
         }
 
-        // ctx.channels.get(name).broadcastRequest — fan out to a named channel's
-        // members from any handler (the channel handle has no current connection,
-        // so only the broadcast verb is added).
+        // ctx.channels.get(name).broadcastRequest — fan a TOP-LEVEL broadcast
+        // request out to a named channel's members from any handler. A top-level
+        // handler cannot see a channel's own request types, so this resolves the
+        // top-level decls; only the active ctx.channel handle resolves a channel's
+        // own decls. The channel handle has no current connection, so only the
+        // broadcast verb is added.
         const channelsApi = ctx.channels as
           | { get(...args: unknown[]): PublicApi.ChannelHandle & Record<string, unknown> }
           | undefined;
@@ -500,6 +579,7 @@ export function makeServerRequestsPrimitive(
                 payload,
                 options,
                 routing: { channel: handle.name, channelScope: handle.scope ?? null },
+                declChannelKey: null,
               });
             return handle;
           };

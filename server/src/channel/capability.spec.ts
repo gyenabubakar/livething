@@ -3,6 +3,7 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { requests } from '~/request/capability.ts';
+import { serverRequestKey } from '~/request/outgoing-runtime.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -216,9 +217,13 @@ describe('channels() capability', () => {
     });
     const decls = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
       .__serverRequests;
-    expect(decls.get('confirm-kick')?.broadcast).toBe(false);
-    expect(decls.get('vol')?.broadcast).toBe(true);
-    expect(decls.get('confirm-kick')?.responseValidator).toBeDefined();
+    // Channel decls are keyed by the channel definition so they never collide
+    // with another channel's or with a top-level decl of the same name.
+    expect(decls.get(serverRequestKey('room', 'confirm-kick'))?.broadcast).toBe(false);
+    expect(decls.get(serverRequestKey('room', 'vol'))?.broadcast).toBe(true);
+    expect(decls.get(serverRequestKey('room', 'confirm-kick'))?.responseValidator).toBeDefined();
+    // The bare event name is NOT a key (the collision fix).
+    expect(decls.get('confirm-kick')).toBeUndefined();
   });
 
   it('throws when a channel stream is used without the stream() capability', () => {

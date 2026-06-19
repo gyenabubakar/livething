@@ -461,6 +461,9 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,
+          // Tag the frame as a server-initiated request so the client can
+          // fast-fail with `request-no-response` when it has no handler.
+          serverRequest: true,
           channel: opts.channel,
           channelScope: opts.channelScope,
         },

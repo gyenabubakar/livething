@@ -1727,3 +1727,77 @@ describe('Defer retry hook isolation', () => {
     }
   });
 });
+
+describe('declined server→client request routing (Major 1)', () => {
+  it('routes a correlated __error__ decline to the answer-frame hooks', async () => {
+    const connection = createConnection('conn_1');
+    const claimed: Array<{ id: string; event: string; code: unknown }> = [];
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [
+        (
+          id: string,
+          frame: { event: string; payload: unknown; wskit?: { correlationId?: string } },
+        ) => {
+          if (frame.wskit?.correlationId !== 'sreq_1') return false;
+          claimed.push({
+            id,
+            event: frame.event,
+            code: (frame.payload as { code?: unknown })?.code,
+          });
+          return true;
+        },
+      ],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '__error__',
+        payload: { code: 'request-no-response' },
+        __wskit: { correlationId: 'sreq_1' },
+      }),
+    );
+
+    // The decline reached settle (not dispatchProtocolFrame, which would have
+    // raised a validation error).
+    expect(claimed).toEqual([{ id: 'conn_1', event: '__error__', code: 'request-no-response' }]);
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+  });
+
+  it('drops a correlated __error__ no hook claims without a spurious protocol error', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [() => false],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__error__', payload: {}, __wskit: { correlationId: 'gone' } }),
+    );
+
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+  });
+
+  it('a bare __error__ with no correlationId still surfaces a protocol validation error', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__error__', payload: { code: 'x' } }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+});

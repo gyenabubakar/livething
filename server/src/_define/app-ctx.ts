@@ -391,7 +391,13 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
   };
 }
 
-/** A `ctx.channels.get(...)` handle, plus the broadcast arm when `requests()` is listed. */
+/**
+ * A `ctx.channels.get(...)` handle, plus the broadcast arm when `requests()` is
+ * listed. The arm resolves TOP-LEVEL broadcast requests (addressed to the named
+ * channel's members): a top-level handler is typed from define-time slots and so
+ * cannot see a channel's own request types — those exist only on the active
+ * `ctx.channel` handle inside that channel's handler.
+ */
 type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = ChannelHandle<
   Record<string, unknown>,
   TMeta
@@ -402,8 +408,9 @@ type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = 
 export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Look up a channel by name (or family + name) to send into it or read its
-   * members from outside a channel handler. With `requests()` listed, the
-   * handle also carries `broadcastRequest(...)` to ask all members.
+   * members from outside a channel handler. With `requests()` listed, the handle
+   * also carries `broadcastRequest(...)` to ask all members a top-level broadcast
+   * request.
    */
   readonly channels: {
     get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;

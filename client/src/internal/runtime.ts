@@ -18,6 +18,14 @@ export interface WSKitEnvelope {
   /** Links a `sendWithAck()` to its `__ack__`. */
   ackId?: string;
 
+  /**
+   * Set by the server on a server→client request frame. It lets the client tell
+   * a server-initiated request apart from a reply to its own request, so it can
+   * fast-fail with `request-no-response` when it has no handler for the event
+   * instead of leaving the server's pending promise to hang to timeout.
+   */
+  serverRequest?: boolean;
+
   /** Names the channel a message belongs to. */
   channel?: string;
 

@@ -6,6 +6,7 @@
  */
 
 import { StreamAlreadyActive } from '@wskit/core';
+import { assertValidHighWaterMark } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type {
   ActiveStream,
@@ -48,6 +49,9 @@ export interface BuildActiveStreamInput {
    * buffered amount is below this mark. Defaults to {@link DEFAULT_HIGH_WATER_MARK}.
    */
   highWaterMark?: number;
+
+  /** True for a broadcast stream — recorded so cancel can notify fan-out peers. */
+  broadcast?: boolean;
 }
 
 /** Return value from `buildActiveStream`. */
@@ -63,6 +67,10 @@ export interface ActiveStreamHandle {
  * `iterator.next(value)` call.
  */
 export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHandle {
+  // Backstop for any authoring path the define-time factory checks don't cover
+  // (e.g. a lower-level builder): a non-positive highWaterMark would make drain()
+  // poll to its cap before resolving, so refuse it loudly at stream start.
+  assertValidHighWaterMark(input.highWaterMark, `stream("${input.event}")`);
   const nudgeBuffer: { event: string; payload: unknown }[] = [];
   const nudgeValidators = new Map<string, unknown>();
   for (const nudge of input.nudges) {
@@ -81,6 +89,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     scope: input.scope,
     abortController: input.abortController ?? new AbortController(),
     highWaterMark: input.highWaterMark ?? DEFAULT_HIGH_WATER_MARK,
+    broadcast: input.broadcast ?? false,
   };
   return { active, nudgeBuffer };
 }

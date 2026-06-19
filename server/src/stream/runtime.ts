@@ -102,10 +102,33 @@ function buildStreamRouting(
 }
 
 /**
+ * The peers a broadcast stream fans out to: channel members for a channel
+ * stream, every connection otherwise — minus the creator, who handles its own
+ * copy. Shared by the live fan-out and the cancel terminal so a cancel reaches
+ * the same peers a normal end would.
+ */
+function streamBroadcastTargets(
+  connections: Map<string, RuntimeConnection>,
+  creatorId: string,
+  scope: ResolvedScope,
+): RuntimeConnection[] {
+  const all = scope.channelName
+    ? [...connections.values()].filter((target) =>
+        ChannelPrimitive.hasChannelMembership(
+          target,
+          scope.channelName!,
+          scope.channelScope ?? null,
+        ),
+      )
+    : [...connections.values()];
+  return all.filter((target) => target.id !== creatorId);
+}
+
+/**
  * Cancel one live stream when the owning client sends `__streamCancel__`.
  */
 export async function cancelStream(
-  runtime: Pick<StreamRuntime, 'activeStreams'> & {
+  runtime: Pick<StreamRuntime, 'activeStreams' | 'connections' | 'sendProtocolMessage'> & {
     logger?: Pick<Logger, 'error'>;
   },
   connection: RuntimeConnection,
@@ -133,6 +156,26 @@ export async function cancelStream(
       error: error instanceof Error ? error.message : String(error),
     });
   } finally {
+    // For a broadcast stream, fan a terminal `__streamEnd__` out to the peers so
+    // their `onStream` runs complete instead of hanging until timeout — the same
+    // terminal a normal completion sends. The creator initiated the cancel, so
+    // it gets none. Peers route by the stream's event name, carried as eventName.
+    if (activeStream.broadcast && activeStream.scope) {
+      const peerEndWskit = {
+        ...buildStreamRouting(activeStream.id, activeStream.scope),
+        eventName: activeStream.event,
+      };
+      await forEachIsolatedAsync(
+        streamBroadcastTargets(runtime.connections, connection.id, activeStream.scope),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            wskit: peerEndWskit,
+          }),
+        { context: `stream broadcast cancel end streamId="${activeStream.id}"` },
+      );
+    }
     runtime.activeStreams.delete(activeStream.id);
   }
 }
@@ -336,16 +379,7 @@ export async function runStream(
   // Who a broadcast fans out to: channel members for a channel stream, every
   // connection otherwise — minus the creator, who gets its own copy.
   function broadcastTargets(): RuntimeConnection[] {
-    const all = scope.channelName
-      ? [...runtime.connections.values()].filter((target) =>
-          ChannelPrimitive.hasChannelMembership(
-            target,
-            scope.channelName!,
-            scope.channelScope ?? null,
-          ),
-        )
-      : [...runtime.connections.values()];
-    return all.filter((target) => target.id !== connection.id);
+    return streamBroadcastTargets(runtime.connections, connection.id, scope);
   }
 
   // The drain function needs the active-stream object to know when the stream is
@@ -374,6 +408,7 @@ export async function runStream(
     scope,
     abortController,
     highWaterMark,
+    broadcast: stream.stream.broadcast,
     nudges: stream.stream.nudges.map((declaration) => ({
       event: declaration.event,
       validator: declaration.validator,

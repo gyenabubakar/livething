@@ -5,6 +5,18 @@ import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/cap
 import type { Primitive } from '~/primitive.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
+/**
+ * A host capability factory accepted by a plugin's `dependsOn`. It excludes
+ * plugin factories: a plugin capability carries `__pluginId`, so a factory whose
+ * result has a `string` `__pluginId` is not assignable to a result typed
+ * `__pluginId?: undefined`, making a plugin factory a compile error here. (The
+ * runtime matcher reads a host capability's `__capabilityKind`, which plugin
+ * factories don't carry, so a plugin dependency could never be satisfied anyway.)
+ */
+type HostCapabilityFactory = ((...args: any[]) => AnyCapability & {
+  readonly __pluginId?: undefined;
+}) & { readonly __capabilityKind?: string };
+
 /** A plugin id must be lowercase `author:name`. */
 const PLUGIN_ID = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
@@ -57,8 +69,14 @@ export interface PluginManifest<
 > {
   /** The plugin's behavior — a scoped handler from `define({ scoped: true }).assemble(...)`. */
   readonly handler: ScopedHandler<TContract, TScopedCtx>;
-  /** Capabilities the host must list. A missing prerequisite is a build error. */
-  readonly dependsOn?: readonly CapabilityFactory[];
+  /**
+   * Host capability factories the host must list (e.g. `requests`, `persistence`).
+   * A missing prerequisite is a build error. Only host capability factories are
+   * accepted — a plugin factory is rejected at compile time, because the
+   * dependency matcher reads a host capability's identity token, which plugin
+   * factories don't carry (they would always fail the check at runtime).
+   */
+  readonly dependsOn?: readonly HostCapabilityFactory[];
   /**
    * Per-connection API the host reaches via `ctx.plugin(id)`. Runs against the
    * plugin's own scoped ctx — the same `ctx` the plugin's `h.on(...)` handlers

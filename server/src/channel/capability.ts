@@ -57,7 +57,7 @@ export interface ChannelDeps {
    * server→client request table. Present only when `requests()` is listed, so a
    * channel declaring `outgoing.requests` without it is a build error.
    */
-  readonly registerServerRequests?: (decls: Record<string, any>) => void;
+  readonly registerServerRequests?: (channelKey: string, decls: Record<string, any>) => void;
 }
 
 /** Compose the channel-context alias onto whatever a handler already adapts. */
@@ -121,7 +121,7 @@ export class ChannelBuilder {
             'capability is not listed. Add requests() to capabilities.',
         );
       }
-      register(serverRequests);
+      register(this.__key, serverRequests);
     }
     if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
     if (cfg.replay !== undefined) {

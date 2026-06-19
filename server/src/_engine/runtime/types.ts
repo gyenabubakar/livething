@@ -467,6 +467,13 @@ export interface ActiveStream {
    * captures the resolved value directly; this field records it for diagnostics.
    */
   highWaterMark?: number;
+
+  /**
+   * True for a plain broadcast stream (`broadcast: true`). Cancel uses it to fan
+   * a terminal `__streamEnd__` out to the fan-out peers, so a creator cancel
+   * doesn't leave their `onStream` runs open until timeout.
+   */
+  broadcast?: boolean;
 }
 
 /**
@@ -486,6 +493,15 @@ export interface RoutingTarget {
   channelScope?: string | null;
 
   correlationId?: string;
+
+  /**
+   * Marks an outgoing frame as a server→client request (stamped as
+   * `__wskit.serverRequest`). It lets the client tell a server-initiated request
+   * apart from a reply to its own request, so it can fast-fail (`__error__`
+   * `request-no-response`) when it has no handler for the event instead of
+   * leaving the server's pending promise to hang to timeout.
+   */
+  serverRequest?: boolean;
 
   /**
    * Ack id stamped on the outgoing frame as `__wskit.ackId`. A server

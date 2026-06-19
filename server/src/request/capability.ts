@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
-import { makeServerRequestsPrimitive } from '~/request/outgoing-runtime.ts';
+import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import { request as requestFactory } from '~/request/request.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -79,16 +79,25 @@ export interface RequestsCapability<
 > extends Capability<ServerRequestsSlot<TDecls>, never, 'requests'> {
   /** Build a request primitive from a `base.request(...)` / channel `request(...)` config. @internal */
   readonly __buildRequest: (event: string, config: RequestBuildConfig) => Primitive;
-  /** Resolved server→client request declarations, keyed by event. @internal */
+  /**
+   * Resolved server→client request declarations, keyed by
+   * `serverRequestKey(channelKey, event)` so a channel's decls never collide
+   * with another channel's or with a top-level decl of the same event name.
+   * @internal
+   */
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
   /**
    * Merge a channel's own `outgoing.requests` declarations into the engine's
-   * server→client request table, so `ctx.channel.request` /
-   * `ctx.channel.broadcastRequest` validate responses and gate the broadcast
-   * flag the same way top-level decls do. The channels capability borrows this
-   * seam so it never imports the request engine. @internal
+   * server→client request table, keyed by the channel's definition key, so
+   * `ctx.channel.request` / `ctx.channel.broadcastRequest` validate responses
+   * and gate the broadcast flag the same way top-level decls do without
+   * clobbering same-named decls on other channels. The channels capability
+   * borrows this seam so it never imports the request engine. @internal
    */
-  readonly __registerServerRequests: (decls: Record<string, ServerRequestDecl>) => void;
+  readonly __registerServerRequests: (
+    channelKey: string,
+    decls: Record<string, ServerRequestDecl>,
+  ) => void;
 }
 
 /** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
@@ -148,7 +157,7 @@ export const requests = withCapabilityKind(function requests<
 >(decls: TDecls = {} as TDecls): RequestsCapability<TDecls> {
   const serverRequests = new Map<string, ResolvedServerRequest>();
   for (const [event, decl] of Object.entries(decls)) {
-    serverRequests.set(event, resolveServerRequest(decl));
+    serverRequests.set(serverRequestKey(null, event), resolveServerRequest(decl));
   }
 
   const cap = capability<ServerRequestsSlot<TDecls>, never, 'requests'>([
@@ -161,9 +170,9 @@ export const requests = withCapabilityKind(function requests<
     __registerServerRequests: RequestsCapability['__registerServerRequests'];
   };
   writable.__serverRequests = serverRequests;
-  writable.__registerServerRequests = (channelDecls) => {
+  writable.__registerServerRequests = (channelKey, channelDecls) => {
     for (const [event, decl] of Object.entries(channelDecls)) {
-      serverRequests.set(event, resolveServerRequest(decl));
+      serverRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(decl));
     }
   };
   writable.__buildRequest = (event, config) => {
