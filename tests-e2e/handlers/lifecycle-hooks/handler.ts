@@ -8,21 +8,21 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
-      connected: v.object({ username: v.string() }),
-      disconnected: v.object({ username: v.string() }),
+      connected: t<{ username: string }>(),
+      disconnected: t<{ username: string }>(),
       // Broadcast the WebSocket close code and reason observed by
       // disconnect. Pins F3: the engine threads the close metadata from
       // the adapter into the disconnect ctx so user code can branch on it.
-      'disconnect-close': v.object({
-        username: v.string(),
-        code: v.number(),
-        reason: v.string(),
-      }),
-      'validation-error-fired': v.object({ event: v.string() }),
-      'error-fired': v.object({ message: v.string() }),
-      'upgrade-meta': v.object({ username: v.string() }),
-      'connect-count': v.object({ count: v.number() }),
-      'async-hook-complete': v.object({ complete: v.boolean() }),
+      'disconnect-close': t<{
+        username: string;
+        code: number;
+        reason: string;
+      }>(),
+      'validation-error-fired': t<{ event: string }>(),
+      'error-fired': t<{ message: string }>(),
+      'upgrade-meta': t<{ username: string }>(),
+      'connect-count': t<{ count: number }>(),
+      'async-hook-complete': t<{ complete: boolean }>(),
     }),
   ],
 });

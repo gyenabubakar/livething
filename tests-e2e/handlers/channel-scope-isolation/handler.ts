@@ -8,17 +8,6 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const RoomMessagePayload = v.object({
-  family: v.string(),
-  name: v.string(),
-  text: v.string(),
-});
-const PrivateMessagePayload = v.object({
-  family: v.string(),
-  name: v.string(),
-  text: v.string(),
-});
-
 const SendInPublicPayload = v.object({ name: v.string(), text: v.string() });
 const SendInPrivatePayload = v.object({ name: v.string(), text: v.string() });
 
@@ -59,13 +48,13 @@ const base = define({
 
 const publicRooms = base.channel(['publicRooms', 'room:{id}'], {
   outgoing: {
-    emits: { 'room-message': RoomMessagePayload },
+    emits: { 'room-message': t<{ family: string; name: string; text: string }>() },
   },
 });
 
 const privateRooms = base.channel(['privateRooms', 'room:{id}'], {
   outgoing: {
-    emits: { 'private-message': PrivateMessagePayload },
+    emits: { 'private-message': t<{ family: string; name: string; text: string }>() },
   },
 });
 

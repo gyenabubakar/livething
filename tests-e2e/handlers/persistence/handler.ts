@@ -27,11 +27,11 @@ const base = define({
     channels(),
     requests(),
     emits({
-      'true-leave': TrueLeavePayload,
+      'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
       // Test support: a per-subscribe-flow ack so a test can count how many times
       // the archive-room subscribe flow runs across a reconnect (auto-rejoin vs
       // client re-subscribe).
-      'subscribe-flow-ran': v.object({ channel: v.string(), username: v.string() }),
+      'subscribe-flow-ran': t<{ channel: string; username: string }>(),
     }),
   ],
 });
@@ -83,8 +83,8 @@ const handleReadExecCount = base.request('read-exec-count', {
 const archiveRoom = base.channel('archive-room', {
   outgoing: {
     emits: {
-      'room-message': RoomMessagePayload,
-      'session-ended': SessionEndedPayload,
+      'room-message': t<v.InferOutput<typeof RoomMessagePayload>>(),
+      'session-ended': t<v.InferOutput<typeof SessionEndedPayload>>(),
     },
   },
   // First-subscribe gate.
@@ -140,7 +140,7 @@ archiveRoom.sessionEnd((ctx) => {
 const typingIndicator = base.channel('typing-indicator', {
   persistent: false,
   outgoing: {
-    emits: { 'room-message': RoomMessagePayload },
+    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
   },
 });
 
@@ -149,7 +149,7 @@ const typingIndicator = base.channel('typing-indicator', {
 // when another live member now fills the cap.
 const capacityRoom = base.channel('capacity-room', {
   outgoing: {
-    emits: { 'room-message': RoomMessagePayload },
+    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
   },
   commit(ctx) {
     // Excludes self (membership is not written yet), so the first member sees 0.

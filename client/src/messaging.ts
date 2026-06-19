@@ -34,7 +34,7 @@ export type Messaging<
         /**
          * Send a message. Returns `true` if it was sent or buffered, `false` if
          * dropped. `true` means "accepted," not "the server got it" — use
-         * `sendWithAck()` if you need confirmation.
+         * `request()` against an acknowledgement request if you need confirmation.
          */
         send<K extends keyof TOutgoing & string>(
           event: K,

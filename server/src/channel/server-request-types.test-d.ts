@@ -3,8 +3,8 @@
  * Compile-time fixture: a channel that declares its own server→client requests
  * in `outgoing.requests`. Inside the channel handler, `ctx.channel.request`
  * (targeted) and `ctx.channel.broadcastRequest` (fan-out) are typed to the
- * channel's own declarations, and the `{ broadcast: true }` flag decides which
- * verb each declaration is answerable through.
+ * channel's own declarations. Every declaration is callable through either
+ * verb — the verb decides fan-out vs targeted, not the declaration.
  */
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
@@ -23,8 +23,8 @@ const room = base.channel(['room', 'room:{id}'], {
   outgoing: {
     emits: { tick: t<{ n: number }>() },
     requests: {
-      'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })],
-      vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+      'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
+      vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
     },
   },
 });
@@ -33,7 +33,7 @@ const lobby = base.channel('lobby', {
   outgoing: {
     emits: { joined: t<{ who: string }>() },
     requests: {
-      greet: [t<{}>(), v.object({ hi: v.boolean() }), { broadcast: true }],
+      greet: { out: t<{}>(), in: v.object({ hi: v.boolean() }) },
     },
   },
 });
@@ -69,7 +69,6 @@ base.on('drive', {
     // @ts-expect-error — .at() needs the template's {id} param.
     void room.at({});
 
-    // @ts-expect-error — a targeted declaration is not answerable via broadcastRequest.
     void ctx.channels.get(ref).broadcastRequest('confirm-kick', { target: 'x' });
   },
 });
@@ -86,10 +85,7 @@ room.on('ping', {
       Promise<{ readonly response: { r: boolean }; readonly from: ConnectionRef }>
     >();
 
-    // @ts-expect-error — a broadcast declaration is not answerable via request.
     void ctx.channel.request('vol', {});
-
-    // @ts-expect-error — a targeted declaration is not answerable via broadcastRequest.
     void ctx.channel.broadcastRequest('confirm-kick', { target: 'x' });
 
     // @ts-expect-error — the targeted request payload must match the declaration.
@@ -115,7 +111,7 @@ const noRequests = define({
 noRequests.channel(['room', 'room:{id}'], {
   outgoing: {
     emits: { tick: t<{ n: number }>() },
-    requests: { ask: [t<{}>(), v.object({ ok: v.boolean() })] },
+    requests: { ask: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } },
   },
 });
 

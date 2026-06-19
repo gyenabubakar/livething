@@ -115,7 +115,7 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
 
 /**
  * A capability the **host** owns and a plugin can never list — the global
- * engines (`ack`, `dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
+ * engines (`dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
  * `replay`). It carries a `__hostOnly` marker so `define({ scoped: true })`
  * rejects it at compile time; a plugin declares a prerequisite on it instead.
  */

@@ -10,14 +10,10 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
-  ChatMsg,
-  Cursor,
   GetToken,
   InjectFamilyReplay,
-  ReplayGuardError,
   RequestHistory,
   RequestRoomHistory,
-  RoomMsg,
   SendCursor,
   SendMsg,
   SendRoomMsg,
@@ -26,16 +22,17 @@ import {
   TriggerBadReplay,
   TriggerBigIntReplay,
 } from './events.ts';
+import type { ChatMsg, Cursor, ReplayGuardError, RoomMsg } from './events.ts';
 
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
-      'chat-msg': ChatMsg,
-      cursor: Cursor,
-      'room-msg': RoomMsg,
-      'replay-guard-error': ReplayGuardError,
+      'chat-msg': t<v.InferOutput<typeof ChatMsg>>(),
+      cursor: t<v.InferOutput<typeof Cursor>>(),
+      'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
+      'replay-guard-error': t<v.InferOutput<typeof ReplayGuardError>>(),
     }),
     requests(),
     dedup(),
@@ -157,7 +154,7 @@ export const handleStartTinyStream = base.stream('start-tiny-stream', {
 const replayRoom = base.channel('replay-room', {
   outgoing: {
     emits: {
-      'room-msg': RoomMsg,
+      'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
     },
   },
 });
@@ -186,7 +183,7 @@ export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
 const fams = base.channel(['fams', 'fam-{id}'], {
   outgoing: {
     emits: {
-      'room-msg': RoomMsg,
+      'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
     },
   },
 });
@@ -204,7 +201,7 @@ const optoutRoom = base.channel('optout-room', {
   replay: false,
   outgoing: {
     emits: {
-      'room-msg': RoomMsg,
+      'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
     },
   },
 });

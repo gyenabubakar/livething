@@ -1,12 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import { ack } from '~/ack/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
 import { persistence } from '~/persistence/capability.ts';
+import { scopeUpgradeHelpers } from '~/plugin-scope.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { stream } from '~/stream/capability.ts';
@@ -155,14 +155,14 @@ describe('plugin namespacing — durable kinds need persistence on the host', ()
 });
 
 describe('plugin namespacing — server→client requests', () => {
-  it('prefixes ctx.request / ctx.broadcastRequest / ctx.sendWithAck event names', () => {
+  it('prefixes ctx.request / ctx.broadcastRequest event names', () => {
     const h = define({
       scoped: true,
       capabilities: [
         emits({ done: t<{}>() }),
         requests({
-          confirm: [t<{ q: string }>(), v.object({ ok: v.boolean() })],
-          poll: [t<{}>(), v.object({ v: v.number() })],
+          confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) },
+          poll: { out: t<{}>(), in: v.object({ v: v.number() }) },
         }),
       ],
     });
@@ -171,7 +171,6 @@ describe('plugin namespacing — server→client requests', () => {
       run(ctx: any) {
         ctx.request('confirm', { q: 'sure?' });
         ctx.broadcastRequest('poll', {});
-        ctx.sendWithAck('done', {});
       },
     });
     const { __primitives } = plugin('acme:ask', { handler: h.assemble(trigger) })();
@@ -179,27 +178,24 @@ describe('plugin namespacing — server→client requests', () => {
 
     const request = vi.fn();
     const broadcastRequest = vi.fn();
-    const sendWithAck = vi.fn();
-    handler({ id: 'c1', request, broadcastRequest, sendWithAck }, {});
+    handler({ id: 'c1', request, broadcastRequest }, {});
 
     expect(request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'sure?' });
     expect(broadcastRequest).toHaveBeenCalledWith('__acme:ask::poll', {});
-    expect(sendWithAck).toHaveBeenCalledWith('__acme:ask::done', {});
   });
 
-  it('prefixes ctx.connection(ref).request / .sendWithAck event names', () => {
+  it('prefixes ctx.connection(ref).request event names', () => {
     const h = define({
       scoped: true,
       capabilities: [
         emits({ done: t<{}>() }),
-        requests({ confirm: [t<{ q: string }>(), v.object({ ok: v.boolean() })] }),
+        requests({ confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } }),
       ],
     });
     const trigger = h.on('go', {
       input: v.object({}),
       run(ctx: any) {
         ctx.connection(ctx.self).request('confirm', { q: 'sure?' });
-        ctx.connection(ctx.self).sendWithAck('done', {});
         ctx.connection(ctx.self).send('done', {});
       },
     });
@@ -207,13 +203,11 @@ describe('plugin namespacing — server→client requests', () => {
     const handler = incomingHandler(__primitives, '__acme:ask::go');
 
     const request = vi.fn();
-    const sendWithAck = vi.fn();
     const send = vi.fn();
-    const connection = vi.fn(() => ({ request, sendWithAck, send }));
+    const connection = vi.fn(() => ({ request, send }));
     handler({ id: 'c1', self: { id: 'c1' }, connection }, {});
 
     expect(request).toHaveBeenCalledWith('__acme:ask::confirm', { q: 'sure?' });
-    expect(sendWithAck).toHaveBeenCalledWith('__acme:ask::done', {});
     expect(send).toHaveBeenCalledWith('__acme:ask::done', {});
   });
 });
@@ -247,6 +241,25 @@ describe('plugin namespacing — kv keys', () => {
     // A bare list() scopes to the plugin's whole namespace.
     expect(list).toHaveBeenNthCalledWith(2, '__acme:store::');
   });
+
+  it('strips the namespace prefix off list() results so they round-trip (#7)', async () => {
+    const h = define({ scoped: true, capabilities: [emits({ done: t<{}>() })] });
+    let listed: string[] = [];
+    const trigger = h.on('go', {
+      input: v.object({}),
+      async run(ctx: any) {
+        listed = await ctx.kv.list();
+      },
+    });
+    const { __primitives } = plugin('acme:store', { handler: h.assemble(trigger) })();
+    const handler = incomingHandler(__primitives, '__acme:store::go');
+
+    const list = vi.fn(async () => ['__acme:store::count', '__acme:store::seen']);
+    await handler({ id: 'c1', kv: { list } }, {});
+
+    expect(list).toHaveBeenCalledWith('__acme:store::');
+    expect(listed).toEqual(['count', 'seen']);
+  });
 });
 
 describe('plugin namespacing — channel runtime sends', () => {
@@ -272,6 +285,128 @@ describe('plugin namespacing — channel runtime sends', () => {
 
     expect(send).toHaveBeenCalledWith('__acme:room::roster', { who: 'a' });
     expect(broadcast).toHaveBeenCalledWith('__acme:room::roster', { who: 'b' });
+  });
+});
+
+describe('plugin namespacing — ctx.channels.get is scoped (#8)', () => {
+  it('namespaces the get target and the resolved handle event names', () => {
+    const h = define({ scoped: true, capabilities: [channels()] });
+    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    room.on('say', { input: v.object({}), run() {} });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx: any) {
+        ctx.channels.get('room').send('roster', { who: 'a' });
+        ctx.channels.get('room').broadcast('roster', { who: 'b' });
+      },
+    });
+    const { __primitives } = plugin('acme:room', { handler: h.assemble(room, trigger) })();
+    const handler = incomingHandler(__primitives, '__acme:room::go');
+
+    const send = vi.fn();
+    const broadcast = vi.fn();
+    const get = vi.fn(() => ({ send, broadcast }));
+    handler({ id: 'c1', channels: { get } }, {});
+
+    expect(get).toHaveBeenCalledWith('__acme:room::room');
+    expect(send).toHaveBeenCalledWith('__acme:room::roster', { who: 'a' });
+    expect(broadcast).toHaveBeenCalledWith('__acme:room::roster', { who: 'b' });
+  });
+
+  it('namespaces a channel decl / .at() ref / family pair passed to get', () => {
+    const h = define({ scoped: true, capabilities: [channels()] });
+    const staticRoom = h.channel('lobby');
+    staticRoom.on('say', { input: v.object({}), run() {} });
+    const family = h.channel(['rooms', 'room:{id}']);
+    family.on('say', { input: v.object({}), run() {} });
+    const ref = family.at({ id: 'general' });
+    const trigger = h.on('go', {
+      input: v.object({}),
+      run(ctx: any) {
+        ctx.channels.get(staticRoom);
+        ctx.channels.get(ref);
+        ctx.channels.get('rooms', 'room:general');
+      },
+    });
+    const { __primitives } = plugin('acme:room', {
+      handler: h.assemble(staticRoom, family, trigger),
+    })();
+    const handler = incomingHandler(__primitives, '__acme:room::go');
+
+    const get = vi.fn((..._args: unknown[]) => ({}));
+    handler({ id: 'c1', channels: { get } }, {});
+
+    expect(get.mock.calls[0]![0]).toMatchObject({ __key: '__acme:room::lobby' });
+    expect(get.mock.calls[1]![0]).toMatchObject({
+      family: '__acme:room::rooms',
+      name: 'room:general',
+    });
+    expect(get.mock.calls[2]).toEqual(['__acme:room::rooms', 'room:general']);
+  });
+});
+
+describe('plugin namespacing — upgrade seeds tags into the plugin namespace (#9)', () => {
+  it('namespaces the ephemeral group a plugin upgrade seeds via the sugar form', async () => {
+    const h = define({
+      scoped: true,
+      capabilities: [tags((ephemeral) => [ephemeral('room', t<string>())])],
+      upgrade: () => ({ identity: 'u1', tags: { ephemeral: { room: 'general' } } }),
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:rooms', { handler: h.assemble(go) })();
+    const upgradePrim = __primitives.find((p: any) => p.__wskit === 'onUpgrade') as any;
+
+    const result = await upgradePrim.handler(new Request('https://x'), {});
+    expect(result.tags).toEqual([
+      { __wskit: 'tag-ref', kind: 'ephemeral', group: '__acme:rooms::room', key: 'general' },
+    ]);
+  });
+
+  it('scopeUpgradeHelpers namespaces the group asked of helpers.tags', () => {
+    const ref = vi.fn((key: string) => ({ kind: 'ephemeral', group: '<unused>', key }));
+    const ephemeral = vi.fn(() => ({ ref }));
+    const persistent = vi.fn(() => ({ ref }));
+    const scoped = scopeUpgradeHelpers('acme:rooms', { tags: { ephemeral, persistent } });
+    scoped.tags.ephemeral('room');
+    scoped.tags.persistent('seat');
+    expect(ephemeral).toHaveBeenCalledWith('__acme:rooms::room');
+    expect(persistent).toHaveBeenCalledWith('__acme:rooms::seat');
+  });
+});
+
+describe('plugin namespacing — channel outgoing.requests are reachable (#10)', () => {
+  it('re-registers a channel server-request under the namespaced channel key + event', () => {
+    const h = define({ scoped: true, capabilities: [channels(), requests({})] });
+    const room = h.channel('room', {
+      outgoing: {
+        requests: {
+          'confirm-kick': { out: t<{ who: string }>(), in: v.object({ ok: v.boolean() }) },
+        },
+      },
+    });
+    room.on('say', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:room', { handler: h.assemble(room) })();
+
+    const carrier = __primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const map: Map<string, any> = carrier.__serverRequests;
+    const namespacedKey = JSON.stringify(['__acme:room::room', '__acme:room::confirm-kick']);
+    expect(map.has(namespacedKey)).toBe(true);
+    expect(map.get(namespacedKey).responseValidator).toBeDefined();
+    expect(map.has(JSON.stringify(['room', 'confirm-kick']))).toBe(false);
+  });
+
+  it('re-registers a top-level plugin server-request under its namespaced event', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } })],
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:ask', { handler: h.assemble(go) })();
+
+    const carrier = __primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const map: Map<string, any> = carrier.__serverRequests;
+    expect(map.has(JSON.stringify([null, '__acme:ask::confirm']))).toBe(true);
+    expect(map.has(JSON.stringify([null, 'confirm']))).toBe(false);
   });
 });
 
@@ -375,13 +510,11 @@ describe('plugin namespacing — app ctx is untouched', () => {
       env: t<Env>(),
       capabilities: [
         emits({ done: t<{}>() }),
-        ack(),
-        requests({ confirm: [t<{}>(), v.object({ ok: v.boolean() })] }),
+        requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } }),
       ],
     });
     const send = vi.fn();
     const request = vi.fn();
-    const sendWithAck = vi.fn();
     const kvSet = vi.fn(async () => {});
 
     const trigger = base.on('go', {
@@ -389,7 +522,6 @@ describe('plugin namespacing — app ctx is untouched', () => {
       async run(ctx: any) {
         ctx.send('done', {});
         ctx.request('confirm', {});
-        ctx.sendWithAck('done', {});
         await ctx.kv.set('count', 1);
       },
     });
@@ -397,11 +529,10 @@ describe('plugin namespacing — app ctx is untouched', () => {
       .assemble(trigger)
       .primitives.find((p: any) => p.__wskit === 'incoming' && p.event === 'go') as any;
 
-    await incoming.handler({ id: 'c1', send, request, sendWithAck, kv: { set: kvSet } }, {});
+    await incoming.handler({ id: 'c1', send, request, kv: { set: kvSet } }, {});
 
     expect(send).toHaveBeenCalledWith('done', {});
     expect(request).toHaveBeenCalledWith('confirm', {});
-    expect(sendWithAck).toHaveBeenCalledWith('done', {});
     expect(kvSet).toHaveBeenCalledWith('count', 1);
   });
 });

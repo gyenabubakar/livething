@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { ack } from '~/ack/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -27,10 +26,6 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         ctx.cancelScheduled;
         // @ts-expect-error ctx.tags needs the tags() capability
         ctx.tags;
-        // @ts-expect-error ctx.ack needs the ack() capability
-        ctx.ack;
-        // @ts-expect-error ctx.sendWithAck needs the ack() capability
-        ctx.sendWithAck;
         // @ts-expect-error ctx.latency needs the keepalive() capability
         ctx.latency;
         // @ts-expect-error ctx.quality needs the keepalive() capability
@@ -53,9 +48,11 @@ describe('capability-owned, TS-gated ctx extensions', () => {
       env: t<Env>(),
       capabilities: [
         requests({
-          'ask-permission': [t<{ action: string }>(), v.object({ allowed: v.boolean() })],
-          // A broadcast-declared request is NOT a valid ctx.request target.
-          volunteer: [t<{ turn: number }>(), v.object({ ready: v.boolean() }), { broadcast: true }],
+          'ask-permission': {
+            out: t<{ action: string }>(),
+            in: v.object({ allowed: v.boolean() }),
+          },
+          volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
         }),
       ],
     });
@@ -64,7 +61,6 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         expectTypeOf(ctx.request).toBeFunction();
         const answer = ctx.request('ask-permission', { action: 'delete' });
         expectTypeOf(answer).resolves.toEqualTypeOf<{ allowed: boolean }>();
-        // @ts-expect-error 'volunteer' is broadcast-only, not a targeted request
         ctx.request('volunteer', { turn: 1 });
         // @ts-expect-error wrong payload shape for 'ask-permission'
         ctx.request('ask-permission', { action: 1 });
@@ -78,13 +74,16 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('adds broadcastRequest on every fan-out surface only for broadcast declarations', () => {
+  it('adds broadcastRequest on every fan-out surface for every declared request', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [
         requests({
-          'ask-permission': [t<{ action: string }>(), v.object({ allowed: v.boolean() })],
-          volunteer: [t<{ turn: number }>(), v.object({ ready: v.boolean() }), { broadcast: true }],
+          'ask-permission': {
+            out: t<{ action: string }>(),
+            in: v.object({ allowed: v.boolean() }),
+          },
+          volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
         }),
         channels(),
         tags((ephemeral) => [ephemeral('role', t<string>())]),
@@ -98,7 +97,6 @@ describe('capability-owned, TS-gated ctx extensions', () => {
           response: { ready: boolean };
           from: ConnectionRef;
         }>();
-        // @ts-expect-error 'ask-permission' is targeted, not a broadcast request
         ctx.broadcastRequest('ask-permission', { action: 'x' });
         // @ts-expect-error wrong payload shape for 'volunteer'
         ctx.broadcastRequest('volunteer', { turn: 'soon' });
@@ -172,55 +170,6 @@ describe('capability-owned, TS-gated ctx extensions', () => {
       run(ctx) {
         expectTypeOf(ctx.schedule).toBeFunction();
         expectTypeOf(ctx.cancelScheduled).toBeFunction();
-      },
-    });
-  });
-
-  it('adds ctx.ack only with ack()', () => {
-    const base = define({ env: t<Env>(), capabilities: [ack()] });
-    base.on('x', {
-      run(ctx) {
-        expectTypeOf(ctx.ack).toBeFunction();
-      },
-    });
-  });
-
-  it('adds sendWithAck on every one-connection surface only with ack(), typed to emits', () => {
-    const base = define({
-      env: t<Env>(),
-      capabilities: [ack({ timeout: 5_000 }), emits({ ping: t<{ n: number }>() }), channels()],
-    });
-    base.on('x', {
-      run(ctx) {
-        expectTypeOf(ctx.sendWithAck).toBeFunction();
-        expectTypeOf(ctx.sendWithAck('ping', { n: 1 })).resolves.toEqualTypeOf<void>();
-        // @ts-expect-error 'nope' is not a declared outgoing event
-        ctx.sendWithAck('nope', { n: 1 });
-        // @ts-expect-error wrong payload shape for 'ping'
-        ctx.sendWithAck('ping', { n: 'x' });
-
-        const handle = ctx.connection(ctx.self);
-        expectTypeOf(handle.sendWithAck).toBeFunction();
-        expectTypeOf(handle.sendWithAck('ping', { n: 1 })).resolves.toEqualTypeOf<void>();
-
-        // sendWithAck is NOT on fan-out surfaces.
-        // @ts-expect-error sendWithAck is not available on a channel handle (fan-out)
-        ctx.channels.get('lobby').sendWithAck;
-      },
-    });
-  });
-
-  it('omits sendWithAck everywhere without ack()', () => {
-    const base = define({
-      env: t<Env>(),
-      capabilities: [emits({ ping: t<{ n: number }>() })],
-    });
-    base.on('x', {
-      run(ctx) {
-        // @ts-expect-error ctx.sendWithAck needs the ack() capability
-        ctx.sendWithAck;
-        // @ts-expect-error the connection handle has no sendWithAck without ack()
-        ctx.connection(ctx.self).sendWithAck;
       },
     });
   });

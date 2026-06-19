@@ -18,9 +18,6 @@ function visitCompiledPrimitives(
     EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
     switch (primitive.__wskit) {
-      case 'ack':
-        continue;
-
       case 'sequence':
         continue;
 

@@ -445,6 +445,30 @@ export async function resumeDurableStream(
     }
   }
 
+  if (isPeerSubscriber && row.kind === 'resumable') {
+    Storage.setCaughtUpSeq(runtime.sql, {
+      storageIdentity,
+      streamId,
+      subscriberIdentity: realIdentity,
+      caughtUpSeq: row.lastSeq,
+    });
+
+    if (row.status === 'ended') {
+      runtime.sendProtocolMessage(connection, {
+        event: '__streamEnd__',
+        payload: {},
+        wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
+      });
+    } else {
+      runtime.sendProtocolMessage(connection, {
+        event: '__streamOk__',
+        payload: {},
+        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+      });
+    }
+    return;
+  }
+
   if (row.kind === 'recorded' || isPeerSubscriber) {
     const chunks = Storage.readChunksSince(runtime.sql, {
       identity: storageIdentity,
@@ -489,22 +513,8 @@ export async function resumeDurableStream(
     return;
   }
 
-  // go back to where the client actually was. It tells us the highest seq it
-  // got (lastKnownSeq); we start the generator again from the cursor saved at
-  // that point, so any rows it missed when the connection dropped get sent
-  // again (the client drops repeats by seq). Without this, resume starts from
-  // the server's latest cursor and quietly skips a row that was still on its way.
-  let startSeq = row.lastSeq;
-  let cursorRaw = row.cursor;
-  if (lastKnownSeq < row.lastSeq) {
-    const anchor = Storage.readCursorAt(runtime.sql, {
-      identity: storageIdentity,
-      streamId,
-      seq: lastKnownSeq,
-    });
-    startSeq = anchor?.seq ?? 0;
-    cursorRaw = anchor?.cursor ?? null;
-  }
+  const startSeq = row.lastSeq;
+  const cursorRaw = row.cursor;
 
   let cursor: unknown = null;
   if (cursorRaw) {
@@ -685,8 +695,7 @@ async function runGenerator(
       // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
 
-      // Broadcast streams record every chunk so late joiners can catch up.
-      const recordsChunks = def.kind === 'recorded' || def.broadcast === true;
+      const recordsChunks = def.kind === 'recorded';
       if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
           identity,
@@ -731,14 +740,6 @@ async function runGenerator(
           cursor: serializedCursor,
           lastSeq: seq,
           now,
-        });
-        // Save the cursor for this seq so a client that reconnects can go back
-        // to the exact row it last got (see resumeDurableStream + readCursorAt).
-        Storage.appendStreamCursor(runtime.sql, {
-          identity,
-          streamId,
-          seq,
-          cursor: serializedCursor,
         });
       } else {
         Storage.updateLastSeq(runtime.sql, { identity, streamId, lastSeq: seq, now });

@@ -3,11 +3,15 @@
 // `.assemble()`. The split define + assemble composition fans out from here.
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import type * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
-import { NotificationPayload } from './events.ts';
+import type { NotificationPayload } from './events.ts';
 
 export const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [emits({ notification: NotificationPayload }), channels()],
+  capabilities: [
+    emits({ notification: t<v.InferOutput<typeof NotificationPayload>>() }),
+    channels(),
+  ],
 });

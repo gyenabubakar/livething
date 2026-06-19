@@ -47,13 +47,11 @@ import type {
   BroadcastServerRequests,
   ChannelRef,
   ReplayWire,
-  SendWithAckArm,
 } from './app-ctx.ts';
 import type {
   AnyCapability,
   BrandsOf,
   Contribution,
-  FeaturesOf,
   MergeSlots,
   SlotOr,
   SlotsOf,
@@ -116,7 +114,7 @@ export interface DefineConfig<
 
 /**
  * A capability a plugin is allowed to list — every capability except a
- * host-owned one. Host-owned engines (`ack`/`dedup`/`sequence`/`keepalive`/
+ * host-owned one. Host-owned engines (`dedup`/`sequence`/`keepalive`/
  * `persistence`/`rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one
  * inside `define({ scoped: true })` is a compile error. A plugin declares a
  * prerequisite on them instead.
@@ -506,39 +504,24 @@ type EmitPayloadOf<T> =
 /** The map of a channel's emit declarations → payload types. */
 type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
 
-/** The payload type one channel server→client request declaration carries. */
-type ServerRequestPayloadOf<TDeclaration> = TDeclaration extends readonly [infer P, ...unknown[]]
-  ? P extends TypeMarker<infer U>
+/** The `out` (server→client payload) type one channel request declaration carries. */
+type ServerRequestPayloadOf<TDeclaration> =
+  TDeclaration extends TypeMarker<infer U>
     ? U
-    : P extends Validator<infer U>
+    : TDeclaration extends { out: TypeMarker<infer U> }
       ? U
-      : unknown
-  : unknown;
+      : unknown;
 
-/** The response type one channel server→client request declaration carries. */
-type ServerRequestResponseOf<TDeclaration> = TDeclaration extends readonly [
-  unknown,
-  Validator<infer U>,
-  ...unknown[],
-]
+/** The `in` (client→server answer) type one channel request declaration carries; `void` for an acknowledgement. */
+type ServerRequestResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> }
   ? U
-  : unknown;
-
-/** Whether one channel server→client request declaration is a broadcast request. */
-type ServerRequestBroadcastOf<TDeclaration> = TDeclaration extends readonly [
-  unknown,
-  unknown,
-  { broadcast: true },
-]
-  ? true
-  : false;
+  : void;
 
 /** The channel's `serverRequests` contract slot, built from its `outgoing.requests` declarations. */
 type ServerRequestMap<TDeclarations> = {
   [K in keyof TDeclarations & string]: {
     payload: ServerRequestPayloadOf<TDeclarations[K]>;
     response: ServerRequestResponseOf<TDeclarations[K]>;
-    broadcast: ServerRequestBroadcastOf<TDeclarations[K]>;
   };
 };
 
@@ -617,10 +600,6 @@ type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> 
       } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
     : {};
 
-/** The `sendWithAck` arm added to `ctx.channel` when `ack()` is listed. */
-type ChannelSendWithAckArm<TSlots, TCaps extends readonly AnyCapability[]> =
-  'ack' extends FeaturesOf<TCaps> ? SendWithAckArm<TSlots> : {};
-
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
 export type ChannelCtx<
   TSlots,
@@ -630,10 +609,9 @@ export type ChannelCtx<
   TOutgoing,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
-> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'ack'> & {
+> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
-    ChannelRequestArm<TServerRequests, TCaps> &
-    ChannelSendWithAckArm<TSlots, TCaps>;
+    ChannelRequestArm<TServerRequests, TCaps>;
 };
 
 /** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
@@ -642,7 +620,7 @@ export type ChannelGateCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'ack'> & {
+> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
 };
 
@@ -700,12 +678,12 @@ export type ChannelConfig<
 > = {
   /** Server→client events and requests this channel declares. */
   readonly outgoing?: {
-    readonly emits?: Record<string, TypeMarker<any> | Validator>;
+    readonly emits?: Record<string, TypeMarker<any>>;
     /**
-     * Server→client requests this channel asks its members. Same tuple shape as
-     * the top-level `requests({...})`. Declaring these needs the `requests()`
-     * capability listed; the channel overloads gate it at compile time and the
-     * runtime throws as a backstop.
+     * Server→client requests this channel asks its members. Same `{ out, in }` /
+     * bare-marker shape as the top-level `requests({...})`. Declaring these needs
+     * the `requests()` capability listed; the channel overloads gate it at
+     * compile time and the runtime throws as a backstop.
      */
     readonly requests?: Record<string, ServerRequestDeclaration>;
   };

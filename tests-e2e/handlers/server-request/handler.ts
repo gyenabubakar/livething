@@ -16,7 +16,7 @@ export const serverRequestContract = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     requests({
-      'ask-permission': [t<{ action: string }>(), v.object({ allowed: v.boolean() })],
+      'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
     }),
     emits({
       outcome: t<{ allowed: boolean }>(),

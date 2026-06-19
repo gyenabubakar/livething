@@ -6,18 +6,11 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const RoomMessagePayload = v.object({
-  text: v.string(),
-  from: v.string(),
-  kind: v.string(),
-});
 const SendMessagePayload = v.object({ text: v.string() });
 const StartChannelStreamPayload = v.object({ count: v.number() });
 const ChannelTokenPayload = v.object({ index: v.number() });
 const TagSelfPayload = v.object({ tag: v.string() });
-const TagAckPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
-const KickAckPayload = v.object({ tag: v.string() });
 
 const base = define({
   env: t<Env>(),
@@ -27,8 +20,8 @@ const base = define({
     stream(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
     emits({
-      'tag-ack': TagAckPayload,
-      'kick-ack': KickAckPayload,
+      'tag-ack': t<{ tag: string }>(),
+      'kick-ack': t<{ tag: string }>(),
     }),
   ],
 });
@@ -66,7 +59,7 @@ const handleTriggerServerSubscribe = base.on('trigger-server-subscribe', {
 
 const room = base.channel('room', {
   outgoing: {
-    emits: { 'room-message': RoomMessagePayload },
+    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },
   check(ctx) {
     if (ctx.meta.username === 'blocked-user') {
@@ -136,7 +129,7 @@ const handleRoomStream = room.stream('start-channel-stream', {
 
 const room2 = base.channel('room2', {
   outgoing: {
-    emits: { 'room-message': RoomMessagePayload },
+    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },
 });
 

@@ -31,28 +31,6 @@ test.describe('error routing preservation for non-members', () => {
     expect(err.__wskit?.channel).toBe('room');
   });
 
-  test('a non-member ack-bearing event error keeps the ackId', async ({ page }, testInfo) => {
-    await page.goto('/intercept');
-    await installRig(page);
-
-    const a = await connect(page, {
-      path: '/ws/intercept',
-      username: 'alice',
-      room: `erp-ack-${testInfo.testId}`,
-    });
-
-    await send(page, a, {
-      event: 'echo',
-      payload: { text: 'hi' },
-      __wskit: { channel: 'room', ackId: 'ack-xyz' },
-    });
-
-    const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.ackId === 'ack-xyz',
-    });
-    expect(err.payload.code).toBe('channel-not-subscribed');
-  });
-
   test('a non-member stream-trigger error keeps the streamId', async ({ page }, testInfo) => {
     await page.goto('/intercept');
     await installRig(page);

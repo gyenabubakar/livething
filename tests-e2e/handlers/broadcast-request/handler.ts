@@ -35,7 +35,7 @@ const lobby = broadcastRequestContract.channel('lobby', {
   outgoing: {
     emits: {},
     requests: {
-      volunteer: [t<{ turn: number }>(), v.object({ ready: v.boolean() }), { broadcast: true }],
+      volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
     },
   },
 });

@@ -145,6 +145,16 @@ export class ChannelBuilder {
           cfg.subscribe ? { validator: cfg.subscribe } : undefined,
         ),
       );
+    } else if (cfg.subscribe) {
+      this.children.push(
+        checkFactory(
+          (ctx: any, data: unknown) => {
+            (ctx as Record<PropertyKey, unknown>).check = data;
+            return undefined;
+          },
+          { validator: cfg.subscribe },
+        ),
+      );
     }
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)

@@ -29,9 +29,12 @@ const Empty = v.object({});
 const Text = v.object({ text: v.string() });
 const NumChunk = v.object({ n: v.number() });
 
+const EmptyOut = t<Record<string, never>>();
+const TextOut = t<{ text: string }>();
+
 const tinyBase = define({
   env: t<Record<string, unknown>>(),
-  capabilities: [emits({ ack: Empty })],
+  capabilities: [emits({ notify: EmptyOut })],
 });
 const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
 
@@ -43,12 +46,14 @@ const mediumBase = define({
     requests(),
     stream(),
     channels(),
-    emits({ ack: Empty, joined: Empty }),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
   ],
 });
-const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: Text } } });
+const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
 lobby.on('say', { input: Text, run() {} });
-const rooms = mediumBase.channel(['rooms', 'room:{id}'], { outgoing: { emits: { posted: Text } } });
+const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
+  outgoing: { emits: { posted: TextOut } },
+});
 rooms.on('post', { input: Text, run() {} });
 const mediumHandler = mediumBase.assemble(
   mediumBase.on('join', { input: Empty, run() {} }),
@@ -73,8 +78,8 @@ const mediumHandler = mediumBase.assemble(
 
 function channelEmits(prefix: string) {
   return {
-    [`${prefix}-message`]: Text,
-    [`${prefix}-edited`]: Text,
+    [`${prefix}-message`]: TextOut,
+    [`${prefix}-edited`]: TextOut,
   };
 }
 
@@ -91,7 +96,7 @@ const heavyBase = define({
     resumableStream(),
     recordedStream(),
     channels(),
-    emits({ 'o-a': Empty, 'o-b': Empty, 'o-c': Empty, 'o-d': Empty, 'o-e': Empty }),
+    emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
   ],
 });
 

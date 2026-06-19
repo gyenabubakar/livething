@@ -255,3 +255,71 @@ describe('top-level channel and scoped channel with same name are independent', 
     expect(topLevel).not.toBe(scoped);
   });
 });
+
+describe('presence frames are ignored while a leave is pending', () => {
+  async function subscribedWithPendingLeave() {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      __wskit: { channel: 'general' },
+    });
+    expect(room.members.size).toBe(1);
+    room.unsubscribe();
+    return { socket, ws, room };
+  }
+
+  it('ignores a __memberSync__ that would repopulate a roster of a leaving channel', async () => {
+    const { ws, room } = await subscribedWithPendingLeave();
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c2', meta: {} }] },
+      __wskit: { channel: 'general' },
+    });
+    expect(room.members.size).toBe(0);
+  });
+
+  it('ignores __memberJoin__/__memberOnline__ while a leave is pending', async () => {
+    const { ws, room } = await subscribedWithPendingLeave();
+    const onJoin = vi.fn();
+    const onOnline = vi.fn();
+    room.onMemberJoin(onJoin);
+    room.onMemberOnline(onOnline);
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c3', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__memberOnline__',
+      payload: { connectionId: 'c3', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(onOnline).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
+  });
+});
+
+describe('resyncMembers() fire-and-forget request', () => {
+  it('sends a client-source __memberSync__ when subscribed', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    room.resyncMembers();
+    const frame = ws
+      .sentFrames()
+      .filter((f) => f.event === '__memberSync__')
+      .at(-1);
+    expect(frame).toBeDefined();
+    expect(frame?.__wskit?.channel).toBe('general');
+    expect(frame?.__wskit?.source).toBe('client');
+  });
+
+  it('is a no-op (sends nothing) when the channel is not active', () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+    room.resyncMembers();
+    expect(ws.sentFrames().some((f) => f.event === '__memberSync__')).toBe(false);
+  });
+});

@@ -31,23 +31,16 @@ export interface ConnectionHandle<TSlots> {
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
 }
 
-/** The server→client request map, filtered to targeted (non-broadcast) entries. */
-type ServerRequests<TSlots> = {
-  [K in keyof SlotOr<TSlots, 'serverRequests'> as SlotOr<TSlots, 'serverRequests'>[K] extends {
-    broadcast: true;
-  }
-    ? never
-    : K]: SlotOr<TSlots, 'serverRequests'>[K];
-};
+/**
+ * The server→client request map. Every request is callable both targeted (via
+ * `request`, resolving the answer) and fan-out (via `broadcastRequest`, resolving
+ * the first answer + who gave it). The verb decides which, not the declaration.
+ * A declaration with no `in` is an acknowledgement — its response type is `void`.
+ */
+type ServerRequests<TSlots> = SlotOr<TSlots, 'serverRequests'>;
 
-/** The server→client request map, filtered to broadcast-only entries. */
-export type BroadcastServerRequests<TSlots> = {
-  [K in keyof SlotOr<TSlots, 'serverRequests'> as SlotOr<TSlots, 'serverRequests'>[K] extends {
-    broadcast: true;
-  }
-    ? K
-    : never]: SlotOr<TSlots, 'serverRequests'>[K];
-};
+/** Same map, named for the fan-out arm: `broadcastRequest` accepts every request. */
+export type BroadcastServerRequests<TSlots> = SlotOr<TSlots, 'serverRequests'>;
 
 declare const CHANNEL_CONTRACT: unique symbol;
 
@@ -72,11 +65,12 @@ export interface BroadcastAnswer<R> {
 
 /**
  * The `broadcastRequest` arm a `requests()` server adds to every fan-out
- * surface. Usable ONLY for declarations marked `{ broadcast: true }`; a targeted
- * declaration used here is a compile error. Resolves with the first valid answer and
- * its `from` ref, or rejects with `timeout` when nobody answers in time.
+ * surface. Every declared server→client request is callable here — the verb
+ * decides fan-out vs targeted, not the declaration. Resolves with the first
+ * valid answer and its `from` ref, or rejects with `timeout` when nobody
+ * answers in time.
  *
- * @template SR The broadcast-only server→client request map for this scope.
+ * @template SR The server→client request map for this scope.
  */
 export interface BroadcastRequestArm<SR> {
   broadcastRequest<E extends keyof SR & string>(
@@ -137,22 +131,20 @@ export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
 export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapability[]> {
   /**
    * Address one specific connection by ref. The handle always carries `send`;
-   * with `requests()` listed it also carries `request(...)`, and with `ack()`
-   * listed it also carries `sendWithAck(...)`.
+   * with `requests()` listed it also carries `request(...)`.
    */
   connection(
     ref: ConnectionRef,
-  ): ('requests' extends BrandsOf<TCaps>
+  ): 'requests' extends BrandsOf<TCaps>
     ? ConnectionRequestHandle<TSlots>
-    : ConnectionHandle<TSlots>) &
-    ('ack' extends FeaturesOf<TCaps> ? SendWithAckArm<TSlots> : {});
+    : ConnectionHandle<TSlots>;
 }
 
 /**
  * The connection-scoped surface present on **every** server, whatever
  * capabilities are listed. Identity, metadata, storage, messaging, and logging
  * always exist. Capability-owned surfaces (`ctx.tags`, `ctx.channels`,
- * `ctx.schedule`, `ctx.ack`, `ctx.latency`/`ctx.quality`, `ctx.plugin`) are NOT
+ * `ctx.schedule`, `ctx.latency`/`ctx.quality`, `ctx.plugin`) are NOT
  * here — each is added by `CtxExtensionsOf` only when its capability is listed,
  * so reading one without its capability is a compile error.
  *
@@ -315,33 +307,6 @@ export interface SendReplayCtx<TSlots> {
   sendReplay(event: keyof Outgoing<TSlots> & string, payload: unknown, wire: ReplayWire): void;
 }
 
-/** The `ctx.ack()` surface — owned by the `ack()` capability. */
-/**
- * The `sendWithAck` arm the `ack()` capability adds to a one-connection surface
- * (`ctx`, `ctx.connection(ref)`, `ctx.channel`). Sends an event to the single
- * connection and awaits the client's automatic receipt — no data comes back.
- * Resolves on the receipt, or rejects with `timeout` / `disconnected`. NOT added
- * to fan-out surfaces (`broadcast`, channel handles, tag groups).
- *
- * @template TSlots The merged contract slots — drives the typed `send`.
- */
-export interface SendWithAckArm<TSlots> {
-  sendWithAck<E extends keyof Outgoing<TSlots> & string>(
-    event: E,
-    payload: Outgoing<TSlots>[E],
-    options?: { timeout?: number },
-  ): Promise<void>;
-}
-
-/** The `ctx.ack()` + `ctx.sendWithAck(...)` surface — owned by the `ack()` capability. */
-export interface AckCtx<TSlots> extends SendWithAckArm<TSlots> {
-  /**
-   * Confirm receipt of a client message that was sent with an ack. Present only
-   * when the `ack()` capability is listed.
-   */
-  ack(): void;
-}
-
 /** The `ctx.schedule` / `ctx.cancelScheduled` surface — owned by `scheduled()`. */
 export interface ScheduleCtx<TSlots> {
   /**
@@ -484,7 +449,6 @@ export type CtxExtensionsOf<
   TMeta,
   TCaps extends readonly AnyCapability[],
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
-  ('ack' extends FeaturesOf<TCaps> ? AckCtx<TSlots> : {}) &
   ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
   ('replay' extends FeaturesOf<TCaps>
     ? SendReplayCtx<TSlots>

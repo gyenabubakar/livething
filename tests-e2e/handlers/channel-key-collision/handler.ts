@@ -10,7 +10,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // - family 'rooms-private' matches 'lobby' → reads as 'rooms-private/lobby'
 // The engine routes by (family-key, scope-value) tuple, so they stay isolated.
 // This fixture proves that.
-const HelloPayload = v.object({ family: v.string(), text: v.string() });
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
 const base = define({
@@ -20,11 +19,11 @@ const base = define({
 });
 
 const rooms = base.channel(['rooms', 'private-{id}'], {
-  outgoing: { emits: { hello: HelloPayload } },
+  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
 });
 
 const roomsPrivate = base.channel(['rooms-private', '{id}'], {
-  outgoing: { emits: { hello: HelloPayload } },
+  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
 });
 
 const handleBroadcastA = base.on('broadcast-a', {

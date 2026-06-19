@@ -1,10 +1,17 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { namespaceError } from '@wskit/core';
-import { pluginWireName, scopePluginContext, scopePluginThrow } from '~/plugin-scope.ts';
+import {
+  pluginWireName,
+  scopePluginContext,
+  scopePluginThrow,
+  scopeUpgradeHelpers,
+} from '~/plugin-scope.ts';
+import { serverRequestKey } from '~/request/outgoing-runtime.ts';
 import type { ErrorDefWithFactory } from '@wskit/core';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { UpgradeHandler } from '~/lifecycle/lifecycle.ts';
+import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { ResolvedServerRequest } from '~/request/capability.ts';
 
 /** The primitive kinds that route or declare by a plain `event` field. */
 const EVENT_KINDS = new Set([
@@ -132,6 +139,46 @@ function namespaceLifecycle(
   } as unknown as Primitive;
 }
 
+/** The bare definition key a channel primitive was built under (static name or family key). */
+function channelBareKey(primitive: Primitive): string {
+  const pattern = (primitive as unknown as { pattern: string | { key: string } }).pattern;
+  return typeof pattern === 'string' ? pattern : pattern.key;
+}
+
+/**
+ * Re-key a plugin's server→client request declarations to their `__<id>::` wire
+ * names. The requests builder files each declaration under the bare event (and,
+ * for a channel's `outgoing.requests`, the bare channel key) at build time —
+ * before namespacing — so the runtime, which resolves a plugin request by its
+ * prefixed event / prefixed channel key, would miss the entry: a broadcast
+ * request is wrongly rejected and a targeted one skips response validation. We
+ * walk the carrier's declaration map (keyed `serverRequestKey(channelKey, event)`),
+ * prefix every event, prefix a channel key when it belongs to one of this
+ * plugin's channels, and rewrite the map in place so both lookups land.
+ */
+function renameServerRequests(id: string, primitives: readonly Primitive[]): void {
+  const carrier = primitives.find((p) => p.__wskit === 'server-requests') as
+    | { __serverRequests?: Map<string, ResolvedServerRequest> }
+    | undefined;
+  const map = carrier?.__serverRequests;
+  if (!map || map.size === 0) return;
+
+  const pluginChannelKeys = new Set(
+    primitives.filter((p) => p.__wskit === 'channel').map(channelBareKey),
+  );
+
+  const entries = [...map.entries()];
+  map.clear();
+  for (const [key, value] of entries) {
+    const [channelKey, event] = JSON.parse(key) as [string | null, string];
+    const nextChannelKey =
+      channelKey !== null && pluginChannelKeys.has(channelKey)
+        ? pluginWireName(id, channelKey)
+        : channelKey;
+    map.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+  }
+}
+
 /**
  * Namespace every routable primitive a plugin contributes so its events,
  * requests, streams, and emits live under `__<id>::` and can't collide with the
@@ -144,6 +191,7 @@ export function namespacePluginPrimitives(
   observesHost = false,
 ): Primitive[] {
   const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
+  renameServerRequests(id, primitives);
   return primitives.map((primitive) => {
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);
@@ -331,11 +379,23 @@ function namespaceChannel(
  */
 function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
   const handler = (primitive as unknown as { handler: UpgradeHandler }).handler;
+  async function scoped(...args: Parameters<UpgradeHandler>): Promise<UpgradeResult> {
+    const [request, helpers] = args;
+    const result = await handler(request, scopeUpgradeHelpers(id, helpers));
+    if (!result?.tags) return result;
+    return {
+      ...result,
+      tags: result.tags.map((ref) =>
+        ref.group.startsWith(`__${id}::`) ? ref : { ...ref, group: pluginWireName(id, ref.group) },
+      ),
+    };
+  }
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
+    handler: scoped,
     __setup(engine: EngineAccess) {
-      engine.registerPluginUpgrade(id, handler);
+      engine.registerPluginUpgrade(id, scoped);
     },
   } as unknown as Primitive;
 }

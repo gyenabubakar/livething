@@ -25,10 +25,6 @@
       "types": "./dist/scheduled/capability.d.ts",
       "import": "./dist/scheduled.js"
     },
-    "./ack": {
-      "types": "./dist/ack/capability.d.ts",
-      "import": "./dist/ack.js"
-    },
     "./dedup": {
       "types": "./dist/dedup/capability.d.ts",
       "import": "./dist/dedup.js"

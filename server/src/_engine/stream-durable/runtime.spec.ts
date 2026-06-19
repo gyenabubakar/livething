@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { StreamAborted, WSKitConfigError } from '@wskit/core';
 import * as ConnectionLifecycle from '~/_engine/runtime/connection.ts';
+import { wrapStreamGenerator } from '~/stream/shared.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -127,7 +128,13 @@ function makeSql() {
       }
       if (q.startsWith('INSERT INTO __wskit_stream_chunks')) {
         const [identity, streamId, seq, messageId, payload, now] = params;
-        chunks.set(key([identity, streamId, seq]), {
+        const chunkKey = key([identity, streamId, seq]);
+        if (chunks.has(chunkKey)) {
+          throw new Error(
+            `UNIQUE constraint failed: __wskit_stream_chunks.identity, __wskit_stream_chunks.stream_id, __wskit_stream_chunks.seq`,
+          );
+        }
+        chunks.set(chunkKey, {
           identity,
           stream_id: streamId,
           seq,
@@ -229,7 +236,8 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
     payload: Record<string, unknown>;
     wskit: Record<string, unknown>;
   }[] = [];
-  const pipelineSends: { event: string; payload: unknown; routing: unknown }[] = [];
+  const pipelineSends: { event: string; payload: unknown; routing: unknown; targetId: string }[] =
+    [];
   let nextStreamId = 0;
 
   const broadcasts: {
@@ -250,10 +258,10 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
       protocolMessages.push({ event, payload, wskit });
     },
     sendThroughPipeline: (
-      _conn: RuntimeConnection,
+      conn: RuntimeConnection,
       { routing, event, payload }: SendThroughPipelineOptions,
     ) => {
-      pipelineSends.push({ event, payload, routing });
+      pipelineSends.push({ event, payload, routing, targetId: conn.id });
       return true;
     },
     broadcastToConnections: (
@@ -1205,7 +1213,7 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
-  it('broadcast resumableStream — chunks land in buffer + cursor advances on each yield', async () => {
+  it('broadcast resumableStream — cursor advances on each yield, no chunks buffered (live)', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1234,7 +1242,7 @@ describe('durable stream runtime', () => {
     expect(JSON.parse(row.cursor!)).toEqual({ idx: 3 });
     expect(
       Storage.readChunksSince(sql, { identity: '__bcast:top__', streamId: 'gen-1', since: 0 }),
-    ).toHaveLength(3);
+    ).toHaveLength(0);
   });
 
   it('resumableStream — cursor does not advance for a chunk produced after the connection closed', async () => {
@@ -1263,7 +1271,7 @@ describe('durable stream runtime', () => {
     expect(JSON.parse(Storage.readStream(sql, 'u1', 'gen-1')!.cursor!)).toEqual({ idx: 1 });
   });
 
-  it('broadcast resumableStream — peer-subscriber resume replays from buffer, no generator re-run', async () => {
+  it('broadcast resumableStream — peer-subscriber resume goes live, no replay and no generator re-run', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -1280,20 +1288,11 @@ describe('durable stream runtime', () => {
       creatorIdentity: 'u-creator',
       maxChunks: 10,
     });
-    Storage.appendChunk(sql, {
+    Storage.updateCursor(sql, {
       identity: '__bcast:top__',
       streamId: 's-b',
-      seq: 1,
-      messageId: null,
-      payload: JSON.stringify({ i: 1 }),
-      now: Date.now(),
-    });
-    Storage.appendChunk(sql, {
-      identity: '__bcast:top__',
-      streamId: 's-b',
-      seq: 2,
-      messageId: null,
-      payload: JSON.stringify({ i: 2 }),
+      cursor: JSON.stringify({ idx: 2 }),
+      lastSeq: 2,
       now: Date.now(),
     });
 
@@ -1305,8 +1304,8 @@ describe('durable stream runtime', () => {
         def: baseDef({
           kind: 'resumable',
           broadcast: true,
+          // oxlint-disable-next-line require-yield -- stub asserts it is never invoked
           generator: async function* () {
-            yield { unreachable: true };
             throw new Error('should not be invoked for peer subscriber');
           },
         }),
@@ -1316,10 +1315,122 @@ describe('durable stream runtime', () => {
       lastKnownSeq: 0,
     });
 
-    const replayed = wireChunks(peer).filter((f) => f.event === 'e');
-    expect(replayed.map((f) => f.__wskit.seq)).toEqual([1, 2]);
+    expect(wireChunks(peer).filter((f) => f.event === 'e')).toHaveLength(0);
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
+    expect(
+      Storage.getSubscriber(sql, {
+        storageIdentity: '__bcast:top__',
+        streamId: 's-b',
+        subscriberIdentity: 'u-peer',
+      })?.caughtUpSeq,
+    ).toBe(2);
+  });
+
+  it('broadcast resumableStream — a late-joining peer only gets chunks produced after it joined', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    const peer = createConnection('c-peer', 'u-peer');
+    runtime.connections.set(creator.id, creator);
+
+    await runDurableStream(runtime as never, creator, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* (ctx: any) {
+          for (let i = 1; i <= 4; i += 1) {
+            if (i === 3) {
+              runtime.connections.set(peer.id, peer);
+              Storage.setCaughtUpSeq(sql, {
+                storageIdentity: '__bcast:top__',
+                streamId: 'gen-1',
+                subscriberIdentity: 'u-peer',
+                caughtUpSeq: 2,
+              });
+            }
+            yield ctx.stream.withCursor({ i }, { idx: i });
+          }
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    const peerSeqs = pipelineSends
+      .filter((p) => p.event === 'e' && p.targetId === 'c-peer')
+      .map((p) => (p.routing as { seq: number }).seq);
+    expect(peerSeqs).toEqual([3, 4]);
+  });
+
+  it('broadcast resumableStream — creator resume is live: continues from the latest cursor, no replay, no chunk storage', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    runtime.connections.set(creator.id, creator);
+
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-bc',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+    Storage.updateCursor(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-bc',
+      cursor: JSON.stringify({ idx: 5 }),
+      lastSeq: 5,
+      now: Date.now(),
+    });
+
+    const row = Storage.readStream(sql, '__bcast:top__', 's-bc');
+
+    await expect(
+      resumeDurableStream(runtime as never, creator, {
+        resolveDef: () => ({
+          scope: {},
+          def: baseDef({
+            kind: 'resumable',
+            broadcast: true,
+            maxChunks: 10,
+            generator: async function* (ctx: any) {
+              const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+              yield ctx.stream.withCursor({ i: startAt + 1 }, { idx: startAt + 1 });
+            },
+          }),
+        }),
+        row,
+        streamId: 's-bc',
+        lastKnownSeq: 3,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
+
+    expect(wireChunks(creator).filter((f) => f.event === 'e')).toHaveLength(0);
+
+    const produced = pipelineSends
+      .filter((p) => p.event === 'e')
+      .map((p) => (p.routing as { seq: number }).seq);
+    expect(produced).toEqual([6]);
+
+    const buffered = Storage.readChunksSince(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-bc',
+      since: 0,
+    });
+    expect(buffered).toHaveLength(0);
   });
 
   it('broadcast cancel — non-creator unsubscribes self, source keeps running', async () => {
@@ -1678,5 +1789,85 @@ describe('durable stream runtime', () => {
       '[wskit] durable stream stale-generator cleanup rejected',
       expect.objectContaining({ streamId: 'a', error: 'sync return boom' }),
     );
+  });
+
+  it('ctx.stream.signal — durable generator sees an AbortSignal that fires with the cancel reason', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    function noop(): void {}
+    let release: () => void = noop;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let signalAtStart: AbortSignal | undefined;
+    let abortedReason: unknown;
+
+    const run = runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        maxChunks: 10,
+        generator: wrapStreamGenerator(async function* (c: any) {
+          signalAtStart = c.stream.signal;
+          c.stream.signal.addEventListener('abort', () => {
+            abortedReason = c.stream.signal.reason;
+          });
+          yield { i: 1 };
+          await gate;
+          yield { i: 2 };
+        }) as never,
+      }),
+      payload: {},
+      wskit: { streamId: 's-sig', channelScope: null },
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(signalAtStart).toBeInstanceOf(AbortSignal);
+    expect(signalAtStart!.aborted).toBe(false);
+
+    const cancelled = cancelDurableStream(runtime as never, connection, {
+      streamId: 's-sig',
+      cancelScope: {},
+    });
+
+    expect(signalAtStart!.aborted).toBe(true);
+    expect(abortedReason).toBe('cancelled');
+
+    release();
+    await cancelled;
+    await run;
+  });
+
+  it('ctx.stream.drain — durable generator can call drain and it resolves', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    let drainResolved = false;
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        maxChunks: 10,
+        generator: wrapStreamGenerator(async function* (c: any) {
+          yield { i: 1 };
+          await c.stream.drain();
+          drainResolved = true;
+          yield { i: 2 };
+        }) as never,
+      }),
+      payload: {},
+      wskit: { streamId: 's-drain', channelScope: null },
+    });
+
+    expect(drainResolved).toBe(true);
+    expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(2);
   });
 });

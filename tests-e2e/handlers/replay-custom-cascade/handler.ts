@@ -83,7 +83,7 @@ base.replay({
 });
 
 const lobby = base.channel('lobby', {
-  outgoing: { emits: { note: Note } },
+  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
 });
 
 const handleLobbySendNote = lobby.on('send-note', {
@@ -95,7 +95,7 @@ const handleLobbySendNote = lobby.on('send-note', {
 });
 
 const room = base.channel(['rooms', 'room-{id}'], {
-  outgoing: { emits: { note: Note } },
+  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
 });
 
 const handleRoomSendNote = room.on('send-note', {

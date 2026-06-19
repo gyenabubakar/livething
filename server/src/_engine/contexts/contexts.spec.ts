@@ -448,6 +448,46 @@ describe('ctx.channels.get(name).members()', () => {
     expect(deps.getChannelMembers).toHaveBeenCalledWith('room:42', 'publicRooms');
   });
 
+  it('resolves get(channelDecl) by the declaration key (static channel)', () => {
+    const connection = createConnection('c1');
+    const resolveChannel = vi.fn((target: any) =>
+      target === 'lobby' ? { channelName: 'lobby', channelScope: null, params: {} } : undefined,
+    );
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => []),
+      resolveChannel,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    (ctx as any).channels.get({ __wskitChannel: true, __key: 'lobby' }).members();
+
+    expect(resolveChannel).toHaveBeenCalledWith('lobby');
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('lobby', null);
+  });
+
+  it("resolves get(family.at(params)) via the ref's family + concrete name", () => {
+    const connection = createConnection('c1');
+    const resolveChannel = vi.fn((target: any) =>
+      typeof target === 'object'
+        ? { channelName: target.name, channelScope: target.family, params: { id: 'general' } }
+        : undefined,
+    );
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => []),
+      resolveChannel,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    (ctx as any).channels
+      .get({ __wskitChannelRef: true, family: 'rooms', name: 'room:general' })
+      .members();
+
+    expect(resolveChannel).toHaveBeenCalledWith({ family: 'rooms', name: 'room:general' });
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('room:general', 'rooms');
+  });
+
   it('kick on the handle is awaitable and forwards scope to kickChannelMembers', async () => {
     const connection = createConnection('c1');
     const kickChannelMembers = vi.fn(async () => {});

@@ -117,7 +117,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
 }
 
 const PERMISSION = new Map<string, ResolvedServerRequest>([
-  ['ask', { responseValidator: v.object({ allowed: v.boolean() }), broadcast: false }],
+  ['ask', { responseValidator: v.object({ allowed: v.boolean() }) }],
 ]);
 
 describe('server→client request — outgoing runtime', () => {
@@ -234,19 +234,10 @@ describe('server→client request — outgoing runtime', () => {
     env.answerHook('c1', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: true });
   });
-
-  it('a broadcast-declared event used via ctx.request rejects', async () => {
-    const declarations = new Map<string, ResolvedServerRequest>([
-      ['volunteer', { responseValidator: undefined, broadcast: true }],
-    ]);
-    const env = install(topDeclarations(declarations));
-    const ctx = env.buildCtx('c1');
-    await expect(ctx.request('volunteer', { turn: 1 })).rejects.toThrow(/broadcastRequest/);
-  });
 });
 
 const VOLUNTEER = new Map<string, ResolvedServerRequest>([
-  ['volunteer', { responseValidator: v.object({ ready: v.boolean() }), broadcast: true }],
+  ['volunteer', { responseValidator: v.object({ ready: v.boolean() }) }],
 ]);
 
 describe('server→client broadcast request — first answer wins', () => {
@@ -453,24 +444,14 @@ describe('server→client broadcast request — first answer wins', () => {
       from: expect.objectContaining({ id: 'b' }),
     });
   });
-
-  it('a non-broadcast event used via broadcastRequest rejects', async () => {
-    const env = install(topDeclarations(PERMISSION));
-    const ctx = env.buildCtx('c1', undefined, { connections: ['a'] });
-    await expect(ctx.broadcastRequest('ask', { action: 'x' })).rejects.toThrow(
-      /not declared.*broadcast: true/,
-    );
-  });
 });
 
 describe('server→client request — per-channel declaration isolation (Major 2)', () => {
   const askAllowed: ResolvedServerRequest = {
     responseValidator: v.object({ allowed: v.boolean() }),
-    broadcast: false,
   };
   const askCount: ResolvedServerRequest = {
     responseValidator: v.object({ count: v.number() }),
-    broadcast: false,
   };
 
   function roomsCtx(env: ReturnType<typeof install>) {

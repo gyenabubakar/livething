@@ -38,8 +38,6 @@ export { requestResponse } from '~/primitives/request-response/index.ts';
 export type { RequestResponseOptions } from '~/primitives/request-response/index.ts';
 export { serverRequest } from '~/primitives/server-request/index.ts';
 export type { ServerRequestOptions } from '~/primitives/server-request/index.ts';
-export { ack } from '~/primitives/ack/index.ts';
-export type { AckOptions } from '~/primitives/ack/index.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';

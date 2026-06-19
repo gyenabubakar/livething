@@ -49,7 +49,7 @@ export type PrimitiveIdentity =
 
 /**
  * Base type for every primitive. Every primitive factory (a capability like
- * `ack()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
+ * `requests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
  * returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
@@ -131,7 +131,7 @@ export interface PrimitiveFactory<
  *
  * This is an internal WSKit API — product developers use `plugin()` to ship
  * custom behavior. `definePrimitive` is for the primitives that ship with
- * WSKit itself (ack, incoming, channel, etc.).
+ * WSKit itself (incoming, channel, etc.).
  *
  * The returned factory function:
  * 1. When **called** — produces a `Primitive` instance with base fields
@@ -140,17 +140,17 @@ export interface PrimitiveFactory<
  *    can declare it as a dependency.
  *
  * ```ts
- * const ACK_KEY = Symbol('ack');
+ * const PING_KEY = Symbol('ping');
  *
- * const ack = definePrimitive({
- *   tag: 'ack',
- *   key: ACK_KEY,
+ * const ping = definePrimitive({
+ *   tag: 'ping',
+ *   key: PING_KEY,
  *   kind: 'infrastructure',
  *   create() { return {}; },
  *   setup(engine) {
  *     engine.onIncoming((msg) => { ... });
  *     engine.extendContext((ctx) => ({
- *       ack() { engine.rawSend(ctx.id, '__ack__', {}); }
+ *       ping() { engine.rawSend(ctx.id, '__ping__', {}); }
  *     }));
  *   },
  * });

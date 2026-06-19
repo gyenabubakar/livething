@@ -133,9 +133,12 @@ const Empty = v.object({});
 const Text = v.object({ text: v.string() });
 const NumChunk = v.object({ n: v.number() });
 
+const EmptyOut = t<Record<string, never>>();
+const TextOut = t<{ text: string }>();
+
 const tinyBase = define({
   env: t<Record<string, unknown>>(),
-  capabilities: [emits({ ack: Empty })],
+  capabilities: [emits({ notify: EmptyOut })],
 });
 const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
 
@@ -147,13 +150,13 @@ const mediumBase = define({
     requests(),
     stream(),
     channels(),
-    emits({ ack: Empty, joined: Empty }),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
   ],
 });
-const mediumLobby = mediumBase.channel('lobby', { outgoing: { emits: { said: Text } } });
+const mediumLobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
 mediumLobby.on('say', { input: Text, run() {} });
 const mediumRooms = mediumBase.channel(['rooms', 'room:{id}'], {
-  outgoing: { emits: { posted: Text } },
+  outgoing: { emits: { posted: TextOut } },
 });
 mediumRooms.on('post', { input: Text, run() {} });
 const mediumHandler = mediumBase.assemble(
@@ -179,8 +182,8 @@ const mediumHandler = mediumBase.assemble(
 
 function channelEmits(prefix: string) {
   return {
-    [`${prefix}-message`]: Text,
-    [`${prefix}-edited`]: Text,
+    [`${prefix}-message`]: TextOut,
+    [`${prefix}-edited`]: TextOut,
   };
 }
 
@@ -197,7 +200,7 @@ const heavyBase = define({
     resumableStream(),
     recordedStream(),
     channels(),
-    emits({ 'o-a': Empty, 'o-b': Empty, 'o-c': Empty, 'o-d': Empty, 'o-e': Empty }),
+    emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
   ],
 });
 
@@ -374,7 +377,7 @@ describe('engine declaredErrorCodes', () => {
 });
 
 describe('revalidate requires a persistent channel', () => {
-  const channelOutgoing = { outgoing: { emits: { said: Text } } };
+  const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
 
   it('throws at boot when a non-persistent channel has a .revalidate() hook', async () => {
     const base = define({ env: t<Record<string, unknown>>(), capabilities: [channels()] });

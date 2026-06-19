@@ -43,9 +43,9 @@ const base = define({
     channels(),
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
     emits({
-      'tag-ack': TagAckPayload,
-      'observe-result': ObserveResultPayload,
-      'kick-ack': KickAckPayload,
+      'tag-ack': t<v.InferOutput<typeof TagAckPayload>>(),
+      'observe-result': t<v.InferOutput<typeof ObserveResultPayload>>(),
+      'kick-ack': t<v.InferOutput<typeof KickAckPayload>>(),
     }),
   ],
 });
@@ -98,7 +98,7 @@ const handleKickFamily = base.on('kick-family', {
 
 const general = base.channel('general', {
   outgoing: {
-    emits: { msg: MsgPayload },
+    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
   },
 });
 
@@ -111,7 +111,7 @@ const handleSendInGeneral = general.on('send-in-general', {
 
 const room = base.channel(['rooms', 'room:{id}'], {
   outgoing: {
-    emits: { msg: MsgPayload },
+    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
   },
 });
 

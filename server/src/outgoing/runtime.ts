@@ -125,7 +125,6 @@ function buildWSKit(
   }
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
   if (routing?.source) wskit.source = routing.source;
-  if (routing?.ackId) wskit.ackId = routing.ackId;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
   if (routing?.streamKind) wskit.streamKind = routing.streamKind;

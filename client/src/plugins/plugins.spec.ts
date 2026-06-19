@@ -2,7 +2,6 @@ import { Block } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -122,18 +121,18 @@ describe('plugin() definition', () => {
 
 describe('plugin() dependencies (assertions)', () => {
   const Needs = plugin({
-    id: 'test:needs-ack',
-    key: Symbol('test:needs-ack'),
-    dependencies: [ack],
+    id: 'test:needs-reconnection',
+    key: Symbol('test:needs-reconnection'),
+    dependencies: [reconnection],
     setup: () => () => ({}),
   });
 
   it('throws when a required primitive is missing', () => {
-    expect(() => client<C>()(connect('wss://test'), Needs())).toThrow(/requires ack/);
+    expect(() => client<C>()(connect('wss://test'), Needs())).toThrow(/requires reconnection/);
   });
 
   it('builds when the required primitive is registered', () => {
-    expect(() => client<C>()(connect('wss://test'), ack(), Needs())).not.toThrow();
+    expect(() => client<C>()(connect('wss://test'), reconnection(), Needs())).not.toThrow();
   });
 
   it('reads a dependency tag without executing the factory (#29)', () => {

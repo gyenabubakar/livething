@@ -141,32 +141,42 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               if (typeof id === 'string') state.confirmLeave(id);
               return null;
             }
-            case '__memberSync__': {
-              const raw = (message.payload as { members?: unknown })?.members;
-              const members = Array.isArray(raw)
-                ? raw.map(readMember).filter((m) => m !== null)
-                : [];
-              state.syncMembers(members);
-              return null;
-            }
-            case '__memberJoin__': {
-              const member = readMember(message.payload);
-              if (member) state.addMember(member.connectionId, member.meta);
-              return null;
-            }
-            case '__memberLeave__': {
-              const member = readMember(message.payload);
-              if (member) state.removeMember(member.connectionId);
-              return null;
-            }
-            case '__memberOnline__': {
-              const member = readMember(message.payload);
-              if (member) state.memberWentOnline(member.connectionId, member.meta);
-              return null;
-            }
+            case '__memberSync__':
+            case '__memberJoin__':
+            case '__memberLeave__':
+            case '__memberOnline__':
             case '__memberOffline__': {
+              if (state.pendingLeave !== null) {
+                helpers.log.info(
+                  `channel '${name}' ignoring a presence frame while a leave is pending`,
+                );
+                return null;
+              }
+              if (message.event === '__memberSync__') {
+                const raw = (message.payload as { members?: unknown })?.members;
+                const members = Array.isArray(raw)
+                  ? raw.map(readMember).filter((m) => m !== null)
+                  : [];
+                state.syncMembers(members);
+                return null;
+              }
               const member = readMember(message.payload);
-              if (member) state.memberWentOffline(member.connectionId);
+              if (member) {
+                switch (message.event) {
+                  case '__memberJoin__':
+                    state.addMember(member.connectionId, member.meta);
+                    break;
+                  case '__memberLeave__':
+                    state.removeMember(member.connectionId);
+                    break;
+                  case '__memberOnline__':
+                    state.memberWentOnline(member.connectionId, member.meta);
+                    break;
+                  case '__memberOffline__':
+                    state.memberWentOffline(member.connectionId);
+                    break;
+                }
+              }
               return null;
             }
             case '__kicked__': {
@@ -178,7 +188,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
             case '__error__': {
               // A request/ack error carries its own id and belongs to that primitive.
-              if (wskit?.correlationId !== undefined || wskit?.ackId !== undefined) return message;
+              if (wskit?.correlationId !== undefined) return message;
               // A stream error carries a streamId and belongs to the stream primitive.
               if (wskit?.streamId !== undefined) return message;
               state.fireSubscriptionFailed(toWSKitError(message.payload));

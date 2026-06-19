@@ -31,17 +31,6 @@ export interface EngineAccessDeps {
       channelScope?: string | null;
     },
   ): boolean;
-  /** Send a server→client ack-required frame through the outgoing pipeline. */
-  sendServerWithAck(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      ackId: string;
-      channel?: string;
-      channelScope?: string | null;
-    },
-  ): boolean;
 }
 
 /**
@@ -75,10 +64,6 @@ export function createEngineAccess(
       core.hooks.answerFrame.push(handler);
     },
     sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
-    onAckFrame: (handler) => {
-      core.hooks.ackFrame.push(handler);
-    },
-    sendServerWithAck: (connectionId, opts) => deps.sendServerWithAck(connectionId, opts),
     onOutgoing: (handler, owner) => {
       // The pipeline supplies the frame; ctx is resolved per-send from the
       // active connection, or undefined when none is in scope (broadcasts).
@@ -270,17 +255,6 @@ export function createEngineAccess(
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
         throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
       }
-    },
-    sendAck: (connectionId, ackId) => {
-      if (!ackId) return;
-      const connection = core.connections.get(connectionId);
-      if (!connection) return;
-      // The client originated this acked send; this is the server's receipt.
-      sendProtocolMessage(core, connection, {
-        event: '__ack__',
-        payload: {},
-        wskit: { ackId, source: 'client' },
-      });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),

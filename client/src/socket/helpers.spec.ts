@@ -104,13 +104,13 @@ describe('generateId', () => {
     expect(unique.size).toBe(ids.length);
   });
 
-  it('an ack id and a request id on the same socket never share the same underlying counter value', () => {
+  it('a stream id and a request id on the same socket never share the same underlying counter value', () => {
     const helpers = makeHelpers();
-    const ackId = helpers.generateId('ack');
+    const streamId = helpers.generateId('stream');
     const reqId = helpers.generateId('req');
-    const ackN = ackId.replace('ack-', '');
+    const streamN = streamId.replace('stream-', '');
     const reqN = reqId.replace('req-', '');
-    expect(ackN).not.toBe(reqN);
+    expect(streamN).not.toBe(reqN);
   });
 });
 

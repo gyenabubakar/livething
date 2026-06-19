@@ -4,7 +4,6 @@
 // runs them. A broken assumption shows up as a build error.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { serverRequest } from '~/primitives/server-request/index.ts';
@@ -51,7 +50,6 @@ const socket = client<Full>()(
   channels(),
   requestResponse(),
   serverRequest(),
-  ack(),
   stream(),
 );
 
@@ -84,10 +82,6 @@ socket.onRequest('ask-permission', async () => ({ allowed: false }));
 socket.onRequest('ask-permission', () => ({ allowed: 'yes' }));
 // @ts-expect-error — 'nope' is not a server→client request
 socket.onRequest('nope', () => ({}));
-
-expectTypeOf(socket.sendWithAck('client-send', { text: 'hi' })).resolves.toEqualTypeOf<void>();
-// @ts-expect-error — sendWithAck is typed from outgoing
-socket.sendWithAck('server-push', { value: 1 });
 
 expectTypeOf(socket.stream('plain-stream', {})).resolves.toEqualTypeOf<
   StreamHandle<{ idx: number }, {}>
@@ -160,6 +154,40 @@ partial.onStream('plain-stream', {
 });
 // @ts-expect-error — channels() still missing
 partial.channel('room');
+
+const channelsOnly = client<Full>()(connect('wss://example.com'), channels());
+const onlyRoom = channelsOnly.channel('room');
+expectTypeOf(onlyRoom.subscribe({ token: 't' })).resolves.toEqualTypeOf<void>();
+onlyRoom.on('ch-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
+onlyRoom.onSubscribed(() => {});
+// @ts-expect-error — channel.request needs the requestResponse() primitive
+onlyRoom.request('ch-request', { id: '1' });
+// @ts-expect-error — channel.onRequest needs the serverRequest() primitive
+onlyRoom.onRequest('ch-ask', () => ({ ok: true }));
+// @ts-expect-error — channel.onStream needs the stream() primitive
+onlyRoom.onStream('ch-stream', { onChunk: () => {} });
+// @ts-expect-error — channel.stream needs the stream() primitive
+onlyRoom.stream('ch-stream', {});
+// @ts-expect-error — channel.resumeStream needs the stream() primitive
+onlyRoom.resumeStream('ch-stream', 'id');
+
+const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), requestResponse());
+expectTypeOf(
+  channelsAndReq.channel('room').request('ch-request', { id: '1' }),
+).resolves.toEqualTypeOf<{ ok: boolean }>();
+// @ts-expect-error — channel.onStream still needs the stream() primitive
+channelsAndReq.channel('room').onStream('ch-stream', { onChunk: () => {} });
+
+const everything = client<Full>()(
+  connect('wss://example.com'),
+  channels(),
+  requestResponse(),
+  serverRequest(),
+  stream(),
+);
+everything.channel('room').request('ch-request', { id: '1' });
+everything.channel('room').onRequest('ch-ask', () => ({ ok: true }));
+everything.channel('room').onStream('ch-stream', { onChunk: () => {} });
 
 interface ReceiveOnly {
   incoming: { tick: { n: number } };

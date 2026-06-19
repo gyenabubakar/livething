@@ -23,7 +23,6 @@ export default defineConfig({
         errors: resolve(__dirname, 'src/errors/index.ts'),
         requests: resolve(__dirname, 'src/request/capability.ts'),
         scheduled: resolve(__dirname, 'src/scheduled/capability.ts'),
-        ack: resolve(__dirname, 'src/ack/capability.ts'),
         dedup: resolve(__dirname, 'src/dedup/capability.ts'),
         sequence: resolve(__dirname, 'src/sequence/capability.ts'),
         keepalive: resolve(__dirname, 'src/keepalive/capability.ts'),

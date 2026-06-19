@@ -1,4 +1,4 @@
-import { define, emits, error, errors } from '@wskit/server';
+import { define, emits, error, errors, t } from '@wskit/server';
 import { plugin } from '@wskit/server/plugin';
 import { scheduled } from '@wskit/server/scheduled';
 import { count, eq } from 'drizzle-orm';
@@ -77,17 +77,17 @@ const h = define({
   scoped: true,
   capabilities: [
     emits({
-      'drizzle-ready': v.object({ tables: v.array(v.string()) }),
-      'drizzle-vacuum-done': v.object({ timestamp: v.number() }),
-      'plugin-every-tick': v.object({ count: v.number() }),
-      'plugin-flaky-result': v.object({ attempts: v.number() }),
-      'plugin-dlq-result': v.object({
-        taskId: v.string(),
-        attempts: v.number(),
-        error: v.string(),
-      }),
-      'plugin-task-data-result': v.object({ result: v.string() }),
-      'error-result': v.object({ code: v.string(), message: v.string() }),
+      'drizzle-ready': t<{ tables: string[] }>(),
+      'drizzle-vacuum-done': t<{ timestamp: number }>(),
+      'plugin-every-tick': t<{ count: number }>(),
+      'plugin-flaky-result': t<{ attempts: number }>(),
+      'plugin-dlq-result': t<{
+        taskId: string;
+        attempts: number;
+        error: string;
+      }>(),
+      'plugin-task-data-result': t<{ result: string }>(),
+      'error-result': t<{ code: string; message: string }>(),
     }),
     errors([denied]),
     scheduled({

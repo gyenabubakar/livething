@@ -150,7 +150,7 @@ test.describe('lifecycle-hooks', () => {
 
     const mounts = [
       '/ws/lifecycle-hooks',
-      '/ws/ack',
+      '/ws/incoming',
       '/ws/channel-static',
       '/ws/ctx-send',
       '/ws/replay',

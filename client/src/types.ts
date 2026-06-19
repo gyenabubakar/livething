@@ -186,8 +186,8 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
 
 /**
  * The full messaging type for one scope (a channel): `on`/`send`
- * plus `request()` when the scope has requests, `sendWithAck()` when it has
- * outgoing events, and the stream methods when it has streams.
+ * plus `request()` when the scope has requests, and the stream methods when it
+ * has streams.
  */
 export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
   (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
@@ -207,15 +207,6 @@ export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C>
         ): () => void;
       }
     : {}) &
-  (keyof OutgoingOf<C> extends never
-    ? {}
-    : {
-        sendWithAck<E extends keyof OutgoingOf<C> & string>(
-          event: E,
-          payload: OutgoingOf<C>[E],
-          options?: { timeout?: number; ttl?: number },
-        ): Promise<void>;
-      }) &
   (C extends { streams: infer S extends Record<string, { payload: any; chunk: any }> }
     ? {
         stream<E extends keyof S & string>(

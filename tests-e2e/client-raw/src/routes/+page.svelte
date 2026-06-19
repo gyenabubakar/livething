@@ -1,6 +1,5 @@
 <script lang="ts">
 	const features = [
-		'ack',
 		'channel-dynamic',
 		'channel-static',
 		'ctx-channels',

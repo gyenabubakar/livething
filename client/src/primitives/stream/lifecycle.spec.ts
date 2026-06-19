@@ -278,7 +278,7 @@ describe('ephemeral stream not resumed on reconnect', () => {
   });
 });
 
-describe('__error__ with correlationId/ackId passthrough', () => {
+describe('__error__ with correlationId passthrough', () => {
   it('leaves the stream running when __error__ carries a correlationId', async () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
@@ -288,23 +288,6 @@ describe('__error__ with correlationId/ackId passthrough', () => {
       event: '__error__',
       payload: { code: 'not-found' },
       __wskit: { streamId: sid, correlationId: 'req-abc' },
-    });
-
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
-
-    expect(await collect(handle)).toEqual([{ text: 'a' }]);
-  });
-
-  it('leaves the stream running when __error__ carries an ackId', async () => {
-    const { socket, ws } = build();
-    const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
-
-    socket.onError(() => {});
-    ws.emit({
-      event: '__error__',
-      payload: { code: 'not-found' },
-      __wskit: { streamId: sid, ackId: 'ack-xyz' },
     });
 
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });

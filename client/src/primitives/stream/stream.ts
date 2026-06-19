@@ -468,8 +468,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               return null;
             }
             case '__error__': {
-              if (envelope?.correlationId !== undefined || envelope?.ackId !== undefined)
-                return message;
+              if (envelope?.correlationId !== undefined) return message;
               const error = toWSKitError(message.payload);
               // A non-terminal error (a rejected nudge) settles its nudge() Promise
               // and leaves the stream running.

@@ -15,7 +15,7 @@ import type { WSKitSocket } from '~/socket/socket.ts';
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
   throw new WSKitConfigError(
-    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [ack, channels]).`,
+    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [channels, stream]).`,
   );
 }
 

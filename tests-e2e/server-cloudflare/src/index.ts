@@ -3,11 +3,9 @@ export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
-export { AckServer } from './ack.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
 export { ServerRequestServer } from './server-request.ts';
-export { ServerAckServer } from './server-ack.ts';
 export { BroadcastRequestServer } from './broadcast-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
 export { StreamSignalServer } from './stream-signal.ts';
@@ -57,7 +55,6 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
-  '/ws/server-ack': 'SERVER_ACK_SERVER',
   '/ws/broadcast-request': 'BROADCAST_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',
   '/ws/stream-signal': 'STREAM_SIGNAL_SERVER',
@@ -138,11 +135,6 @@ export default {
     if (url.pathname === '/ws/reject-http') {
       const id = env.HTTP_REJECT_SERVER.idFromName(room);
       return env.HTTP_REJECT_SERVER.get(id).fetch(request);
-    }
-
-    if (url.pathname === '/ws/ack') {
-      const id = env.ACK_SERVER.idFromName(room);
-      return env.ACK_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/lifecycle-hooks/shutdown') {

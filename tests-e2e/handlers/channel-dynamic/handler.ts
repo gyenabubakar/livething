@@ -5,22 +5,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const RoomMessagePayload = v.object({
-  channel: v.string(),
-  text: v.string(),
-  from: v.string(),
-  kind: v.string(),
-});
 const SendMessagePayload = v.object({ text: v.string() });
-const NameResultPayload = v.object({ name: v.string(), suffix: v.string() });
 
-const TopOnlyActionFiredPayload = v.object({ from: v.string() });
-const ValidationObservedPayload = v.object({ channel: v.string(), event: v.string() });
-const ScopedErrorObservedPayload = v.object({
-  channel: v.string(),
-  scope: v.string(),
-  event: v.string(),
-});
 const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 
 const base = define({
@@ -29,9 +15,9 @@ const base = define({
   capabilities: [
     channels(),
     emits({
-      'top-only-action-fired': TopOnlyActionFiredPayload,
-      'validation-observed': ValidationObservedPayload,
-      'scoped-error-observed': ScopedErrorObservedPayload,
+      'top-only-action-fired': t<{ from: string }>(),
+      'validation-observed': t<{ channel: string; event: string }>(),
+      'scoped-error-observed': t<{ channel: string; scope: string; event: string }>(),
     }),
   ],
 });
@@ -70,8 +56,8 @@ const handleTriggerServerSubscribeDynamic = base.on('trigger-server-subscribe-dy
 const room = base.channel(['room', 'room:{id}'], {
   outgoing: {
     emits: {
-      'room-message': RoomMessagePayload,
-      'name-result': NameResultPayload,
+      'room-message': t<{ channel: string; text: string; from: string; kind: string }>(),
+      'name-result': t<{ name: string; suffix: string }>(),
     },
   },
   async check(ctx) {

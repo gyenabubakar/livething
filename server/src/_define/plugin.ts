@@ -43,7 +43,6 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'intercept',
   'outgoingHook',
   // Internal carriers that ride along but need no namespacing.
-  'ack',
   'sequence',
   // The server→client request install primitive: a global pending map and ctx
   // install. Outgoing request frames are prefixed by the normal scoped-send

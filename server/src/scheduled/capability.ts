@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -67,12 +68,26 @@ function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
   );
 }
 
-function resolveDeclaration(def: ScheduledDef): ScheduledDeclaration {
+function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclaration {
   if (def === null) return { hasData: false };
+
+  const context = `scheduled("${taskId}")`;
 
   const dataValue = 'data' in def ? def.data : undefined;
   const dataSchema =
     dataValue !== undefined && !isTypeMarker(dataValue) ? (dataValue as Validator) : undefined;
+
+  if ('every' in def && def.every !== undefined) {
+    assertPositiveInteger(def.every, '.every', context);
+  }
+  if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
+    if (def.retry.length === 0) {
+      throw new Error(`[wskit] ${context}: 'retry' requires at least one entry.`);
+    }
+    for (const entry of def.retry) {
+      assertPositiveInteger(entry, '.retry', context);
+    }
+  }
 
   const options: ScheduledOptions = {};
   if ('every' in def && def.every !== undefined) (options as { every?: number }).every = def.every;
@@ -121,7 +136,7 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
 ): ScheduledCapability<TDefs> {
   const declarations = new Map<string, ScheduledDeclaration>();
   for (const [taskId, def] of Object.entries(defs)) {
-    declarations.set(taskId, resolveDeclaration(def));
+    declarations.set(taskId, resolveDeclaration(taskId, def));
   }
   const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>(
     [],

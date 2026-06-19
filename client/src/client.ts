@@ -6,9 +6,9 @@ import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
 import type {
   ApplyPrimitives,
-  MissingPrimitiveStubs,
   Primitive,
   ValidatePrimitives,
+  WithMissingPrimitiveStubs,
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { SocketContract } from '~/types.ts';
@@ -35,15 +35,19 @@ export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): Socket<TContract> &
-    ApplyPrimitives<TPrimitives, TContract> &
-    MissingPrimitiveStubs<TContract, TPrimitives> {
+  ): WithMissingPrimitiveStubs<
+    Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+    TContract,
+    TPrimitives
+  > {
     return buildSocket(
       connectDescriptor,
       primitives as readonly Primitive[],
-    ) as unknown as Socket<TContract> &
-      ApplyPrimitives<TPrimitives, TContract> &
-      MissingPrimitiveStubs<TContract, TPrimitives>;
+    ) as unknown as WithMissingPrimitiveStubs<
+      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+      TContract,
+      TPrimitives
+    >;
   };
 }
 

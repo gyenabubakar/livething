@@ -154,10 +154,13 @@ expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 // prefixed `__<id>::family` name, flipped into the client view. The channel's
 // inner events stay scoped to it and are NOT prefixed.
 // ---------------------------------------------------------------------------
-const chScoped = define({ scoped: true, capabilities: [channels()] });
+const chScoped = define({ scoped: true, capabilities: [channels(), requests()] });
 const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   subscribe: v.object({ token: v.string() }),
-  outgoing: { emits: { 'fam-tick': t<{ n: number }>() } },
+  outgoing: {
+    emits: { 'fam-tick': t<{ n: number }>() },
+    requests: { 'fam-confirm': { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } },
+  },
 });
 const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
 const ChPlugin = plugin('acme:chan', { handler: chScoped.assemble(chFamHandler), api: () => ({}) });
@@ -178,6 +181,13 @@ expectTypeOf<ChFamScope['outgoing']>().toHaveProperty('fam-ping');
 // Addressing discriminator + subscribe payload survive the flip.
 expectTypeOf<ChFamScope['addressing']>().toEqualTypeOf<'dynamic'>();
 expectTypeOf<ChFamScope['subscribePayload']>().toEqualTypeOf<{ token: string }>();
+expectTypeOf<ChFamScope['serverRequests']>().toHaveProperty('fam-confirm');
+expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['payload']>().toEqualTypeOf<{
+  q: string;
+}>();
+expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['response']>().toEqualTypeOf<{
+  ok: boolean;
+}>();
 
 // ---------------------------------------------------------------------------
 // dependsOn — host capability factories only. A plugin factory is a compile

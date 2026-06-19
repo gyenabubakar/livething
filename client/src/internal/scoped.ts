@@ -6,7 +6,7 @@ export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelScope'>;
 
 /**
  * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).
- * `on` and `send` are always present; augmenters (requestResponse, ack, stream)
+ * `on` and `send` are always present; augmenters (requestResponse, stream)
  * add extra methods via the index signature. The typed view exposed to developers
  * is `ScopedMessaging` — this is the loose internal object the library builds
  * and extends at runtime.
@@ -24,7 +24,7 @@ export interface ScopeInfo {
 
   /**
    * Throw if the scope isn't ready to send yet — a channel uses this to block
-   * sends before it's subscribed. Send methods (send, request, sendWithAck, stream)
+   * sends before it's subscribed. Send methods (send, request, stream)
    * call this; listen-only ones (on, onStream) don't. Omitting it means "always ready."
    */
   assertReady?(): void;

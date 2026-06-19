@@ -28,8 +28,8 @@ function handlerKey(markers: ScopeMarkers, event: string): string {
  * handler runs and its return value is sent back to the server as the answer.
  *
  * This is the mirror of `requestResponse()` (client→server). It must run after
- * `requestResponse` and `ack` so a reply to the client's *own* request is
- * consumed by those first — only a server-initiated request reaches here.
+ * `requestResponse` so a reply to the client's *own* request is consumed there
+ * first — only a server-initiated request reaches here.
  */
 export function serverRequest(_options: ServerRequestOptions = {}): Primitive<ServerRequestTypeFn> {
   return {

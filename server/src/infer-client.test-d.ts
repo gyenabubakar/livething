@@ -25,8 +25,8 @@ const reqBase = define({
   env: t<{}>(),
   capabilities: [
     requests({
-      ask: [t<{ a: string }>(), v.object({ ok: v.boolean() })],
-      vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+      ask: { out: t<{ a: string }>(), in: v.object({ ok: v.boolean() }) },
+      vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
     }),
     channels(),
   ],
@@ -36,8 +36,8 @@ const reqChannel = reqBase.channel(['room', 'room:{id}'], {
   outgoing: {
     emits: { tick: t<{ n: number }>() },
     requests: {
-      'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })],
-      vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+      'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
+      vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
     },
   },
 });
@@ -46,32 +46,23 @@ const reqChannelHandler = reqChannel.on('ping', { run() {} });
 const reqDef = reqBase.assemble(reqBase.on('noop', { run() {} }), reqChannelHandler);
 type ReqClient = InferClient<typeof reqDef>;
 
-// Targeted request carries `{ payload, response }` plus the broadcast marker.
 expectTypeOf<ReqClient['serverRequests']['ask']>().toEqualTypeOf<{
   payload: { a: string };
   response: { ok: boolean };
-  broadcast: false;
 }>();
 
-// Broadcast request carries the broadcast marker set to `true`.
 expectTypeOf<ReqClient['serverRequests']['vol']>().toEqualTypeOf<{
   payload: {};
   response: { r: boolean };
-  broadcast: true;
 }>();
 
-// Each channel scope carries its own `serverRequests` slot in the client view,
-// projected from the channel's `outgoing.requests` declarations (short names,
-// broadcast marked).
 expectTypeOf<ReqClient['channels']['room']['serverRequests']['confirm-kick']>().toEqualTypeOf<{
   payload: { target: string };
   response: { ok: boolean };
-  broadcast: false;
 }>();
 expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTypeOf<{
   payload: {};
   response: { r: boolean };
-  broadcast: true;
 }>();
 
 // ---------------------------------------------------------------------------

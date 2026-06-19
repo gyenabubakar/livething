@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- the type-level machinery needs `any` to stay generic */
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
+import type { StubbedChannelMethod } from '~/primitives/channels/types.ts';
 import type { Simplify } from '~/types.ts';
 
 /**
@@ -145,6 +146,73 @@ type AnyScopedSectionDeclared<TContract> =
           : false;
 
 /**
+ * True when at least one channel scope in the contract declares the given
+ * section (`requests` / `serverRequests` / `streams`). A channel-handle method
+ * is only worth stubbing when some channel actually uses it.
+ */
+type AnyChannelSectionDeclared<TContract, Section extends string> = TContract extends {
+  channels: infer Channels;
+}
+  ? {
+      [K in keyof Channels]: SectionDeclared<Channels[K], Section> extends true ? true : never;
+    }[keyof Channels] extends never
+    ? false
+    : true
+  : false;
+
+/**
+ * The channel-handle methods to replace with a `NeedsPrimitive` stub, given the
+ * installed top-level `Api` and the contract's channel sections. A channel's
+ * `request`/`onRequest`/`stream`/`onStream`/`resumeStream` route through the
+ * SAME top-level primitive as their socket-level twins, so we key off the same
+ * presence check (`'request' extends keyof Api`, etc.) used at the top level —
+ * mirroring it one level down into the channel scope.
+ */
+type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
+  TContract,
+  'requests'
+> extends true
+  ? 'request' extends keyof Api
+    ? {}
+    : {
+        request: NeedsPrimitive<'[wskit] channel.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+      }
+  : {}) &
+  (AnyChannelSectionDeclared<TContract, 'serverRequests'> extends true
+    ? 'onRequest' extends keyof Api
+      ? {}
+      : {
+          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
+        }
+    : {}) &
+  (AnyChannelSectionDeclared<TContract, 'streams'> extends true
+    ? 'onStream' extends keyof Api
+      ? {}
+      : {
+          stream: NeedsPrimitive<'[wskit] channel.stream needs the stream() primitive — add stream() to client()'>;
+          onStream: NeedsPrimitive<'[wskit] channel.onStream needs the stream() primitive — add stream() to client()'>;
+          resumeStream: NeedsPrimitive<'[wskit] channel.resumeStream needs the stream() primitive — add stream() to client()'>;
+        }
+    : {});
+
+/**
+ * When channels are installed but a channel-scoped primitive isn't, REPLACE the
+ * `channel` accessor with one whose every handle (direct, family member, or via
+ * `scope(...)`) carries the missing-primitive stub on the affected method. So
+ * `channel('x').request(...)` stops compiling with a clear "add requestResponse()"
+ * message — the top-level guard, mirrored one level down. Returns `{}` (no
+ * override) when every channel-scoped primitive in use is installed.
+ */
+type ChannelAccessorStub<TContract, Api> =
+  ChannelHandleStubs<TContract, Api> extends infer Stubs
+    ? {} extends Stubs
+      ? {}
+      : TContract extends { channels: infer C extends Record<string, any> }
+        ? { channel: StubbedChannelMethod<C, Stubs> }
+        : {}
+    : {};
+
+/**
  * If a contract section needs a primitive that wasn't installed, add a stub
  * method that shows a clear "add X() to client()" error when called. The check
  * is whether the method already exists in the API (not which `_tag`s were
@@ -157,7 +225,7 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
     : ApplyPrimitives<TPrimitives, TContract> extends infer Api
       ? (SectionDeclared<TContract, 'channels'> extends true
           ? 'channel' extends keyof Api
-            ? {}
+            ? ChannelAccessorStub<TContract, Api>
             : {
                 channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
@@ -186,3 +254,18 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
                 }
             : {})
       : {};
+
+/**
+ * Fold the missing-primitive stubs onto the assembled API. A stub for a method
+ * the API never had is simply added; a stub that REPLACES an existing method
+ * (the channel accessor, when a channel-scoped primitive is absent) overrides it
+ * — an `Omit` first, so the stub wins instead of intersecting with the real one.
+ */
+export type WithMissingPrimitiveStubs<
+  Api,
+  TContract,
+  TPrimitives extends readonly Primitive<any, any>[],
+> =
+  MissingPrimitiveStubs<TContract, TPrimitives> extends infer Stubs
+    ? Simplify<Omit<Api, keyof Stubs> & Stubs>
+    : Api;

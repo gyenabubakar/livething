@@ -12,8 +12,6 @@ const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
   'tok-banned': 'banned',
 };
 
-const JoinedPayload = v.object({ username: v.string() });
-const MessagePayload = v.object({ from: v.string(), text: v.string() });
 const SendPayload = v.object({ text: v.string() });
 
 const base = define({
@@ -26,8 +24,8 @@ const base = define({
 const room = base.channel('room', {
   outgoing: {
     emits: {
-      message: MessagePayload,
-      joined: JoinedPayload,
+      message: t<{ from: string; text: string }>(),
+      joined: t<{ username: string }>(),
     },
   },
   subscribe: v.object({ token: v.string() }),
@@ -61,7 +59,7 @@ const handleRoomSend = room.on('send', {
 
 // Uses only check — shows that commit is optional.
 const checkOnly = base.channel('check-only', {
-  outgoing: { emits: { joined: JoinedPayload } },
+  outgoing: { emits: { joined: t<{ username: string }>() } },
   async check(ctx) {
     await new Promise((r) => setTimeout(r, 5));
     if (ctx.meta.username === 'no-access') throw new Error('no-access user is not allowed');
@@ -74,7 +72,7 @@ checkOnly.subscribe((ctx) => {
 
 // Uses only commit — shows that check is optional.
 const commitOnly = base.channel('commit-only', {
-  outgoing: { emits: { joined: JoinedPayload } },
+  outgoing: { emits: { joined: t<{ username: string }>() } },
   commit(ctx) {
     if (ctx.channel.members().length >= 1)
       throw new Error('commit-only room allows one subscriber');
@@ -88,7 +86,7 @@ commitOnly.subscribe((ctx) => {
 // Misuse: an async commit. commit() must be synchronous; the engine rejects
 // a returned Promise. This fixture exists to pin the wire behavior.
 const asyncCommit = base.channel('async-commit', {
-  outgoing: { emits: { joined: JoinedPayload } },
+  outgoing: { emits: { joined: t<{ username: string }>() } },
   commit: (async () => {
     await new Promise((r) => setTimeout(r, 1));
   }) as unknown as () => void,
@@ -98,7 +96,7 @@ const asyncCommit = base.channel('async-commit', {
 // Used to prove the client re-subscribes with a FRESH payload on reconnect: a
 // stale (reused) token is refused, a function-generated one is admitted.
 const nonceRoom = base.channel('nonce-room', {
-  outgoing: { emits: { joined: JoinedPayload } },
+  outgoing: { emits: { joined: t<{ username: string }>() } },
   subscribe: v.object({ token: v.string() }),
   async check(ctx) {
     // Reject a token that's been used before. A stale snapshot resent on

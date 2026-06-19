@@ -403,6 +403,11 @@ async function runSubscribeFlow(
 ): Promise<void> {
   const { data, source, rejoining = false } = opts;
   const scope: ResolvedChannelScope = opts;
+
+  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+    return;
+  }
+
   const ctx = runtime.buildConnectionContext(connection, scope);
 
   // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
@@ -498,13 +503,7 @@ async function runSubscribeFlow(
 
   runtime.persistAttachment(connection);
 
-  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelScope);
-  const members: { connectionId: string; meta: Record<string, unknown> }[] = [];
-  for (const member of runtime.channelMembers.get(memberKey) ?? []) {
-    if (member.id !== connection.id) {
-      members.push({ connectionId: member.id, meta: member.meta });
-    }
-  }
+  const members = snapshotMembers(runtime, scope, connection.id);
 
   const wskit = buildChannelRouting(scope);
 
@@ -555,6 +554,50 @@ async function runSubscribeFlow(
       }
     }
   }
+}
+
+/** Build the public member snapshot for a channel, excluding the given connection. */
+function snapshotMembers(
+  runtime: Pick<ChannelRuntime, 'channelMembers'>,
+  scope: ChannelScope,
+  excludeConnectionId: string,
+): { connectionId: string; meta: Record<string, unknown> }[] {
+  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelScope);
+  const members: { connectionId: string; meta: Record<string, unknown> }[] = [];
+  for (const member of runtime.channelMembers.get(memberKey) ?? []) {
+    if (member.id !== excludeConnectionId) {
+      members.push({ connectionId: member.id, meta: member.meta });
+    }
+  }
+  return members;
+}
+
+export interface ResyncMembersOptions {
+  channelName: string;
+  channelScope: string | null;
+}
+
+/**
+ * Re-send the current member snapshot to one connection in response to a
+ * client `__memberSync__` request. Best-effort: a non-member or unknown channel
+ * is a silent no-op (the client asked to refresh a roster it may have already
+ * dropped). The reply carries `source: 'server'`.
+ */
+export function resyncChannelMembers(
+  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  connection: RuntimeConnection,
+  opts: ResyncMembersOptions,
+): void {
+  const scope = resolveChannelByName(runtime, opts.channelName, opts.channelScope);
+  if (!scope) return;
+  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) return;
+
+  const members = snapshotMembers(runtime, scope, connection.id);
+  runtime.sendProtocolMessage(connection, {
+    event: '__memberSync__',
+    payload: { members },
+    wskit: { ...buildChannelRouting(scope), source: 'server' },
+  });
 }
 
 /**

@@ -1,7 +1,6 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
@@ -782,7 +781,9 @@ describe('reliable leave', () => {
 describe('scoped request and ack', () => {
   it('channel request tags the channel and resolves', async () => {
     const { socket, ws } = build(channels(), requestResponse());
-    const room = socket.channel('general');
+    const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
+      request(event: string, payload: unknown): Promise<unknown>;
+    };
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -802,11 +803,12 @@ describe('scoped request and ack', () => {
     await expect(reqPromise).resolves.toEqual({ items: ['a'] });
   });
 
-  it('channel sendWithAck is guarded before subscribe', () => {
-    const { socket } = build(channels(), ack());
-    expect(() => socket.channel('general').sendWithAck('send-message', { text: 'x' })).toThrow(
-      /channel-not-subscribed/,
-    );
+  it('channel request is guarded before subscribe', () => {
+    const { socket } = build(channels(), requestResponse());
+    const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
+      request(event: string, payload: unknown): Promise<unknown>;
+    };
+    expect(() => room.request('history', { before: 'x' })).toThrow(/channel-not-subscribed/);
   });
 });
 

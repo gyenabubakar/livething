@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { error, RequestInvalidResponse, WSKitError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -289,13 +288,6 @@ function createOutgoingRequestRuntime(
     const declaration = serverRequests.get(
       serverRequestKey(target.declarationChannelKey ?? null, event),
     );
-    if (declaration?.broadcast) {
-      return Promise.reject(
-        new Error(
-          `[wskit] requests({ '${event}': { broadcast: true } }) is answerable only via broadcastRequest, not ctx.request.`,
-        ),
-      );
-    }
 
     const correlationId = engine.generateId('sreq');
     return new Promise((resolve, reject) => {
@@ -351,20 +343,13 @@ function createOutgoingRequestRuntime(
     const declaration = serverRequests.get(
       serverRequestKey(args.declarationChannelKey ?? null, event),
     );
-    if (!declaration?.broadcast) {
-      return Promise.reject(
-        new Error(
-          `[wskit] requests({ '${event}': ... }) is not declared { broadcast: true }, so it is answerable only via ctx.request, not broadcastRequest.`,
-        ),
-      );
-    }
 
     return new Promise((resolve, reject) => {
       const group: BroadcastGroup = {
         resolve,
         reject,
         event,
-        responseValidator: declaration.responseValidator,
+        responseValidator: declaration?.responseValidator,
         legs: new Set<string>(),
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -433,7 +418,8 @@ export function makeServerRequestsPrimitive(
     __kind: 'infrastructure',
     __identity: [SERVER_REQUESTS_KEY],
     __requires: {},
-    __setup(engine: EngineAccess) {
+    __serverRequests: serverRequests,
+    __setup(engine: EngineAccess): void {
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 
       engine.onAnswerFrame((connectionId, frame) => runtime.settle(connectionId, frame));
@@ -452,11 +438,6 @@ export function makeServerRequestsPrimitive(
 
         const connectionId = ctx.id;
 
-        const scope =
-          (ctx[ENGINE_SCOPE_META] as
-            | { channelName?: string; channelScope?: string | null }
-            | undefined) ?? {};
-
         const extra: Record<string, unknown> = {};
 
         // ctx.request — ask the current connection. Inside a channel handler it
@@ -466,12 +447,6 @@ export function makeServerRequestsPrimitive(
             runtime.sendRequest({
               target: {
                 connectionId,
-                channel: scope.channelName,
-                channelScope: scope.channelScope,
-                // ctx.request resolves the TOP-LEVEL requests({...}) declarations even
-                // inside a channel handler; the channel scope above is only for
-                // routing the answer back. ctx.channel.request resolves the
-                // channel's own declarations.
                 declarationChannelKey: null,
               },
               event,
@@ -626,7 +601,7 @@ export function makeServerRequestsPrimitive(
         return extra;
       });
     },
-  };
+  } as unknown as Primitive;
 }
 
 /** @internal Identity of the server-requests install primitive. */

@@ -8,17 +8,13 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import type { ReplaySnapshotValue } from '@wskit/server/replay';
 import { requireUsername } from '../_shared/upgrade.ts';
-import {
-  BurstCounter,
+import { BurstCounter, DeleteDoc, IncrementCounter, RoomUpdateDoc, UpdateDoc } from './events.ts';
+import type {
   BurstDone,
   CounterSnapshot,
-  DeleteDoc,
   DocDeleted,
   DocSnapshot,
-  IncrementCounter,
   RoomDocSnapshot,
-  RoomUpdateDoc,
-  UpdateDoc,
 } from './events.ts';
 
 function reduceSnapshot(
@@ -43,10 +39,10 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
-      'doc-snapshot': DocSnapshot,
-      'doc-deleted': DocDeleted,
-      'counter-snapshot': CounterSnapshot,
-      'burst-done': BurstDone,
+      'doc-snapshot': t<v.InferOutput<typeof DocSnapshot>>(),
+      'doc-deleted': t<v.InferOutput<typeof DocDeleted>>(),
+      'counter-snapshot': t<v.InferOutput<typeof CounterSnapshot>>(),
+      'burst-done': t<v.InferOutput<typeof BurstDone>>(),
     }),
     dedup(),
     sequence({ persist: true }),
@@ -116,7 +112,7 @@ export const handleServerDrop = base.on('server-drop', {
 const snapshotRoom = base.channel('snapshot-room', {
   outgoing: {
     emits: {
-      'room-doc-snapshot': RoomDocSnapshot,
+      'room-doc-snapshot': t<v.InferOutput<typeof RoomDocSnapshot>>(),
     },
   },
 });

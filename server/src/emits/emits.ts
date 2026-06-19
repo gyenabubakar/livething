@@ -4,14 +4,14 @@ import { capability, stampKind, withCapabilityKind } from '~/_define/capability.
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
-import type { Validator } from '~/types.ts';
 
 /** The payload type a single emit declaration carries. */
-type EmitPayload<T> =
-  T extends TypeMarker<infer U> ? U : T extends Validator<infer U> ? U : unknown;
+type EmitPayload<T> = T extends TypeMarker<infer U> ? U : unknown;
 
-/** The map of event name → payload type passed to `emits(...)`. */
-export type EmitDefs = Record<string, TypeMarker<any> | Validator>;
+/** The map of event name → payload type passed to `emits(...)`. Outgoing events
+ * are server-produced and never validated, so the value is a `t<…>()` marker
+ * (type only), not a schema. */
+export type EmitDefs = Record<string, TypeMarker<any>>;
 
 /** The contract slot `emits(...)` declares — server→client events the client receives. */
 type EmitSlot<TDefs extends EmitDefs> = {
@@ -21,9 +21,9 @@ type EmitSlot<TDefs extends EmitDefs> = {
 /**
  * Declare the server→client, fire-and-forget events this server emits. List the
  * result in `define({ capabilities: [...] })`. Each key is an event name; each
- * value is the payload type, given as a `t<Shape>()` marker (type only) or a
- * Standard Schema. The payloads are not validated on the way out — the type just
- * flows into `ctx.send` / `ctx.broadcast` and the generated client.
+ * value is the payload type, given as a `t<Shape>()` marker. Outgoing payloads
+ * are server-produced and not validated on the way out — the type just flows
+ * into `ctx.send` / `ctx.broadcast` and the generated client.
  *
  * @example
  * ```ts

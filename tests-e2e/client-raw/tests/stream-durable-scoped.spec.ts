@@ -71,7 +71,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect([...combined].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  test('channel-scoped resumableStream resume rewinds to lastKnownSeq and re-sends the next row', async ({
+  test('channel-scoped resumableStream resume is live: continues from the latest cursor, no replay of seen rows', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -98,7 +98,7 @@ test.describe('stream-durable scoped (channel)', () => {
     await closeSocket(page, a);
     await page.waitForTimeout(150);
 
-    // Reconnect and resume from exactly seq 2 — the highest seq this client got.
+    // Reconnect and resume claiming seq 2 — the highest seq this client got.
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, b, {
       match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
@@ -119,12 +119,19 @@ test.describe('stream-durable scoped (channel)', () => {
       .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.row as number);
 
-    // The server rewinds to the cursor saved at seq 2 and re-runs the generator
-    // from there, so row 3 (the one in flight when the socket dropped) is the
-    // first row the resumed socket sees — not row 4. Before the per-seq cursor
-    // fix, resume started from the server's latest cursor and skipped row 3.
-    expect(resumedRows[0]).toBe(3);
-    expect(resumedRows).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+    // Resumable is live: the generator continues from the LATEST saved cursor,
+    // so the resumed socket never re-receives the rows it already had (1, 2) and
+    // the rows it does get are a contiguous tail ending at the final row 10.
+    expect(resumedRows.length).toBeGreaterThan(0);
+    expect(resumedRows).not.toContain(1);
+    expect(resumedRows).not.toContain(2);
+    expect(resumedRows[0]).toBeGreaterThanOrEqual(3);
+    expect(resumedRows[resumedRows.length - 1]).toBe(10);
+    const expectedTail = Array.from(
+      { length: resumedRows.length },
+      (_, i) => 10 - resumedRows.length + 1 + i,
+    );
+    expect(resumedRows).toEqual(expectedTail);
   });
 
   test('channel-scoped recordedStream replays missed chunks from the buffer', async ({

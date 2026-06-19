@@ -56,7 +56,6 @@ export function routingFromWSKit(
   // 'client' is echoed: a server-originated frame's error must not come back
   // looking like a fresh server→client request.
   if (wskit.source === 'client') routing.source = 'client';
-  if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
   if (wskit.channel !== undefined) {

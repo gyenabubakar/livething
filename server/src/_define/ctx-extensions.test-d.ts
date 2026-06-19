@@ -11,7 +11,6 @@
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
-import { ack } from '~/ack/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { requests } from '~/request/capability.ts';
@@ -92,8 +91,6 @@ bareBase.on('bare', {
     ctx.request('x', {});
     // @ts-expect-error — `broadcastRequest` needs requests()
     ctx.broadcastRequest('x', {});
-    // @ts-expect-error — `sendWithAck` needs ack()
-    ctx.sendWithAck('e', {});
     // @ts-expect-error — `tags` needs tags()
     ctx.tags;
     // @ts-expect-error — `channels` needs channels()
@@ -111,10 +108,9 @@ const fullBase = define({
   capabilities: [
     emits({ e: t<{}>() }),
     requests({
-      r: [t<{}>(), v.object({ ok: v.boolean() })],
-      br: [t<{}>(), v.object({ ok: v.boolean() }), { broadcast: true }],
+      r: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
+      br: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
     }),
-    ack(),
     tags((ephemeral) => [ephemeral('grp', t<string>())]),
     channels(),
     scheduled({ task: null }),
@@ -125,7 +121,6 @@ fullBase.on('full', {
   run(ctx) {
     expectTypeOf(ctx.request).toBeFunction();
     expectTypeOf(ctx.broadcastRequest).toBeFunction();
-    expectTypeOf(ctx.sendWithAck).toBeFunction();
     expectTypeOf(ctx.tags).not.toBeUndefined();
     expectTypeOf(ctx.channels).not.toBeUndefined();
     expectTypeOf(ctx.schedule).toBeFunction();

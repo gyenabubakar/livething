@@ -1,6 +1,5 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
@@ -85,23 +84,6 @@ describe('send-and-await frames respect the buffering flush order', () => {
 });
 
 describe('send-and-await frames are held (not dropped) before open without buffering', () => {
-  it('holds a sendWithAck made before open and flushes it when the socket opens', async () => {
-    const socket = client<C>()(connect('wss://test', { lazy: true }), ack());
-    const pending = socket.sendWithAck('typing', { id: 'a' });
-    void pending.catch(() => undefined);
-
-    const ws = MockWebSocket.last();
-    expect(ws.sentFrames()).toEqual([]);
-
-    ws.open();
-    const sent = ws.sentFrames().find((f: { event: string }) => f.event === 'typing');
-    expect(sent).toBeDefined();
-
-    const ackId = sent.__wskit.ackId as string;
-    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId } });
-    await expect(pending).resolves.toBeUndefined();
-  });
-
   it('holds a request made before open and flushes it when the socket opens', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
     const pending = socket.request('echo', { id: 'r' });
@@ -124,23 +106,6 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
   // A non-lazy socket that was never connected sits in 'closed' and is not heading
   // anywhere; the held frame would never flush, so these must reject promptly with
   // 'disconnected' rather than hang until their own timeout fires.
-  it('sendWithAck rejects with disconnected without waiting for the ack timeout', async () => {
-    vi.useFakeTimers();
-    try {
-      const socket = client<C>()(connect('wss://test'), ack({ timeout: 10_000 }));
-      const settled = vi.fn();
-      socket.sendWithAck('typing', { id: 'a' }).then(
-        () => settled('resolved'),
-        (e: { code?: string }) => settled(e?.code),
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(settled).toHaveBeenCalledWith('disconnected');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('request rejects with disconnected without waiting for the request timeout', async () => {
     vi.useFakeTimers();
     try {

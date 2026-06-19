@@ -18,7 +18,7 @@ const base = define({
 
 const rooms = base.channel(['rooms', 'rooms'], {
   replay: true,
-  outgoing: { emits: { 'room-message': RoomMessage } },
+  outgoing: { emits: { 'room-message': t<v.InferOutput<typeof RoomMessage>>() } },
 });
 
 const handleSendBatch = rooms.on('send-batch', {

@@ -58,7 +58,7 @@ const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.c
 const ScopeKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelScope));
 
 /**
- * A bounded correlation / ack / message id. The client SDK stamps these as
+ * A bounded correlation / message id. The client SDK stamps these as
  * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
  * Capping stops a client bloating logs, the dedup ring, and storage rows.
  */
@@ -134,15 +134,10 @@ export const ResumeStreamFrame = v.object({
   __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
-/**
- * A receipt frame, `{ event: '__ack__', __wskit: { ackId } }`. Bidirectional:
- * the server confirms a client `sendWithAck`, and the client auto-confirms a
- * server `sendWithAck` — both echo the originating `ackId`.
- */
-export const AckFrame = v.object({
-  event: v.literal('__ack__'),
-  payload: NoPayload,
-  __wskit: v.strictObject({ ackId: v.string(), source: v.optional(Source) }),
+export const MemberSyncRequestFrame = v.object({
+  event: v.literal('__memberSync__'),
+  payload: v.optional(NoPayload),
+  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
 /** All frames the client may send into the engine, discriminated on `event`. */
@@ -152,10 +147,7 @@ export const IncomingProtocolFrame = v.variant('event', [
   ReplayFrame,
   StreamCancelFrame,
   ResumeStreamFrame,
-  // `__ack__` is bidirectional: the client auto-confirms a server-initiated
-  // `sendWithAck(...)` by echoing its `ackId` back. The same frame shape carries
-  // server→client (delivery confirm) and client→server (receipt).
-  AckFrame,
+  MemberSyncRequestFrame,
 ]);
 
 export const SubscribeOkFrame = v.object({
@@ -216,7 +208,7 @@ export const ErrorFrame = v.object({
   __wskit: v.strictObject({
     ...OptionalScope,
     correlationId: v.optional(v.string()),
-    ackId: v.optional(v.string()),
+    source: v.optional(Source),
     streamId: v.optional(v.string()),
     streamNudgeId: v.optional(v.string()),
     // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
@@ -278,7 +270,7 @@ export const MemberSyncFrame = v.object({
       }),
     ),
   }),
-  __wskit: v.strictObject(RequiredChannelScope),
+  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
 /** All frames the engine sends to clients, discriminated on `event`. */
@@ -288,7 +280,6 @@ export const OutgoingProtocolFrame = v.variant('event', [
   StreamOkFrame,
   NudgeOkFrame,
   StreamEndFrame,
-  AckFrame,
   ErrorFrame,
   KickedFrame,
   MemberJoinFrame,
@@ -299,9 +290,9 @@ export const OutgoingProtocolFrame = v.variant('event', [
 ]);
 
 /**
- * The loose `__wskit` block on a user-event frame. Carries the correlation and
- * ack ids for request-response and delivery-confirmation flows, the routing
- * markers for scoped sends, and the dedup/sequence ids the engine stamps.
+ * The loose `__wskit` block on a user-event frame. Carries the correlation id
+ * for request-response flows, the routing markers for scoped sends, and the
+ * dedup/sequence ids the engine stamps.
  */
 export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
@@ -312,7 +303,6 @@ export const WSKitProtocolSchema = v.strictObject({
   source: v.optional(Source),
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
-  ackId: v.optional(WireId),
   streamId: v.optional(StreamIdString),
   streamKind: v.optional(StreamKind),
   streamNudgeId: v.optional(WireId),
@@ -342,13 +332,13 @@ export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
+export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
 export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
-export type AckFrame = v.InferOutput<typeof AckFrame>;
 export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
 export type KickedFrame = v.InferOutput<typeof KickedFrame>;
 export type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;

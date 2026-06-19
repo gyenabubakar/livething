@@ -107,4 +107,84 @@ describe('scheduled() capability', () => {
       /base\.scheduled\('cleanup'\) has no matching declaration/,
     );
   });
+
+  describe('every validation', () => {
+    function declare(every: number) {
+      return () => scheduled({ heartbeat: { every } });
+    }
+
+    it('rejects NaN', () => {
+      expect(declare(Number.NaN)).toThrow(/positive safe integer/);
+    });
+
+    it('rejects zero', () => {
+      expect(declare(0)).toThrow(/positive safe integer/);
+    });
+
+    it('rejects negative numbers', () => {
+      expect(declare(-1000)).toThrow(/positive safe integer/);
+    });
+
+    it('rejects fractional numbers', () => {
+      expect(declare(1.5)).toThrow(/positive safe integer/);
+    });
+
+    it('rejects Infinity', () => {
+      expect(declare(Number.POSITIVE_INFINITY)).toThrow(/positive safe integer/);
+    });
+
+    it('names the task in the message', () => {
+      expect(declare(0)).toThrow(/scheduled\("heartbeat"\)/);
+    });
+
+    it('accepts positive integers', () => {
+      expect(declare(1)).not.toThrow();
+      expect(declare(30_000)).not.toThrow();
+    });
+  });
+
+  describe('retry array validation', () => {
+    function declare(retry: readonly number[]) {
+      return () => scheduled({ report: { data: t<{ userId: string }>(), retry } });
+    }
+
+    it('rejects an empty array', () => {
+      expect(declare([])).toThrow(/at least one entry/);
+    });
+
+    it('rejects zero entries', () => {
+      expect(declare([0])).toThrow(/positive safe integer/);
+      expect(declare([100, 0, 200])).toThrow(/positive safe integer/);
+    });
+
+    it('rejects negative entries', () => {
+      expect(declare([-5])).toThrow(/positive safe integer/);
+    });
+
+    it('rejects NaN entries', () => {
+      expect(declare([Number.NaN])).toThrow(/positive safe integer/);
+    });
+
+    it('rejects fractional entries', () => {
+      expect(declare([1.5])).toThrow(/positive safe integer/);
+    });
+
+    it('names the task in the message', () => {
+      expect(declare([])).toThrow(/scheduled\("report"\)/);
+    });
+
+    it('accepts a non-empty array of positive integers', () => {
+      expect(declare([100])).not.toThrow();
+      expect(declare([50, 100, 200, 1_000])).not.toThrow();
+    });
+
+    it('still accepts boolean retry values', () => {
+      expect(() =>
+        scheduled({ report: { data: t<{ userId: string }>(), retry: true } }),
+      ).not.toThrow();
+      expect(() =>
+        scheduled({ report: { data: t<{ userId: string }>(), retry: false } }),
+      ).not.toThrow();
+    });
+  });
 });

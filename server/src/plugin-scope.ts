@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitError } from '@wskit/core';
+import { PRIVILEGED_KV } from '~/_engine/contexts/lazy-storage.ts';
 import type { FrameOwner } from '~/intercept/intercept.ts';
 
 /**
@@ -55,20 +56,13 @@ const SCOPED_SENDS: Record<string, SendPosition> = {
   // to match its namespaced `requests({...})` declaration.
   request: 'event-first',
   broadcastRequest: 'event-first',
-  sendWithAck: 'event-first',
 };
 
 /** The methods on a `ctx.connection(ref)` handle whose first arg is the event name. */
-const SCOPED_CONNECTION_METHODS = new Set(['send', 'request', 'sendWithAck']);
+const SCOPED_CONNECTION_METHODS = new Set(['send', 'request']);
 
 /** The methods on a `ctx.channel` handle whose first arg is the channel event name. */
-const SCOPED_CHANNEL_SENDS = new Set([
-  'send',
-  'broadcast',
-  'request',
-  'broadcastRequest',
-  'sendWithAck',
-]);
+const SCOPED_CHANNEL_SENDS = new Set(['send', 'broadcast', 'request', 'broadcastRequest']);
 
 /** The KV methods whose key/prefix argument a plugin scope namespaces. */
 const SCOPED_KV_KEYS = new Set(['get', 'set', 'delete', 'list']);
@@ -110,9 +104,12 @@ export function scopePluginContext(id: string, ctx: any): any {
       // prefix) is namespaced so two plugins (or a plugin and the app) never
       // collide on the same kv key.
       if (key === 'kv') {
-        const realKv = Reflect.get(target, key, receiver);
+        const realKv = Reflect.get(target, key, receiver) as Record<PropertyKey, unknown> | null;
         if (!realKv || typeof realKv !== 'object') return realKv;
-        return (kvProxy ??= scopeKvApi(id, realKv as Record<PropertyKey, unknown>));
+        const privileged = (realKv as { [PRIVILEGED_KV]?: Record<PropertyKey, unknown> })[
+          PRIVILEGED_KV
+        ];
+        return (kvProxy ??= scopeKvApi(id, privileged ?? realKv));
       }
 
       // `ctx.channel.send/broadcast/request/...('evt', ...)` from inside a plugin
@@ -127,6 +124,12 @@ export function scopePluginContext(id: string, ctx: any): any {
           realChannel as Record<PropertyKey, unknown>,
           SCOPED_CHANNEL_SENDS,
         );
+      }
+
+      if (key === 'channels') {
+        const realChannels = Reflect.get(target, key, receiver);
+        if (!realChannels || typeof realChannels !== 'object') return realChannels;
+        return scopeChannelsApi(id, realChannels as Record<PropertyKey, unknown>);
       }
 
       // `ctx.tags.<kind>('group')` — the group name is namespaced so a plugin's
@@ -215,11 +218,56 @@ function scopeHandleEvents(
 }
 
 /**
+ * Namespace the lookup target of `ctx.channels.get(...)` so a plugin resolves
+ * its own `__<id>::room` rather than the host's bare `room`. Mirrors the runtime
+ * normalizer: a `(family, name)` pair namespaces the family; a channel decl
+ * (`__wskitChannel.__key`) or `.at()` ref (`__wskitChannelRef.family`) namespaces
+ * the family/key in place; a plain string name is namespaced directly. The
+ * concrete instance `name` in a ref is a runtime value, not a declared key, so it
+ * is left untouched.
+ */
+function scopeChannelGetArgs(id: string, args: unknown[]): unknown[] {
+  if (args.length >= 2) return [pluginWireName(id, args[0] as string), ...args.slice(1)];
+  const arg = args[0];
+  if (arg && typeof arg === 'object') {
+    if ('__wskitChannelRef' in arg) {
+      const ref = arg as unknown as { family: string; name: string };
+      return [{ ...ref, family: pluginWireName(id, ref.family) }];
+    }
+    if ('__wskitChannel' in arg) {
+      const decl = arg as unknown as { __key: string };
+      return [{ ...decl, __key: pluginWireName(id, decl.__key) }];
+    }
+    return [arg];
+  }
+  return [pluginWireName(id, arg as string)];
+}
+
+/**
+ * Wrap `ctx.channels` so `get(...)` namespaces its target and the resolved
+ * handle's event-first sends (`send`/`broadcast`/`request`/`broadcastRequest`)
+ * carry the plugin namespace — the channel's child events are declared under
+ * `__<id>::`, so the runtime looks them up there.
+ */
+function scopeChannelsApi(id: string, channels: Record<PropertyKey, unknown>): unknown {
+  return new Proxy(channels, {
+    get(target, key, receiver) {
+      const original = Reflect.get(target, key, receiver);
+      if (key !== 'get' || typeof original !== 'function') return original;
+      const call = original as (...args: unknown[]) => Record<PropertyKey, unknown>;
+      return (...args: unknown[]) =>
+        scopeHandleEvents(id, call(...scopeChannelGetArgs(id, args)), SCOPED_CHANNEL_SENDS);
+    },
+  });
+}
+
+/**
  * Wrap `ctx.kv` so `get`/`set`/`delete` namespace their key and `list`
  * namespaces its prefix. A `::` in a kv key is fine, so the same
  * `pluginWireName(id, key)` scheme used on the wire works here too.
  */
 function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
+  const nsPrefix = pluginWireName(id, '');
   return new Proxy(kv, {
     get(target, key, receiver) {
       const original = Reflect.get(target, key, receiver);
@@ -230,13 +278,31 @@ function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
       // `list(prefix?)` is optional; a bare `list()` scopes to the plugin's whole
       // namespace so it never sees the app's or another plugin's keys.
       if (key === 'list') {
-        return (prefix?: unknown, ...rest: unknown[]) =>
-          call(pluginWireName(id, (prefix as string) ?? ''), ...rest);
+        return async (prefix?: unknown, ...rest: unknown[]) => {
+          const keys = (await call(pluginWireName(id, (prefix as string) ?? ''), ...rest)) as
+            | string[]
+            | undefined;
+          if (!Array.isArray(keys)) return keys;
+          return keys.map((k) => (k.startsWith(nsPrefix) ? k.slice(nsPrefix.length) : k));
+        };
       }
       return (keyArg: unknown, ...rest: unknown[]) =>
         call(pluginWireName(id, keyArg as string), ...rest);
     },
   });
+}
+
+/**
+ * Scope the `helpers` a plugin `upgrade` hook receives so its tag-ref builders
+ * namespace the group. A plugin's `helpers.tags.ephemeral('room').ref(key)` then
+ * lands in `__<id>::room` — the group it actually declared — instead of the
+ * host's bare `room` (which would be rejected or leak across the boundary). A
+ * helpers bag without `tags` (no tag groups declared) passes through untouched.
+ */
+export function scopeUpgradeHelpers(id: string, helpers: any): any {
+  const tags = helpers?.tags;
+  if (!tags || typeof tags !== 'object') return helpers;
+  return { ...helpers, tags: scopeTagsApi(id, tags as Record<PropertyKey, unknown>) };
 }
 
 /** Wrap `ctx.tags` so `tags.ephemeral('group')` / `tags.persistent('group')` namespace the group. */

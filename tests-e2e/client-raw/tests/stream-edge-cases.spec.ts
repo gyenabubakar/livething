@@ -84,8 +84,8 @@ test.describe('stream edge cases', () => {
       __wskit: { channel: 'rooms', streamId },
     });
 
-    // After replay of the first chunk, the creator-resume re-runs the
-    // generator with attempt=2.
+    // Resumable is live (no replay): the creator-resume re-runs the generator
+    // from the latest cursor with attempt=2, producing a brand-new chunk.
     const next = await waitForFrame(page, b, {
       match: (f) =>
         f.event === 'attempt-broadcast' &&

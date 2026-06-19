@@ -14,71 +14,43 @@ export interface RequestBuildConfig {
   run(ctx: any, input: any): unknown;
 }
 
-/** Per-declaration options carried in the optional third tuple slot. */
-export interface ServerRequestOptions {
-  readonly broadcast?: boolean;
-}
-
 /**
- * One server→client request declaration, a tuple `[payload, response, options?]`.
- * `[0]` is the type the server sends (a `t<…>()` marker or a validator —
- * trusted, not validated outbound), `[1]` is the schema the client's answer is
- * validated against, and the optional `[2]` carries `{ broadcast?: boolean }`. A
- * `broadcast: true` declaration is answerable only via `broadcastRequest` (Phase 3);
- * the default targeted declaration is answerable only via `request`.
+ * One server→client request declaration. Either a bare `t<…>()` marker — an
+ * acknowledgement request, where the client just confirms receipt and the caller
+ * resolves with no value — or `{ out, in }`, where `out` is the type the server
+ * sends (a marker, trusted, not validated outbound) and `in` is the schema the
+ * client's answer is validated against. Targeted vs fan-out is decided by the
+ * verb (`request` vs `broadcastRequest`), not the declaration.
  */
 export type ServerRequestDeclaration =
-  | readonly [payload: TypeMarker<any> | Validator, response: Validator]
-  | readonly [
-      payload: TypeMarker<any> | Validator,
-      response: Validator,
-      options: ServerRequestOptions,
-    ];
+  | TypeMarker<any>
+  | { readonly out: TypeMarker<any>; readonly in: Validator };
 
-/** The payload type one server→client request declaration carries. */
-type PayloadOf<TDeclaration> = TDeclaration extends readonly [infer P, ...unknown[]]
-  ? P extends TypeMarker<infer U>
+/** The `out` (server→client payload) type a request declaration carries. */
+type PayloadOf<TDeclaration> =
+  TDeclaration extends TypeMarker<infer U>
     ? U
-    : P extends Validator<infer U>
+    : TDeclaration extends { out: TypeMarker<infer U> }
       ? U
-      : unknown
-  : unknown;
+      : unknown;
 
-/** The response type one server→client request declaration carries. */
-type ResponseOf<TDeclaration> = TDeclaration extends readonly [
-  unknown,
-  Validator<infer U>,
-  ...unknown[],
-]
-  ? U
-  : unknown;
+/** The `in` (client→server answer) type a declaration carries; `void` for an acknowledgement. */
+type ResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> } ? U : void;
 
-/** Whether one declaration is a broadcast request. */
-type BroadcastOf<TDeclaration> = TDeclaration extends readonly [
-  unknown,
-  unknown,
-  { broadcast: true },
-]
-  ? true
-  : false;
-
-/** The contract slot `requests({...})` declares — event → { payload, response, broadcast }. */
+/** The contract slot `requests({...})` declares — event → { payload, response }. */
 type ServerRequestsSlot<TDeclarations extends Record<string, ServerRequestDeclaration>> = {
   serverRequests: {
     [K in keyof TDeclarations & string]: {
       payload: PayloadOf<TDeclarations[K]>;
       response: ResponseOf<TDeclarations[K]>;
-      broadcast: BroadcastOf<TDeclarations[K]>;
     };
   };
 };
 
 /** The resolved, runtime form of one server→client request declaration. */
 export interface ResolvedServerRequest {
-  /** The schema the client's answer is validated against. */
+  /** The schema the client's answer is validated against; absent for an acknowledgement request. */
   readonly responseValidator?: Validator;
-  /** Whether this declaration is broadcast-only (Phase 3). */
-  readonly broadcast: boolean;
 }
 
 /** A `requests()` capability, carrying the builder so the core never imports the request factory. */
@@ -111,18 +83,9 @@ export interface RequestsCapability<
   ) => void;
 }
 
-/** A `t<T>()` marker carries a type only — there is no runtime validator on it. */
-function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
-  return (
-    !!value && typeof value === 'object' && (value as { __wskit_t?: unknown }).__wskit_t === 't'
-  );
-}
-
 function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
-  const response = declaration[1];
   return {
-    responseValidator: isTypeMarker(response) ? undefined : (response as Validator),
-    broadcast: declaration[2]?.broadcast === true,
+    responseValidator: 'in' in declaration ? declaration.in : undefined,
   };
 }
 
@@ -150,7 +113,7 @@ function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedSe
  *   env: t<Env>(),
  *   capabilities: [
  *     requests({
- *       'ask-permission': [t<{ action: string }>(), v.object({ allowed: v.boolean() })],
+ *       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
  *     }),
  *   ],
  * });

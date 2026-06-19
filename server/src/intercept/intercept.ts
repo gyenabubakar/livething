@@ -87,7 +87,6 @@ export interface OutgoingFrame<TOwnerId extends string = string> {
  */
 export interface InterceptRouting {
   readonly messageId?: string;
-  readonly ackId?: string;
   readonly correlationId?: string;
   readonly streamId?: string;
   readonly channel?: string;

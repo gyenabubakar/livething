@@ -126,14 +126,6 @@ export interface RegisteredEngineHooks {
   ) => boolean)[];
 
   /**
-   * Settle a server→client ack receipt. An inbound `__ack__` frame echoing an
-   * `ackId` is offered to each hook; a hook returns `true` when the id matches a
-   * pending `sendWithAck(...)` it owns (resolving the server promise). Owned by
-   * the `ack()` capability so the core never imports its pending-ack map.
-   */
-  ackFrame: ((connectionId: string, ackId: string) => boolean)[];
-
-  /**
    * Runs before wire serialization — can observe or rewrite the payload (event
    * is locked). Each entry carries its owner so the pipeline runs it only for
    * the frames that owner is allowed to see (the app sees all; a plugin sees its
@@ -503,13 +495,6 @@ export interface RoutingTarget {
    * the event instead of leaving the server's pending promise to hang to timeout.
    */
   source?: 'server' | 'client';
-
-  /**
-   * Ack id stamped on the outgoing frame as `__wskit.ackId`. A server
-   * `sendWithAck(...)` sets it so the client knows to auto-confirm receipt by
-   * echoing this id back in an `__ack__` frame.
-   */
-  ackId?: string;
 
   streamId?: string;
 

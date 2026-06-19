@@ -1,4 +1,3 @@
-import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import {
   broadcastToChannel,
   dispatchIncoming,
@@ -227,83 +226,6 @@ describe('message runtime', () => {
       channelScope: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
-  });
-
-  it('ctx.ack() ack id rides on each dispatch ctx, not a shared connection field', async () => {
-    // Regression: two messages on one connection interleave at an await. The
-    // ack id must travel on each dispatch's own ctx — a shared connection
-    // field gets overwritten by the second message before the first acks.
-    const connection = createConnection('conn_1');
-    const acked: Array<{ which: unknown; ackId: unknown }> = [];
-
-    let releaseA!: () => void;
-    const gateA = new Promise<void>((resolve) => {
-      releaseA = resolve;
-    });
-
-    async function handler(ctx: Record<PropertyKey, unknown>, payload: { which: string }) {
-      if (payload.which === 'A') await gateA;
-      acked.push({ which: payload.which, ackId: ctx[ENGINE_ACK_ID] });
-    }
-
-    const runtime = {
-      compiled: {
-        outgoing: new Map(),
-        incoming: new Map([['msg', { event: 'msg', handler, validator: undefined }]]),
-        requests: new Map(),
-        streams: new Map(),
-        resumableStreams: new Map(),
-        recordedStreams: new Map(),
-        intercepts: [],
-        channels: new Map(),
-        channelFamilies: new Map(),
-        scheduled: new Map(),
-        requires: {},
-        replayClaimedChannelKeys: new Set(),
-      },
-      connections: new Map([[connection.id, connection]]),
-      toConnectionInfo() {
-        return { id: connection.id };
-      },
-      activeStreams: new Map(),
-      protocolHandlers: new Map(),
-      incomingHooks: [],
-      errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
-      buildConnectionContext() {
-        return { id: connection.id };
-      },
-      broadcastToConnections() {},
-      sendProtocolMessage() {},
-      sendReplay() {},
-      persistAttachment() {},
-      async handleRuntimeError() {},
-      async handleValidationError() {},
-      async handleSubscribe() {},
-      async handleUnsubscribe() {},
-      waitUntil() {},
-      generateId() {
-        return 'id_1';
-      },
-    };
-
-    const pA = dispatchIncoming(
-      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-      connection,
-      { event: 'msg', payload: { which: 'A' }, wskit: { ackId: 'ack-a', channelScope: null } },
-    );
-    const pB = dispatchIncoming(
-      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-      connection,
-      { event: 'msg', payload: { which: 'B' }, wskit: { ackId: 'ack-b', channelScope: null } },
-    );
-    releaseA();
-    await Promise.all([pA, pB]);
-
-    expect(acked).toContainEqual({ which: 'A', ackId: 'ack-a' });
-    expect(acked).toContainEqual({ which: 'B', ackId: 'ack-b' });
   });
 
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
@@ -1353,6 +1275,7 @@ function makeNudgeRuntime(
     async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
+    handleMemberSync() {},
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
@@ -1380,6 +1303,35 @@ function makeActiveStream(connectionId: string, nudgeEvent: string) {
     closed: false,
   };
 }
+
+describe('inbound __memberSync__ request (bug #16)', () => {
+  it('routes a client __memberSync__ frame to handleMemberSync', async () => {
+    const connection = createConnection('conn_1');
+    const handleMemberSync = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map()),
+      connections: new Map([[connection.id, connection]]),
+      handleMemberSync,
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '__memberSync__',
+        payload: {},
+        __wskit: { channel: 'room', source: 'client' },
+      }),
+    );
+
+    expect(handleMemberSync).toHaveBeenCalledTimes(1);
+    const frame = handleMemberSync.mock.calls[0]?.[1] as {
+      __wskit: { channel: string; source?: string };
+    };
+    expect(frame.__wskit.channel).toBe('room');
+    expect(frame.__wskit.source).toBe('client');
+  });
+});
 
 describe('nudge intercepts', () => {
   it('intercept sees kind=nudge and routing.streamId for a nudge frame', async () => {

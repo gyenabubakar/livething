@@ -106,40 +106,6 @@ export interface EngineAccess {
   ): boolean;
 
   /**
-   * Settle a server→client ack receipt before normal protocol routing.
-   *
-   * Each inbound `__ack__` frame is offered to the registered hooks; a hook
-   * returns `true` when the `ackId` matches a pending `sendWithAck(...)` it owns,
-   * which stops routing. Used by the `ack()` capability so the engine never
-   * imports its pending-ack map.
-   *
-   * @internal
-   */
-  onAckFrame(handler: (connectionId: string, ackId: string) => boolean): void;
-
-  /**
-   * Send a server→client ack-required user-event frame to one live connection.
-   *
-   * Routes through the normal outgoing pipeline with the given `ackId` (and
-   * optional channel scope) so plugin stampers and `onBeforeSend`/`onAfterSend`
-   * hooks still run. The client auto-confirms by echoing the `ackId` back in an
-   * `__ack__` frame. Returns `false` when the connection is no longer live on
-   * this instance. Used by the `ack()` capability for `ctx.sendWithAck(...)`.
-   *
-   * @internal
-   */
-  sendServerWithAck(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      ackId: string;
-      channel?: string;
-      channelScope?: string | null;
-    },
-  ): boolean;
-
-  /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
    * The handler gets the active connection's context (or `undefined` for a
@@ -606,14 +572,6 @@ export interface EngineAccess {
   ): asserts payload is Record<string, unknown>;
 
   /**
-   * Send an ack frame for the given message id to one live connection.
-   *
-   * `ctx.ack()` uses this — it passes the ack id carried on its own context,
-   * so each handler confirms exactly its own message.
-   */
-  sendAck(connectionId: string, ackId: string | undefined): void;
-
-  /**
    * Let a background task continue even after the current callback returns.
    *
    * Adapters can map this to a platform primitive such as `waitUntil`.
@@ -628,7 +586,7 @@ export interface EngineAccess {
   /**
    * Create a framework-generated id.
    *
-   * This is usually used for tasks, acks, streams, or other internal runtime
+   * This is usually used for tasks, streams, or other internal runtime
    * bookkeeping.
    */
   generateId(prefix?: string): string;
@@ -637,7 +595,7 @@ export interface EngineAccess {
    * Send one raw protocol event directly to a live connection by id.
    *
    * This bypasses the normal typed ctx helpers and skips `onOutgoing` /
-   * `onBeforeSend` / `onAfterSend` hooks — used for ack and protocol messages
+   * `onBeforeSend` / `onAfterSend` hooks — used for protocol messages
    * that should not go through the replay pipeline. For replay resends, use
    * `sendReplay` instead.
    */

@@ -5,22 +5,25 @@ import { replay } from '@wskit/server/replay';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import type { InferClient } from '@wskit/server';
+import type * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 import {
   AddNote,
   AddRoomNote,
-  BadReplayLog,
-  ConfirmedCount,
   GetConfirmedCount,
   GetRoomConfirmedCount,
-  Note,
   QueryBadReplayLog,
   QueryRoomReplayEvents,
+  RoomStreamChunk,
+  RoomStreamPayload,
+} from './events.ts';
+import type {
+  BadReplayLog,
+  ConfirmedCount,
+  Note,
   RoomConfirmedCount,
   RoomNote,
   RoomReplayEvents,
-  RoomStreamChunk,
-  RoomStreamPayload,
 } from './events.ts';
 
 const base = define({
@@ -28,9 +31,9 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
-      note: Note,
-      'confirmed-count': ConfirmedCount,
-      'bad-replay-log': BadReplayLog,
+      note: t<v.InferOutput<typeof Note>>(),
+      'confirmed-count': t<v.InferOutput<typeof ConfirmedCount>>(),
+      'bad-replay-log': t<v.InferOutput<typeof BadReplayLog>>(),
     }),
     dedup(),
     sequence({ persist: true }),
@@ -170,9 +173,9 @@ const handleGetConfirmedCount = base.on('get-confirmed-count', {
 const customRoom = base.channel('custom-room', {
   outgoing: {
     emits: {
-      'room-note': RoomNote,
-      'room-confirmed-count': RoomConfirmedCount,
-      'room-replay-events': RoomReplayEvents,
+      'room-note': t<v.InferOutput<typeof RoomNote>>(),
+      'room-confirmed-count': t<v.InferOutput<typeof RoomConfirmedCount>>(),
+      'room-replay-events': t<v.InferOutput<typeof RoomReplayEvents>>(),
     },
   },
 });

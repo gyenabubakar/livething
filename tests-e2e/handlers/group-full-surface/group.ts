@@ -1,4 +1,4 @@
-import { localKey } from '@wskit/server';
+import { localKey, t } from '@wskit/server';
 import * as v from 'valibot';
 import {
   BadPayload,
@@ -7,10 +7,10 @@ import {
   FeedChunk,
   LookupReq,
   PaginateChunk,
-  RoomMsgPayload,
   SendMsgPayload,
   TokenChunk,
 } from './contract.ts';
+import type { RoomMsgPayload } from './contract.ts';
 
 const GroupRequestKey = localKey<{ tag: string }>('group-request');
 
@@ -212,7 +212,7 @@ export const handleTick = base.scheduled('tick', {
 
 const rooms = base.channel('rooms', {
   outgoing: {
-    emits: { 'room-msg': RoomMsgPayload },
+    emits: { 'room-msg': t<v.InferOutput<typeof RoomMsgPayload>>() },
   },
 });
 

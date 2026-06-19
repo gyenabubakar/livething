@@ -42,6 +42,40 @@ describe('channels() capability', () => {
     expect(compiled.channelFamilies.has('rooms')).toBe(true);
   });
 
+  describe('.at(params) ref resolution and guardrails', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+
+    it('fills a family template into a concrete channel ref', () => {
+      const rooms = base.channel(['rooms', 'room:{id}']);
+      const ref = rooms.at({ id: 'general' });
+      expect(ref).toEqual({ __wskitChannelRef: true, family: 'rooms', name: 'room:general' });
+    });
+
+    it('fills a multi-param template', () => {
+      const threads = base.channel(['threads', 'org:{org}/thread:{tid}']);
+      expect(threads.at({ org: 'acme', tid: '42' })).toEqual({
+        __wskitChannelRef: true,
+        family: 'threads',
+        name: 'org:acme/thread:42',
+      });
+    });
+
+    it('throws on a static channel (no .at)', () => {
+      const lobby = base.channel('lobby') as any;
+      expect(() => lobby.at({ id: 'x' })).toThrow(/only available on dynamic family channels/);
+    });
+
+    it('throws when a declared param is missing', () => {
+      const rooms = base.channel(['rooms', 'room:{id}']) as any;
+      expect(() => rooms.at({})).toThrow(/needs a non-empty 'id'/);
+    });
+
+    it('throws when a declared param is empty', () => {
+      const rooms = base.channel(['rooms', 'room:{id}']);
+      expect(() => rooms.at({ id: '' })).toThrow(/needs a non-empty 'id'/);
+    });
+  });
+
   it('pulls in the whole channel — gates and lifecycle — from one handler', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
@@ -118,6 +152,20 @@ describe('channels() capability', () => {
     );
     commitChild.handler({ channel: { scope: null } }, { role: 'member' });
     expect(seenCommit).toEqual({ role: 'member' });
+  });
+
+  it('attaches the subscribe validator even when the channel has no check handler (bug #5)', async () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const room = base.channel('room', {
+      subscribe: v.object({ token: v.string() }),
+    });
+    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const checkChild = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'check');
+    expect(checkChild).toBeDefined();
+    expect(checkChild.validator).toBeDefined();
+    const ctx: { channel: { scope: null }; check?: unknown } = { channel: { scope: null } };
+    const result = await checkChild.handler(ctx, { token: 'x' });
+    expect(result).toBeUndefined();
   });
 
   it('runs the revalidate gate', async () => {
@@ -198,20 +246,22 @@ describe('channels() capability', () => {
     expect(() =>
       escapeHatch.channel('room', {
         outgoing: {
-          requests: { 'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })] },
+          requests: {
+            'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
+          },
         },
       }),
     ).toThrow(/declares outgoing\.requests but the requests\(\) capability is not listed/);
   });
 
-  it('registers channel outgoing.requests with the requests() capability and gates broadcast', () => {
+  it('registers channel outgoing.requests with the requests() capability', () => {
     const reqCap = requests();
     const base = define({ env: t<Env>(), capabilities: [reqCap, channels()] });
     base.channel('room', {
       outgoing: {
         requests: {
-          'confirm-kick': [t<{ target: string }>(), v.object({ ok: v.boolean() })],
-          vol: [t<{}>(), v.object({ r: v.boolean() }), { broadcast: true }],
+          'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
+          vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
         },
       },
     });
@@ -219,11 +269,10 @@ describe('channels() capability', () => {
       .__serverRequests;
     // Channel declarations are keyed by the channel definition so they never collide
     // with another channel's or with a top-level declaration of the same name.
-    expect(declarations.get(serverRequestKey('room', 'confirm-kick'))?.broadcast).toBe(false);
-    expect(declarations.get(serverRequestKey('room', 'vol'))?.broadcast).toBe(true);
     expect(
       declarations.get(serverRequestKey('room', 'confirm-kick'))?.responseValidator,
     ).toBeDefined();
+    expect(declarations.get(serverRequestKey('room', 'vol'))?.responseValidator).toBeDefined();
     // The bare event name is NOT a key (the collision fix).
     expect(declarations.get('confirm-kick')).toBeUndefined();
   });

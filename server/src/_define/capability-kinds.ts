@@ -11,7 +11,6 @@
  * is a distinct engine and gets its own `replay-custom` kind.
  */
 export const CAPABILITY_KIND = {
-  ack: 'ack',
   dedup: 'dedup',
   sequence: 'sequence',
   keepalive: 'keepalive',

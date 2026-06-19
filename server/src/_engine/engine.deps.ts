@@ -282,7 +282,6 @@ function buildDispatchRuntime(core: EngineCore) {
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
-    ackFrameHooks: core.hooks.ackFrame,
     errorHooks: core.hooks.error,
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
@@ -351,6 +350,8 @@ function buildDispatchRuntime(core: EngineCore) {
         connection,
         frame,
       ),
+    handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) =>
+      EngineChannelFrames.handleMemberSync(channelRuntime(core), connection, frame),
     durableStreamSchemaReady: false,
   };
 }
@@ -463,21 +464,6 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
           correlationId: opts.correlationId,
           // The server originated this request, so the client can fast-fail with
           // `request-no-response` when it has no handler.
-          source: 'server',
-          channel: opts.channel,
-          channelScope: opts.channelScope,
-        },
-        event: opts.event,
-        payload: opts.payload,
-      });
-    },
-    sendServerWithAck: (connectionId, opts) => {
-      const connection = core.connections.get(connectionId);
-      if (!connection) return false;
-      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
-        routing: {
-          ackId: opts.ackId,
-          // The server originated this acked send.
           source: 'server',
           channel: opts.channel,
           channelScope: opts.channelScope,

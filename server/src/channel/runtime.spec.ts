@@ -5,6 +5,7 @@ import {
   createChannelMembershipKey,
   leaveChannel,
   matchScopeParams,
+  resyncChannelMembers,
   subscribeConnection,
   subscribeConnectionAsServer,
   unsubscribeConnection,
@@ -1558,5 +1559,141 @@ describe('server self-defense against untrusted client frames', () => {
     expect(subscribeOkCount).toBe(1);
     expect(memberJoinCount).toBe(1);
     expect(onSubscribeHook).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate __subscribe__ does not re-run the check gate (bug #17)', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const checkHandler = vi.fn(() => undefined);
+    const validatorRan = vi.fn();
+    const validator = v.pipe(
+      v.unknown(),
+      v.check((data) => {
+        validatorRan(data);
+        return true;
+      }),
+    );
+    const runtimeWithCheck = {
+      ...runtime,
+      checkHooks: new Map([['rooms', [{ handler: checkHandler, validator }]]]),
+    };
+
+    await subscribeConnection(runtimeWithCheck, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: { token: 't' },
+    });
+    await subscribeConnection(runtimeWithCheck, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: { token: 't' },
+    });
+
+    expect(checkHandler).toHaveBeenCalledTimes(1);
+    expect(validatorRan).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => {
+  it('re-sends the member snapshot with source: server to a member', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const first = createConnection('conn_1', { userId: 'a' });
+    const second = createConnection('conn_2', { userId: 'b' });
+    addChannelMembership(channelMembers, first, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+    addChannelMembership(channelMembers, second, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(first.id, first);
+    connections.set(second.id, second);
+
+    resyncChannelMembers(runtime, second, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    expect(protocol).toEqual([
+      {
+        connectionId: 'conn_2',
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
+        wskit: { channel: 'room:general', channelScope: 'rooms', source: 'server' },
+      },
+    ]);
+  });
+
+  it('is a silent no-op when the requester is not a member', () => {
+    const stranger = createConnection('conn_x');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(stranger.id, stranger);
+
+    resyncChannelMembers(runtime, stranger, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    expect(protocol).toEqual([]);
+  });
+
+  it('is a silent no-op for an unknown channel', () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(connection.id, connection);
+
+    resyncChannelMembers(runtime, connection, {
+      channelName: 'missing',
+      channelScope: null,
+    });
+
+    expect(protocol).toEqual([]);
+  });
+});
+
+describe('subscribe schema validation without a check handler (bug #5)', () => {
+  it('validates the subscribe payload even when the channel has no check handler', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const handleValidationError = vi.fn(async () => {});
+    const runtimeWithValidator = {
+      ...runtime,
+      handleValidationError,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: () => undefined,
+              validator: v.object({ token: v.string() }),
+            },
+          ],
+        ],
+      ]),
+    };
+
+    await expect(
+      subscribeConnection(runtimeWithValidator, connection, {
+        channelName: 'room:general',
+        channelScope: 'rooms',
+        data: { token: 123 },
+      }),
+    ).rejects.toBeDefined();
+    expect(handleValidationError).toHaveBeenCalledOnce();
+
+    await subscribeConnection(runtimeWithValidator, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: { token: 't' },
+    });
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
   });
 });

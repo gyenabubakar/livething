@@ -195,6 +195,22 @@ export async function subscribeFromServer(
 }
 
 /**
+ * Handle a client `__memberSync__` request — a best-effort "please resend the
+ * roster". Re-sends the current member snapshot to the requesting connection.
+ * Fire-and-forget: a non-member or unknown channel is a silent no-op.
+ */
+export function handleMemberSync(
+  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  frame: Protocol.MemberSyncRequestFrame,
+): void {
+  ChannelPrimitive.resyncChannelMembers(runtime, connection, {
+    channelName: frame.__wskit.channel,
+    channelScope: frame.__wskit.channelScope,
+  });
+}
+
+/**
  * Handle the `__unsubscribe__` protocol frame for a channel.
  */
 export async function handleUnsubscribe(

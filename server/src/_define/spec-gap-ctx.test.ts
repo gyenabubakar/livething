@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import { replay } from '~/replay/capability.ts';
@@ -48,20 +47,20 @@ describe('ctx.sendReplay gating', () => {
       },
     });
   });
-});
 
-describe('ctx.ack absent in a channel handler ctx', () => {
-  it('does not expose ctx.ack inside a channel on handler', () => {
+  it('adds ctx.sendReplay with replay.snapshot(), typed to the emits catalog', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [channels()],
+      capabilities: [
+        emits({ msg: t<{ text: string }>() }),
+        replay.snapshot({ snapshotKey: () => 'k' }),
+      ],
     });
-    const room = base.channel('lobby', { outgoing: { emits: { ping: t<{}>() } } });
-    room.on('hello', {
+    base.on('x', {
       run(ctx) {
-        // @ts-expect-error ctx.ack is not available in a channel handler ctx
-        ctx.ack;
-        expectTypeOf(ctx.channel.send).toBeFunction();
+        expectTypeOf(ctx.sendReplay).toBeFunction();
+        expectTypeOf(ctx.sendReplay).parameter(0).toEqualTypeOf<'msg'>();
+        expectTypeOf(ctx.sendReplay).parameter(0).not.toBeAny();
       },
     });
   });

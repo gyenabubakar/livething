@@ -3,7 +3,6 @@
 // stale-socket inertness.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
@@ -27,8 +26,8 @@ interface LooseContract {
   outgoing: Record<string, unknown>;
 }
 
-interface AckContract {
-  outgoing: { x: { v: number } };
+interface CloseRequestContract {
+  requests: { x: { payload: { v: number }; response: { ok: boolean } } };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
@@ -227,9 +226,12 @@ describe('disconnect() still cleans up primitives when already closed', () => {
     ).toBe(false);
   });
 
-  it('rejects a pending sendWithAck even if the socket is already closed', async () => {
-    const socket = client<AckContract>()(connect('wss://test'), ack({ timeout: 100 }));
-    const pending = socket.sendWithAck('x', { v: 1 });
+  it('rejects a pending request even if the socket is already closed', async () => {
+    const socket = client<CloseRequestContract>()(
+      connect('wss://test'),
+      requestResponse({ timeout: 100 }),
+    );
+    const pending = socket.request('x', { v: 1 });
     socket.disconnect();
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });

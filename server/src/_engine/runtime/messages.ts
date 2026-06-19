@@ -8,7 +8,6 @@ import {
   WSKitError,
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
@@ -76,8 +75,6 @@ interface DispatchRuntime
     frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
   ) => boolean)[];
 
-  ackFrameHooks: readonly ((connectionId: string, ackId: string) => boolean)[];
-
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
    * incoming dedup is disabled (no `dedup()` primitive registered).
@@ -137,6 +134,11 @@ interface DispatchRuntime
     connection: EngineRuntimeTypes.RuntimeConnection,
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
+
+  handleMemberSync(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    frame: Protocol.MemberSyncRequestFrame,
+  ): void;
 
   /**
    * Tracks whether `ensureDurableStreamSchema` has already run in this
@@ -221,7 +223,6 @@ function buildInterceptRouting(
   if (!wskit) return {};
   const routing: {
     messageId?: string;
-    ackId?: string;
     correlationId?: string;
     streamId?: string;
     channel?: string;
@@ -229,7 +230,6 @@ function buildInterceptRouting(
     seq?: number;
   } = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
-  if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.channel !== undefined) {
@@ -402,12 +402,7 @@ export async function dispatchIncoming(
     if (incoming) {
       await InterceptPrimitive.runWithScopedContext(runtime, connection, {
         ctx: getCtx(),
-        handler: (ctx) => {
-          // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
-          // this message, never a later one that interleaved on the connection.
-          (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
-          return incoming.handler(ctx, payloadValue);
-        },
+        handler: (ctx) => incoming.handler(ctx, payloadValue),
       });
       return;
     }
@@ -711,6 +706,9 @@ async function dispatchProtocolFrame(
       case '__unsubscribe__':
         await runtime.handleUnsubscribe(connection, frame);
         return;
+      case '__memberSync__':
+        runtime.handleMemberSync(connection, frame);
+        return;
       case '__streamCancel__': {
         await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
         if (runtime.sql) {
@@ -738,17 +736,6 @@ async function dispatchProtocolFrame(
             connection,
             { streamId: frame.__wskit.streamId, cancelScope },
           );
-        }
-        return;
-      }
-      case '__ack__': {
-        // The client auto-confirms a server-initiated `sendWithAck(...)` by
-        // echoing its `ackId`. Offer it to the ack-frame hooks (owned by the
-        // `ack()` capability) so the server's pending promise resolves. An
-        // `ackId` with no matching pending entry — a duplicate confirm, or one
-        // that arrived after timeout — is simply dropped.
-        for (const hook of runtime.ackFrameHooks) {
-          if (hook(connection.id, frame.__wskit.ackId)) return;
         }
         return;
       }

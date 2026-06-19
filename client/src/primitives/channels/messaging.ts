@@ -208,6 +208,14 @@ export function buildChannelMessaging(
       // 'connecting' keeps the leave pending; onOpen resends it on reopen.
       return promise;
     },
+    resyncMembers(): void {
+      if (!state.active) return;
+      helpers.rawSend({
+        event: '__memberSync__',
+        payload: {},
+        __wskit: { ...channelMarkers(state), source: 'client' },
+      });
+    },
     get members(): ReadonlyMap<string, ChannelMember> {
       return state.members;
     },
