@@ -69,7 +69,9 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
         markers: WireMessage['__wskit'],
         frame: WireMessage,
       ): void {
-        helpers.rawSend({ ...frame, __wskit: { correlationId, ...markers } });
+        // The server originated this request; tag the reply so the server routes
+        // it back to its pending request rather than treating it as a new one.
+        helpers.rawSend({ ...frame, __wskit: { correlationId, source: 'server', ...markers } });
       }
 
       async function answer(message: WireMessage, handler: RequestHandler): Promise<void> {
@@ -96,33 +98,29 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
           const correlationId = wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
 
+          // Only a server-originated request is ours to answer. A reply to the
+          // client's own request (source !== 'server') passes through for
+          // requestResponse to claim — even when it shares an event name with an
+          // onRequest handler, since source, not the name, decides direction.
+          if (wskit?.source !== 'server') return message;
+
           const frameMarkers: ScopeMarkers = {};
-          if (wskit?.channel !== undefined) frameMarkers.channel = wskit.channel;
-          if (wskit?.channelScope !== undefined && wskit.channelScope !== null) {
+          if (wskit.channel !== undefined) frameMarkers.channel = wskit.channel;
+          if (wskit.channelScope !== undefined && wskit.channelScope !== null) {
             frameMarkers.channelScope = wskit.channelScope;
           }
 
-          // Strict scope match: a channel-marked frame only reaches that channel's
-          // handler, and an unscoped frame only reaches a top-level handler. Every
-          // server→client request is scoped to where it was declared — a channel
-          // request goes out with channel markers, a top-level one without — so a
-          // channel handler never answers an unscoped request and vice versa.
+          // Strict scope match: a channel-marked request reaches only that
+          // channel's handler, and an unscoped one only a top-level handler.
           const handler = handlers.get(handlerKey(frameMarkers, message.event));
           if (!handler) {
-            // No handler in this scope. If the server marked this as a
-            // server→client request, fast-fail so its pending promise rejects
-            // with `request-no-response` instead of hanging to timeout. Otherwise
-            // it's a reply to the client's own request (or a plain event) — pass
-            // it through for requestResponse/ack/on to claim.
-            if (wskit?.serverRequest === true) {
-              reply(correlationId, replyMarkers(message), {
-                event: '__error__',
-                payload: { code: 'request-no-response' },
-              });
-              return null;
-            }
-
-            return message;
+            // A server request with no handler: fast-fail so its pending promise
+            // rejects with `request-no-response` instead of hanging to timeout.
+            reply(correlationId, replyMarkers(message), {
+              event: '__error__',
+              payload: { code: 'request-no-response' },
+            });
+            return null;
           }
 
           void answer(message, handler);

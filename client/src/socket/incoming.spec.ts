@@ -151,8 +151,8 @@ describe('incoming pipeline — scoped frame top-level guard', () => {
     socket.channel('chat').subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'chat' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'chat' },
     });
 
     socket.channel('chat').on('message', channelHandler);

@@ -221,8 +221,8 @@ describe('broadcast scope and seq deduplication', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
     });
     await sub;
 
@@ -345,8 +345,8 @@ describe('deliverBroadcast with no matching scope', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
     });
     await sub;
 
@@ -369,8 +369,8 @@ describe('deliverBroadcast with no matching scope', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
     });
     await sub;
 

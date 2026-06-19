@@ -31,10 +31,6 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
   return {
     _tag: 'ack',
 
-    // Run after serverRequest so a server-initiated request is claimed there
-    // first; this primitive then only sees acks for the client's own sends.
-    optionalAfter: ['serverRequest'],
-
     setup(helpers) {
       const pending = new Map<string, Pending>();
 
@@ -89,7 +85,13 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             },
           });
 
-          const frame: WireMessage = { event, payload, __wskit: { ackId, ...callOptions.markers } };
+          // The client originates this acked send, so the server's receipt routes
+          // back here.
+          const frame: WireMessage = {
+            event,
+            payload,
+            __wskit: { ackId, source: 'client', ...callOptions.markers },
+          };
           const owner = ownerFor(ackId);
           let result: SendResult;
 
@@ -153,7 +155,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           // receipt (no app code needed), then pass the message through so the
           // app's `on(event)` handler still runs.
           helpers.log.info(`auto-confirming server send '${ackId}'`);
-          helpers.rawSend({ event: '__ack__', payload: {}, __wskit: { ackId } });
+          helpers.rawSend({ event: '__ack__', payload: {}, __wskit: { ackId, source: 'server' } });
 
           return message;
         },

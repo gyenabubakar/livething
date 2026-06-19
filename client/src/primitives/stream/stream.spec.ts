@@ -297,8 +297,8 @@ describe('durable resume', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
     });
     await sub;
     const handle = room.resumeStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
@@ -324,8 +324,8 @@ describe('scoped streams', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
     });
     await sub;
     void room.stream('ask-ai', { prompt: 'hi' });

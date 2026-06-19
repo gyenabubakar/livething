@@ -190,8 +190,13 @@ describe('channel runtime', () => {
       {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
+        payload: {},
+        wskit: {
+          channel: 'room:general',
+          channelScope: 'rooms',
+          source: 'client',
+          channelPersistent: false,
+        },
       },
       {
         connectionId: 'conn_2',
@@ -981,8 +986,13 @@ describe('subscribeConnectionAsServer', () => {
       {
         connectionId: 'target',
         event: '__subscribeOk__',
-        payload: { source: 'server' },
-        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
+        payload: {},
+        wskit: {
+          channel: 'room:general',
+          channelScope: 'rooms',
+          source: 'server',
+          channelPersistent: false,
+        },
       },
       {
         connectionId: 'target',
@@ -1051,6 +1061,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(ok?.wskit).toEqual({
       channel: 'room:general',
       channelScope: 'rooms',
+      source: 'server',
       channelPersistent: true,
     });
   });
@@ -1310,8 +1321,8 @@ describe('subscribeConnectionAsServer', () => {
       {
         connectionId: 'target',
         event: '__subscribeOk__',
-        payload: { source: 'server' },
-        wskit: { channel: 'lobby', channelPersistent: false },
+        payload: {},
+        wskit: { channel: 'lobby', source: 'server', channelPersistent: false },
       },
       {
         connectionId: 'target',
@@ -1403,7 +1414,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(order[0]).toBe('wire:__subscribeOk__');
     expect(order[order.length - 1]).toBe('onSubscribe');
     expect(
-      protocol.some((p) => p.event === '__subscribeOk__' && p.payload.source === 'server'),
+      protocol.some((p) => p.event === '__subscribeOk__' && p.wskit?.source === 'server'),
     ).toBe(true);
   });
 });

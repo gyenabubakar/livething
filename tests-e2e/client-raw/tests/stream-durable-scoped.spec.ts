@@ -46,7 +46,7 @@ test.describe('stream-durable scoped (channel)', () => {
     const rejoin = await waitForFrame(page, b, {
       match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
     });
-    expect(rejoin.payload.source).toBe('server');
+    expect(rejoin.__wskit?.source).toBe('server');
 
     await send(page, b, {
       event: '__resumeStream__',

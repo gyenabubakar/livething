@@ -99,6 +99,8 @@ export async function handleRequest(
       channel: scope.channelName,
       channelScope: scope.channelScope,
       correlationId,
+      // The client originated this request; this is the reply to it.
+      source: 'client',
     },
     event,
     payload: response,

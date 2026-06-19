@@ -19,12 +19,14 @@ export interface WSKitEnvelope {
   ackId?: string;
 
   /**
-   * Set by the server on a server→client request frame. It lets the client tell
-   * a server-initiated request apart from a reply to its own request, so it can
-   * fast-fail with `request-no-response` when it has no handler for the event
-   * instead of leaving the server's pending promise to hang to timeout.
+   * The side that originated this exchange: `'server'` or `'client'`. One field
+   * shared by every two-way flow (requests, replies, acks, subscribe). It lets
+   * the client tell a server-initiated request (`'server'`) apart from a reply to
+   * its own request (`'client'`), so it can fast-fail with `request-no-response`
+   * when it has no handler instead of leaving the server's pending promise to
+   * hang to timeout.
    */
-  serverRequest?: boolean;
+  source?: 'server' | 'client';
 
   /** Names the channel a message belongs to. */
   channel?: string;

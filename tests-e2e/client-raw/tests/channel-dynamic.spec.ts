@@ -620,7 +620,7 @@ test.describe('channel-dynamic', () => {
     );
     expect(ok).toBeDefined();
     expect(ok!.__wskit?.channelScope).toBe('room');
-    expect(ok!.payload.source).toBe('server');
+    expect(ok!.__wskit?.source).toBe('server');
   });
 
   test('auth-race stress: N concurrent subscribes with awaited checks — rejected users never become members, allowed set is complete and symmetric', async ({

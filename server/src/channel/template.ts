@@ -162,6 +162,12 @@ export function fillChannelTemplate(
         continue;
       }
       const end = template.indexOf('}', i + 1);
+      if (end === -1) {
+        throw new WSKitConfigError(
+          `[wskit] ${source} template "${template}" has an unclosed '{' — it must be a ` +
+            'compiled family template.',
+        );
+      }
       const name = template.slice(i + 1, end);
       const value = params[name];
       if (typeof value !== 'string' || value === '') {

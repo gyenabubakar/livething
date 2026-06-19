@@ -51,6 +51,11 @@ export function routingFromWSKit(
   if (!wskit) return undefined;
   const routing: Protocol.WSKitRouting = {};
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
+  // Echo a client-originated exchange's source so an error reply to a client
+  // request carries `source: 'client'`, matching the success reply. Only
+  // 'client' is echoed: a server-originated frame's error must not come back
+  // looking like a fresh server→client request.
+  if (wskit.source === 'client') routing.source = 'client';
   if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;

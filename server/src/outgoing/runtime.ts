@@ -124,7 +124,7 @@ function buildWSKit(
     wskit.channelScope = routing.channelScope;
   }
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
-  if (routing?.serverRequest) wskit.serverRequest = true;
+  if (routing?.source) wskit.source = routing.source;
   if (routing?.ackId) wskit.ackId = routing.ackId;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;

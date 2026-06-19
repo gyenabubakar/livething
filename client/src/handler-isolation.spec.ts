@@ -71,8 +71,8 @@ describe('a throwing message handler is isolated from its siblings', () => {
     room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     const calls: string[] = [];
@@ -95,8 +95,8 @@ describe('a throwing message handler is isolated from its siblings', () => {
     socket.channel('rooms', 'lobby').subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'lobby', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'lobby', channelScope: 'rooms' },
     });
 
     const calls: string[] = [];
@@ -125,8 +125,8 @@ describe('a throwing presence or stream callback is isolated from its siblings',
     room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     const calls: string[] = [];

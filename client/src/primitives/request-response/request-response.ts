@@ -33,7 +33,6 @@ export function requestResponse(
 
   return {
     _tag: 'requestResponse',
-    optionalAfter: ['serverRequest'],
     setup(helpers) {
       const pending = new Map<string, Pending>();
       // frames for requests made before the socket is open when no buffering is
@@ -89,7 +88,8 @@ export function requestResponse(
           const frame: WireMessage = {
             event,
             payload,
-            __wskit: { correlationId, ...callOptions.markers },
+            // The client originates this request, so its reply routes back here.
+            __wskit: { correlationId, source: 'client', ...callOptions.markers },
           };
 
           // send through the normal path so buffering can take it — queueing it
@@ -136,6 +136,11 @@ export function requestResponse(
         onIncoming(message) {
           const correlationId = message.__wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
+
+          // A server-originated request is not a reply to our own request — let
+          // the serverRequest primitive answer it, whatever order they run in. We
+          // only ever claim a frame that matches one of our pending requests.
+          if (message.__wskit?.source === 'server') return message;
 
           const waiter = pending.get(correlationId);
           if (!waiter) return null;

@@ -461,9 +461,9 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,
-          // Tag the frame as a server-initiated request so the client can
-          // fast-fail with `request-no-response` when it has no handler.
-          serverRequest: true,
+          // The server originated this request, so the client can fast-fail with
+          // `request-no-response` when it has no handler.
+          source: 'server',
           channel: opts.channel,
           channelScope: opts.channelScope,
         },
@@ -477,6 +477,8 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           ackId: opts.ackId,
+          // The server originated this acked send.
+          source: 'server',
           channel: opts.channel,
           channelScope: opts.channelScope,
         },

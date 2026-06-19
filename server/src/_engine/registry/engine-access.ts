@@ -275,7 +275,12 @@ export function createEngineAccess(
       if (!ackId) return;
       const connection = core.connections.get(connectionId);
       if (!connection) return;
-      sendProtocolMessage(core, connection, { event: '__ack__', payload: {}, wskit: { ackId } });
+      // The client originated this acked send; this is the server's receipt.
+      sendProtocolMessage(core, connection, {
+        event: '__ack__',
+        payload: {},
+        wskit: { ackId, source: 'client' },
+      });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),

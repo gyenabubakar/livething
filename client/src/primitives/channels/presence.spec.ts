@@ -33,8 +33,8 @@ async function subscribeChannel(socket: BuiltSocket, ws: MockWebSocket, channelN
   const p = room.subscribe();
   ws.emit({
     event: '__subscribeOk__',
-    payload: { source: 'client' },
-    __wskit: { channel: channelName },
+    payload: {},
+    __wskit: { source: 'client', channel: channelName },
   });
   await p;
   return room;
@@ -188,8 +188,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const topPromise = topLevel.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await topPromise;
 
@@ -197,8 +197,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const scopedPromise = scoped.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', channelScope: 'rooms' },
     });
     await scopedPromise;
 
@@ -219,8 +219,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const topPromise = topLevel.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await topPromise;
 
@@ -228,8 +228,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const scopedPromise = scoped.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', channelScope: 'rooms' },
     });
     await scopedPromise;
 

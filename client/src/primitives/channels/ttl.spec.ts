@@ -34,8 +34,8 @@ async function buildActiveAndDrop(channelsOpts: ChannelsOptions, bufferingOpts: 
   const subscribePromise = room.subscribe();
   ws.emit({
     event: '__subscribeOk__',
-    payload: { source: 'client' },
-    __wskit: { channel: 'general' },
+    payload: {},
+    __wskit: { source: 'client', channel: 'general' },
   });
   await subscribePromise;
 

@@ -115,10 +115,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           switch (message.event) {
             case '__subscribeOk__': {
-              const source: SubscribeSource =
-                (message.payload as { source?: unknown })?.source === 'server'
-                  ? 'server'
-                  : 'client';
+              const source: SubscribeSource = wskit?.source === 'server' ? 'server' : 'client';
               // While a leave is outstanding, ignore EVERY subscribe confirmation —
               // a server auto-rejoin OR a late client-source ack from a subscribe
               // that overlapped the leave. Either would wrongly re-activate a channel

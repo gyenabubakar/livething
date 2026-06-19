@@ -674,7 +674,7 @@ test.describe('channel-static', () => {
       (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
     );
     expect(subscribeOk).toBeDefined();
-    expect(subscribeOk!.payload.source).toBe('server');
+    expect(subscribeOk!.__wskit?.source).toBe('server');
   });
 
   test('a second channelHandle.subscribe for an already-subscribed connection is a no-op', async ({

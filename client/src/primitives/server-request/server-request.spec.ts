@@ -48,7 +48,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'read' },
-      __wskit: { correlationId: 'x1' },
+      __wskit: { correlationId: 'x1', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -65,7 +65,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x2' },
+      __wskit: { correlationId: 'x2', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -102,7 +102,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x3', channel: 'room-1', channelScope: 'rooms' },
+      __wskit: { correlationId: 'x3', channel: 'room-1', channelScope: 'rooms', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -127,7 +127,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x4', serverRequest: true },
+      __wskit: { correlationId: 'x4', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -160,7 +160,7 @@ describe('serverRequest — answering server-initiated requests', () => {
         correlationId: 'x5',
         channel: 'room-1',
         channelScope: 'rooms',
-        serverRequest: true,
+        source: 'server',
       },
     });
     await new Promise((r) => setTimeout(r, 0));
@@ -194,7 +194,7 @@ describe('serverRequest — answering server-initiated requests', () => {
         correlationId: 'x7',
         channel: 'room-1',
         channelScope: 'rooms',
-        serverRequest: true,
+        source: 'server',
       },
     });
     await new Promise((r) => setTimeout(r, 0));
@@ -210,7 +210,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x6', serverRequest: true },
+      __wskit: { correlationId: 'x6', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 

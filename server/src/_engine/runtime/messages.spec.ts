@@ -874,7 +874,7 @@ describe('message runtime', () => {
     ).toEqual({
       event: 'lookup',
       payload: { tag: 'top' },
-      __wskit: { correlationId: 'corr-ctx' },
+      __wskit: { correlationId: 'corr-ctx', source: 'client' },
     });
   });
 

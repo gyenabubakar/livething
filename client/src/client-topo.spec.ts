@@ -171,8 +171,8 @@ describe('topoSort — optionalAfter ordering', () => {
     void room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     ws.emit({

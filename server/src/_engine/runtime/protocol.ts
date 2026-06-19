@@ -40,6 +40,9 @@ const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMIT
  */
 const StreamKind = v.picklist(['ephemeral', 'persistent']);
 
+/** The side that originated a two-way exchange, carried on `__wskit.source`. */
+const Source = v.picklist(['server', 'client']);
+
 /**
  * A bounded channel name. Channel names can be composite
  * (e.g. `org:123:room:abc`), so they get more headroom than the other
@@ -139,7 +142,7 @@ export const ResumeStreamFrame = v.object({
 export const AckFrame = v.object({
   event: v.literal('__ack__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ ackId: v.string() }),
+  __wskit: v.strictObject({ ackId: v.string(), source: v.optional(Source) }),
 });
 
 /** All frames the client may send into the engine, discriminated on `event`. */
@@ -157,11 +160,15 @@ export const IncomingProtocolFrame = v.variant('event', [
 
 export const SubscribeOkFrame = v.object({
   event: v.literal('__subscribeOk__'),
-  payload: v.strictObject({ source: v.picklist(['client', 'server']) }),
-  // `channelPersistent` tells the client whether this channel auto-rejoins on
-  // reconnect (server-driven) so it knows not to re-subscribe it itself.
+  payload: NoPayload,
+  // `source` is who initiated the subscribe: 'client' (the client's own
+  // subscribe call, so it resolves that pending promise) or 'server' (the server
+  // subscribed it, so there is no client promise to settle). `channelPersistent`
+  // tells the client whether this channel auto-rejoins on reconnect (server
+  // -driven) so it knows not to re-subscribe it itself.
   __wskit: v.strictObject({
     ...RequiredChannelScope,
+    source: Source,
     channelPersistent: v.optional(v.boolean()),
   }),
 });
@@ -298,10 +305,11 @@ export const OutgoingProtocolFrame = v.variant('event', [
  */
 export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
-  // Marks a server→client request so the client can fast-fail when it has no
-  // handler. Server→client only; the client never echoes it, so its presence
-  // here just keeps the strict schema accepting of the frames the server sends.
-  serverRequest: v.optional(v.boolean()),
+  // The side that originated this exchange: 'server' or 'client'. One field
+  // shared by every two-way flow (requests, replies, acks, subscribe). It lets
+  // the receiver tell a request it must answer (the other side originated it)
+  // from a reply to its own request (it originated it).
+  source: v.optional(Source),
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
   ackId: v.optional(WireId),

@@ -59,8 +59,8 @@ describe('send rejects reserved event names', () => {
     void room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'room' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'room' },
     });
     const before = ws.sentFrames().length;
     expect(room.send('ping', { value: 'x' })).toBe(false);

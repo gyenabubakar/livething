@@ -514,8 +514,8 @@ async function runSubscribeFlow(
   // rather than re-subscribing it itself.
   runtime.sendProtocolMessage(connection, {
     event: '__subscribeOk__',
-    payload: { source },
-    wskit: { ...wskit, channelPersistent: isPersistent },
+    payload: {},
+    wskit: { ...wskit, source, channelPersistent: isPersistent },
   });
 
   runtime.sendProtocolMessage(connection, { event: '__memberSync__', payload: { members }, wskit });

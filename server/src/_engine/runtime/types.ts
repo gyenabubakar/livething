@@ -495,13 +495,14 @@ export interface RoutingTarget {
   correlationId?: string;
 
   /**
-   * Marks an outgoing frame as a server→client request (stamped as
-   * `__wskit.serverRequest`). It lets the client tell a server-initiated request
-   * apart from a reply to its own request, so it can fast-fail (`__error__`
-   * `request-no-response`) when it has no handler for the event instead of
-   * leaving the server's pending promise to hang to timeout.
+   * The side that originated the exchange this outgoing frame belongs to,
+   * stamped as `__wskit.source`. A server→client request sets `'server'`; the
+   * server's reply to a client's request sets `'client'`. It lets the client
+   * tell a server-initiated request apart from a reply to its own request, so it
+   * can fast-fail (`__error__` `request-no-response`) when it has no handler for
+   * the event instead of leaving the server's pending promise to hang to timeout.
    */
-  serverRequest?: boolean;
+  source?: 'server' | 'client';
 
   /**
    * Ack id stamped on the outgoing frame as `__wskit.ackId`. A server
