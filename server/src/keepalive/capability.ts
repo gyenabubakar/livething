@@ -1,6 +1,5 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
@@ -25,16 +24,6 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
 export const keepalive = withCapabilityKind(function keepalive(
   options: KeepaliveOptions,
 ): HostCapability<{}, 'keepalive'> {
-  const { pingIntervalMs, idleTimeoutMs } = options;
-  assertPositiveInteger(pingIntervalMs, 'pingIntervalMs', 'keepalive()');
-  assertPositiveInteger(idleTimeoutMs, 'idleTimeoutMs', 'keepalive()');
-  if (pingIntervalMs >= idleTimeoutMs) {
-    throw new Error(
-      `[wskit] keepalive.pingIntervalMs (${pingIntervalMs}) must be less than ` +
-        `keepalive.idleTimeoutMs (${idleTimeoutMs}): the ping has to fire before the idle ` +
-        'window closes, or a live client would be dropped.',
-    );
-  }
   return stampKind(
     hostCapability<{}, 'keepalive'>([keepaliveFactory(options)], ['keepalive']),
     CAPABILITY_KIND.keepalive,
