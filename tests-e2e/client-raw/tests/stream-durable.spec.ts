@@ -79,6 +79,37 @@ test.describe('stream-durable', () => {
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
+  test('resumable bare yield (no withCursor): resume restarts from a null cursor', async ({
+    page,
+  }, testInfo) => {
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'bare-1';
+    await goConnect(page, { room: room, streamId: streamId });
+
+    await page.getByTestId('start-paginate-bare').click();
+    await expect
+      .poll(async () => Number(await page.getByTestId('paginate-bare-row-count').textContent()))
+      .toBeGreaterThanOrEqual(1);
+    const seenBeforeDrop = Number(await page.getByTestId('paginate-bare-row-count').textContent());
+    expect(seenBeforeDrop).toBeLessThan(4);
+
+    await page.getByTestId('drop-socket').click();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+
+    await page.getByTestId('since').fill(String(seenBeforeDrop));
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('send-resume').click();
+
+    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
+
+    const rows = (await page.getByTestId('paginate-bare-rows').textContent())!
+      .split(',')
+      .map(Number);
+    expect(Math.max(...rows)).toBeLessThan(100);
+    expect(rows.slice(-4)).toEqual([1, 2, 3, 4]);
+  });
+
   test('resume of an unknown stream id surfaces stream-aborted not-found', async ({
     page,
   }, testInfo) => {

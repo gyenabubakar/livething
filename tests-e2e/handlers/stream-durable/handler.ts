@@ -50,6 +50,20 @@ const handlePaginate = base.resumableStream('paginate', {
   },
 });
 
+const handlePaginateBare = base.resumableStream('paginate-bare', {
+  input: PaginatePayload,
+  chunk: RowChunk,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
+    const offset = ctx.stream.cursor === null ? 0 : 100;
+    for (let i = 1; i <= 4; i += 1) {
+      yield { row: offset + i };
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  },
+});
+
 const handleAttemptStream = base.resumableStream('attempt-stream', {
   input: AttemptPayload,
   chunk: AttemptChunk,
@@ -125,6 +139,7 @@ const handleServerDrop = base.on('server-drop', {
 export const streamDurableHandler = base.assemble(
   handleCountTokens,
   handlePaginate,
+  handlePaginateBare,
   handleAttemptStream,
   handleBufferFullDemo,
   handleCountTokensNudged,

@@ -13,6 +13,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { keepalive } from '~/keepalive/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { tags } from '~/tags/capability.ts';
@@ -99,6 +100,10 @@ bareBase.on('bare', {
     ctx.schedule('x', { time: 0 });
     // @ts-expect-error — `plugin` needs a registered plugin
     ctx.plugin('acme:a');
+    // @ts-expect-error — `latency` needs keepalive()
+    ctx.latency;
+    // @ts-expect-error — `quality` needs keepalive()
+    ctx.quality;
   },
 });
 
@@ -114,6 +119,7 @@ const fullBase = define({
     tags((ephemeral) => [ephemeral('grp', t<string>())]),
     channels(),
     scheduled({ task: null }),
+    keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 }),
     PluginA(),
   ],
 });
@@ -125,5 +131,7 @@ fullBase.on('full', {
     expectTypeOf(ctx.channels).not.toBeUndefined();
     expectTypeOf(ctx.schedule).toBeFunction();
     expectTypeOf(ctx.plugin).toBeFunction();
+    expectTypeOf(ctx.latency).toEqualTypeOf<number | null>();
+    expectTypeOf(ctx.quality).toEqualTypeOf<'excellent' | 'good' | 'degraded' | 'poor' | null>();
   },
 });

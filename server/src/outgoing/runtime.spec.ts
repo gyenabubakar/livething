@@ -166,6 +166,40 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
   });
 
+  it('normalizes an undefined request-response payload to an empty-payload frame', () => {
+    const runtime = createRuntime();
+    const connection = createConnection();
+    const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: { correlationId: 'req123', source: 'client' },
+        event: 'ping',
+        payload: undefined,
+      }),
+    ).not.toThrow();
+
+    const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    expect(sent).toEqual({
+      event: 'ping',
+      payload: {},
+      __wskit: { correlationId: 'req123', source: 'client' },
+    });
+  });
+
+  it('still rejects an undefined payload when it is not a request-response', () => {
+    const runtime = createRuntime();
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: undefined as unknown,
+      }),
+    ).toThrow(/plain object/);
+  });
+
   it('throws when the outgoing event was not declared in the active scope', () => {
     const runtime = createRuntime();
     const connection = createConnection();

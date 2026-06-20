@@ -187,7 +187,9 @@ export function sendThroughPipeline(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: SendThroughPipelineOptions,
 ): boolean {
-  const { routing, event, payload } = opts;
+  const { routing, event } = opts;
+  const isRequestResponse = !!routing?.correlationId;
+  const payload = opts.payload === undefined && isRequestResponse ? {} : opts.payload;
   assertPayloadRecord(payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, {
@@ -195,7 +197,6 @@ export function sendThroughPipeline(
     payload,
   });
 
-  const isRequestResponse = !!routing?.correlationId;
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
       `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
