@@ -36,6 +36,12 @@ export default defineConfig({
       },
       formats: ['es'],
     },
+    rollupOptions: {
+      output: {
+        preserveModules: true,
+        preserveModulesRoot: 'src',
+      },
+    },
   },
   test: {
     include: ['src/**/*.spec.ts'],
