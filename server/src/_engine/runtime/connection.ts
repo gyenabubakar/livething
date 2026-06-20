@@ -68,7 +68,7 @@ interface ConnectionRuntime {
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   runConnectionLifecycle(
@@ -254,7 +254,7 @@ export async function handleConnectionClose(
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
       connection: EngineRuntimeTypes.RuntimeConnection,
-      scope?: EngineRuntimeTypes.ResolvedScope,
+      scope?: EngineRuntimeTypes.ResolvedChannel,
     ): Record<PropertyKey, unknown>;
     runConnectionLifecycle(
       kind: 'connect' | 'disconnect',
@@ -310,7 +310,7 @@ export async function handleConnectionClose(
     const resolved = ChannelPrimitive.resolveCompiledChannel(
       runtime.compiled,
       membership.channelName,
-      membership.channelScope,
+      membership.channelFamily,
     );
     // leaveChannel already contains user-hook throws. This outer guard is
     // defense-in-depth: any unexpected throw from broadcast or persist on
@@ -320,7 +320,7 @@ export async function handleConnectionClose(
       await runtime.leaveChannel(connection, {
         channel: resolved,
         channelName: membership.channelName,
-        channelScope: membership.channelScope,
+        channelFamily: membership.channelFamily,
         kickedReason: undefined,
         // disconnect: socket-close path. Persistent channels keep their
         // durable rows so the user is auto-rejoined on next connect.
@@ -330,7 +330,7 @@ export async function handleConnectionClose(
       runtime.logger?.error('[wskit] leaveChannel threw during close', {
         connectionId: connection.id,
         channel: membership.channelName,
-        channelScope: membership.channelScope,
+        channelFamily: membership.channelFamily,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -482,7 +482,7 @@ export function wakeHibernatedConnection(
   // repopulate the engine-wide channel and tag member indexes.
   const channelMemberships = new Map<
     string,
-    { channelName: string; channelScope: string | null }
+    { channelName: string; channelFamily: string | null }
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
@@ -534,7 +534,7 @@ export function wakeHibernatedConnection(
   for (const membership of row?.ephemeral_memberships ?? []) {
     ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
       channelName: membership.channelName,
-      channelScope: membership.channelScope,
+      channelFamily: membership.channelFamily,
     });
   }
 

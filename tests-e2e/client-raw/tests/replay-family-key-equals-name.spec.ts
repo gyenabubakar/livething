@@ -67,7 +67,7 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'rooms', channelScope: 'rooms' },
+      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
     });
     await expect
       .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
@@ -79,7 +79,7 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: 'send-batch',
       payload: { count: 3 },
-      __wskit: { channel: 'rooms', channelScope: 'rooms' },
+      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
     });
     await expect
       .poll(
@@ -110,7 +110,7 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'rooms', channelScope: 'rooms' },
+      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
     });
     await expect
       .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
@@ -120,11 +120,11 @@ test.describe('replay-family-key-equals-name', () => {
 
     // Replay since 0 — under the prior heuristic this returned nothing
     // because the family key equals the concrete subscribed name. The fix
-    // queries the family-scope rows and returns all 3.
+    // queries the family rows and returns all 3.
     await send(page, {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'rooms', channelScope: 'rooms' },
+      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
     });
     await expect
       .poll(
@@ -133,7 +133,7 @@ test.describe('replay-family-key-equals-name', () => {
             (f) =>
               f.event === 'room-message' &&
               f.__wskit?.channel === 'rooms' &&
-              f.__wskit?.channelScope === 'rooms',
+              f.__wskit?.channelFamily === 'rooms',
           ).length,
         { timeout: 5_000 },
       )
@@ -143,7 +143,7 @@ test.describe('replay-family-key-equals-name', () => {
       (f) =>
         f.event === 'room-message' &&
         f.__wskit?.channel === 'rooms' &&
-        f.__wskit?.channelScope === 'rooms',
+        f.__wskit?.channelFamily === 'rooms',
     );
     expect(replayed.map((f) => f.payload.text).sort()).toEqual(['msg-0', 'msg-1', 'msg-2']);
     expect(replayed.map((f) => f.__wskit?.seq as number).sort((a, b) => a - b)).toEqual(
@@ -154,14 +154,14 @@ test.describe('replay-family-key-equals-name', () => {
     await send(page, {
       event: '__replay__',
       payload: { lastKnownSeq: lastSeq },
-      __wskit: { channel: 'rooms', channelScope: 'rooms' },
+      __wskit: { channel: 'rooms', channelFamily: 'rooms' },
     });
     await page.waitForTimeout(500);
     const after = (await frames(page)).filter(
       (f) =>
         f.event === 'room-message' &&
         f.__wskit?.channel === 'rooms' &&
-        f.__wskit?.channelScope === 'rooms',
+        f.__wskit?.channelFamily === 'rooms',
     );
     // Still exactly the 3 from the previous since:0 replay — no new rows.
     expect(after.length).toBe(3);

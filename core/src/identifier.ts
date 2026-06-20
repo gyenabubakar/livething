@@ -6,7 +6,7 @@
 export const WIRE_LIMITS = Object.freeze({
   event: 128,
   channel: 256,
-  channelScope: 128,
+  channelFamily: 128,
   streamId: 128,
   wireId: 128,
 });

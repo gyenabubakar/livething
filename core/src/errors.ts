@@ -277,9 +277,11 @@ function buildErrorFactory(
   function factory(detail?: any) {
     return new WSKitError(code, validate ? validate(detail) : undefined);
   }
+
   factory.code = code;
   factory.schema = schema;
   factory.matches = createMatchesFn(code, validate);
+
   return factory as ErrorDefWithFactory<string, any>;
 }
 

@@ -1,3 +1,4 @@
+import { t } from '@wskit/server';
 import * as v from 'valibot';
 
 export const Note = v.object({ text: v.string(), author: v.string() });
@@ -14,6 +15,6 @@ export const QueryBadReplayLog = v.object({});
 export const BadReplayLog = v.object({ undeclared: v.string() });
 
 export const RoomStreamPayload = v.object({ count: v.number() });
-export const RoomStreamChunk = v.object({ token: v.string() });
+export const RoomStreamChunk = t<{ token: string }>();
 export const QueryRoomReplayEvents = v.object({});
 export const RoomReplayEvents = v.object({ events: v.array(v.string()) });

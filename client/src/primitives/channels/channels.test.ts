@@ -44,7 +44,7 @@ room.on('message', (data) => {
 // @ts-expect-error — a fixed channel takes no second argument
 socket.channel('general', 'oops');
 
-const rooms = socket.channel.scope('rooms');
+const rooms = socket.channel.family('rooms');
 const r1 = rooms('room-1');
 r1.send('send-message', { text: 'x' });
 rooms.on('message', (data, channelName) => {
@@ -56,5 +56,5 @@ rooms.on('message', (data, channelName) => {
 const _names: string[] = rooms.list();
 void _names;
 
-// @ts-expect-error — 'general' is a fixed channel, not a family, so scope() rejects it
-socket.channel.scope('general');
+// @ts-expect-error — 'general' is a fixed channel, not a family, so family() rejects it
+socket.channel.family('general');

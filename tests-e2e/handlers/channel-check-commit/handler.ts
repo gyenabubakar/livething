@@ -29,10 +29,10 @@ const room = base.channel('room', {
     },
   },
   subscribe: v.object({ token: v.string() }),
-  async check(ctx) {
-    // `ctx.check` is the validated subscribe payload, typed from the channel's subscribe schema.
+  async check(_ctx, input) {
+    // `input` is the validated subscribe payload, typed from the channel's subscribe schema.
     await new Promise((r) => setTimeout(r, 5));
-    const { token } = ctx.check;
+    const { token } = input;
     const role = token ? TOKEN_ROLES[token] : undefined;
     if (!role) throw new Error('unknown or missing token');
     return { role };
@@ -98,10 +98,10 @@ const asyncCommit = base.channel('async-commit', {
 const nonceRoom = base.channel('nonce-room', {
   outgoing: { emits: { joined: t<{ username: string }>() } },
   subscribe: v.object({ token: v.string() }),
-  async check(ctx) {
+  async check(ctx, input) {
     // Reject a token that's been used before. A stale snapshot resent on
     // reconnect lands here and is refused; a freshly generated one passes.
-    const { token } = ctx.check;
+    const { token } = input;
     if (!token) throw new Error('missing token');
     const key = `nonce:${token}`;
     if (await ctx.kv.get(key)) throw new Error('token already used');

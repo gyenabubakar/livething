@@ -18,7 +18,7 @@ type RequestHandler = (payload: unknown) => unknown | Promise<unknown>;
  * key unambiguous for any name without relying on a reserved separator.
  */
 function handlerKey(markers: ScopeMarkers, event: string): string {
-  return JSON.stringify([markers.channel ?? null, markers.channelScope ?? null, event]);
+  return JSON.stringify([markers.channel ?? null, markers.channelFamily ?? null, event]);
 }
 
 /**
@@ -58,8 +58,8 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
       function replyMarkers(message: WireMessage): WireMessage['__wskit'] {
         const markers: WireMessage['__wskit'] = {};
         if (message.__wskit?.channel !== undefined) markers.channel = message.__wskit.channel;
-        if (message.__wskit?.channelScope !== undefined) {
-          markers.channelScope = message.__wskit.channelScope;
+        if (message.__wskit?.channelFamily !== undefined) {
+          markers.channelFamily = message.__wskit.channelFamily;
         }
         return markers;
       }
@@ -106,8 +106,8 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
 
           const frameMarkers: ScopeMarkers = {};
           if (wskit.channel !== undefined) frameMarkers.channel = wskit.channel;
-          if (wskit.channelScope !== undefined && wskit.channelScope !== null) {
-            frameMarkers.channelScope = wskit.channelScope;
+          if (wskit.channelFamily !== undefined && wskit.channelFamily !== null) {
+            frameMarkers.channelFamily = wskit.channelFamily;
           }
 
           // Strict scope match: a channel-marked request reaches only that

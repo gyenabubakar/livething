@@ -79,12 +79,12 @@ describe('replay — per-channel scope catch-up', () => {
       ws.emit({
         event: 'msg',
         payload: { text: 'a' },
-        __wskit: { channel: 'lobby', channelScope: 'rooms', seq: 5 },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms', seq: 5 },
       });
       ws.emit({
         event: 'msg',
         payload: { text: 'b' },
-        __wskit: { channel: 'lobby', channelScope: 'tenants', seq: 9 },
+        __wskit: { channel: 'lobby', channelFamily: 'tenants', seq: 9 },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -95,24 +95,24 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 5 },
-        __wskit: { channel: 'lobby', channelScope: 'rooms' },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
       });
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 9 },
-        __wskit: { channel: 'lobby', channelScope: 'tenants' },
+        __wskit: { channel: 'lobby', channelFamily: 'tenants' },
       });
     });
   });
 
-  describe('channelScope included in catch-up request', () => {
-    it('attaches channelScope to the __replay__ frame when the message had one', () => {
+  describe('channelFamily included in catch-up request', () => {
+    it('attaches channelFamily to the __replay__ frame when the message had one', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
       ws.emit({
         event: 'msg',
         payload: { text: 'scoped' },
-        __wskit: { channel: 'room-b', channelScope: 'tenant-1', seq: 10 },
+        __wskit: { channel: 'room-b', channelFamily: 'tenant-1', seq: 10 },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -121,11 +121,11 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 10 },
-        __wskit: { channel: 'room-b', channelScope: 'tenant-1' },
+        __wskit: { channel: 'room-b', channelFamily: 'tenant-1' },
       });
     });
 
-    it('omits channelScope from the frame when the original message had none', () => {
+    it('omits channelFamily from the frame when the original message had none', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
       ws.emit({ event: 'msg', payload: { text: 'plain' }, __wskit: { channel: 'room-c', seq: 2 } });
@@ -136,7 +136,7 @@ describe('replay — per-channel scope catch-up', () => {
         .find((f: { event: string }) => f.event === '__replay__');
 
       expect(replayFrame).toBeDefined();
-      expect(replayFrame.__wskit).not.toHaveProperty('channelScope');
+      expect(replayFrame.__wskit).not.toHaveProperty('channelFamily');
     });
   });
 

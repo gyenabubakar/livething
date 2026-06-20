@@ -35,10 +35,10 @@ import type {
 } from './events.ts';
 
 const StreamConnectionIdPayload = v.object({ count: v.number() });
-const StreamConnectionIdChunk = v.object({ id: v.string() });
+const StreamConnectionIdChunk = t<{ id: string }>();
 
 const StreamThrowOnCancelPayload = v.object({});
-const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
+const StreamThrowOnCancelChunk = t<{ tick: number }>();
 
 const base = define({
   env: t<Env>(),

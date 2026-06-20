@@ -151,12 +151,12 @@ test.describe('replay-custom-cascade', () => {
     }
   });
 
-  test('top-level custom replay forwards _channelScope on family-channel replay frames', async ({
+  test('top-level custom replay forwards _channelFamily on family-channel replay frames', async ({
     page,
   }, testInfo) => {
     // Pre-fix the top-level onReplay context's sendReplay hardcoded
-    // channelScope=null. Replay frames went out with channel='room-7' but
-    // no channelScope='rooms', so the client's family-channel router could
+    // channelFamily=null. Replay frames went out with channel='room-7' but
+    // no channelFamily='rooms', so the client's family-channel router could
     // not route them.
     const room = `cascade-fam-${testInfo.testId}-${Date.now()}`;
     await page.goto(`/replay-custom-cascade?room=${room}`);
@@ -232,7 +232,7 @@ test.describe('replay-custom-cascade', () => {
     await send('first', {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
     await expect
       .poll(async () => (await messagesOf('first')).some((m) => m.event === '__subscribeOk__'))
@@ -242,7 +242,7 @@ test.describe('replay-custom-cascade', () => {
       await send('first', {
         event: 'send-note',
         payload: { text },
-        __wskit: { channel: 'room-7', channelScope: 'rooms' },
+        __wskit: { channel: 'room-7', channelFamily: 'rooms' },
       });
     }
     await expect
@@ -282,7 +282,7 @@ test.describe('replay-custom-cascade', () => {
     await send('second', {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
     await expect
       .poll(async () => (await messagesOf('second')).some((m) => m.event === '__subscribeOk__'))
@@ -290,7 +290,7 @@ test.describe('replay-custom-cascade', () => {
     await send('second', {
       event: '__replay__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
 
     await expect
@@ -299,10 +299,10 @@ test.describe('replay-custom-cascade', () => {
 
     const notes = (await messagesOf('second')).filter((m) => m.event === 'note');
     expect(notes.map((n) => n.payload.text)).toEqual(['fam-one', 'fam-two']);
-    // Every replayed note frame carries BOTH the channel and the family scope.
+    // Every replayed note frame carries BOTH the channel and the family.
     for (const n of notes) {
       expect(n.__wskit?.channel).toBe('room-7');
-      expect(n.__wskit?.channelScope).toBe('rooms');
+      expect(n.__wskit?.channelFamily).toBe('rooms');
     }
   });
 });

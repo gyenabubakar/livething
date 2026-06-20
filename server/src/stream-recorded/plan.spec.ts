@@ -14,7 +14,7 @@ describe('recordedStream build-time validation', () => {
     const base = define({ env: t<Record<string, unknown>>(), capabilities: [recordedStream()] });
     const handle = base.recordedStream('tokens', {
       input: v.object({}),
-      chunk: v.object({ token: v.string() }),
+      chunk: t<{ token: string }>(),
       async *run() {
         yield { token: 'hi' };
       },
@@ -30,7 +30,7 @@ describe('recordedStream build-time validation', () => {
     const rooms = base.channel('rooms');
     const handle = rooms.recordedStream('tokens', {
       input: v.object({}),
-      chunk: v.object({ token: v.string() }),
+      chunk: t<{ token: string }>(),
       async *run() {
         yield { token: 'hi' };
       },
@@ -45,7 +45,7 @@ describe('recordedStream build-time validation', () => {
     });
     const handle = base.recordedStream('tokens', {
       input: v.object({}),
-      chunk: v.object({ token: v.string() }),
+      chunk: t<{ token: string }>(),
       async *run() {
         yield { token: 'hi' };
       },

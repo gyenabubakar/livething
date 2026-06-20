@@ -5,8 +5,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const BroadcastChunkSchema = v.object({ index: v.number() });
-const RoomBroadcastChunkSchema = v.object({ index: v.number() });
+const BroadcastChunkSchema = t<{ index: number }>();
+const RoomBroadcastChunkSchema = t<{ index: number }>();
 
 const base = define({
   env: t<Env>(),

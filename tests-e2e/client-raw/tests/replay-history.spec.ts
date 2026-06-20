@@ -298,13 +298,13 @@ test.describe('replay handler', () => {
     await waitForText(page, 'room-history-injected', 'true');
   });
 
-  test('top-level ctx.sendReplay forwards channelScope onto the wire (built-in replay)', async ({
+  test('top-level ctx.sendReplay forwards channelFamily onto the wire (built-in replay)', async ({
     page,
   }) => {
     // Pre-fix the built-in replay primitive's top-level sendReplay
-    // hardcoded channelScope=null. A handler that injects a family-scoped
-    // history frame (channel='fam-1', channelScope='fams') was producing
-    // a wire frame with channel='fam-1' but no channelScope='fams', so
+    // hardcoded channelFamily=null. A handler that injects a family-scoped
+    // history frame (channel='fam-1', channelFamily='fams') was producing
+    // a wire frame with channel='fam-1' but no channelFamily='fams', so
     // client-side family routing could not place it.
     const frame = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
@@ -327,7 +327,7 @@ test.describe('replay handler', () => {
 
     expect(frame).toBeDefined();
     expect(frame!.__wskit?.channel).toBe('fam-1');
-    expect(frame!.__wskit?.channelScope).toBe('fams');
+    expect(frame!.__wskit?.channelFamily).toBe('fams');
   });
 
   test('channel replay:false opts out of the cascade: optout-room stores nothing, replay-room does', async ({

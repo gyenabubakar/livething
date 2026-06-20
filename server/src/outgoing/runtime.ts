@@ -56,9 +56,9 @@ export function isDeclaredOutgoingEvent(
 
   if (routing?.channel) {
     const channel =
-      routing.channelScope === null || routing.channelScope === undefined
+      routing.channelFamily === null || routing.channelFamily === undefined
         ? compiled.channels.get(routing.channel)
-        : compiled.channelFamilies.get(routing.channelScope);
+        : compiled.channelFamilies.get(routing.channelFamily);
     return (
       (channel?.outgoing.has(event) ?? false) ||
       (channel?.streams.has(event) ?? false) ||
@@ -120,8 +120,8 @@ function buildWSKit(
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (routing?.channel) wskit.channel = routing.channel;
-  if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
-    wskit.channelScope = routing.channelScope;
+  if (routing?.channelFamily !== null && routing?.channelFamily !== undefined) {
+    wskit.channelFamily = routing.channelFamily;
   }
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
   if (routing?.source) wskit.source = routing.source;
@@ -387,7 +387,7 @@ export interface BroadcastToConnectionsOptions {
 
   options?: PublicApi.BroadcastOptions & {
     channel?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
   };
 
   excludeConnectionId?: string;
@@ -416,7 +416,7 @@ export function broadcastToConnections(
     prepared = prepareBroadcast(runtime, {
       routing: {
         channel: options?.channel,
-        channelScope: options?.channelScope,
+        channelFamily: options?.channelFamily,
       },
       event,
       payload,
@@ -462,7 +462,7 @@ export interface BroadcastToChannelOptions {
 
   excludeConnectionId: string | undefined;
 
-  channelScope: string | null;
+  channelFamily: string | null;
 
   excludeSelf?: boolean;
 }
@@ -482,16 +482,16 @@ export function broadcastToChannel(
     >,
   opts: BroadcastToChannelOptions,
 ): void {
-  const { channelName, event, payload, excludeConnectionId, channelScope, excludeSelf } = opts;
+  const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
   const members = runtime.channelMembers.get(
-    ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members || members.size === 0) return;
 
   let prepared: PreparedBroadcast;
   try {
     prepared = prepareBroadcast(runtime, {
-      routing: { channel: channelName, channelScope },
+      routing: { channel: channelName, channelFamily },
       event,
       payload,
     });
@@ -499,7 +499,7 @@ export function broadcastToChannel(
     // A payload or declaration error fails the same way for every member — log once.
     runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
       channel: channelName,
-      channelScope,
+      channelFamily,
       event,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -516,7 +516,7 @@ export function broadcastToChannel(
       runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         channel: channelName,
-        channelScope,
+        channelFamily,
         event,
         error: error instanceof Error ? error.message : String(error),
       });

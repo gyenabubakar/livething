@@ -29,7 +29,7 @@ export interface WSKitEnvelope {
   channel?: string;
 
   /** The dynamic channel-family key, paired with `channel`. */
-  channelScope?: string;
+  channelFamily?: string;
 
   /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
   unsubscribeId?: string;

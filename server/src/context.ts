@@ -365,7 +365,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
   sendReplay?(
     event: string,
     payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
+    wire: { seq: number; messageId: string; channel?: string; channelFamily?: string | null },
   ): void;
 }
 
@@ -373,7 +373,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  * A handle to one resolved channel, returned by `ctx.channel` (in-channel) and
  * by `ctx.channels.get(...)` (anywhere). Use it to send to the caller, broadcast
  * to subscribers, list members, or kick tagged connections out of this exact
- * channel scope.
+ * channel family.
  *
  * `TOutgoing` is typed to the events declared inside the channel's
  * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
@@ -392,7 +392,7 @@ export interface ChannelHandle<
    * family registered with `scope(key, template)`, or `null` when the handle
    * targets a static channel registered with a string name.
    */
-  readonly scope: string | null;
+  readonly family: string | null;
 
   /**
    * The `{name}` captures from the matched channel name, typed from the
@@ -406,7 +406,7 @@ export interface ChannelHandle<
   send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
 
   /**
-   * Broadcast a channel-scoped event to subscribers of this exact channel scope.
+   * Broadcast a channel-scoped event to subscribers of this exact channel family.
    *
    * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
    * to also deliver the event to the sender.
@@ -417,7 +417,7 @@ export interface ChannelHandle<
     options?: { excludeSelf?: boolean },
   ): void;
 
-  /** List the connections currently subscribed to this exact channel scope. */
+  /** List the connections currently subscribed to this exact channel family. */
   members(): ConnectionInfo<Meta>[];
 
   /**
@@ -434,7 +434,7 @@ export interface ChannelHandle<
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
 
   /**
-   * Remove connections from this exact channel scope. The `target` decides
+   * Remove connections from this exact channel family. The `target` decides
    * which connections leave:
    *
    * - `ConnectionRef` — kick that one socket.
@@ -484,7 +484,7 @@ export interface ChannelHandle<
  * Look up a channel handle from any handler. Use the single-argument overload
  * for static channel names, and the two-argument overload for dynamic channel
  * families declared with `scope(key, pattern)`. The returned handle is bound to
- * the resolved scope so members and kicks never cross into a different family.
+ * the resolved channel so members and kicks never cross into a different family.
  *
  * Available as `ctx.channels` when at least one `channel()` is registered at
  * the top level. Inside a channel handler, prefer `ctx.channel` instead.

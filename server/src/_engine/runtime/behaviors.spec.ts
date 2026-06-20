@@ -519,7 +519,7 @@ describe('processTextMessage protocol branches', () => {
       JSON.stringify({
         event: '__subscribe__',
         payload: {},
-        __wskit: { channel: 'room:general', channelScope: 'rooms' },
+        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
       }),
     );
 
@@ -527,7 +527,7 @@ describe('processTextMessage protocol branches', () => {
     expect(errors[0]!.event).toBe('__subscribe__');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
   });
 
@@ -552,7 +552,7 @@ describe('processTextMessage protocol branches', () => {
       JSON.stringify({
         event: '__unsubscribe__',
         payload: {},
-        __wskit: { channel: 'room:general', channelScope: 'rooms' },
+        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
       }),
     );
 
@@ -560,7 +560,7 @@ describe('processTextMessage protocol branches', () => {
     expect(errors[0]!.event).toBe('__unsubscribe__');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
@@ -596,8 +596,8 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       meta: {},
       ephemeral_tags: [],
       ephemeral_memberships: [
-        { channelName: 'room:a', channelScope: 'rooms' },
-        { channelName: 'room:b', channelScope: null },
+        { channelName: 'room:a', channelFamily: 'rooms' },
+        { channelName: 'room:b', channelFamily: null },
       ],
       active_stream_ids: [],
     });

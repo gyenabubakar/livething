@@ -171,7 +171,7 @@ describe('plugin() — scoped handler + manifest', () => {
     await dispatchIncoming(runtime as any, connection, {
       event: '__acme:presence::heartbeat',
       payload: {},
-      wskit: { channelScope: null },
+      wskit: { channelFamily: null },
     });
 
     expect(send).toHaveBeenCalledWith('__acme:presence::user-online', { id: 'conn_1' });

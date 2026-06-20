@@ -19,7 +19,7 @@ function inMemorySql(): SQLProvider {
   type MembershipRow = {
     identity: string;
     channel_name: string;
-    channel_scope: string;
+    channel_family: string;
     joined_at: number;
   };
   type TagRow = { identity: string; group_name: string; key: string; added_at: number };
@@ -27,8 +27,8 @@ function inMemorySql(): SQLProvider {
   const memberships = new Map<string, MembershipRow>();
   const tags = new Map<string, TagRow>();
 
-  function mKey(r: { identity: string; channel_name: string; channel_scope: string }) {
-    return `${r.identity}|${r.channel_name}|${r.channel_scope}`;
+  function mKey(r: { identity: string; channel_name: string; channel_family: string }) {
+    return `${r.identity}|${r.channel_name}|${r.channel_family}`;
   }
   function result<T>(items: T[]): SqlResult<T> {
     return {
@@ -44,35 +44,35 @@ function inMemorySql(): SQLProvider {
     if (q.startsWith('CREATE')) return result<TRow>([]);
 
     if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
-      const [identity, channel_name, channel_scope, joined_at] = params as [
+      const [identity, channel_name, channel_family, joined_at] = params as [
         string,
         string,
         string,
         number,
       ];
-      const row = { identity, channel_name, channel_scope, joined_at };
+      const row = { identity, channel_name, channel_family, joined_at };
       memberships.set(mKey(row), row);
       return result<TRow>([]);
     }
 
     if (
       q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_family = ?',
       )
     ) {
-      const [identity, channel_name, channel_scope] = params as [string, string, string];
-      memberships.delete(mKey({ identity, channel_name, channel_scope }));
+      const [identity, channel_name, channel_family] = params as [string, string, string];
+      memberships.delete(mKey({ identity, channel_name, channel_family }));
       return result<TRow>([]);
     }
 
     if (
       q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE channel_name = ? AND channel_family = ?',
       )
     ) {
-      const [channel_name, channel_scope] = params as [string, string];
+      const [channel_name, channel_family] = params as [string, string];
       for (const [k, row] of memberships) {
-        if (row.channel_name === channel_name && row.channel_scope === channel_scope) {
+        if (row.channel_name === channel_name && row.channel_family === channel_family) {
           memberships.delete(k);
         }
       }
@@ -88,7 +88,9 @@ function inMemorySql(): SQLProvider {
     }
 
     if (
-      q.startsWith('SELECT channel_name, channel_scope, joined_at FROM __wskit_channel_memberships')
+      q.startsWith(
+        'SELECT channel_name, channel_family, joined_at FROM __wskit_channel_memberships',
+      )
     ) {
       const [identity] = params as [string];
       const rows = [...memberships.values()].filter((r) => r.identity === identity);
@@ -118,58 +120,58 @@ describe('persistence storage', () => {
   });
 
   it('maps null scope to "" on write and back to null on read', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
     const rows = listMembershipsByIdentity(sql, 'u-1');
-    expect(rows).toEqual([{ channelName: 'lobby', channelScope: null, joinedAt: 1000 }]);
+    expect(rows).toEqual([{ channelName: 'lobby', channelFamily: null, joinedAt: 1000 }]);
   });
 
   it('preserves non-null scope for dynamic family channels', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelScope: 'room:42' }, 2000);
-    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelScope: 'room:99' }, 3000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelFamily: 'room:99' }, 3000);
     const rows = listMembershipsByIdentity(sql, 'u-1');
     expect(rows).toHaveLength(2);
-    expect(rows.map((r) => r.channelScope).sort()).toEqual(['room:42', 'room:99']);
+    expect(rows.map((r) => r.channelFamily).sort()).toEqual(['room:42', 'room:99']);
   });
 
   it('INSERT OR REPLACE deduplicates on PK', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 5000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 5000);
     const rows = listMembershipsByIdentity(sql, 'u-1');
     expect(rows).toHaveLength(1);
     expect(rows[0]!.joinedAt).toBe(5000);
   });
 
   it('deletes one membership for a specific identity+channel+scope', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
-    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelScope: 'room:42' }, 2000);
-    deleteMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null });
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
+    deleteMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null });
     const rows = listMembershipsByIdentity(sql, 'u-1');
     expect(rows.map((r) => r.channelName)).toEqual(['room']);
   });
 
   it('listMembershipsByIdentity returns only rows for that identity', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
-    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelScope: null }, 2000);
-    insertMembership(sql, { identity: 'u-2', channelName: 'admin', channelScope: null }, 3000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelFamily: null }, 2000);
+    insertMembership(sql, { identity: 'u-2', channelName: 'admin', channelFamily: null }, 3000);
     expect(listMembershipsByIdentity(sql, 'u-1')).toHaveLength(1);
     expect(listMembershipsByIdentity(sql, 'u-2')).toHaveLength(2);
     expect(listMembershipsByIdentity(sql, 'unknown')).toHaveLength(0);
   });
 
   it('purgeMembershipsByIdentity drops every row for that identity', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
-    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelScope: 'room:42' }, 2000);
-    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelScope: null }, 3000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 2000);
+    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelFamily: null }, 3000);
     purgeMembershipsByIdentity(sql, 'u-1');
     expect(listMembershipsByIdentity(sql, 'u-1')).toHaveLength(0);
     expect(listMembershipsByIdentity(sql, 'u-2')).toHaveLength(1);
   });
 
   it('deleteMembershipsByChannel removes rows across every identity', () => {
-    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelScope: null }, 1000);
-    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelScope: null }, 2000);
-    insertMembership(sql, { identity: 'u-3', channelName: 'lobby', channelScope: null }, 3000);
-    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelScope: 'room:42' }, 4000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'lobby', channelFamily: null }, 1000);
+    insertMembership(sql, { identity: 'u-2', channelName: 'lobby', channelFamily: null }, 2000);
+    insertMembership(sql, { identity: 'u-3', channelName: 'lobby', channelFamily: null }, 3000);
+    insertMembership(sql, { identity: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 4000);
     deleteMembershipsByChannel(sql, 'lobby', null);
     expect(listMembershipsByIdentity(sql, 'u-1').map((r) => r.channelName)).toEqual(['room']);
     expect(listMembershipsByIdentity(sql, 'u-2')).toHaveLength(0);

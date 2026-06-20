@@ -327,7 +327,7 @@ export interface StreamConfig<
   /** Schema validating the start payload the client sends. */
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   /** Client→server steering signals delivered into the running generator. */
   readonly nudges?: TNudges;
   /** Fan the stream out to every connection (or channel member) instead of one. */
@@ -405,7 +405,7 @@ export interface ResumableStreamConfig<
 > extends DurableStreamOptions {
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
   readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
   readonly nudges?: TNudges;
@@ -460,7 +460,7 @@ export interface RecordedStreamConfig<
 > extends DurableStreamOptions {
   readonly input?: TInput;
   /** Optional explicit chunk type. Otherwise inferred from what `run` yields. */
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -625,22 +625,6 @@ export type ChannelGateCtx<
 };
 
 /**
- * The `ctx` a channel `check` gate receives — adds the validated subscribe
- * payload, typed to the channel's `subscribe` schema output (or `unknown` when
- * the channel declares no `subscribe` schema).
- */
-export type ChannelCheckCtx<
-  TSlots,
-  TEnv,
-  TMeta,
-  TCaps extends readonly AnyCapability[] = readonly [],
-  TCheckPayload = unknown,
-> = ChannelGateCtx<TSlots, TEnv, TMeta, TCaps> & {
-  /** The validated subscribe payload. */
-  readonly check: TCheckPayload;
-};
-
-/**
  * The channel-level `rateLimit?` field, present only when the `rateLimit()`
  * capability is listed. Caps every event in this channel against one bucket; a
  * per-handler `rateLimit` tightens or loosens it. Absent without the capability,
@@ -691,7 +675,8 @@ export type ChannelConfig<
   readonly subscribe?: TSubscribe;
   /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
   check?: (
-    ctx: ChannelCheckCtx<TSlots, TEnv, TMeta, TCaps, InferInput<TSubscribe>>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
   /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
   commit?: (
@@ -746,7 +731,7 @@ type ChannelStreamConfig<
   TServerRequests = {},
 > = {
   readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -774,7 +759,7 @@ type ChannelRecordedStreamConfig<
   TServerRequests = {},
 > = DurableStreamOptions & {
   readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
@@ -805,7 +790,7 @@ type ChannelResumableStreamConfig<
   TServerRequests = {},
 > = DurableStreamOptions & {
   readonly input?: TInput;
-  readonly chunk?: TypeMarker<TChunk> | Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   /** The cursor type. A `t<T>()` marker is type-only; a schema also runtime-checks restored cursors. */
   readonly cursor?: TypeMarker<TCursor> | Validator<TCursor>;
   readonly nudges?: TNudges;

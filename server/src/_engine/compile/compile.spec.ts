@@ -180,16 +180,16 @@ describe('scope and event name syntax — reserved characters', () => {
     expect(() => compileHandlerDefinition(base.assemble(chat, handle))).not.toThrow();
   });
 
-  it('allows a dynamic family key at the channelScope wire limit', () => {
-    const key = 'k'.repeat(WIRE_LIMITS.channelScope);
+  it('allows a dynamic family key at the channelFamily wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelFamily);
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble(base.channel([key, 'room:{id}'], {}))),
     ).not.toThrow();
   });
 
-  it('rejects a dynamic family key one over the channelScope wire limit', () => {
-    const key = 'k'.repeat(WIRE_LIMITS.channelScope + 1);
+  it('rejects a dynamic family key one over the channelFamily wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelFamily + 1);
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble(base.channel([key, 'room:{id}'], {}))),

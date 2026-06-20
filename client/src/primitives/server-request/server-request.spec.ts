@@ -134,7 +134,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
-      __wskit: { correlationId: 'x3', channel: 'room-1', channelScope: 'rooms', source: 'server' },
+      __wskit: { correlationId: 'x3', channel: 'room-1', channelFamily: 'rooms', source: 'server' },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -142,7 +142,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     expect(reply.__wskit).toMatchObject({
       correlationId: 'x3',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
   });
 
@@ -191,7 +191,7 @@ describe('serverRequest — answering server-initiated requests', () => {
       __wskit: {
         correlationId: 'x5',
         channel: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         source: 'server',
       },
     });
@@ -225,7 +225,7 @@ describe('serverRequest — answering server-initiated requests', () => {
       __wskit: {
         correlationId: 'x7',
         channel: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         source: 'server',
       },
     });

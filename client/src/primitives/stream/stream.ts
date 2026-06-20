@@ -52,7 +52,7 @@ function scopeMatches(
   envelope: WSKitEnvelope | undefined,
 ): boolean {
   if (!scope) return envelope?.channel === undefined;
-  return scope.channel === envelope?.channel && scope.channelScope === envelope?.channelScope;
+  return scope.channel === envelope?.channel && scope.channelFamily === envelope?.channelFamily;
 }
 
 /** The `stream-aborted` reason on an error, if any. */

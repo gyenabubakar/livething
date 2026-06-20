@@ -39,7 +39,7 @@ export interface StoredConnectionRow {
   identity: string;
   meta: Record<string, unknown>;
   ephemeral_tags: readonly StoredEphemeralTag[];
-  ephemeral_memberships: readonly { channelName: string; channelScope: string | null }[];
+  ephemeral_memberships: readonly { channelName: string; channelFamily: string | null }[];
   active_stream_ids: readonly string[];
   /** Forward-compat blob (see the metadata column); not yet read or written. */
   metadata?: Record<string, unknown>;
@@ -204,7 +204,7 @@ function parseEphemeralTagArray(raw: string): readonly StoredEphemeralTag[] {
 
 function parseMembershipArray(
   raw: string,
-): readonly { channelName: string; channelScope: string | null }[] {
+): readonly { channelName: string; channelFamily: string | null }[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -212,8 +212,8 @@ function parseMembershipArray(
       if (!entry || typeof entry !== 'object') return [];
       const record = entry as Record<string, unknown>;
       if (typeof record.channelName !== 'string') return [];
-      const scope = typeof record.channelScope === 'string' ? record.channelScope : null;
-      return [{ channelName: record.channelName, channelScope: scope }];
+      const scope = typeof record.channelFamily === 'string' ? record.channelFamily : null;
+      return [{ channelName: record.channelName, channelFamily: scope }];
     });
   } catch {
     return [];

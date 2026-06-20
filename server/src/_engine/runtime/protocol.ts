@@ -53,9 +53,9 @@ const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.c
 
 /**
  * A bounded family key for dynamic channels. These are short identifiers that
- * must match a declared scope, so 128 is never legitimately exceeded.
+ * must match a declared family, so 128 is never legitimately exceeded.
  */
-const ScopeKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelScope));
+const ChannelFamilyKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelFamily));
 
 /**
  * A bounded correlation / message id. The client SDK stamps these as
@@ -68,22 +68,22 @@ const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.wireId
 const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.event));
 
 /**
- * Scope markers for a frame that must target a channel. `channelScope` is the
+ * Scope markers for a frame that must target a channel. `channelFamily` is the
  * family key for dynamic channels; wire-missing or wire-null both resolve to
  * `null`, matching the engine's "static channel = null" convention.
  */
 const RequiredChannelScope = {
   channel: ChannelName,
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /**
  * Scope markers for a frame that may be top-level or channel-scoped. Every
- * field is optional; `channelScope` still resolves to `null` when absent.
+ * field is optional; `channelFamily` still resolves to `null` when absent.
  */
 const OptionalScope = {
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /**
@@ -93,7 +93,7 @@ const OptionalScope = {
  */
 const ReplayScope = {
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /** An empty payload — protocol events that carry no app data. */
@@ -302,7 +302,7 @@ export const WSKitProtocolSchema = v.strictObject({
   // from a reply to its own request (it originated it).
   source: v.optional(Source),
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
   streamId: v.optional(StreamIdString),
   streamKind: v.optional(StreamKind),
   streamNudgeId: v.optional(WireId),

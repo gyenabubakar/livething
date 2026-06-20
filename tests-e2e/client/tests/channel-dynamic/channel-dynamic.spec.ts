@@ -51,7 +51,7 @@ test.describe('channel-dynamic (conformance)', () => {
     await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
   });
 
-  test('socket.channel.scope(scope) handle subscribes to a family member', async ({
+  test('socket.channel.family(familyKey) handle subscribes to a family member', async ({
     page,
   }, testInfo) => {
     await open(page, `cd-scope-${testInfo.testId}`);

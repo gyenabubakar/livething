@@ -68,7 +68,7 @@ export interface CompiledChannel {
    * The owning plugin id when this channel was contributed by a `plugin(...)`,
    * else `undefined`. Set from the channel primitive's `__plugin` provenance
    * marker; the compile name guards read it to permit the framework-namespaced
-   * `__<id>::<name>` channel scope and its child events.
+   * `__<id>::<name>` channel and its child events.
    */
   __plugin?: string;
 }
@@ -103,7 +103,7 @@ export interface CompiledServer {
   requires: RequiresManifest;
 
   /**
-   * Channel keys (static channel names or scope keys) that have an explicit
+   * Channel keys (static channel names or family keys) that have an explicit
    * `.replay(...)` or `.replay(false)` registered inside them.
    *
    * Server-level replay uses this to decide which channels' traffic it should

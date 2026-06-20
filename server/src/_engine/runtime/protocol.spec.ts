@@ -138,11 +138,11 @@ describe('outgoing protocol-frame conformance', () => {
     },
   );
 
-  it('round-trips a member presence frame for a dynamic family (channelScope set)', () => {
+  it('round-trips a member presence frame for a dynamic family (channelFamily set)', () => {
     const result = v.safeParse(OutgoingProtocolFrame, {
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: {} },
-      __wskit: { channel: 'room:1', channelScope: 'rooms' },
+      __wskit: { channel: 'room:1', channelFamily: 'rooms' },
     });
     expect(result.success).toBe(true);
   });

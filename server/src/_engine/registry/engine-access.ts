@@ -29,7 +29,7 @@ export interface EngineAccessDeps {
       payload: unknown;
       correlationId: string;
       channel?: string;
-      channelScope?: string | null;
+      channelFamily?: string | null;
     },
   ): boolean;
 }
@@ -222,8 +222,8 @@ export function createEngineAccess(
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
     },
-    isDurableMembershipPairPersistent: (channelName, channelScope) =>
-      core.isDurableMembershipPairPersistent(channelName, channelScope),
+    isDurableMembershipPairPersistent: (channelName, channelFamily) =>
+      core.isDurableMembershipPairPersistent(channelName, channelFamily),
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;

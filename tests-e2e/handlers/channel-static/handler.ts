@@ -8,7 +8,7 @@ import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const SendMessagePayload = v.object({ text: v.string() });
 const StartChannelStreamPayload = v.object({ count: v.number() });
-const ChannelTokenPayload = v.object({ index: v.number() });
+const ChannelTokenPayload = t<{ index: number }>();
 const TagSelfPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 

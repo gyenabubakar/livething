@@ -38,7 +38,10 @@ function createRuntime(
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
     if (i < memberCount)
-      addChannelMembership(channelMembers, connection, { channelName: 'room', channelScope: null });
+      addChannelMembership(channelMembers, connection, {
+        channelName: 'room',
+        channelFamily: null,
+      });
   }
 
   let seq = 0;
@@ -106,7 +109,7 @@ for (const [memberCount, total] of scenarios) {
         event: 'chat',
         payload: smallPayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
 
@@ -117,7 +120,7 @@ for (const [memberCount, total] of scenarios) {
         event: 'chat',
         payload: largePayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
   });
@@ -137,7 +140,7 @@ for (const [memberCount, total] of [
         event: 'chat',
         payload: smallPayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
 
@@ -148,7 +151,7 @@ for (const [memberCount, total] of [
         event: 'chat',
         payload: largePayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
   });

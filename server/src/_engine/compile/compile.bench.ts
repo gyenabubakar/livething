@@ -27,7 +27,7 @@ import { compileHandlerDefinition } from './compile.ts';
 
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
-const NumChunk = v.object({ n: v.number() });
+const NumChunk = t<{ n: number }>();
 
 const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();

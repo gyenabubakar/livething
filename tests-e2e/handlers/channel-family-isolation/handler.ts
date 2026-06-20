@@ -151,7 +151,7 @@ const handleSendInPrivate = privateRooms.on('send-in-private', {
   },
 });
 
-export const channelScopeIsolationHandler = base.assemble(
+export const channelFamilyIsolationHandler = base.assemble(
   handlePublicMembers,
   handlePrivateMembers,
   handleKickInPublic,
@@ -163,4 +163,4 @@ export const channelScopeIsolationHandler = base.assemble(
   handleSendInPrivate,
 );
 
-export type ChannelScopeIsolationClient = InferClient<typeof channelScopeIsolationHandler>;
+export type ChannelFamilyIsolationClient = InferClient<typeof channelFamilyIsolationHandler>;

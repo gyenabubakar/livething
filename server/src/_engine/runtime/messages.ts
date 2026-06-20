@@ -24,7 +24,7 @@ import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
-import { resolveScope, routingFromWSKit } from './scope.ts';
+import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -87,7 +87,7 @@ interface DispatchRuntime
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   sendProtocolMessage(
@@ -99,7 +99,7 @@ interface DispatchRuntime
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: {
       channelName: string | null;
-      channelScope: string | null;
+      channelFamily: string | null;
       event: string;
       payload: unknown;
       wire: { seq: number; messageId: string; channel?: string };
@@ -117,7 +117,7 @@ interface DispatchRuntime
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
+    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
   ): Promise<void>;
 
   broadcastToConnections(
@@ -234,7 +234,7 @@ function buildInterceptRouting(
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
-    routing.channelFamily = wskit.channelScope ?? null;
+    routing.channelFamily = wskit.channelFamily ?? null;
   }
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
   return routing;
@@ -254,7 +254,7 @@ interface HandleDispatchErrorOptions {
 
   wskit: Protocol.WSKitProtocol | undefined;
 
-  scope: EngineRuntimeTypes.ResolvedScope;
+  scope: EngineRuntimeTypes.ResolvedChannel;
 
   error: unknown;
 
@@ -282,9 +282,9 @@ export async function dispatchIncoming(
   // gone — and the connection is already out of the runtime maps by then.
   if (connection.closing) return;
 
-  let scope: EngineRuntimeTypes.ResolvedScope;
+  let scope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    scope = resolveScope(runtime.compiled, wskit);
+    scope = resolveChannel(runtime.compiled, wskit);
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,
@@ -298,14 +298,14 @@ export async function dispatchIncoming(
     !ChannelPrimitive.hasChannelMembership(
       connection,
       scope.channelName,
-      scope.channelScope ?? null,
+      scope.channelFamily ?? null,
     )
   ) {
     // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
     // client can match this error to its pending op, then stamp the channel markers.
     const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {};
     routing.channel = scope.channelName;
-    routing.channelScope = scope.channelScope ?? null;
+    routing.channelFamily = scope.channelFamily ?? null;
     // A nudge frame's reject is non-terminal — keep the stream alive on the client.
     if (wskit?.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
@@ -556,23 +556,23 @@ function resolveDurableDefForRow(
 ):
   | {
       def: DurableStreamRuntime.DurableStreamRuntimeDef;
-      scope: EngineRuntimeTypes.ResolvedScope;
+      scope: EngineRuntimeTypes.ResolvedChannel;
     }
   | undefined {
-  let scope: EngineRuntimeTypes.ResolvedScope = {};
+  let scope: EngineRuntimeTypes.ResolvedChannel = {};
   let resumable: EngineCompileTypes.AnyResumableStream | undefined;
   let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
 
   if (row.channelKey) {
     const channel =
-      row.channelScope !== null
-        ? runtime.compiled.channelFamilies.get(row.channelScope)
+      row.channelFamily !== null
+        ? runtime.compiled.channelFamilies.get(row.channelFamily)
         : runtime.compiled.channels.get(row.channelKey);
     if (!channel) return undefined;
-    if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelScope)) {
+    if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelFamily)) {
       return undefined;
     }
-    scope = { channel, channelName: row.channelKey, channelScope: row.channelScope };
+    scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
     resumable = channel.resumableStreams.get(row.event);
     recorded = channel.recordedStreams.get(row.event);
   } else {
@@ -645,14 +645,14 @@ async function handleResumeStream(
     runtime.durableStreamSchemaReady = true;
   }
 
-  // Routing markers let a non-creator resume a broadcast stream by its scope key.
+  // Routing markers let a non-creator resume a broadcast stream by its channel key.
   // Malformed markers used to fall back to a top-level lookup, which then
   // matched and resumed an unrelated top-level stream with the same id.
   // Surface the routing failure as a typed __error__ tied to the streamId
   // instead — the client gets a clear signal and no other stream is touched.
-  let resumeScope: EngineRuntimeTypes.ResolvedScope;
+  let resumeScope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    resumeScope = resolveScope(runtime.compiled, frame.__wskit);
+    resumeScope = resolveChannel(runtime.compiled, frame.__wskit);
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,
@@ -719,9 +719,9 @@ async function dispatchProtocolFrame(
           // id. Surface the routing failure as a typed __error__ tied to the
           // streamId instead — the client gets a clear signal and no other
           // stream is touched.
-          let cancelScope: EngineRuntimeTypes.ResolvedScope;
+          let cancelScope: EngineRuntimeTypes.ResolvedChannel;
           try {
-            cancelScope = resolveScope(runtime.compiled, frame.__wskit);
+            cancelScope = resolveChannel(runtime.compiled, frame.__wskit);
           } catch (error) {
             await runtime.handleRuntimeError(connection, {
               error,
@@ -743,7 +743,7 @@ async function dispatchProtocolFrame(
         return;
       case '__replay__': {
         const handlers = runtime.protocolHandlers.get('__replay__') ?? [];
-        const scope = resolveScope(runtime.compiled, frame.__wskit);
+        const scope = resolveChannel(runtime.compiled, frame.__wskit);
         const ctx = runtime.buildConnectionContext(connection, scope);
         for (const handler of handlers) {
           const handled = await handler(ctx, frame);
@@ -879,10 +879,10 @@ export async function processTextMessage(
 
   // A stream trigger frame skips nudge buffering even with a streamId. Walk the
   // target scope so a scoped durable trigger isn't misrouted into the buffer.
-  let triggerScope: EngineRuntimeTypes.ResolvedScope = {};
+  let triggerScope: EngineRuntimeTypes.ResolvedChannel = {};
   let scopeError: unknown;
   try {
-    triggerScope = resolveScope(runtime.compiled, wskit);
+    triggerScope = resolveChannel(runtime.compiled, wskit);
   } catch (error) {
     scopeError = error;
   }
@@ -925,13 +925,13 @@ export async function processTextMessage(
         const storedScope = activeStream.scope ?? {};
         const sameScope =
           (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
-          (storedScope.channelScope ?? null) === (triggerScope.channelScope ?? null);
+          (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
         const memberOk =
           !storedScope.channelName ||
           ChannelPrimitive.hasChannelMembership(
             connection,
             storedScope.channelName,
-            storedScope.channelScope ?? null,
+            storedScope.channelFamily ?? null,
           );
         if (!sameScope || !memberOk) {
           const rejectRouting: Protocol.WSKitRouting = {

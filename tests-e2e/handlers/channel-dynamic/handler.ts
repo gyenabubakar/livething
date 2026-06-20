@@ -17,7 +17,7 @@ const base = define({
     emits({
       'top-only-action-fired': t<{ from: string }>(),
       'validation-observed': t<{ channel: string; event: string }>(),
-      'scoped-error-observed': t<{ channel: string; scope: string; event: string }>(),
+      'scoped-error-observed': t<{ channel: string; family: string; event: string }>(),
     }),
   ],
 });
@@ -26,7 +26,7 @@ base.error((ctx, _error, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
   ctx.send('scoped-error-observed', {
     channel: c.channel?.name ?? '<top-level>',
-    scope: c.channel?.family ?? '<no-scope>',
+    family: c.channel?.family ?? '<no-family>',
     event: eventName ?? '<unknown>',
   });
 });
@@ -131,8 +131,8 @@ const handleTriggerScopedError = room.on('trigger-scoped-error', {
 });
 
 const protoProbe = base.channel(['proto-probe', 'proto:{id}'], {
-  check(ctx) {
-    const d = ctx.check as { role?: unknown } | undefined;
+  check(_ctx, input) {
+    const d = input as { role?: unknown } | undefined;
     if (d?.role === 'admin') {
       throw new Error('admin role on subscribe payload is forbidden');
     }

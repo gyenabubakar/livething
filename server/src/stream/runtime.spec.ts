@@ -126,7 +126,7 @@ describe('stream/runtime', () => {
     };
 
     await runStream(runtime as Parameters<typeof runStream>[0], connection, {
-      scope: { channelName: 'chat', channelScope: 'rooms' },
+      scope: { channelName: 'chat', channelFamily: 'rooms' },
       event: 'chat-stream',
       stream: stream as never,
       payload: {},
@@ -135,7 +135,7 @@ describe('stream/runtime', () => {
     const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
     expect(streamEnd!.wskit.channel).toBe('chat');
-    expect(streamEnd!.wskit.channelScope).toBe('rooms');
+    expect(streamEnd!.wskit.channelFamily).toBe('rooms');
   });
 
   it('broadcast stream sends chunks to every connection in scope', async () => {
@@ -172,17 +172,17 @@ describe('stream/runtime', () => {
     }
   });
 
-  it('broadcast stream forwards channelScope to peer sends (dynamic channel families)', async () => {
+  it('broadcast stream forwards channelFamily to peer sends (dynamic channel families)', async () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
     trigger.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     peer.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(peer.id, peer);
@@ -195,25 +195,25 @@ describe('stream/runtime', () => {
     };
 
     // Stream declared inside `channel(scope('rooms', /^room:.+$/))`. The
-    // active scope carries channelName: 'room:123' and channelScope: 'rooms'.
-    // Peer broadcasts must forward channelScope so the outgoing pipeline
+    // active scope carries channelName: 'room:123' and channelFamily: 'rooms'.
+    // Peer broadcasts must forward channelFamily so the outgoing pipeline
     // resolves the channel family rather than failing the declaration check
     // against a non-existent static channel called 'room:123'.
     await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
-      scope: { channelName: 'room:123', channelScope: 'rooms' },
+      scope: { channelName: 'room:123', channelFamily: 'rooms' },
       event: 'broadcast-stream',
       stream: stream as never,
       payload: {},
     });
 
-    // Every send (peer and the creator's own) carries channelScope so the
+    // Every send (peer and the creator's own) carries channelFamily so the
     // outgoing pipeline resolves the channel family rather than failing the
     // declaration check against a non-existent static channel 'room:123'.
     expect(pipelineSends.map((s) => s.connId).sort()).toEqual(['peer', 'trigger']);
     for (const send of pipelineSends) {
       expect(send.routing).toMatchObject({
         channel: 'room:123',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamKind: 'ephemeral',
         seq: 1,
       });
@@ -228,11 +228,11 @@ describe('stream/runtime', () => {
 
     trigger.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     member.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     runtime.connections.set(trigger.id, trigger);
@@ -247,7 +247,7 @@ describe('stream/runtime', () => {
     };
 
     await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
       event: 'broadcast-stream',
       stream: stream as never,
       payload: {},
@@ -593,7 +593,7 @@ describe('stream/runtime', () => {
       {
         event: 'nudge-event',
         payload: {},
-        wskit: { streamId: 'does-not-exist', channelScope: null },
+        wskit: { streamId: 'does-not-exist', channelFamily: null },
       },
     );
 
@@ -627,7 +627,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -654,7 +654,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       intruder,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -678,7 +678,7 @@ describe('stream/runtime', () => {
       nudgeValidators: new Map([['known-nudge', undefined]]),
       abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -688,7 +688,7 @@ describe('stream/runtime', () => {
       {
         event: 'known-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelFamily: 'rooms' },
       },
     );
 
@@ -705,7 +705,7 @@ describe('stream/runtime', () => {
     const connection = createConnection();
     connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     const handleRuntimeError = vi.fn();
     runtime.handleRuntimeError = handleRuntimeError;
@@ -719,7 +719,7 @@ describe('stream/runtime', () => {
       nudgeValidators: new Map([['known-nudge', undefined]]),
       abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -728,7 +728,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -741,7 +741,7 @@ describe('stream/runtime', () => {
     const connection = createConnection();
     connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     const handleRuntimeError = vi.fn();
     runtime.handleRuntimeError = handleRuntimeError;
@@ -755,7 +755,7 @@ describe('stream/runtime', () => {
       nudgeValidators: new Map([['known-nudge', undefined]]),
       abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -765,7 +765,7 @@ describe('stream/runtime', () => {
       {
         event: 'known-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelFamily: 'rooms' },
       },
     );
 
@@ -793,7 +793,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -824,7 +824,7 @@ describe('stream/runtime', () => {
       {
         event: 'n',
         payload: { k: 1 },
-        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge-7', channelScope: null },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge-7', channelFamily: null },
       },
     );
 
@@ -854,7 +854,7 @@ describe('stream/runtime', () => {
     await bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
       event: 'n',
       payload: {},
-      wskit: { streamId: 'stream_1', channelScope: null },
+      wskit: { streamId: 'stream_1', channelFamily: null },
     });
 
     expect(protocolMessages.find((m) => m.event === '__nudgeOk__')).toBeUndefined();
@@ -882,7 +882,7 @@ describe('stream/runtime', () => {
       {
         event: 'n',
         payload: { k: 1 },
-        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelFamily: null },
       },
     );
 
@@ -923,7 +923,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'unknown-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'unknown-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -974,7 +974,7 @@ describe('stream/runtime', () => {
       bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
         event: 'async-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channelScope: null },
+        wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -1016,7 +1016,7 @@ describe('stream/runtime', () => {
       {
         event: 'pause',
         payload: { bad: true },
-        wskit: { streamId: 'stream_1', channelScope: null },
+        wskit: { streamId: 'stream_1', channelFamily: null },
       },
     );
 
@@ -1159,14 +1159,14 @@ describe('stream/runtime', () => {
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's1', channelScope: null },
+        wskit: { streamId: 's1', channelFamily: null },
       }),
       runStream(runtime as Parameters<typeof runStream>[0], connection, {
         scope: {},
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's2', channelScope: null },
+        wskit: { streamId: 's2', channelFamily: null },
       }),
     ]);
 
@@ -1194,14 +1194,14 @@ describe('stream/runtime', () => {
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's1', channelScope: null },
+        wskit: { streamId: 's1', channelFamily: null },
       }),
       runStream(runtime as Parameters<typeof runStream>[0], connection, {
         scope: {},
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's2', channelScope: null },
+        wskit: { streamId: 's2', channelFamily: null },
       }),
     ]);
 
@@ -1373,7 +1373,7 @@ describe('stream/runtime', () => {
       event: 'feed',
       stream: stream as never,
       payload: {},
-      wskit: { streamId: 'conv-42', channelScope: null },
+      wskit: { streamId: 'conv-42', channelFamily: null },
     });
 
     const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
@@ -1398,7 +1398,7 @@ describe('stream/runtime', () => {
     // wire schema (`v.optional(StreamIdString)`) rejects a wrong type or an
     // empty string before this runs, so those never reach here. A missing
     // `__wskit` and a present-but-streamId-less one both generate an id.
-    const noIdWSKits: RunStreamOptions['wskit'][] = [undefined, { channelScope: null }];
+    const noIdWSKits: RunStreamOptions['wskit'][] = [undefined, { channelFamily: null }];
     for (const wskit of noIdWSKits) {
       protocolMessages.length = 0;
       runtime.activeStreams.clear();
@@ -1436,7 +1436,7 @@ describe('stream/runtime', () => {
         event: 'feed',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 'conv-42', channelScope: null },
+        wskit: { streamId: 'conv-42', channelFamily: null },
       }),
     ).rejects.toMatchObject({ code: 'stream-id-collision' });
   });

@@ -87,7 +87,7 @@ export interface EngineAccess {
    * Send a server→client request frame to one live connection.
    *
    * Routes through the normal outgoing pipeline with the given `correlationId`
-   * (and optional channel scope) so plugin stampers and `onBeforeSend`/
+   * (and optional channel family) so plugin stampers and `onBeforeSend`/
    * `onAfterSend` hooks still run. Returns `false` when the connection is no
    * longer live on this instance. Used by the `requests()` capability for
    * `ctx.request(...)` and friends.
@@ -101,7 +101,7 @@ export interface EngineAccess {
       payload: unknown;
       correlationId: string;
       channel?: string;
-      channelScope?: string | null;
+      channelFamily?: string | null;
     },
   ): boolean;
 
@@ -425,11 +425,11 @@ export interface EngineAccess {
   setChannelPersistent(channelKey: string, enabled: boolean): void;
 
   /**
-   * Check whether a durable-row `(channel_name, channel_scope)` pair still
+   * Check whether a durable-row `(channel_name, channel_family)` pair still
    * maps to a registered persistent channel. Used by boot-time reconcile.
    * @internal
    */
-  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean;
+  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean;
 
   /**
    * Read the engine's logger. Used by primitives that emit boot-time or
@@ -586,7 +586,7 @@ export interface EngineAccess {
     connectionId: string,
     options: {
       channelName: string | null;
-      channelScope: string | null;
+      channelFamily: string | null;
       event: string;
       payload: unknown;
       wire: { seq: number; messageId: string; channel?: string };
@@ -604,7 +604,7 @@ export interface EngineAccess {
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelScope?: string | null } | undefined,
+    routing: { channel?: string; channelFamily?: string | null } | undefined,
   ): asserts payload is Record<string, unknown>;
 
   /**

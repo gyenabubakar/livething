@@ -15,9 +15,9 @@ describe('channel check -> commit inference', () => {
   it('threads the check return type into commit (not any)', () => {
     base.channel('room', {
       subscribe: v.object({ token: v.string() }),
-      check(ctx) {
-        expectTypeOf(ctx.check).toEqualTypeOf<{ token: string }>();
-        expectTypeOf(ctx.check).not.toBeAny();
+      check(_ctx, input) {
+        expectTypeOf(input).toEqualTypeOf<{ token: string }>();
+        expectTypeOf(input).not.toBeAny();
         return { role: 'vip' as 'member' | 'vip' };
       },
       commit(_ctx, checkResult) {
@@ -31,8 +31,8 @@ describe('channel check -> commit inference', () => {
   it('awaits an async check return for commit', () => {
     base.channel('async-room', {
       subscribe: v.object({ id: v.number() }),
-      async check(ctx) {
-        expectTypeOf(ctx.check).toEqualTypeOf<{ id: number }>();
+      async check(_ctx, input) {
+        expectTypeOf(input).toEqualTypeOf<{ id: number }>();
         return { ok: true };
       },
       commit(_ctx, checkResult) {
@@ -42,10 +42,10 @@ describe('channel check -> commit inference', () => {
     });
   });
 
-  it('ctx.check is unknown when no subscribe schema is declared', () => {
+  it('check input is unknown when no subscribe schema is declared', () => {
     base.channel('bare', {
-      check(ctx) {
-        expectTypeOf(ctx.check).toEqualTypeOf<unknown>();
+      check(_ctx, input) {
+        expectTypeOf(input).toEqualTypeOf<unknown>();
       },
     });
   });

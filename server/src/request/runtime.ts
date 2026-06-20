@@ -3,7 +3,7 @@ import { RequestNoCorrelation, RequestNoResponse } from '@wskit/core';
 import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { ResolvedChannel, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
@@ -23,7 +23,7 @@ export interface HandleRequestOptions {
 
   ctx: Record<PropertyKey, unknown>;
 
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
 
   event: string;
 
@@ -97,7 +97,7 @@ export async function handleRequest(
   runtime.sendThroughPipeline(connection, {
     routing: {
       channel: scope.channelName,
-      channelScope: scope.channelScope,
+      channelFamily: scope.channelFamily,
       correlationId,
       // The client originated this request; this is the reply to it.
       source: 'client',

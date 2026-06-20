@@ -53,7 +53,7 @@ export function sendProtocolMessage(
 export interface SendReplayOptions {
   channelName: string | null;
 
-  channelScope: string | null;
+  channelFamily: string | null;
 
   event: string;
 
@@ -68,7 +68,7 @@ export function sendReplay(
   connection: RuntimeConnection,
   options: SendReplayOptions,
 ): void {
-  const { channelName, channelScope, event, payload, wire } = options;
+  const { channelName, channelFamily, event, payload, wire } = options;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }
@@ -79,7 +79,7 @@ export function sendReplay(
     messageId: wire.messageId,
   };
   if (resolvedChannel !== null) wskit.channel = resolvedChannel;
-  if (channelScope !== null) wskit.channelScope = channelScope;
+  if (channelFamily !== null) wskit.channelFamily = channelFamily;
 
   let frame: string;
   try {

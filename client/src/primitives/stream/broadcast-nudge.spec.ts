@@ -222,7 +222,7 @@ describe('broadcast scope and seq deduplication', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
 
@@ -243,7 +243,7 @@ describe('broadcast scope and seq deduplication', () => {
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'scoped' },
-      __wskit: { streamId: 'bs2', seq: 1, channel: 'r1', channelScope: 'rooms' },
+      __wskit: { streamId: 'bs2', seq: 1, channel: 'r1', channelFamily: 'rooms' },
     });
 
     expect(onChunk).not.toHaveBeenCalled();
@@ -346,7 +346,7 @@ describe('deliverBroadcast with no matching scope', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
 
@@ -370,7 +370,7 @@ describe('deliverBroadcast with no matching scope', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
 

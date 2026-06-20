@@ -111,8 +111,8 @@ export class ChannelState {
   constructor(
     /** The `__wskit.channel` value. */
     readonly name: string,
-    /** The `__wskit.channelScope` value, for a channel inside a dynamic family. */
-    readonly scopeKey: string | undefined,
+    /** The `__wskit.channelFamily` value, for a channel inside a dynamic family. */
+    readonly familyKey: string | undefined,
     /** Debug-gated logger, used to report a throwing event handler. */
     private readonly log: PrimitiveLogger,
   ) {}
@@ -359,7 +359,7 @@ export class ChannelState {
 }
 
 /**
- * Family-level state for a dynamic channel family (`socket.channel.scope(key)`).
+ * Family-level state for a dynamic channel family (`socket.channel.family(key)`).
  * Its listeners fire for every concrete channel in the family, with the channel
  * name passed along so callers can tell which one.
  */

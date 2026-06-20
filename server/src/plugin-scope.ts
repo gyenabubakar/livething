@@ -7,7 +7,7 @@ import type { FrameOwner } from '~/intercept/intercept.ts';
  * The delimiter between a plugin id and a short name on the wire. A plugin's
  * event `heartbeat` under plugin `acme:presence` travels as
  * `__acme:presence::heartbeat`. `::` is framework-reserved (it also marks
- * channel scope in addressing), so it can never appear in a user-declared name —
+ * the channel in addressing), so it can never appear in a user-declared name —
  * which makes the id↔name split unambiguous (split once on `::`).
  */
 const PLUGIN_NS_DELIM = '::';

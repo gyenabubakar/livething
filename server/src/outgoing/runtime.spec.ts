@@ -256,7 +256,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/Outgoing event "__madeUp__" was not declared in the active scope/);
   });
 
-  it('accepts an event declared in a channel family scope when channelScope routing is provided', () => {
+  it('accepts an event declared in a channel family scope when channelFamily routing is provided', () => {
     const runtime = createRuntime({
       compiled: {
         outgoing: new Map(),
@@ -281,7 +281,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
 
     expect(() =>
       sendThroughPipeline(runtime, connection, {
-        routing: { channel: 'room-1', channelScope: 'rooms' },
+        routing: { channel: 'room-1', channelFamily: 'rooms' },
         event: 'room-event',
         payload: { a: 1 },
       }),
@@ -508,7 +508,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       latency: null,
       quality: 'good',
     };
-    addChannelMembership(channelMembers, conn, { channelName: 'general', channelScope: null });
+    addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
     return conn;
   }
 
@@ -556,7 +556,7 @@ describe('broadcastToChannel — fanout resilience', () => {
         event: 'msg',
         payload: { text: 'hi' },
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       }),
     ).not.toThrow();
 

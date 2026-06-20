@@ -1004,7 +1004,7 @@ describe('connection runtime', () => {
         ephemeral: new Map<string, Set<string>>(),
         persistent: new Map<string, Set<string>>(),
       },
-      channelMemberships: new Map([['::room', { channelName: 'room', channelScope: null }]]),
+      channelMemberships: new Map([['::room', { channelName: 'room', channelFamily: null }]]),
       latency: null,
       quality: 'good' as const,
     };

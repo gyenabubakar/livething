@@ -25,7 +25,7 @@ import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 
 /**
@@ -48,7 +48,7 @@ interface StreamRuntime {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   sendProtocolMessage(
@@ -62,7 +62,7 @@ interface StreamRuntime {
       routing:
         | {
             channel?: string;
-            channelScope?: string | null;
+            channelFamily?: string | null;
             streamId?: string;
             seq?: number;
             streamKind?: 'ephemeral' | 'persistent';
@@ -82,7 +82,7 @@ interface StreamRuntime {
 
   handleValidationError(
     connection: RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+    opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
   ): Promise<void>;
 
   connections: Map<string, RuntimeConnection>;
@@ -93,11 +93,11 @@ interface StreamRuntime {
 /** Build the `__wskit` routing block for a stream protocol frame. */
 function buildStreamRouting(
   streamId: string,
-  scope: ResolvedScope,
+  scope: ResolvedChannel,
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = { streamId };
   if (scope.channelName) wskit.channel = scope.channelName;
-  if (scope.channelScope) wskit.channelScope = scope.channelScope;
+  if (scope.channelFamily) wskit.channelFamily = scope.channelFamily;
   return wskit;
 }
 
@@ -110,14 +110,14 @@ function buildStreamRouting(
 function streamBroadcastTargets(
   connections: Map<string, RuntimeConnection>,
   creatorId: string,
-  scope: ResolvedScope,
+  scope: ResolvedChannel,
 ): RuntimeConnection[] {
   const all = scope.channelName
     ? [...connections.values()].filter((target) =>
         ChannelPrimitive.hasChannelMembership(
           target,
           scope.channelName!,
-          scope.channelScope ?? null,
+          scope.channelFamily ?? null,
         ),
       )
     : [...connections.values()];
@@ -244,16 +244,16 @@ export async function bufferStreamNudge(
   // the generator or run on the wrong scope.
   const storedScope = activeStream.scope ?? {};
   const claimedChannel = wskit?.channel;
-  const claimedScope = wskit?.channelScope ?? null;
+  const claimedScope = wskit?.channelFamily ?? null;
   const sameScope =
     (storedScope.channelName ?? undefined) === (claimedChannel ?? undefined) &&
-    (storedScope.channelScope ?? null) === claimedScope;
+    (storedScope.channelFamily ?? null) === claimedScope;
   const memberOk =
     !storedScope.channelName ||
     ChannelPrimitive.hasChannelMembership(
       connection,
       storedScope.channelName,
-      storedScope.channelScope ?? null,
+      storedScope.channelFamily ?? null,
     );
   if (!sameScope || !memberOk) {
     await runtime.handleRuntimeError(connection, {
@@ -323,7 +323,7 @@ export async function bufferStreamNudge(
 }
 
 export interface RunStreamOptions {
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
 
   event: string;
 
@@ -443,7 +443,7 @@ export async function runStream(
       seq += 1;
       const chunkRouting = {
         channel: scope.channelName,
-        channelScope: scope.channelScope,
+        channelFamily: scope.channelFamily,
         streamId,
         streamKind: 'ephemeral' as const,
         seq,
@@ -500,7 +500,7 @@ export async function runStream(
   } catch (streamError) {
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
-    if (scope.channelScope) routing.channelScope = scope.channelScope;
+    if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
 
     // A terminal error reaches the creator (below) and, for a broadcast, every
     // subscriber — so a peer's onError fires instead of a misleading clean end.

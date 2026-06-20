@@ -8,25 +8,25 @@ import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
 /**
- * Hidden scope markers attached to live connection contexts for engine-owned
+ * Hidden channel markers attached to live connection contexts for engine-owned
  * helpers and primitive context extenders.
  */
-export interface EngineScopeMeta {
+export interface EngineChannelMeta {
   channelName?: string;
   /**
-   * Scope marker for the active channel: `null` for static channels, the
+   * Family marker for the active channel: `null` for static channels, the
    * family key for dynamic channel families, `undefined` when no channel is
    * active.
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 /**
- * Symbol key used to attach scope metadata (channel name) to a handler context.
+ * Symbol key used to attach channel metadata (channel name) to a handler context.
  *
  * @internal
  */
-export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
+export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
 
 /**
  * Symbol key under which engine internals stash the runtime connection on a
@@ -80,19 +80,19 @@ export interface ContextCommonDeps {
 
   getChannelMembers(
     channelName: string,
-    channelScope: string | null,
+    channelFamily: string | null,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
   kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
 
   /**
    * Remove every live connection of the given identity from one channel
-   * scope AND drop the durable membership row. True-leave semantics —
+   * AND drop the durable membership row. True-leave semantics —
    * `onUnsubscribe` fires, `__memberLeave__`/`__memberOffline__` broadcast.
    */
   removeChannelMember(
     channelName: string,
-    channelScope: string | null,
+    channelFamily: string | null,
     identity: string,
   ): Promise<void>;
 
@@ -108,7 +108,7 @@ export interface ContextCommonDeps {
   resolveChannel(
     target: string | { family: string; name: string },
   ):
-    | { channelName: string; channelScope: string | null; params: Record<string, string> }
+    | { channelName: string; channelFamily: string | null; params: Record<string, string> }
     | undefined;
 
   sendReplay(

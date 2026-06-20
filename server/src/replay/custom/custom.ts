@@ -30,7 +30,7 @@ export type CustomReplayScope = 'top' | 'channel';
  * Top-level custom replay also observes channel-scoped messages by default
  * (the cascade behavior). When a message originated inside a channel, the
  * `channel` field is the concrete channel name; otherwise it is `null`.
- * When the channel is a dynamic family, `channelScope` is the family key;
+ * When the channel is a dynamic family, `channelFamily` is the family key;
  * otherwise it is `null`. Persist both alongside the row so a later
  * `onReplay(...)` can filter accurately.
  */
@@ -44,7 +44,7 @@ export interface TopLevelOutgoingWire {
   /**
    * Concrete channel name when the message was sent inside a channel,
    * `null` for true top-level messages. Use this together with
-   * `channelScope` as the storage key when persisting channel rows.
+   * `channelFamily` as the storage key when persisting channel rows.
    */
   readonly channel: string | null;
 
@@ -53,7 +53,7 @@ export interface TopLevelOutgoingWire {
    * `null` for static channels and for true top-level messages. Read this
    * with a null-guard.
    */
-  readonly channelScope: string | null;
+  readonly channelFamily: string | null;
 }
 
 /**
@@ -147,7 +147,7 @@ interface BaseCustomReplayContext {
  * `sendReplay()` for re-sending stored messages to the reconnecting client.
  *
  * `request.channel` is the concrete channel name when the client's `__replay__`
- * frame was scoped to a channel, otherwise `null`. `request.channelScope` is
+ * frame was scoped to a channel, otherwise `null`. `request.channelFamily` is
  * the family key for dynamic channels, `null` for static channels and for
  * unscoped replay requests. Read both with null-guards. Use them to filter
  * persisted rows when serving replay back.
@@ -157,8 +157,8 @@ export interface TopLevelReplayContext extends BaseCustomReplayContext {
   readonly request: {
     /** Channel name from `__wskit.channel` on the request, or `null`. */
     readonly channel: string | null;
-    /** Family key from `__wskit.channelScope` on the request, or `null`. */
-    readonly channelScope: string | null;
+    /** Family key from `__wskit.channelFamily` on the request, or `null`. */
+    readonly channelFamily: string | null;
   };
   /**
    * Send one previously stored message to the reconnecting client.
@@ -263,8 +263,8 @@ function toTopLevelWireMessage(message: WireOutgoingMessage): OutgoingWireMessag
       seq: Number(message.wskit.seq),
       messageId: String(message.wskit.messageId),
       channel: typeof message.wskit.channel === 'string' ? message.wskit.channel : null,
-      channelScope:
-        typeof message.wskit.channelScope === 'string' ? message.wskit.channelScope : null,
+      channelFamily:
+        typeof message.wskit.channelFamily === 'string' ? message.wskit.channelFamily : null,
     },
   };
 }
@@ -281,8 +281,8 @@ function toChannelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage
       seq: Number(message.wskit.seq),
       messageId: String(message.wskit.messageId),
       channel: String(message.wskit.channel),
-      channelScope:
-        typeof message.wskit.channelScope === 'string' ? message.wskit.channelScope : null,
+      channelFamily:
+        typeof message.wskit.channelFamily === 'string' ? message.wskit.channelFamily : null,
     },
   };
 }
@@ -294,7 +294,7 @@ function toChannelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage
 function createTopLevelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
-  request: { channel: string | null; channelScope: string | null },
+  request: { channel: string | null; channelFamily: string | null },
 ): TopLevelReplayContext {
   return {
     id: String(baseCtx.id),
@@ -309,11 +309,11 @@ function createTopLevelReplayContext(
     sendReplay(event, payload, wire) {
       engine.assertReplaySendContract(event, payload, {
         channel: wire.channel,
-        channelScope: wire.channelScope,
+        channelFamily: wire.channelFamily,
       });
       engine.sendReplay(String(baseCtx.id), {
         channelName: wire.channel ?? null,
-        channelScope: wire.channelScope ?? null,
+        channelFamily: wire.channelFamily ?? null,
         event,
         payload,
         wire,
@@ -324,7 +324,7 @@ function createTopLevelReplayContext(
 
 export interface CreateChannelReplayContextOptions {
   channelName: string;
-  channelScope: string | null;
+  channelFamily: string | null;
 }
 
 /**
@@ -336,7 +336,7 @@ function createChannelReplayContext(
   baseCtx: Record<PropertyKey, unknown>,
   options: CreateChannelReplayContextOptions,
 ): ChannelReplayContext {
-  const { channelName, channelScope } = options;
+  const { channelName, channelFamily } = options;
   return {
     id: String(baseCtx.id),
     meta: (baseCtx.meta as Record<string, unknown>) ?? {},
@@ -350,11 +350,11 @@ function createChannelReplayContext(
     sendReplay(event, payload, wire) {
       engine.assertReplaySendContract(event, payload, {
         channel: channelName,
-        channelScope,
+        channelFamily,
       });
       engine.sendReplay(String(baseCtx.id), {
         channelName,
-        channelScope,
+        channelFamily,
         event,
         payload,
         wire,
@@ -467,7 +467,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           await opts.onReplay(
             createChannelReplayContext(engine, baseCtx, {
               channelName: scope.channelName,
-              channelScope: frame.__wskit.channelScope ?? null,
+              channelFamily: frame.__wskit.channelFamily ?? null,
             }) as ReplayContext<CustomReplayScope>,
             since,
           );
@@ -477,7 +477,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         await opts.onReplay(
           createTopLevelReplayContext(engine, baseCtx, {
             channel: frame.__wskit.channel ?? null,
-            channelScope: frame.__wskit.channelScope ?? null,
+            channelFamily: frame.__wskit.channelFamily ?? null,
           }) as ReplayContext<CustomReplayScope>,
           since,
         );

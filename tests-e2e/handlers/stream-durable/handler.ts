@@ -7,13 +7,13 @@ import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const CountTokensPayload = v.object({});
-const TokenChunk = v.object({ idx: v.number() });
+const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
-const RowChunk = v.object({ row: v.number() });
+const RowChunk = t<{ row: number }>();
 const AttemptPayload = v.object({});
-const AttemptChunk = v.object({ attempt: v.number() });
+const AttemptChunk = t<{ attempt: number }>();
 const BufferFullPayload = v.object({});
-const BufferChunk = v.object({ n: v.number() });
+const BufferChunk = t<{ n: number }>();
 const StopPayload = v.object({});
 
 const base = define({

@@ -110,7 +110,7 @@ function routingMatches(
   }
   if (frame.routing.channelFamily !== parsed.name) return false;
   if (typeof frame.routing.channel !== 'string') return false;
-  return ChannelPrimitive.matchesScopePattern(channel.pattern, frame.routing.channel);
+  return ChannelPrimitive.matchesFamilyPattern(channel.pattern, frame.routing.channel);
 }
 
 /**

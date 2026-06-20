@@ -33,14 +33,17 @@ describe('channels.kick end-to-end', () => {
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
 
-    addChannelMembership(channelMembers, kept, { channelName: 'room:general', channelScope: null });
+    addChannelMembership(channelMembers, kept, {
+      channelName: 'room:general',
+      channelFamily: null,
+    });
     addChannelMembership(channelMembers, banned, {
       channelName: 'room:general',
-      channelScope: null,
+      channelFamily: null,
     });
     addChannelMembership(channelMembers, alsoBanned, {
       channelName: 'room:general',
-      channelScope: null,
+      channelFamily: null,
     });
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
@@ -142,7 +145,7 @@ describe('channels.kick end-to-end', () => {
           key: 'troll',
         },
         reason: 'spam',
-        channelScope: null,
+        channelFamily: null,
       },
     );
 
@@ -175,11 +178,11 @@ describe('channels.kick end-to-end', () => {
     const alsoBanned = createConnection('also_banned');
     addChannelMembership(channelMembers, banned, {
       channelName: 'room:general',
-      channelScope: null,
+      channelFamily: null,
     });
     addChannelMembership(channelMembers, alsoBanned, {
       channelName: 'room:general',
-      channelScope: null,
+      channelFamily: null,
     });
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
@@ -264,7 +267,7 @@ describe('channels.kick end-to-end', () => {
             key: 'troll',
           },
           reason: 'spam',
-          channelScope: null,
+          channelFamily: null,
         },
       ),
     ).resolves.toBeUndefined();
@@ -279,7 +282,7 @@ describe('channels.kick end-to-end', () => {
   });
 
   it('kick on persistent channel with missing compiled family must delete durable membership row', async () => {
-    // The channel family key exists in `channelScope` but is absent from
+    // The channel family key exists in `channelFamily` but is absent from
     // `compiled.channelFamilies`.  resolveCompiledChannel returns undefined,
     // which today makes leaveChannel treat the channel as non-persistent and
     // skip deleteDurableMembership. The correct behaviour is to still delete
@@ -289,13 +292,13 @@ describe('channels.kick end-to-end', () => {
 
     addChannelMembership(channelMembers, banned, {
       channelName: 'room:123',
-      channelScope: 'room',
+      channelFamily: 'room',
     });
     banned.tags.ephemeral.set('role', new Set(['spammer']));
 
     const connections = new Map([[banned.id, banned]]);
 
-    const deletedRows: { identity: string; channelName: string; channelScope: string | null }[] =
+    const deletedRows: { identity: string; channelName: string; channelFamily: string | null }[] =
       [];
 
     // channelFamilies is intentionally EMPTY — simulates the family missing at
@@ -340,8 +343,8 @@ describe('channels.kick end-to-end', () => {
       async handleValidationError() {},
       isChannelPersistent: (_key: string) => true,
       persistMembership() {},
-      deleteDurableMembership(identity: string, channelName: string, channelScope: string | null) {
-        deletedRows.push({ identity, channelName, channelScope });
+      deleteDurableMembership(identity: string, channelName: string, channelFamily: string | null) {
+        deletedRows.push({ identity, channelName, channelFamily });
       },
       hasDurableMembership: () => true,
     };
@@ -361,7 +364,7 @@ describe('channels.kick end-to-end', () => {
           key: 'spammer',
         },
         reason: 'spam',
-        channelScope: 'room',
+        channelFamily: 'room',
       },
     );
 
@@ -372,7 +375,7 @@ describe('channels.kick end-to-end', () => {
     expect(deletedRows[0]).toEqual({
       identity: 'banned',
       channelName: 'room:123',
-      channelScope: 'room',
+      channelFamily: 'room',
     });
   });
 });

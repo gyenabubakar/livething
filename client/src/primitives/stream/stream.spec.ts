@@ -298,19 +298,19 @@ describe('durable resume', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
     const handle = room.resumeStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'r1', channelScope: 'rooms', streamId: 'feed-2' },
+      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2' },
     });
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'x' },
-      __wskit: { channel: 'r1', channelScope: 'rooms', streamId: 'feed-2', seq: 1 },
+      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2', seq: 1 },
     });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-2' } });
     expect(await collect(handle)).toEqual([{ text: 'x' }]);
@@ -325,13 +325,13 @@ describe('scoped streams', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'r1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
     void room.stream('ask-ai', { prompt: 'hi' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('ask-ai');
-    expect(frame.__wskit).toMatchObject({ channel: 'r1', channelScope: 'rooms' });
+    expect(frame.__wskit).toMatchObject({ channel: 'r1', channelFamily: 'rooms' });
     expect(typeof frame.__wskit.streamId).toBe('string');
   });
 });

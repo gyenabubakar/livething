@@ -1,11 +1,11 @@
 import { deleteMembershipsByChannel } from '~/persistence/storage.ts';
 import type { SQLProvider } from '~/context.ts';
 
-type RawRow = { channel_name: string; channel_scope: string };
+type RawRow = { channel_name: string; channel_family: string };
 
 /**
  * Boot-time reconcile for persistent channels. Walks every `(channel_name,
- * channel_scope)` pair that has at least one durable row, drops the row set
+ * channel_family)` pair that has at least one durable row, drops the row set
  * for any pair that does not correspond to a still-persistent channel in
  * the freshly-booted server.
  *
@@ -17,20 +17,20 @@ type RawRow = { channel_name: string; channel_scope: string };
  */
 export function reconcilePersistenceOnBoot(
   sql: Pick<SQLProvider, 'exec'>,
-  isPairPersistent: (channelName: string, channelScope: string | null) => boolean,
+  isPairPersistent: (channelName: string, channelFamily: string | null) => boolean,
 ): number {
   const pairs = sql
-    .exec<RawRow>('SELECT DISTINCT channel_name, channel_scope FROM __wskit_channel_memberships')
+    .exec<RawRow>('SELECT DISTINCT channel_name, channel_family FROM __wskit_channel_memberships')
     .toArray()
     .map((row) => ({
       channelName: row.channel_name,
-      channelScope: row.channel_scope === '' ? null : row.channel_scope,
+      channelFamily: row.channel_family === '' ? null : row.channel_family,
     }));
 
   let dropped = 0;
   for (const pair of pairs) {
-    if (isPairPersistent(pair.channelName, pair.channelScope)) continue;
-    deleteMembershipsByChannel(sql, pair.channelName, pair.channelScope);
+    if (isPairPersistent(pair.channelName, pair.channelFamily)) continue;
+    deleteMembershipsByChannel(sql, pair.channelName, pair.channelFamily);
     dropped++;
   }
   return dropped;

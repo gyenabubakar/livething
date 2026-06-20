@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 async function setupClient(page: Page, username: string, room: string) {
-  await page.goto(`/channel-scope-isolation?room=${room}`);
+  await page.goto(`/channel-family-isolation?room=${room}`);
   await page.getByTestId('username').fill(username);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('connected');
 }
 
-test.describe('channel-scope-isolation', () => {
+test.describe('channel-family-isolation', () => {
   test('members() does not leak across channel families with the same concrete name', async ({
     browser,
   }, testInfo) => {

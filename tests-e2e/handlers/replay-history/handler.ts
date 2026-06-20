@@ -112,7 +112,7 @@ export const handleInjectFamilyReplay = base.on('inject-family-replay', {
     ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
-      { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
+      { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelFamily: 'fams' },
     );
   },
 });

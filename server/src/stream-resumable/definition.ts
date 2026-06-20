@@ -5,6 +5,7 @@ import {
   collectUnique,
 } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
@@ -59,7 +60,7 @@ export interface ResumableStreamDef<
   readonly _: 'resumable-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly cursor?: Validator<TCursor>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
@@ -73,7 +74,7 @@ interface ResumableStreamConfig<
   TNudges extends readonly NudgeDef<string, any>[],
 > extends CommonResumableConfig {
   payload?: Validator<TPayload>;
-  chunk?: Validator<TChunk>;
+  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /**
@@ -118,7 +119,7 @@ interface ResumableStreamConfig<
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});
- * const RowChunk = v.object({ row: v.number() });
+ * const RowChunk = t<{ row: number }>();
  * const PaginateCursor = v.object({ idx: v.number() });
  *
  * const base = define({

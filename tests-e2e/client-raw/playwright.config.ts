@@ -33,7 +33,7 @@ export default defineConfig({
             cwd: serverCwd,
             port: serverPort,
             reuseExistingServer: !process.env.CI,
-            timeout: 30_000,
+            timeout: 60_000,
           },
         ]
       : []),

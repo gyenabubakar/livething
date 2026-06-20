@@ -121,19 +121,19 @@ describe('channels() capability', () => {
     const incoming = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'incoming' && p.event === 'say',
     );
-    incoming.handler({ channel: { scope: 'rooms' } }, {});
+    incoming.handler({ channel: { family: 'rooms' } }, {});
     expect(seenFamily).toBe('rooms');
   });
 
-  it('runs the check gate with the validated payload on ctx.check and forwards to commit', async () => {
+  it('runs the check gate with the validated payload as the input argument and forwards to commit', async () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     let seenCheck: unknown;
     let seenCommit: unknown;
     const room = base.channel('room', {
       outgoing: { emits: { said: t<{ text: string }>() } },
       subscribe: v.object({ token: v.string() }),
-      check(ctx) {
-        seenCheck = ctx.check;
+      check(_ctx, input) {
+        seenCheck = input;
         return { role: 'member' };
       },
       commit(_ctx, result) {
@@ -216,7 +216,7 @@ describe('channels() capability', () => {
     );
     const ctx: any = {
       nudges: (value: unknown) => (Array.isArray(value) ? value : []),
-      channel: { scope: 'rooms' },
+      channel: { family: 'rooms' },
     };
     const iterator = streamChild.generator(ctx, {});
     const first = await iterator.next();

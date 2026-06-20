@@ -11,7 +11,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type {
   ActiveStream,
   OnDisconnect,
-  ResolvedScope,
+  ResolvedChannel,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
 
@@ -35,7 +35,7 @@ export interface BuildActiveStreamInput {
   onDisconnect?: OnDisconnect;
 
   /** The scope the stream runs in, used to gate nudges to the same scope. */
-  scope?: ResolvedScope;
+  scope?: ResolvedChannel;
 
   /**
    * The stop controller for this stream. The runtime creates it before building
@@ -268,7 +268,7 @@ export function assertNoConcurrentStream(
 export interface BroadcastTargetInput {
   runtime: { connections: ReadonlyMap<string, RuntimeConnection> };
   excludeConnectionId: string;
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
   extraFilter?: (candidate: RuntimeConnection) => boolean;
 }
 
@@ -288,7 +288,7 @@ export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeCon
         !ChannelPrimitive.hasChannelMembership(
           candidate,
           input.scope.channelName,
-          input.scope.channelScope ?? null,
+          input.scope.channelFamily ?? null,
         )
       ) {
         continue;

@@ -3,13 +3,13 @@ import { channelKey } from '~/internal/channel-key.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import {
   buildChannelMessaging,
-  buildScopeHandle,
+  buildFamilyHandle,
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject } from '~/internal/scoped.ts';
-import type { ChannelContext, ScopeHandleObject } from '~/primitives/channels/messaging.ts';
+import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type {
   ChannelsOptions,
   ChannelsPrimitive,
@@ -44,7 +44,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       const states = new Map<string, ChannelState>();
       const cache = new Map<string, MessagingObject>();
       const families = new Map<string, FamilyState>();
-      const scopeHandles = new Map<string, ScopeHandleObject>();
+      const familyHandles = new Map<string, FamilyHandle>();
       let socket: WSKitSocket; // assigned in install, before any handle is built
 
       function resolveTtl(event: string): number | undefined {
@@ -53,29 +53,29 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         return undefined;
       }
 
-      function stateFor(name: string, scopeKey?: string): ChannelState {
-        const key = channelKey(scopeKey, name);
+      function stateFor(name: string, familyKey?: string): ChannelState {
+        const key = channelKey(familyKey, name);
         let state = states.get(key);
         if (!state) {
-          state = new ChannelState(name, scopeKey, helpers.log);
+          state = new ChannelState(name, familyKey, helpers.log);
           states.set(key, state);
         }
         return state;
       }
 
-      function familyFor(scopeKey: string): FamilyState {
-        let family = families.get(scopeKey);
+      function familyFor(familyKey: string): FamilyState {
+        let family = families.get(familyKey);
         if (!family) {
           family = new FamilyState(helpers.log);
-          families.set(scopeKey, family);
+          families.set(familyKey, family);
         }
         return family;
       }
 
-      function listFamily(scopeKey: string): string[] {
+      function listFamily(familyKey: string): string[] {
         const names: string[] = [];
         for (const state of states.values()) {
-          if (state.scopeKey === scopeKey && state.active) names.push(state.name);
+          if (state.familyKey === familyKey && state.active) names.push(state.name);
         }
         return names;
       }
@@ -88,11 +88,11 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         get socket() {
           return socket;
         },
-        messagingFor(name, scopeKey) {
-          const key = channelKey(scopeKey, name);
+        messagingFor(name, familyKey) {
+          const key = channelKey(familyKey, name);
           let messaging = cache.get(key);
           if (!messaging) {
-            messaging = buildChannelMessaging(context, stateFor(name, scopeKey));
+            messaging = buildChannelMessaging(context, stateFor(name, familyKey));
             cache.set(key, messaging);
           }
           return messaging;
@@ -107,10 +107,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           const name = wskit?.channel;
           if (typeof name !== 'string') return message;
 
-          const scopeKey = wskit?.channelScope;
-          const state = stateFor(name, scopeKey);
+          const familyKey = wskit?.channelFamily;
+          const state = stateFor(name, familyKey);
           function notifyFamily(notify: (family: FamilyState) => void): void {
-            if (scopeKey) notify(familyFor(scopeKey));
+            if (familyKey) notify(familyFor(familyKey));
           }
 
           switch (message.event) {
@@ -152,14 +152,19 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 );
                 return null;
               }
+
               if (message.event === '__memberSync__') {
                 const raw = (message.payload as { members?: unknown })?.members;
+
                 const members = Array.isArray(raw)
                   ? raw.map(readMember).filter((m) => m !== null)
                   : [];
+
                 state.syncMembers(members);
+
                 return null;
               }
+
               const member = readMember(message.payload);
               if (member) {
                 switch (message.event) {
@@ -179,13 +184,17 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               }
               return null;
             }
+
             case '__kicked__': {
               const reason = (message.payload as { reason?: unknown })?.reason;
+
               state.fireKicked(typeof reason === 'string' ? reason : '');
               state.markUnsubscribed();
               notifyFamily((family) => family.fireUnsubscribed(name));
+
               return null;
             }
+
             case '__error__': {
               // A request/ack error carries its own id and belongs to that primitive.
               if (wskit?.correlationId !== undefined) return message;
@@ -194,16 +203,21 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.fireSubscriptionFailed(toWSKitError(message.payload));
               return null;
             }
+
             default: {
               if (message.event.startsWith('__')) return message;
               if (wskit?.correlationId !== undefined) return message;
+
               // A channel-scoped stream chunk carries a streamId — it belongs to
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
+
               if (helpers.config.debug)
                 helpers.log.info(`routing '${message.event}' to channel '${name}'`);
+
               state.dispatch(message.event, message.payload);
               notifyFamily((family) => family.dispatch(message.event, message.payload, name));
+
               return message;
             }
           }
@@ -233,8 +247,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           for (const state of states.values()) {
             const frame = state.pendingSubscribeFrame;
             if (!frame) continue;
+
             state.pendingSubscribeFrame = null;
             const sub = state;
+
             helpers.rawSend(frame, {
               isPending: () => sub.hasPendingSubscribe,
               reject: (error) => sub.failPendingSubscribe(error),
@@ -253,6 +269,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.active && !state.persistent && typeof state.subscribeData === 'function',
           );
           if (dynamic.length === 0) return;
+
           return (async () => {
             for (const state of dynamic) {
               try {
@@ -279,6 +296,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             // A leaving channel is already inactive, so this skip also keeps a
             // pending leave from rejoining — onOpen resends the leave instead.
             if (!state.active) continue;
+
             // Mark the channel as waiting for its subscribe confirmation after
             // reconnect. Persistent channels wait for the server's auto-rejoin;
             // others wait for the client's re-subscribe reply. A failure clears this.
@@ -292,9 +310,11 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             } else {
               const rejoining = state;
               rejoining.clearRejoinTimer();
+
               rejoining.rejoinTimer = setTimeout(() => {
                 rejoining.rejoinTimer = null;
                 if (!rejoining.active || !rejoining.rejoining) return;
+
                 helpers.rawSend({
                   event: '__subscribe__',
                   payload: rejoining.resolvedSubscribeData ?? {},
@@ -316,12 +336,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             // close or a permanent failure (failLeave, below) clears it.
             const queuedBehindLeave =
               state.deferredSubscribe !== null && state.pendingLeave !== null;
+
             if (state.pending && !(queuedBehindLeave && !intentional)) {
               state.pending.reject(Disconnected());
               state.pending = null;
               state.pendingPromise = null;
               state.pendingSubscribeFrame = null;
               state.deferredSubscribe = null;
+
               // A channel that never became active won't be re-subscribed on
               // reconnect, so release its idle-prevention hold here or it leaks.
               if (!state.active) state.releaseLazy();
@@ -348,6 +370,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // outstanding leave can never be confirmed now, so reject it.
           for (const state of states.values()) {
             state.clearRejoinTimer();
+
             if (state.pendingLeave) state.failLeave(Disconnected());
             else if (state.active) state.markUnsubscribed();
             else state.releaseLazy();
@@ -357,16 +380,17 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         install(installedSocket) {
           socket = installedSocket;
 
-          function channel(nameOrScope: string, name?: string): MessagingObject {
+          function channel(nameOrFamily: string, name?: string): MessagingObject {
             return name === undefined
-              ? context.messagingFor(nameOrScope)
-              : context.messagingFor(name, nameOrScope);
+              ? context.messagingFor(nameOrFamily)
+              : context.messagingFor(name, nameOrFamily);
           }
-          channel.scope = (scopeKey: string): ScopeHandleObject => {
-            let handle = scopeHandles.get(scopeKey);
+
+          channel.family = (familyKey: string): FamilyHandle => {
+            let handle = familyHandles.get(familyKey);
             if (!handle) {
-              handle = buildScopeHandle(context, scopeKey);
-              scopeHandles.set(scopeKey, handle);
+              handle = buildFamilyHandle(context, familyKey);
+              familyHandles.set(familyKey, handle);
             }
             return handle;
           };

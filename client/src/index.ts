@@ -31,7 +31,7 @@ export type {
   ChannelsOptions,
   ChannelMessaging,
   ChannelMember,
-  ScopeHandle,
+  FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/index.ts';
 export { requestResponse } from '~/primitives/request-response/index.ts';

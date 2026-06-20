@@ -300,15 +300,15 @@ export interface RuntimeConnection {
   tags: { ephemeral: Map<string, Set<string>>; persistent: Map<string, Set<string>> };
 
   /**
-   * Map of membership keys to channel details, with an explicit scope marker.
+   * Map of membership keys to channel details, with an explicit family marker.
    *
-   * `channelScope` is `null` for static channels and the family key for
+   * `channelFamily` is `null` for static channels and the family key for
    * dynamic channel families. Encoding the marker as a tuple key keeps the
    * same concrete channel name in two families (or a static channel and a
    * family that share a name) isolated. Scope-aware lookups (membership
    * checks, member listings, kick filters, broadcasts) all read this map.
    */
-  channelMemberships: Map<string, { channelName: string; channelScope: string | null }>;
+  channelMemberships: Map<string, { channelName: string; channelFamily: string | null }>;
 
   /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
   latency: number | null;
@@ -442,7 +442,7 @@ export interface ActiveStream {
    * scope and the connection must still hold its membership — a nudge that
    * claims a different (or no) scope is rejected, not silently accepted.
    */
-  scope?: ResolvedScope;
+  scope?: ResolvedChannel;
 
   /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
@@ -478,11 +478,11 @@ export interface RoutingTarget {
   channel?: string;
 
   /**
-   * Channel scope marker. `null` for static channels (no scope), a non-empty
+   * Channel family marker. `null` for static channels (no family), a non-empty
    * family key for dynamic channel families, `undefined` when the route does
    * not target a channel at all (e.g. a top-level send).
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 
   correlationId?: string;
 
@@ -514,22 +514,22 @@ export interface RoutingTarget {
 }
 
 /**
- * The resolved scope for one incoming message.
+ * The resolved channel for one incoming message.
  *
  * This is the engine's parsed view of `__wskit.channel` and
- * `__wskit.channelScope` markers from the incoming frame.
+ * `__wskit.channelFamily` markers from the incoming frame.
  */
-export interface ResolvedScope {
+export interface ResolvedChannel {
   channel?: EngineCompileTypes.CompiledChannel;
 
   channelName?: string;
 
   /**
-   * Scope marker for channel-scoped frames: `null` when the frame targets a
+   * Family marker for channel-scoped frames: `null` when the frame targets a
    * static channel, the family key when it targets a dynamic family, and
    * `undefined` when no channel is in scope at all.
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 /**

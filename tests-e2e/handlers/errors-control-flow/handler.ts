@@ -13,7 +13,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const StreamToken = v.object({ index: v.number() });
+const StreamToken = t<{ index: number }>();
 
 const base = define({
   env: t<Env>(),

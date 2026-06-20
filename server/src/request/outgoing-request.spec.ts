@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestInvalidResponse } from '@wskit/core';
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META } from '~/_engine/contexts/types.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -73,7 +73,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     const ctx: any = {
       id: connectionId,
       self: { __wskit: 'connection-ref', id: connectionId, instance: undefined, identity: 'i' },
-      [ENGINE_SCOPE_META]: scope ?? {},
+      [ENGINE_CHANNEL_META]: scope ?? {},
       connection: (ref: ConnectionRef) => ({ send: () => true, __ref: ref }),
     };
     for (const id of [
@@ -91,7 +91,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       ctx.channels = {
         get: (name: string) => ({
           name,
-          scope: null,
+          family: null,
           members: () => (opts.channels![name] ?? []).map(member),
         }),
       };
@@ -239,12 +239,12 @@ describe('server→client request — outgoing runtime', () => {
     const env = install(channelDeclarations('rooms', PERMISSION));
     const ctx = env.buildCtx(
       'c1',
-      { channelName: 'room-1', channelScope: 'rooms' },
-      { channel: { name: 'room-1', scope: 'rooms', send: () => true } },
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      { channel: { name: 'room-1', family: 'rooms', send: () => true } },
     );
     const promise = ctx.channel.request('ask', { action: 'x' });
     expect(env.sent[0]!.opts.channel).toBe('room-1');
-    expect(env.sent[0]!.opts.channelScope).toBe('rooms');
+    expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
     const { correlationId } = env.sent[0]!.opts;
     env.answerHook('c1', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: true });
@@ -393,11 +393,11 @@ describe('server→client broadcast request — first answer wins', () => {
     env.live.add('b');
     const ctx = env.buildCtx(
       'c1',
-      { channelName: 'room-1', channelScope: 'rooms' },
+      { channelName: 'room-1', channelFamily: 'rooms' },
       {
         channel: {
           name: 'room-1',
-          scope: 'rooms',
+          family: 'rooms',
           send: () => true,
           members: () => [
             { id: 'a', ref: () => ({ __wskit: 'connection-ref', id: 'a' }) },
@@ -409,7 +409,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const promise = ctx.channel.broadcastRequest('volunteer', { turn: 1 });
     expect(env.sent).toHaveLength(2);
     expect(env.sent[0]!.opts.channel).toBe('room-1');
-    expect(env.sent[0]!.opts.channelScope).toBe('rooms');
+    expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
     const legA = env.sent.find((s) => s.connectionId === 'a')!;
     env.answerHook('a', {
       event: 'volunteer',
@@ -490,8 +490,8 @@ describe('server→client request — per-channel declaration isolation (Major 2
   function roomsCtx(env: ReturnType<typeof install>) {
     return env.buildCtx(
       'c1',
-      { channelName: 'room-1', channelScope: 'rooms' },
-      { channel: { name: 'room-1', scope: 'rooms', send: () => true } },
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      { channel: { name: 'room-1', family: 'rooms', send: () => true } },
     );
   }
 
@@ -596,11 +596,11 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
     env.live.add('b');
     return env.buildCtx(
       'c1',
-      { channelName: 'room-1', channelScope: 'rooms' },
+      { channelName: 'room-1', channelFamily: 'rooms' },
       {
         channel: {
           name: 'room-1',
-          scope: 'rooms',
+          family: 'rooms',
           send: () => true,
           members: () =>
             ['c1', 'a', 'b'].map((id) => ({ id, ref: () => ({ __wskit: 'connection-ref', id }) })),

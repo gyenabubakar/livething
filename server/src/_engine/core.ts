@@ -232,17 +232,17 @@ export class EngineCore {
   }
 
   /**
-   * Does a `(channelName, channelScope)` pair from a durable row still match a
+   * Does a `(channelName, channelFamily)` pair from a durable row still match a
    * persistent channel? Used by boot reconcile to find orphan rows from
    * removed or `persistent: false` channels.
    */
-  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean {
+  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean {
     if (!this.persistenceEnabled) return false;
-    if (channelScope === null) {
+    if (channelFamily === null) {
       const channel = this.compiled.channels.get(channelName);
       return channel ? this.isChannelPersistent(channel.key) : false;
     }
-    const family = this.compiled.channelFamilies.get(channelScope);
+    const family = this.compiled.channelFamilies.get(channelFamily);
     return family ? this.isChannelPersistent(family.key) : false;
   }
 }

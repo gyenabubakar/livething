@@ -54,17 +54,17 @@ describe('request/runtime', () => {
     await handleRequest(runtime, {
       connection,
       ctx: { ok: true },
-      scope: { channelName: 'room-1', channelScope: 'rooms' },
+      scope: { channelName: 'room-1', channelFamily: 'rooms' },
       event: 'status',
       request,
       payload: { room: 'room-1' },
-      wskit: { channelScope: null, correlationId: 'req-1' },
+      wskit: { channelFamily: null, correlationId: 'req-1' },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
         channel: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         correlationId: 'req-1',
         source: 'client',
       },
@@ -100,7 +100,7 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-1', channelScope: null },
+      wskit: { correlationId: 'req-1', channelFamily: null },
     });
 
     expect(error).toHaveBeenCalledWith(
@@ -111,7 +111,7 @@ describe('request/runtime', () => {
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
         channel: undefined,
-        channelScope: undefined,
+        channelFamily: undefined,
         correlationId: 'req-1',
         source: 'client',
       },
@@ -147,7 +147,7 @@ describe('request/runtime', () => {
         event: 'status',
         request,
         payload: {},
-        wskit: { correlationId: 'req-1', channelScope: null },
+        wskit: { correlationId: 'req-1', channelFamily: null },
       }),
     ).rejects.toMatchObject({ code: 'request-no-response' });
 
@@ -180,7 +180,7 @@ describe('request/runtime', () => {
         event: 'status',
         request,
         payload: {},
-        wskit: { correlationId: 'req-async', channelScope: null },
+        wskit: { correlationId: 'req-async', channelFamily: null },
       }),
     ).rejects.toThrow('boom');
 
@@ -224,13 +224,13 @@ describe('request/runtime', () => {
       event: 'status',
       request,
       payload: {},
-      wskit: { correlationId: 'req-2', channelScope: null },
+      wskit: { correlationId: 'req-2', channelFamily: null },
     });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
         channel: undefined,
-        channelScope: undefined,
+        channelFamily: undefined,
         correlationId: 'req-2',
         source: 'client',
       },

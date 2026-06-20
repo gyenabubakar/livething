@@ -21,7 +21,7 @@ type LeaveChannelFn = (
   opts: {
     channel?: CompiledChannel;
     channelName: string;
-    channelScope: string | null;
+    channelFamily: string | null;
     kickedReason?: string;
     disconnect?: boolean;
   },
@@ -30,7 +30,12 @@ type LeaveChannelFn = (
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
 type SubscribeFromServerFn = (
   ref: PublicApi.ConnectionRef,
-  opts: { channelName: string; channelScope: string | null; payload: unknown; rejoining?: boolean },
+  opts: {
+    channelName: string;
+    channelFamily: string | null;
+    payload: unknown;
+    rejoining?: boolean;
+  },
 ) => Promise<void>;
 
 /**
@@ -64,7 +69,7 @@ export function deleteDurableMembership(core: EngineCore, key: MembershipKey): v
 }
 
 /**
- * True when a durable membership row exists for this identity and channel scope.
+ * True when a durable membership row exists for this identity and channel.
  * Always false for an empty identity — anonymous connections never get a row.
  */
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
@@ -74,7 +79,7 @@ export function hasDurableMembership(core: EngineCore, key: MembershipKey): bool
 }
 
 /**
- * Kick every live connection of `identity` out of one channel scope AND drop
+ * Kick every live connection of `identity` out of one channel AND drop
  * the durable row. True leave: `onUnsubscribe` fires, peers get
  * `__memberLeave__`/`__memberOffline__`, and the user will NOT auto-rejoin on the
  * next reconnect. No-op if nothing matches and persistence is off.
@@ -84,8 +89,8 @@ export async function removeChannelMember(
   leaveChannel: LeaveChannelFn,
   key: MembershipKey,
 ): Promise<void> {
-  const { identity, channelName, channelScope } = key;
-  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
+  const { identity, channelName, channelFamily } = key;
+  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily);
 
   if (core.persistenceEnabled) {
     PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
@@ -94,7 +99,7 @@ export async function removeChannelMember(
   const resolved = ChannelPrimitive.resolveCompiledChannel(
     core.compiled,
     channelName,
-    channelScope,
+    channelFamily,
   );
 
   const targets: RuntimeConnection[] = [];
@@ -109,13 +114,13 @@ export async function removeChannelMember(
       await leaveChannel(connection, {
         channel: resolved,
         channelName,
-        channelScope,
+        channelFamily,
       });
     } catch (error) {
       core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
         identity,
         channel: channelName,
-        channelScope,
+        channelFamily,
         connectionId: connection.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -135,7 +140,7 @@ export async function purgeIdentity(
 ): Promise<void> {
   // Dedup the channels by membership key; the pair itself is the map value,
   // so the key stays opaque and is never parsed back.
-  const channels = new Map<string, { channelName: string; channelScope: string | null }>();
+  const channels = new Map<string, { channelName: string; channelFamily: string | null }>();
 
   for (const connection of core.connections.values()) {
     if (connection.identity !== identity) continue;
@@ -143,7 +148,7 @@ export async function purgeIdentity(
       channels.set(
         ChannelPrimitive.createChannelMembershipKey(
           membership.channelName,
-          membership.channelScope,
+          membership.channelFamily,
         ),
         membership,
       );
@@ -154,15 +159,18 @@ export async function purgeIdentity(
     const sql = core.requireStorage().sql;
     const rows = PersistenceStorage.listMembershipsByIdentity(sql, identity);
     for (const row of rows) {
-      channels.set(ChannelPrimitive.createChannelMembershipKey(row.channelName, row.channelScope), {
-        channelName: row.channelName,
-        channelScope: row.channelScope,
-      });
+      channels.set(
+        ChannelPrimitive.createChannelMembershipKey(row.channelName, row.channelFamily),
+        {
+          channelName: row.channelName,
+          channelFamily: row.channelFamily,
+        },
+      );
     }
   }
 
-  for (const { channelName, channelScope } of channels.values()) {
-    await removeChannelMember(core, leaveChannel, { identity, channelName, channelScope });
+  for (const { channelName, channelFamily } of channels.values()) {
+    await removeChannelMember(core, leaveChannel, { identity, channelName, channelFamily });
   }
 
   if (core.persistenceEnabled) {

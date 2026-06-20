@@ -2,7 +2,7 @@ import type { WSKitEnvelope } from '~/internal/runtime.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /** The `__wskit` fields that identify which scope a frame belongs to. */
-export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelScope'>;
+export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
 
 /**
  * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).

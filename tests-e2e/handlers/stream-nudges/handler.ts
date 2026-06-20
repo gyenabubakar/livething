@@ -6,7 +6,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = v.object({ token: v.string() });
+const Token = t<{ token: string }>();
 
 // A typed error a nudge intercept can throw. The client must see nudge() reject
 // with this code while the stream keeps running (regression: a thrown nudge

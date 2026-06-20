@@ -195,20 +195,20 @@ class ReplayInstaller {
 
     if (this.channelKey) {
       // Channel-level replay. For families, channelKey is the family key and
-      // matches scope.channelScope. For static channels, channelKey is the
-      // channel name and matches scope.channelName (scope.channelScope is null).
+      // matches scope.channelFamily. For static channels, channelKey is the
+      // channel name and matches scope.channelName (scope.channelFamily is null).
       const matches =
-        scope.channelScope === this.channelKey || scope.channelName === this.channelKey;
+        scope.channelFamily === this.channelKey || scope.channelName === this.channelKey;
       if (!matches || !base.id || !base.channel) return {};
 
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.assertReplaySendContract(event, payload, {
           channel: scope.channelName ?? undefined,
-          channelScope: scope.channelScope ?? null,
+          channelFamily: scope.channelFamily ?? null,
         });
         this.engine.sendReplay(base.id as string, {
           channelName: scope.channelName ?? null,
-          channelScope: scope.channelScope ?? null,
+          channelFamily: scope.channelFamily ?? null,
           event,
           payload,
           wire,
@@ -224,7 +224,7 @@ class ReplayInstaller {
     // channel-scoped instance. When the live ctx is in such a channel scope,
     // attach `ctx.channel.sendReplay` so handlers can replay channel frames
     // through the cascading store, mirroring the storage cascade.
-    if (scope.channelName || scope.channelScope) {
+    if (scope.channelName || scope.channelFamily) {
       if (
         !base.channel ||
         !matchesReplayScope(undefined, scope, this.engine.getReplayClaimedChannelKeys())
@@ -234,11 +234,11 @@ class ReplayInstaller {
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.assertReplaySendContract(event, payload, {
           channel: scope.channelName ?? undefined,
-          channelScope: scope.channelScope ?? null,
+          channelFamily: scope.channelFamily ?? null,
         });
         this.engine.sendReplay(base.id as string, {
           channelName: scope.channelName ?? null,
-          channelScope: scope.channelScope ?? null,
+          channelFamily: scope.channelFamily ?? null,
           event,
           payload,
           wire,
@@ -250,11 +250,11 @@ class ReplayInstaller {
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
       this.engine.assertReplaySendContract(event, payload, {
         channel: wire.channel,
-        channelScope: wire.channelScope,
+        channelFamily: wire.channelFamily,
       });
       this.engine.sendReplay(base.id as string, {
         channelName: wire.channel ?? null,
-        channelScope: wire.channelScope ?? null,
+        channelFamily: wire.channelFamily ?? null,
         event,
         payload,
         wire,
@@ -279,7 +279,7 @@ class ReplayInstaller {
     const { sql } = this.engine.requireStorage();
     const scope = this.engine.getInvocationScope();
     // `replayScope` carries this frame's channel markers. For the row-count
-    // limit, `channel`/`channelScope` pick the store: there are two replay
+    // limit, `channel`/`channelFamily` pick the store: there are two replay
     // stores (top-level and per-channel). `pruneReplayScopeRows` keys on
     // channel only.
     const replayScope = readReplayScope(wireMessage.wskit);
@@ -305,7 +305,7 @@ class ReplayInstaller {
         ? (event, payload) =>
             this.engine.assertReplaySendContract(event, payload, {
               channel: replayScope.channel ?? undefined,
-              channelScope: replayScope.channelScope,
+              channelFamily: replayScope.channelFamily,
             })
         : undefined,
     });
@@ -349,7 +349,7 @@ class ReplayInstaller {
     const { sql } = this.engine.requireStorage();
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
-      channelScope: scope.channelScope ?? null,
+      channelFamily: scope.channelFamily ?? null,
     });
 
     const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
@@ -359,7 +359,7 @@ class ReplayInstaller {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
       this.engine.sendReplay(connectionId, {
         channelName: row.channel,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
         event: row.event,
         payload: rowPayload,
         wire: {

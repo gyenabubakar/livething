@@ -18,7 +18,7 @@ const CREATE_STREAMS_TABLE_SQL = `
     cursor                    TEXT,
     last_seq                  INTEGER NOT NULL DEFAULT 0,
     channel_key               TEXT,
-    channel_scope             TEXT,
+    channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
     creator_identity          TEXT,
     started_at                INTEGER NOT NULL,
@@ -88,7 +88,7 @@ export interface DurableStreamRow {
   lastSeq: number;
 
   channelKey: string | null;
-  channelScope: string | null;
+  channelFamily: string | null;
 
   broadcast: boolean;
   creatorIdentity: string | null;
@@ -165,7 +165,7 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     cursor: (row.cursor as string | null) ?? null,
     lastSeq: Number(row.last_seq ?? 0),
     channelKey: (row.channel_key as string | null) ?? null,
-    channelScope: (row.channel_scope as string | null) ?? null,
+    channelFamily: (row.channel_family as string | null) ?? null,
     broadcast: Number(row.broadcast ?? 0) === 1,
     creatorIdentity: (row.creator_identity as string | null) ?? null,
     startedAt: Number(row.started_at ?? 0),
@@ -188,7 +188,7 @@ export interface InsertStreamInput {
   now: number;
 
   channelKey?: string | null;
-  channelScope?: string | null;
+  channelFamily?: string | null;
 
   broadcast?: boolean;
   creatorIdentity?: string | null;
@@ -209,7 +209,7 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
       `INSERT INTO __wskit_streams
-       (identity, stream_id, event, payload, kind, status, last_seq, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+       (identity, stream_id, event, payload, kind, status, last_seq, channel_key, channel_family, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
        VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.identity,
       input.streamId,
@@ -217,7 +217,7 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
       input.payload,
       input.kind,
       input.channelKey ?? null,
-      input.channelScope ?? null,
+      input.channelFamily ?? null,
       input.broadcast ? 1 : 0,
       input.creatorIdentity ?? null,
       input.now,

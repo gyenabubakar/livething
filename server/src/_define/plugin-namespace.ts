@@ -329,7 +329,7 @@ function namespaceErrors(id: string, primitive: Primitive): Primitive {
 /**
  * Namespace a plugin's channel: the static name / family key and every child
  * event inside its `primitives` list (incoming/request/stream/outgoing). The
- * channel scope and its events carry the provenance marker so the compile
+ * channel and its events carry the provenance marker so the compile
  * reserved-name and `::` guards permit the framework-namespaced form.
  */
 function namespaceChannel(

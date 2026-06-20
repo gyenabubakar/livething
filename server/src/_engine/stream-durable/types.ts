@@ -1,6 +1,6 @@
 /** Shared engine-side types for the durable stream runtime. */
 
-import type { OnDisconnect, ResolvedScope } from '~/_engine/runtime/types.ts';
+import type { OnDisconnect, ResolvedChannel } from '~/_engine/runtime/types.ts';
 import type { DurableStreamKind } from './storage.ts';
 
 export type { DurableStreamKind, OnDisconnect };
@@ -11,13 +11,13 @@ export type { DurableStreamKind, OnDisconnect };
  * so every connection in scope can resolve the same row regardless of which
  * user identity is holding the lookup.
  */
-export function computeBroadcastScopeKey(scope: ResolvedScope): string {
+export function computeBroadcastKey(scope: ResolvedChannel): string {
   if (scope.channelName) {
     // The family key and channel name both may contain ':', so a plain-string
-    // delimiter can collide (scope 'a:' + name 'b' vs scope 'a' + name ':b').
+    // delimiter can collide (family 'a:' + name 'b' vs family 'a' + name ':b').
     // JSON-encode the pair instead: distinct pairs always encode distinctly.
-    return scope.channelScope
-      ? `__bcast:chf:${JSON.stringify([scope.channelScope, scope.channelName])}__`
+    return scope.channelFamily
+      ? `__bcast:chf:${JSON.stringify([scope.channelFamily, scope.channelName])}__`
       : `__bcast:ch:${scope.channelName}__`;
   }
   return '__bcast:top__';

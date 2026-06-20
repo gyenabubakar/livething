@@ -18,7 +18,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
+type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
 
@@ -64,7 +64,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
 
 /** Closure that builds a live-connection context. Used by error + dispatch helpers. */
 function buildConnectionContext(core: EngineCore) {
-  return (connection: RuntimeConnection, scope?: ResolvedScope) =>
+  return (connection: RuntimeConnection, scope?: ResolvedChannel) =>
     EngineContexts.buildConnectionContext(ctxDeps(core), connection, scope);
 }
 
@@ -104,19 +104,19 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     broadcastToChannel: (opts) => {
       EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
-    getChannelMembers: (channelName, channelScope) =>
-      EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelScope),
+    getChannelMembers: (channelName, channelFamily) =>
+      EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelFamily),
     kickChannelMembers: (opts) => {
       return EngineChannelFrames.kickChannelMembers(
         { ...channelRuntime(core), leaveChannel: buildLeaveChannel(core) },
         opts,
       );
     },
-    removeChannelMember: (channelName, channelScope, identity) => {
+    removeChannelMember: (channelName, channelFamily, identity) => {
       return MembershipPersistence.removeChannelMember(core, buildLeaveChannel(core), {
         identity,
         channelName,
-        channelScope,
+        channelFamily,
       });
     },
     subscribeConnectionAsServer: (ref, opts) => {
@@ -130,14 +130,14 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
-        return { channelName: target, channelScope: null, params: {} };
+        return { channelName: target, channelFamily: null, params: {} };
       }
       const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
-      if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
+      if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, target.name)) return undefined;
       return {
         channelName: target.name,
-        channelScope: target.family,
+        channelFamily: target.family,
         params: ChannelPrimitive.matchScopeParams(family.pattern, target.name),
       };
     },
@@ -231,7 +231,7 @@ function buildChannelRuntime(core: EngineCore) {
 
     handleValidationError: (
       connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
     ) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
@@ -251,14 +251,18 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
 
-    persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.persistMembership(core, { identity, channelName, channelScope }),
+    persistMembership: (identity: string, channelName: string, channelFamily: string | null) =>
+      MembershipPersistence.persistMembership(core, { identity, channelName, channelFamily }),
 
-    deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelScope }),
+    deleteDurableMembership: (
+      identity: string,
+      channelName: string,
+      channelFamily: string | null,
+    ) =>
+      MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelFamily }),
 
-    hasDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelScope }),
+    hasDurableMembership: (identity: string, channelName: string, channelFamily: string | null) =>
+      MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelFamily }),
 
     logger: core.logger,
   };
@@ -297,7 +301,7 @@ function buildDispatchRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       opts: {
         channelName: string | null;
-        channelScope: string | null;
+        channelFamily: string | null;
         event: string;
         payload: unknown;
         wire: { seq: number; messageId: string; channel?: string };
@@ -319,7 +323,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     handleValidationError: (
       connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
     ) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
@@ -464,7 +468,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
           // `request-no-response` when it has no handler.
           source: 'server',
           channel: opts.channel,
-          channelScope: opts.channelScope,
+          channelFamily: opts.channelFamily,
         },
         event: opts.event,
         payload: opts.payload,

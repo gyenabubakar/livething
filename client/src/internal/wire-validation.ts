@@ -51,24 +51,24 @@ export function isReservedEventName(name: string): boolean {
 }
 
 /**
- * A scope key is optional — an absent (`undefined`) one is a static channel and
+ * A family key is optional — an absent (`undefined`) one is a static channel and
  * is fine. But a *supplied* family key must be a non-empty string within the
- * limit: an empty key would drop the `channelScope` marker and turn the frame
+ * limit: an empty key would drop the `channelFamily` marker and turn the frame
  * into a static-channel subscribe that hangs.
  */
-export function scopeKeyError(event: string, scopeKey: string | undefined): WSKitError | null {
-  if (scopeKey === undefined) return null;
-  if (scopeKey.length === 0) {
+export function familyKeyError(event: string, familyKey: string | undefined): WSKitError | null {
+  if (familyKey === undefined) return null;
+  if (familyKey.length === 0) {
     return ValidationFailed({
       event,
-      issues: [{ message: 'channel scope must be a non-empty string when given.' }],
+      issues: [{ message: 'channel family must be a non-empty string when given.' }],
     });
   }
-  if (scopeKey.length > WIRE_LIMITS.channelScope) {
+  if (familyKey.length > WIRE_LIMITS.channelFamily) {
     return ValidationFailed({
       event,
       issues: [
-        { message: `channel scope is over the ${WIRE_LIMITS.channelScope}-character limit.` },
+        { message: `channel family is over the ${WIRE_LIMITS.channelFamily}-character limit.` },
       ],
     });
   }

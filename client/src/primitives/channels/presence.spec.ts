@@ -198,14 +198,14 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
     });
     await scopedPromise;
 
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      __wskit: { channel: 'general', channelFamily: 'rooms' },
     });
 
     expect(scoped.members.has('c1')).toBe(true);
@@ -229,7 +229,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'general', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
     });
     await scopedPromise;
 
@@ -241,7 +241,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: 'message',
       payload: { text: 'scoped only' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      __wskit: { channel: 'general', channelFamily: 'rooms' },
     });
 
     expect(scopedHandler).toHaveBeenCalledWith({ text: 'scoped only' });

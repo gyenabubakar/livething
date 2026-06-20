@@ -351,42 +351,42 @@ describe('membership and presence', () => {
 });
 
 describe('dynamic families and scope handles', () => {
-  it('tags dynamic channels with channel + channelScope', async () => {
+  it('tags dynamic channels with channel + channelFamily', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('rooms', 'room-1');
     const p = room.subscribe();
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'room-1', channelScope: 'rooms' },
+      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
     });
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
     });
     await p;
     room.send('send-message', { text: 'hi' });
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelScope: 'rooms' });
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelFamily: 'rooms' });
   });
 
   it('resolves the same handle via channel(scope,name) and scope(key)(name)', () => {
     const { socket } = build(channels());
-    expect(socket.channel('rooms', 'room-1')).toBe(socket.channel.scope('rooms')('room-1'));
+    expect(socket.channel('rooms', 'room-1')).toBe(socket.channel.family('rooms')('room-1'));
   });
 
-  it('an absent scope subscribes as a static channel (no channelScope marker)', async () => {
+  it('an absent scope subscribes as a static channel (no channelFamily marker)', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     void room.subscribe();
     expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'general' });
   });
 
-  it('a supplied family key is carried in the channelScope marker', () => {
+  it('a supplied family key is carried in the channelFamily marker', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('rooms', 'room-9');
     void room.subscribe();
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelScope: 'rooms' });
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelFamily: 'rooms' });
   });
 
   it('rejects an empty family key locally with validation-failed and sends nothing', async () => {
@@ -399,7 +399,7 @@ describe('dynamic families and scope handles', () => {
 
   it('family-level on() fires with the channel name', async () => {
     const { socket, ws } = build(channels());
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
     const familyHandler = vi.fn();
     family.on('message', familyHandler);
     const room = family('room-7');
@@ -407,13 +407,13 @@ describe('dynamic families and scope handles', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'room-7', channelFamily: 'rooms' },
     });
     await p;
     ws.emit({
       event: 'message',
       payload: { text: 'yo' },
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
     expect(familyHandler).toHaveBeenCalledWith({ text: 'yo' }, 'room-7');
     expect(family.list()).toEqual(['room-7']);

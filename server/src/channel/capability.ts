@@ -138,23 +138,12 @@ export class ChannelBuilder {
     if (cfg.check) {
       this.children.push(
         checkFactory(
-          (ctx: any, data: unknown) => {
-            (ctx as Record<PropertyKey, unknown>).check = data;
-            return cfg.check(adaptChannelContext(ctx));
-          },
+          (ctx: any, data: unknown) => cfg.check(adaptChannelContext(ctx), data),
           cfg.subscribe ? { validator: cfg.subscribe } : undefined,
         ),
       );
     } else if (cfg.subscribe) {
-      this.children.push(
-        checkFactory(
-          (ctx: any, data: unknown) => {
-            (ctx as Record<PropertyKey, unknown>).check = data;
-            return undefined;
-          },
-          { validator: cfg.subscribe },
-        ),
-      );
+      this.children.push(checkFactory(() => undefined, { validator: cfg.subscribe }));
     }
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)

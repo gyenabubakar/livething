@@ -35,7 +35,7 @@ function makeSql() {
           payload,
           kind,
           channelKey,
-          channelScope,
+          channelFamily,
           broadcast,
           creatorIdentity,
           startedAt,
@@ -54,7 +54,7 @@ function makeSql() {
           cursor: null,
           last_seq: 0,
           channel_key: channelKey,
-          channel_scope: channelScope,
+          channel_family: channelFamily,
           broadcast,
           creator_identity: creatorIdentity,
           started_at: startedAt,
@@ -495,7 +495,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelScope: null },
+      wskit: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
@@ -541,7 +541,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelScope: null },
+      wskit: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
@@ -588,7 +588,7 @@ describe('durable stream runtime', () => {
         },
       }),
       payload: {},
-      wskit: { streamId: 'shared', channelScope: null },
+      wskit: { streamId: 'shared', channelFamily: null },
     });
 
     await firstYield;
@@ -1853,7 +1853,7 @@ describe('durable stream runtime', () => {
         }) as never,
       }),
       payload: {},
-      wskit: { streamId: 's-sig', channelScope: null },
+      wskit: { streamId: 's-sig', channelFamily: null },
     });
 
     await new Promise((r) => setTimeout(r, 10));
@@ -1895,7 +1895,7 @@ describe('durable stream runtime', () => {
         }) as never,
       }),
       payload: {},
-      wskit: { streamId: 's-drain', channelScope: null },
+      wskit: { streamId: 's-drain', channelFamily: null },
     });
 
     expect(drainResolved).toBe(true);

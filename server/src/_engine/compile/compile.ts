@@ -228,11 +228,11 @@ function validateScopeAndEventNameSyntax(
   declaredPluginChannels: ReadonlySet<string>,
 ): void {
   // A static channel name travels on the wire as `channel` (limit 256); a
-  // dynamic family key travels as `channelScope` (limit 128). Validating a
+  // dynamic family key travels as `channelFamily` (limit 128). Validating a
   // family key against the larger channel limit lets a 129-char key boot that
   // no client can ever address.
   function checkScopeName(name: string, kind: 'channel', limit: number): void {
-    // A plugin's channel scope is framework-namespaced as `__<id>::<name>` — it
+    // A plugin's channel is framework-namespaced as `__<id>::<name>` — it
     // legitimately carries `__` and `::`. Provenance (not string shape) is what
     // exempts it, so a hand-declared `::` channel still throws.
     if (declaredPluginChannels.has(name)) {
@@ -325,7 +325,7 @@ function validateScopeAndEventNameSyntax(
   }
 
   for (const family of compiled.channelFamilies.values()) {
-    checkScopeName(family.key, 'channel', WIRE_LIMITS.channelScope);
+    checkScopeName(family.key, 'channel', WIRE_LIMITS.channelFamily);
     checkEventsInScope(family, `channel family '${family.key}'`);
   }
 }
@@ -452,7 +452,7 @@ function collectFromScope(
   }
 }
 
-/** The channel scope names a plugin owns, so the `::`/`@`/`#` guards allow them. */
+/** The channel names a plugin owns, so the `::`/`@`/`#` guards allow them. */
 function collectPluginChannelNames(
   compiled: EngineCompileTypes.CompiledServer,
 ): ReadonlySet<string> {

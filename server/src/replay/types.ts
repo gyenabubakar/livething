@@ -137,7 +137,7 @@ export interface ReplayRow {
   event: string;
   payload: string;
   channel: string | null;
-  channelScope: string | null;
+  channelFamily: string | null;
   snapshotKey: string | null;
   createdAt: number;
   /** Forward-compat blob (see the metadata column); not yet read or written. */
@@ -147,7 +147,7 @@ export interface ReplayRow {
 /** @internal */
 export interface ReplayPayloadScope {
   channel: string | null;
-  channelScope: string | null;
+  channelFamily: string | null;
 }
 
 /** @internal */

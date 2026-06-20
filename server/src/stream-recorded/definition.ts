@@ -5,6 +5,7 @@ import {
   collectUnique,
 } from '~/_engine/compile/utils.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
@@ -54,7 +55,7 @@ export interface RecordedStreamDef<
   readonly _: 'recorded-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
@@ -68,7 +69,7 @@ interface RecordedStreamConfig<
   TNudges extends readonly NudgeDef<string, any>[],
 > extends CommonRecordedConfig {
   payload?: Validator<TPayload>;
-  chunk?: Validator<TChunk>;
+  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
@@ -99,7 +100,7 @@ interface RecordedStreamConfig<
  * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * const TokenChunk = v.object({ idx: v.number() });
+ * const TokenChunk = t<{ idx: number }>();
  *
  * const base = define({
  *   env: t<Env>(),

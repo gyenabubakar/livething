@@ -23,7 +23,7 @@ function makeExec() {
 describe('durable membership identity gate', () => {
   it('skips the durable write for an empty (anonymous) identity', () => {
     const exec = makeExec();
-    persistMembership(makeCore(exec), { identity: '', channelName: 'room', channelScope: null });
+    persistMembership(makeCore(exec), { identity: '', channelName: 'room', channelFamily: null });
     expect(exec).not.toHaveBeenCalled();
   });
 
@@ -32,7 +32,7 @@ describe('durable membership identity gate', () => {
     persistMembership(makeCore(exec), {
       identity: 'user-1',
       channelName: 'room',
-      channelScope: null,
+      channelFamily: null,
     });
     expect(exec).toHaveBeenCalledTimes(1);
   });
@@ -42,7 +42,7 @@ describe('durable membership identity gate', () => {
     deleteDurableMembership(makeCore(exec), {
       identity: '',
       channelName: 'room',
-      channelScope: null,
+      channelFamily: null,
     });
     expect(exec).not.toHaveBeenCalled();
   });
@@ -52,7 +52,7 @@ describe('durable membership identity gate', () => {
     const result = hasDurableMembership(makeCore(exec), {
       identity: '',
       channelName: 'room',
-      channelScope: null,
+      channelFamily: null,
     });
     expect(result).toBe(false);
     expect(exec).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe('removeChannelMember with persistence disabled', () => {
     const connection = {
       id: 'conn_1',
       identity: 'user-1',
-      channelMemberships: new Map([[membershipKey, { channelName: 'room', channelScope: null }]]),
+      channelMemberships: new Map([[membershipKey, { channelName: 'room', channelFamily: null }]]),
     } as unknown as RuntimeConnection;
 
     const core = {
@@ -81,7 +81,7 @@ describe('removeChannelMember with persistence disabled', () => {
     await removeChannelMember(core, leaveChannel, {
       identity: 'user-1',
       channelName: 'room',
-      channelScope: null,
+      channelFamily: null,
     });
 
     expect(exec).not.toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe('removeChannelMember with persistence disabled', () => {
     await removeChannelMember(core, leaveChannel, {
       identity: 'user-1',
       channelName: 'room',
-      channelScope: null,
+      channelFamily: null,
     });
 
     expect(leaveChannel).not.toHaveBeenCalled();

@@ -26,7 +26,7 @@ base.init((ctx) => {
       seq INTEGER NOT NULL,
       message_id TEXT NOT NULL,
       channel TEXT,
-      channel_scope TEXT
+      channel_family TEXT
     )
   `);
 });
@@ -34,30 +34,30 @@ base.init((ctx) => {
 base.replay({
   beforeSend: (ctx, msg) => {
     ctx.sql.exec(
-      'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_scope) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_family) VALUES (?, ?, ?, ?, ?, ?)',
       msg.event,
       JSON.stringify(msg.payload),
       msg.wire.seq,
       msg.wire.messageId,
       msg.wire.channel,
-      msg.wire.channelScope,
+      msg.wire.channelFamily,
     );
   },
   replay: (ctx, since) => {
     const requestedChannel = ctx.request.channel;
-    const requestedScope = ctx.request.channelScope;
+    const requestedScope = ctx.request.channelFamily;
     type Row = {
       event: string;
       payload: string;
       seq: number;
       message_id: string;
       channel: string | null;
-      channel_scope: string | null;
+      channel_family: string | null;
     };
     const rows: Row[] = requestedChannel
       ? (
           ctx.sql.exec(
-            'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel = ? AND ((channel_scope IS NULL AND ? IS NULL) OR channel_scope = ?) ORDER BY seq ASC',
+            'SELECT event, payload, seq, message_id, channel, channel_family FROM _cascade_replay WHERE seq > ? AND channel = ? AND ((channel_family IS NULL AND ? IS NULL) OR channel_family = ?) ORDER BY seq ASC',
             since,
             requestedChannel,
             requestedScope,
@@ -66,7 +66,7 @@ base.replay({
         ).toArray()
       : (
           ctx.sql.exec(
-            'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
+            'SELECT event, payload, seq, message_id, channel, channel_family FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
             since,
           ) as { toArray(): Row[] }
         ).toArray();
@@ -76,7 +76,7 @@ base.replay({
         seq: row.seq,
         messageId: row.message_id,
         channel: row.channel ?? undefined,
-        channelScope: row.channel_scope ?? null,
+        channelFamily: row.channel_family ?? null,
       });
     }
   },

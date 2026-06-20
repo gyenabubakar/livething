@@ -5,7 +5,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = v.object({ index: v.number() });
+const Token = t<{ index: number }>();
 
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 

@@ -7,9 +7,9 @@ import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
-const TokenChunk = v.object({ token: v.string() });
-const RowChunk = v.object({ row: v.number() });
-const AttemptChunk = v.object({ attempt: v.number() });
+const TokenChunk = t<{ token: string }>();
+const RowChunk = t<{ row: number }>();
+const AttemptChunk = t<{ attempt: number }>();
 
 const base = define({
   env: t<Env>(),

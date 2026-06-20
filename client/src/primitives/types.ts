@@ -146,7 +146,7 @@ type AnyScopedSectionDeclared<TContract> =
           : false;
 
 /**
- * True when at least one channel scope in the contract declares the given
+ * True when at least one channel family in the contract declares the given
  * section (`requests` / `serverRequests` / `streams`). A channel-handle method
  * is only worth stubbing when some channel actually uses it.
  */
@@ -166,7 +166,7 @@ type AnyChannelSectionDeclared<TContract, Section extends string> = TContract ex
  * `request`/`onRequest`/`stream`/`onStream`/`resumeStream` route through the
  * SAME top-level primitive as their socket-level twins, so we key off the same
  * presence check (`'request' extends keyof Api`, etc.) used at the top level —
- * mirroring it one level down into the channel scope.
+ * mirroring it one level down into the channel.
  */
 type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
   TContract,

@@ -45,13 +45,13 @@ describe('resolveScopeKey', () => {
   });
 
   it('uses channel family key when present', () => {
-    expect(resolveScopeKey({ id: 'c1', channel: { name: 'room-1', scope: 'rooms' } })).toBe(
+    expect(resolveScopeKey({ id: 'c1', channel: { name: 'room-1', family: 'rooms' } })).toBe(
       'channel:rooms',
     );
   });
 
   it('falls back to channel name for static channels (scope null)', () => {
-    expect(resolveScopeKey({ id: 'c1', channel: { name: 'lobby', scope: null } })).toBe(
+    expect(resolveScopeKey({ id: 'c1', channel: { name: 'lobby', family: null } })).toBe(
       'channel:lobby',
     );
   });
@@ -184,8 +184,10 @@ describe('RateLimitRuntime — token bucket math', () => {
     );
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
-    expect(rt.check({ id: 'c1', channel: { name: 'room-a', scope: 'rooms' } }, 'e')).toBeNull();
-    expect(rt.check({ id: 'c1', channel: { name: 'room-a', scope: 'rooms' } }, 'e')).not.toBeNull();
+    expect(rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e')).toBeNull();
+    expect(
+      rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e'),
+    ).not.toBeNull();
   });
 
   it('per-event override with null rule disables for that event', () => {

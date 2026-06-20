@@ -16,7 +16,7 @@ export { ChannelStaticServer } from './channel-static.ts';
 export { ChannelDynamicServer } from './channel-dynamic.ts';
 export { PersistenceServer } from './persistence.ts';
 export { TypedTagsServer } from './typed-tags.ts';
-export { ChannelScopeIsolationServer } from './channel-scope-isolation.ts';
+export { ChannelFamilyIsolationServer } from './channel-family-isolation.ts';
 export { ChannelKeyCollisionServer } from './channel-key-collision.ts';
 export { ErrorHookIsolationServer } from './error-hook-isolation.ts';
 export { ReplayMembershipGateServer } from './replay-membership-gate.ts';
@@ -65,7 +65,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-dynamic': 'CHANNEL_DYNAMIC_SERVER',
   '/ws/persistence': 'PERSISTENCE_SERVER',
   '/ws/typed-tags': 'TYPED_TAGS_SERVER',
-  '/ws/channel-scope-isolation': 'CHANNEL_SCOPE_ISOLATION_SERVER',
+  '/ws/channel-family-isolation': 'CHANNEL_FAMILY_ISOLATION_SERVER',
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',
   '/ws/replay-membership-gate': 'REPLAY_MEMBERSHIP_GATE_SERVER',

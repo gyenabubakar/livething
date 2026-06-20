@@ -58,7 +58,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     resolveChannel: vi.fn((target: any) =>
       typeof target === 'string'
         ? { channelName: target }
-        : { channelName: target.name, channelScope: target.family },
+        : { channelName: target.name, channelFamily: target.family },
     ),
     sendReplay: vi.fn(),
     sendProtocolMessage: vi.fn(),
@@ -313,14 +313,14 @@ describe('ctx.channel.send', () => {
         intercepts: [],
       } as any,
       channelName: 'general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     };
 
     const ctx = buildConnectionContext(deps, connection, scope);
     (ctx as any).channel.send('greeting', { msg: 'hi' });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
-      routing: { channel: 'general', channelScope: 'rooms' },
+      routing: { channel: 'general', channelFamily: 'rooms' },
       event: 'greeting',
       payload: { msg: 'hi' },
     });
@@ -391,7 +391,7 @@ describe('ctx.channels.get(name).members()', () => {
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'
         ? undefined
-        : { channelName: target.name, channelScope: target.family, params: {} },
+        : { channelName: target.name, channelFamily: target.family, params: {} },
     );
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
@@ -410,7 +410,7 @@ describe('ctx.channels.get(name).members()', () => {
   it('resolves get(channelDecl) by the declaration key (static channel)', () => {
     const connection = createConnection('c1');
     const resolveChannel = vi.fn((target: any) =>
-      target === 'lobby' ? { channelName: 'lobby', channelScope: null, params: {} } : undefined,
+      target === 'lobby' ? { channelName: 'lobby', channelFamily: null, params: {} } : undefined,
     );
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
@@ -429,7 +429,7 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'object'
-        ? { channelName: target.name, channelScope: target.family, params: { id: 'general' } }
+        ? { channelName: target.name, channelFamily: target.family, params: { id: 'general' } }
         : undefined,
     );
     const deps = baseDeps({
@@ -462,7 +462,7 @@ describe('ctx.channels.get(name).members()', () => {
       channelName: 'room',
       target: 'banned',
       reason: 'spam',
-      channelScope: undefined,
+      channelFamily: undefined,
     });
   });
 });
@@ -508,7 +508,7 @@ describe('persistAttachment', () => {
     connection.tags.ephemeral.set('role', new Set(['vip']));
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     connection.activeStreamIds = new Set(['stream_1']);
 
@@ -519,7 +519,7 @@ describe('persistAttachment', () => {
       id: 'c1',
       meta: { username: 'user1' },
       tags: [{ group: 'role', key: 'vip' }],
-      channelMemberships: [{ channelName: 'room:general', channelScope: 'rooms' }],
+      channelMemberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
       activeStreamIds: ['stream_1'],
     });
   });

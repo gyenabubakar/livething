@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setUniqueOrThrow } from '~/_engine/compile/utils.ts';
-import { matchesScopePattern } from '~/channel/runtime.ts';
+import { matchesFamilyPattern } from '~/channel/runtime.ts';
 import type {
   AnyGenerate,
   AnyIncoming,
@@ -91,7 +91,7 @@ export function validateChannelFamilyPatternsDisjointFromStaticNames(
 ): void {
   for (const [familyKey, family] of compiled.channelFamilies) {
     for (const staticName of compiled.channels.keys()) {
-      if (matchesScopePattern(family.pattern, staticName)) {
+      if (matchesFamilyPattern(family.pattern, staticName)) {
         throw new Error(
           `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
             `channel name '${staticName}'. Static channel names and family patterns must be ` +

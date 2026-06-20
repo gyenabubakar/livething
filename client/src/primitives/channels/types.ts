@@ -72,7 +72,7 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
  * A handle for a whole dynamic channel family. Call it like a function to get
  * one channel, or use the family-level listeners to watch every channel in it.
  */
-export interface ScopeHandle<C> {
+export interface FamilyHandle<C> {
   /** Get the channel handle for one concrete name in this family. */
   (name: string): ChannelMessaging<C>;
   /** Listen across every channel in the family; the second arg is which one. */
@@ -89,7 +89,7 @@ export interface ScopeHandle<C> {
 }
 
 // A dynamic family has `addressing: 'dynamic'` in its contract entry, set by a
-// `scope('key', 'tmpl-{id}')` declaration. A static channel has `addressing: 'static'`
+// `channel(['key', 'tmpl-{id}'])` declaration. A static channel has `addressing: 'static'`
 // or no addressing field at all. All channels in a family share one event contract,
 // so the family entry holds that shared contract plus the addressing marker.
 type IsFamily<T> = T extends { addressing: 'dynamic' } ? true : false;
@@ -101,27 +101,27 @@ type FixedKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? never : K }[
 type FamilyKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? K : never }[keyof C];
 
 /**
- * The `channel` method: `channel(name)` for a fixed channel, `channel(scope,
- * name)` for one inside a dynamic family, and `channel.scope(scope)` for a
+ * The `channel` method: `channel(name)` for a fixed channel, `channel(family,
+ * name)` for one inside a dynamic family, and `channel.family(family)` for a
  * whole family.
  */
 export interface ChannelMethod<C> {
   <K extends FixedKeys<C> & string>(name: K): ChannelMessaging<C[K]>;
-  <K extends FamilyKeys<C> & string>(scopeKey: K, name: string): ChannelMessaging<C[K]>;
-  scope<K extends FamilyKeys<C> & string>(scopeKey: K): ScopeHandle<C[K]>;
+  <K extends FamilyKeys<C> & string>(familyKey: K, name: string): ChannelMessaging<C[K]>;
+  family<K extends FamilyKeys<C> & string>(familyKey: K): FamilyHandle<C[K]>;
 }
 
 /**
  * Like `ChannelMethod`, but every handle it hands back carries `Stubs` — the
  * `NeedsPrimitive` markers for channel-scoped methods whose primitive wasn't
  * installed. Used by the client's missing-primitive guard to push those markers
- * one level down into the channel scope, so `channel('x').request(...)` stops
+ * one level down into the channel, so `channel('x').request(...)` stops
  * compiling exactly like the top-level `socket.request(...)` does.
  */
 export interface StubbedChannelMethod<C, Stubs> {
   <K extends FixedKeys<C> & string>(name: K): StubbedMessaging<C[K], Stubs>;
-  <K extends FamilyKeys<C> & string>(scopeKey: K, name: string): StubbedMessaging<C[K], Stubs>;
-  scope<K extends FamilyKeys<C> & string>(scopeKey: K): StubbedScopeHandle<C[K], Stubs>;
+  <K extends FamilyKeys<C> & string>(familyKey: K, name: string): StubbedMessaging<C[K], Stubs>;
+  family<K extends FamilyKeys<C> & string>(familyKey: K): StubbedFamilyHandle<C[K], Stubs>;
 }
 
 /**
@@ -132,8 +132,8 @@ export interface StubbedChannelMethod<C, Stubs> {
  */
 export type StubbedMessaging<C, Stubs> = Omit<ChannelMessaging<C>, keyof Stubs> & Stubs;
 
-/** A `ScopeHandle` whose member handles carry the channel-scoped stubs. */
-export interface StubbedScopeHandle<C, Stubs> {
+/** A `FamilyHandle` whose member handles carry the channel-scoped stubs. */
+export interface StubbedFamilyHandle<C, Stubs> {
   /** Get the channel handle for one concrete name in this family. */
   (name: string): StubbedMessaging<C, Stubs>;
   on<E extends keyof IncomingOf<C> & string>(

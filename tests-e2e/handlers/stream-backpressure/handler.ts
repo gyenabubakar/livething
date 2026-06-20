@@ -4,7 +4,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Tick = v.object({ index: v.number() });
+const Tick = t<{ index: number }>();
 
 const base = define({
   env: t<Env>(),

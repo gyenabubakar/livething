@@ -15,7 +15,7 @@ const GetRoomMembersPayload = v.object({});
 const ProbeConnPayload = v.object({});
 
 const StartSlowStreamPayload = v.object({});
-const SlowChunk = v.object({ index: v.number() });
+const SlowChunk = t<{ index: number }>();
 
 const base = define({
   env: t<Env>(),

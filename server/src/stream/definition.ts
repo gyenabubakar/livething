@@ -5,6 +5,7 @@ import {
   collectUnique,
 } from '~/_engine/compile/utils.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -32,7 +33,7 @@ export interface StreamDef<
   readonly _: 'stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly broadcast: boolean;
   readonly allowConcurrent: boolean;
@@ -65,7 +66,7 @@ export function stream<
   name: TName,
   config?: {
     payload?: Validator<TPayload>;
-    chunk?: Validator<TChunk>;
+    chunk?: TypeMarker<TChunk>;
     nudges?: TNudges;
     broadcast?: boolean;
     allowConcurrent?: boolean;

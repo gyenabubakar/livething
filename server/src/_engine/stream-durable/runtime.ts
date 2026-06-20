@@ -28,14 +28,14 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
   ActiveStream,
   OnDisconnect,
-  ResolvedScope,
+  ResolvedChannel,
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
-import { computeBroadcastScopeKey } from './types.ts';
+import { computeBroadcastKey } from './types.ts';
 import type { DurableStreamKind } from './types.ts';
 
 /** Minimal slice of the engine the durable runtime needs to do its job. */
@@ -54,7 +54,7 @@ export interface DurableStreamRuntime {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   sendProtocolMessage(
@@ -119,10 +119,10 @@ export interface DurableStreamRuntimeDef {
 }
 
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
-function buildScopeRouting(scope: ResolvedScope): Partial<Protocol.WSKitProtocol> {
+function buildScopeRouting(scope: ResolvedChannel): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (scope.channelName) wskit.channel = scope.channelName;
-  if (scope.channelScope) wskit.channelScope = scope.channelScope;
+  if (scope.channelFamily) wskit.channelFamily = scope.channelFamily;
   return wskit;
 }
 
@@ -131,7 +131,7 @@ function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.WSKitP
   const wskit: Partial<Protocol.WSKitProtocol> = {};
 
   if (row.channelKey) wskit.channel = row.channelKey;
-  if (row.channelScope) wskit.channelScope = row.channelScope;
+  if (row.channelFamily) wskit.channelFamily = row.channelFamily;
 
   return wskit;
 }
@@ -198,7 +198,7 @@ function ensureUniqueStreamId(
 }
 
 export interface RunDurableStreamOptions {
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
   def: DurableStreamRuntimeDef;
   payload: unknown;
   wskit: Protocol.WSKitProtocol | undefined;
@@ -214,7 +214,7 @@ export async function runDurableStream(
   const creatorIdentity = storageIdentityOf(connection);
 
   // Broadcast streams key the row by scope so every subscriber finds the same row.
-  const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
+  const storageIdentity = def.broadcast ? computeBroadcastKey(scope) : creatorIdentity;
 
   assertNoConcurrentStream(runtime, connection, {
     event: def.event,
@@ -238,7 +238,7 @@ export async function runDurableStream(
     kind: def.kind,
     now,
     channelKey: scope.channelName ?? null,
-    channelScope: scope.channelScope ?? null,
+    channelFamily: scope.channelFamily ?? null,
     broadcast: def.broadcast ?? false,
     creatorIdentity,
     maxChunks: def.maxChunks,
@@ -282,13 +282,13 @@ export async function runDurableStream(
 
 /**
  * Look up the durable-stream row for a `__resumeStream__` frame. Tries the
- * connection's own identity first, then the broadcast scope key. Returns null
+ * connection's own identity first, then the broadcast channel key. Returns null
  * when nothing matches.
  */
 export function findResumeRow(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: { resumeScope: ResolvedScope; streamId: string },
+  opts: { resumeScope: ResolvedChannel; streamId: string },
 ): Storage.DurableStreamRow | null {
   const { resumeScope, streamId } = opts;
 
@@ -297,7 +297,7 @@ export function findResumeRow(
   const single = Storage.readStream(runtime.sql, realIdentity, streamId);
   if (single) return single;
 
-  const scopeKey = computeBroadcastScopeKey(resumeScope);
+  const scopeKey = computeBroadcastKey(resumeScope);
 
   return Storage.readStream(runtime.sql, scopeKey, streamId);
 }
@@ -305,7 +305,7 @@ export function findResumeRow(
 export interface ResumeDurableStreamOptions {
   resolveDef: (
     row: Storage.DurableStreamRow,
-  ) => { def: DurableStreamRuntimeDef; scope: ResolvedScope } | undefined;
+  ) => { def: DurableStreamRuntimeDef; scope: ResolvedChannel } | undefined;
   row: Storage.DurableStreamRow | null;
   streamId: string;
   lastKnownSeq: number;
@@ -584,7 +584,7 @@ export function sweepDurableStreams(runtime: { sql: DurableStreamRuntime['sql'] 
 }
 
 interface RunGeneratorOptions {
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
   def: DurableStreamRuntimeDef;
   payload: unknown;
   streamId: string;
@@ -774,7 +774,7 @@ async function runGenerator(
             runtime.sendThroughPipeline(target, {
               routing: {
                 channel: scope.channelName,
-                channelScope: scope.channelScope,
+                channelFamily: scope.channelFamily,
                 streamId,
                 seq,
                 streamKind: 'persistent',
@@ -793,7 +793,7 @@ async function runGenerator(
         runtime.sendThroughPipeline(wireTarget, {
           routing: {
             channel: scope.channelName,
-            channelScope: scope.channelScope,
+            channelFamily: scope.channelFamily,
             streamId,
             seq,
             streamKind: 'persistent',
@@ -868,7 +868,7 @@ async function runGenerator(
     }
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
-    if (scope.channelScope) routing.channelScope = scope.channelScope;
+    if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
     await runtime.handleRuntimeError(connection, {
       error,
       event: def.event,
@@ -938,7 +938,7 @@ function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknow
 export async function cancelDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: { streamId: string; cancelScope: ResolvedScope },
+  opts: { streamId: string; cancelScope: ResolvedChannel },
 ): Promise<void> {
   const { streamId, cancelScope } = opts;
   const realIdentity = storageIdentityOf(connection);

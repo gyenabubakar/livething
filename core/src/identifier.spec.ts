@@ -59,7 +59,7 @@ describe('WIRE_LIMITS / exceedsWireLimit', () => {
     expect(WIRE_LIMITS).toEqual({
       event: 128,
       channel: 256,
-      channelScope: 128,
+      channelFamily: 128,
       streamId: 128,
       wireId: 128,
     });

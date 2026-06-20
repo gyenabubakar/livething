@@ -103,7 +103,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'not-a-room',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamId: 'bn-1',
         streamNudgeId: 'bn-nudge-1',
       },
@@ -129,7 +129,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'room:1',
-        channelScope: 'no-such-family',
+        channelFamily: 'no-such-family',
         streamId: 'bf-1',
         streamNudgeId: 'bf-nudge-1',
       },
@@ -150,7 +150,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       room: `bsn-missfam-${testInfo.testId}`,
     });
 
-    // `room:1` is a dynamic-family name but carries no channelScope, so it is
+    // `room:1` is a dynamic-family name but carries no channelFamily, so it is
     // read as a static channel that does not exist.
     await send(page, a, {
       event: 'ch-hint',
@@ -182,7 +182,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'room',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamId: 'wk-1',
         streamNudgeId: 'wk-nudge-1',
       },

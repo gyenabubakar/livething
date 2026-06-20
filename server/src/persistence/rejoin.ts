@@ -16,7 +16,7 @@ import type { Validator } from '~/types.ts';
 export interface RejoinSubscribeOptions {
   channelName: string;
 
-  channelScope: string | null;
+  channelFamily: string | null;
 
   payload: unknown;
 
@@ -154,7 +154,7 @@ export async function autoRejoinIdentity(
     try {
       await runtime.subscribeConnectionAsServer(connection, {
         channelName: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
         payload: undefined,
         rejoining: true,
       });
@@ -170,7 +170,7 @@ export async function autoRejoinIdentity(
       deleteMembership(runtime.sql, {
         identity: connection.identity,
         channelName: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
       });
 
       let reason: string;
@@ -179,7 +179,7 @@ export async function autoRejoinIdentity(
       else reason = String(error);
 
       const wskit: Record<string, unknown> = { channel: row.channelName };
-      if (row.channelScope !== null) wskit.channelScope = row.channelScope;
+      if (row.channelFamily !== null) wskit.channelFamily = row.channelFamily;
 
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
@@ -190,7 +190,7 @@ export async function autoRejoinIdentity(
       runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
         identity: connection.identity,
         channel: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
         error: reason,
       });
     }

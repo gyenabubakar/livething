@@ -29,7 +29,7 @@ describe('ChannelDynamicClient — top-level incoming (server outgoing)', () => 
   it('has scoped-error-observed', () => {
     expectTypeOf<ChannelDynamicClient['incoming']['scoped-error-observed']>().toEqualTypeOf<{
       channel: string;
-      scope: string;
+      family: string;
       event: string;
     }>();
   });

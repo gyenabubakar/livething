@@ -3,7 +3,7 @@ import {
   dispatchIncoming,
   processTextMessage,
 } from '~/_engine/runtime/messages.ts';
-import { resolveScope } from '~/_engine/runtime/scope.ts';
+import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { Defer } from '~/errors/errors.ts';
 import { localKey } from '~/local-key/local-key.ts';
@@ -28,7 +28,7 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
-    channelMemberships: new Map<string, { channelName: string; channelScope: string | null }>(),
+    channelMemberships: new Map<string, { channelName: string; channelFamily: string | null }>(),
     latency: null,
     quality: 'good',
   };
@@ -36,15 +36,15 @@ function createConnection(id: string): RuntimeConnection {
 
 interface AddMembershipOptions {
   channelName: string;
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 function addMembership(
   channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
-  { channelName, channelScope = null }: AddMembershipOptions,
+  { channelName, channelFamily = null }: AddMembershipOptions,
 ) {
-  addChannelMembership(channelMembers, connection, { channelName, channelScope });
+  addChannelMembership(channelMembers, connection, { channelName, channelFamily });
 }
 
 describe('message runtime', () => {
@@ -55,11 +55,11 @@ describe('message runtime', () => {
 
     addMembership(channelMembers, roomsMember, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     addMembership(channelMembers, lobbiesMember, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const runtime = {
@@ -114,7 +114,7 @@ describe('message runtime', () => {
       event: 'message',
       payload: { text: 'hi' },
       excludeConnectionId: undefined,
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     expect(roomsMember.descriptor.send).toHaveBeenCalledTimes(1);
@@ -128,7 +128,7 @@ describe('message runtime', () => {
     const connection = createConnection('conn_1');
     addMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const runtime = {
@@ -198,14 +198,14 @@ describe('message runtime', () => {
     };
 
     expect(
-      resolveScope(runtime.compiled as unknown as CompiledServer, {
+      resolveChannel(runtime.compiled as unknown as CompiledServer, {
         channel: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       }),
     ).toEqual({
       channel: runtime.compiled.channelFamilies.get('rooms'),
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     await dispatchIncoming(
@@ -214,7 +214,7 @@ describe('message runtime', () => {
       {
         event: 'message',
         payload: { text: 'hi' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelFamily: 'rooms' },
       },
     );
 
@@ -223,7 +223,7 @@ describe('message runtime', () => {
     expect(errors[0]!.event).toBe('message');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
@@ -536,7 +536,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelFamily: null } },
     );
 
     expect(handleValidationError).toHaveBeenCalledTimes(1);
@@ -614,7 +614,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 42 },
-        wskit: { correlationId: 'corr-99', channelScope: null },
+        wskit: { correlationId: 'corr-99', channelFamily: null },
       }, // wrong type — schema fails
     );
 
@@ -692,7 +692,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 'u1' },
-        wskit: { correlationId: 'corr-42', channelScope: null },
+        wskit: { correlationId: 'corr-42', channelFamily: null },
       },
     );
 
@@ -786,7 +786,7 @@ describe('message runtime', () => {
       {
         event: 'lookup',
         payload: {},
-        wskit: { correlationId: 'corr-ctx', channelScope: null },
+        wskit: { correlationId: 'corr-ctx', channelFamily: null },
       },
     );
 
@@ -875,7 +875,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelFamily: null } },
     );
 
     expect(topLevelHandler).not.toHaveBeenCalled();
@@ -896,7 +896,7 @@ describe('message runtime', () => {
         intercepts: [],
         channels: new Map(),
         // Family pattern requires room:N. The replay payload below uses the
-        // family key but a name that fails the regex, so resolveScope throws
+        // family key but a name that fails the regex, so resolveChannel throws
         // ChannelNotFound.
         channelFamilies: new Map([
           [
@@ -955,7 +955,7 @@ describe('message runtime', () => {
         JSON.stringify({
           event: '__replay__',
           payload: {},
-          __wskit: { channel: 'admin', channelScope: 'rooms' },
+          __wskit: { channel: 'admin', channelFamily: 'rooms' },
         }),
       ),
     ).resolves.toBeUndefined();
@@ -964,7 +964,7 @@ describe('message runtime', () => {
     const [, { error, event, routing }] = handleRuntimeError.mock.calls[0]!;
     expect((error as { code?: string }).code).toBe('channel-not-found');
     expect(event).toBe('__replay__');
-    expect(routing).toEqual({ channel: 'admin', channelScope: 'rooms' });
+    expect(routing).toEqual({ channel: 'admin', channelFamily: 'rooms' });
   });
 
   it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
@@ -1025,7 +1025,7 @@ describe('message runtime', () => {
       JSON.stringify({
         event: '__subscribe__',
         payload: {},
-        __wskit: { channel: 42, channelScope: 'rooms' },
+        __wskit: { channel: 42, channelFamily: 'rooms' },
       }),
     );
 
@@ -1091,7 +1091,7 @@ describe('message runtime', () => {
       JSON.stringify({
         event: '__unsubscribe__',
         payload: {},
-        __wskit: { channel: { id: 1 }, channelScope: 99 },
+        __wskit: { channel: { id: 1 }, channelFamily: 99 },
       }),
     );
 
@@ -1353,7 +1353,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1377,7 +1377,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { original: true },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1404,7 +1404,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1424,7 +1424,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { passthrough: true },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1451,7 +1451,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: {},
-        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelFamily: null },
       }),
     );
 
@@ -1486,7 +1486,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'ch-nudge',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channel: 'room', channelScope: null },
+        __wskit: { streamId: 'stream_1', channel: 'room', channelFamily: null },
       }),
     );
 
@@ -1667,7 +1667,7 @@ describe('Defer retry hook isolation', () => {
       await dispatchIncoming(
         runtime as unknown as Parameters<typeof dispatchIncoming>[0],
         connection,
-        { event: 'work', payload: {}, wskit: { channel: 'room', channelScope: null } },
+        { event: 'work', payload: {}, wskit: { channel: 'room', channelFamily: null } },
       );
       // Exhaust the defer retries (initial + 3 retries at 10ms each).
       await vi.advanceTimersByTimeAsync(100);

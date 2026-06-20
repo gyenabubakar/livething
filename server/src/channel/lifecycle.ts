@@ -110,7 +110,7 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  * argument to the paired `commit` handler. Throw to deny the subscribe.
  *
  * Pass a `subscribe` schema on the channel config to validate the subscribe
- * payload first; the validated value is read off `ctx.check`.
+ * payload first; the validated value arrives as the second `input` argument.
  *
  * @example
  * ```ts
@@ -118,8 +118,8 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * base.channel('private-room', {
  *   subscribe: v.object({ token: v.string() }),
- *   async check(ctx) {
- *     const user = await db.verifyToken(ctx.check.token);
+ *   async check(ctx, input) {
+ *     const user = await db.verifyToken(input.token);
  *     if (!user) throw Forbidden({ reason: 'Invalid token' });
  *     return user; // passed to commit() below
  *   },

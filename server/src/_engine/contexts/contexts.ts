@@ -1,5 +1,5 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
-import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
+import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
@@ -57,7 +57,7 @@ export function buildConnectionContext(
   scope?: {
     channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
   },
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
@@ -72,10 +72,10 @@ export function buildConnectionContext(
     'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
-    [EngineContextTypes.ENGINE_SCOPE_META]: {
+    [EngineContextTypes.ENGINE_CHANNEL_META]: {
       channelName: scope?.channelName,
-      channelScope: scope?.channelScope,
-    } satisfies EngineContextTypes.EngineScopeMeta,
+      channelFamily: scope?.channelFamily,
+    } satisfies EngineContextTypes.EngineChannelMeta,
 
     [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
 
@@ -112,7 +112,7 @@ export function buildConnectionContext(
       void deps.getTimers()?.setAlarm?.(time);
     },
 
-    ...buildChannelScopeExtra(connection, scope, deps),
+    ...buildChannelFamilyExtra(connection, scope, deps),
 
     sql,
     kv,

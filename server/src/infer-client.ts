@@ -143,24 +143,24 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ep
  * what the client sends. Channels with a `check` validator also expose a
  * `subscribePayload` field showing what the client must pass when subscribing.
  */
-type ClientScope<TScope> = {
-  incoming: Slot<TScope, 'outgoing'>;
-  outgoing: Slot<TScope, 'incoming'>;
-  requests: Slot<TScope, 'requests'>;
-  serverRequests: Slot<TScope, 'serverRequests'>;
-  streams: ClientStreams<TScope>;
-} & ('subscribePayload' extends keyof TScope
-  ? { subscribePayload: TScope['subscribePayload'] }
+type ClientFamily<TFamily> = {
+  incoming: Slot<TFamily, 'outgoing'>;
+  outgoing: Slot<TFamily, 'incoming'>;
+  requests: Slot<TFamily, 'requests'>;
+  serverRequests: Slot<TFamily, 'serverRequests'>;
+  streams: ClientStreams<TFamily>;
+} & ('subscribePayload' extends keyof TFamily
+  ? { subscribePayload: TFamily['subscribePayload'] }
   : {});
 
 /**
- * Like `ClientScopeMap`, but channel-aware: each channel scope is stamped with
- * an `addressing` discriminator — `'dynamic'` for a `scope()` family, `'static'`
+ * Like `ClientFamilyMap`, but channel-aware: each channel family is stamped with
+ * an `addressing` discriminator — `'dynamic'` for a dynamic family, `'static'`
  * for a string-pattern channel. The client's `channels` primitive reads it to
- * decide between `channel(name)` and `channel(scope, name)` / `channel.scope`.
+ * decide between `channel(name)` and `channel(family, name)` / `channel.family`.
  */
 type ClientChannelMap<TChannels> = {
-  [TKey in keyof TChannels]: ClientScope<TChannels[TKey]> & {
+  [TKey in keyof TChannels]: ClientFamily<TChannels[TKey]> & {
     addressing: TChannels[TKey] extends { __addressing: infer A extends 'static' | 'dynamic' }
       ? A
       : 'static';

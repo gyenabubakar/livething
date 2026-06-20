@@ -293,7 +293,7 @@ export interface ReplayWire {
   /** The channel name, for a channel-scoped replay. */
   readonly channel?: string;
   /** The dynamic channel family key, or `null` for a static channel. */
-  readonly channelScope?: string | null;
+  readonly channelFamily?: string | null;
 }
 
 /** The `ctx.sendReplay(...)` surface — owned by a replay capability. */

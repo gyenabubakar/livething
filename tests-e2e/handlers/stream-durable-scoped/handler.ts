@@ -7,10 +7,10 @@ import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Empty = v.object({});
-const RowChunk = v.object({ row: v.number() });
-const IdxChunk = v.object({ idx: v.number() });
+const RowChunk = t<{ row: number }>();
+const IdxChunk = t<{ idx: number }>();
 const PausePayload = v.object({ at: v.number() });
-const TokenChunk = v.object({ token: v.string() });
+const TokenChunk = t<{ token: string }>();
 const StopPayload = v.object({});
 
 const base = define({

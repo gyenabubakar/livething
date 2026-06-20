@@ -14,7 +14,7 @@ describe('resumableStream build-time validation', () => {
     const base = define({ env: t<Record<string, unknown>>(), capabilities: [resumableStream()] });
     const handle = base.resumableStream('feed', {
       input: v.object({}),
-      chunk: v.object({ idx: v.number() }),
+      chunk: t<{ idx: number }>(),
       async *run() {
         yield { idx: 1 };
       },
@@ -29,7 +29,7 @@ describe('resumableStream build-time validation', () => {
     });
     const handle = base.resumableStream('feed', {
       input: v.object({}),
-      chunk: v.object({ idx: v.number() }),
+      chunk: t<{ idx: number }>(),
       async *run() {
         yield { idx: 1 };
       },
@@ -45,7 +45,7 @@ describe('resumableStream build-time validation', () => {
     const rooms = base.channel('rooms');
     const handle = rooms.resumableStream('feed', {
       input: v.object({}),
-      chunk: v.object({ idx: v.number() }),
+      chunk: t<{ idx: number }>(),
       async *run() {
         yield { idx: 1 };
       },
@@ -75,7 +75,7 @@ describe('resumableStream build-time validation', () => {
     expect(() =>
       base.resumableStream('feed', {
         input: v.object({}),
-        chunk: v.object({ idx: v.number() }),
+        chunk: t<{ idx: number }>(),
         onDisconnect: 'keep-running',
         async *run() {
           yield { idx: 1 };
@@ -91,7 +91,7 @@ describe('resumableStream build-time validation', () => {
     });
     const handle = base.resumableStream('feed', {
       input: v.object({}),
-      chunk: v.object({ idx: v.number() }),
+      chunk: t<{ idx: number }>(),
       broadcast: true,
       onDisconnect: 'keep-running',
       async *run() {

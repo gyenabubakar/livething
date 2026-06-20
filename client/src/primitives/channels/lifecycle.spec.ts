@@ -185,7 +185,7 @@ describe('channels-reconnect-skips-persistent', () => {
         __wskit: {
           source: 'client',
           channel: 'room:1',
-          channelScope: 'rooms',
+          channelFamily: 'rooms',
           channelPersistent: false,
         },
       });
@@ -433,7 +433,7 @@ describe('channels-onclose-keeps-active-clears-members', () => {
 describe('channels-server-subscribe-and-kick-family-notify', () => {
   it('scoped __subscribeOk__ fires family onSubscribed with source and channel name', () => {
     const { socket, ws } = build();
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
 
     const onFamilySubscribed = vi.fn();
     family.onSubscribed(onFamilySubscribed);
@@ -443,7 +443,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'server', channel: 'room-42', channelScope: 'rooms' },
+      __wskit: { source: 'server', channel: 'room-42', channelFamily: 'rooms' },
     });
 
     expect(onFamilySubscribed).toHaveBeenCalledWith('room-42', 'server');
@@ -451,7 +451,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
 
   it('scoped __kicked__ fires family onUnsubscribed and drops channel from list()', async () => {
     const { socket, ws } = build();
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
 
     const onFamilyUnsubscribed = vi.fn();
     family.onUnsubscribed(onFamilyUnsubscribed);
@@ -462,7 +462,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-42', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'room-42', channelFamily: 'rooms' },
     });
     await subscribePromise;
 
@@ -471,7 +471,7 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
     ws.emit({
       event: '__kicked__',
       payload: { reason: 'banned' },
-      __wskit: { channel: 'room-42', channelScope: 'rooms' },
+      __wskit: { channel: 'room-42', channelFamily: 'rooms' },
     });
 
     expect(onFamilyUnsubscribed).toHaveBeenCalledWith('room-42');
@@ -542,7 +542,7 @@ describe('channel-unsubscribe-while-inactive-is-a-no-op', () => {
 describe('scope-handle-list-only-active', () => {
   it('excludes a channel whose subscribe is still pending (not yet confirmed)', async () => {
     const { socket, ws } = build();
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
     family('room-pending').subscribe();
 
     expect(ws.sentFrames().some((f) => f.event === '__subscribeOk__')).toBe(false);
@@ -552,14 +552,14 @@ describe('scope-handle-list-only-active', () => {
 
   it('excludes a channel that was unsubscribed / kicked after being active', async () => {
     const { socket, ws } = build();
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
 
     const room = family('room-x');
     const subscribePromise = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-x', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'room-x', channelFamily: 'rooms' },
     });
     await subscribePromise;
 
@@ -571,14 +571,14 @@ describe('scope-handle-list-only-active', () => {
 
   it('excludes a channel from a different scope key', async () => {
     const { socket, ws } = build();
-    const roomsFamily = socket.channel.scope('rooms');
-    const lobbiesFamily = socket.channel.scope('lobbies');
+    const roomsFamily = socket.channel.family('rooms');
+    const lobbiesFamily = socket.channel.family('lobbies');
 
     const roomSubscribe = roomsFamily('room-1').subscribe();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'room-1', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
     });
     await roomSubscribe;
 
@@ -586,7 +586,7 @@ describe('scope-handle-list-only-active', () => {
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'lobby-1', channelScope: 'lobbies' },
+      __wskit: { source: 'client', channel: 'lobby-1', channelFamily: 'lobbies' },
     });
     await lobbySubscribe;
 

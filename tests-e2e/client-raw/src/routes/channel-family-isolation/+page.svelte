@@ -16,7 +16,7 @@
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${proto}//${location.host}/ws/channel-scope-isolation?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+			`${proto}//${location.host}/ws/channel-family-isolation?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		ws.onopen = () => {
 			status = 'connected';
@@ -41,13 +41,13 @@
 			if (data.event === '__kicked__') {
 				kicked = [
 					...kicked,
-					`${data.__wskit?.channelScope ?? 'static'}:${data.__wskit?.channel}:${data.payload.reason ?? ''}`,
+					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel}:${data.payload.reason ?? ''}`,
 				];
 			}
 			if (data.event === '__memberLeave__') {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.__wskit?.channelScope ?? 'static'}:${data.__wskit?.channel ?? ''}:${data.payload.connectionId ?? ''}`,
+					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel ?? ''}:${data.payload.connectionId ?? ''}`,
 				];
 			}
 			if (data.event === 'room-message') {
@@ -79,7 +79,7 @@
 		send({
 			event: '__subscribe__',
 			payload: {},
-			__wskit: { channel: 'room:1', channelScope: 'publicRooms' },
+			__wskit: { channel: 'room:1', channelFamily: 'publicRooms' },
 		})}
 >
 	Subscribe public room:1
@@ -90,7 +90,7 @@
 		send({
 			event: '__subscribe__',
 			payload: {},
-			__wskit: { channel: 'room:1', channelScope: 'privateRooms' },
+			__wskit: { channel: 'room:1', channelFamily: 'privateRooms' },
 		})}
 >
 	Subscribe private room:1
@@ -156,7 +156,7 @@
 		send({
 			event: '__replay__',
 			payload: { lastKnownSeq: 0 },
-			__wskit: { channel: 'room:1', channelScope: 'publicRooms' },
+			__wskit: { channel: 'room:1', channelFamily: 'publicRooms' },
 		})}
 >
 	Replay since 0

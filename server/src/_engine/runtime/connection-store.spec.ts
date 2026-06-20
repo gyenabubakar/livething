@@ -105,8 +105,8 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
       persistent: new Map<string, Set<string>>(),
     },
     channelMemberships: new Map([
-      ['room:a::rooms', { channelName: 'room:a', channelScope: 'rooms' }],
-      ['lobby::', { channelName: 'lobby', channelScope: null }],
+      ['room:a::rooms', { channelName: 'room:a', channelFamily: 'rooms' }],
+      ['lobby::', { channelName: 'lobby', channelFamily: null }],
     ]),
     latency: null,
     quality: 'good',
@@ -134,8 +134,8 @@ describe('connection-store', () => {
         { group: 'tier', key: 'free' },
       ],
       ephemeral_memberships: [
-        { channelName: 'room:a', channelScope: 'rooms' },
-        { channelName: 'lobby', channelScope: null },
+        { channelName: 'room:a', channelFamily: 'rooms' },
+        { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
     });
@@ -153,8 +153,8 @@ describe('connection-store', () => {
         { group: 'tier', key: 'free' },
       ],
       ephemeral_memberships: [
-        { channelName: 'room:a', channelScope: 'rooms' },
-        { channelName: 'lobby', channelScope: null },
+        { channelName: 'room:a', channelFamily: 'rooms' },
+        { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
     });

@@ -53,8 +53,8 @@ interface BucketState {
  * fields populated by the engine when it builds a scoped connection context.
  */
 export function resolveScopeKey(ctx: any): string {
-  const ch = ctx?.channel as { name?: string; scope?: string | null } | undefined;
-  const chKey = ch ? (ch.scope ?? ch.name) : undefined;
+  const ch = ctx?.channel as { name?: string; family?: string | null } | undefined;
+  const chKey = ch ? (ch.family ?? ch.name) : undefined;
   if (chKey) return `channel:${chKey}`;
   return 'top';
 }

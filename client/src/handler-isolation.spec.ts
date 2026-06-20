@@ -91,12 +91,12 @@ describe('a throwing message handler is isolated from its siblings', () => {
   it('channel family: a throwing family handler still lets the other one run', () => {
     const { socket, ws } = connectedCh();
     socket.onError(() => {});
-    const rooms = socket.channel.scope('rooms');
+    const rooms = socket.channel.family('rooms');
     socket.channel('rooms', 'lobby').subscribe();
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
-      __wskit: { source: 'client', channel: 'lobby', channelScope: 'rooms' },
+      __wskit: { source: 'client', channel: 'lobby', channelFamily: 'rooms' },
     });
 
     const calls: string[] = [];
@@ -110,7 +110,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
       ws.emit({
         event: 'message',
         payload: {},
-        __wskit: { channel: 'lobby', channelScope: 'rooms' },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
       }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);

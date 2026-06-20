@@ -1,5 +1,5 @@
 import { WIRE_LIMITS } from '@wskit/core';
-import { isReservedEventName, scopeKeyError, wireIdError } from '~/internal/wire-validation.ts';
+import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('wireIdError', () => {
@@ -44,12 +44,12 @@ describe('isReservedEventName', () => {
   });
 });
 
-describe('scopeKeyError', () => {
-  it('allows an absent scope but rejects an empty or over-limit one', () => {
-    expect(scopeKeyError('e', undefined)).toBeNull();
-    expect(scopeKeyError('e', 'x'.repeat(WIRE_LIMITS.channelScope))).toBeNull();
-    expect(scopeKeyError('e', '')).toMatchObject({ code: 'validation-failed' });
-    expect(scopeKeyError('e', 'x'.repeat(WIRE_LIMITS.channelScope + 1))).toMatchObject({
+describe('familyKeyError', () => {
+  it('allows an absent family but rejects an empty or over-limit one', () => {
+    expect(familyKeyError('e', undefined)).toBeNull();
+    expect(familyKeyError('e', 'x'.repeat(WIRE_LIMITS.channelFamily))).toBeNull();
+    expect(familyKeyError('e', '')).toMatchObject({ code: 'validation-failed' });
+    expect(familyKeyError('e', 'x'.repeat(WIRE_LIMITS.channelFamily + 1))).toMatchObject({
       code: 'validation-failed',
     });
   });

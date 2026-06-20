@@ -96,8 +96,8 @@ export function serverRequestKey(channelKey: string | null, event: string): stri
  * dynamic channel, its static name otherwise — matching how `requests()` keys
  * the channel's own `outgoing.requests` declarations. Top-level surfaces pass `null`.
  */
-function channelDeclarationKey(handle: { name?: string; scope?: unknown }): string {
-  return typeof handle.scope === 'string' ? handle.scope : (handle.name ?? '');
+function channelDeclarationKey(handle: { name?: string; family?: unknown }): string {
+  return typeof handle.family === 'string' ? handle.family : (handle.name ?? '');
 }
 
 /** A handle that can list its members and fan out a broadcast request. */
@@ -276,7 +276,7 @@ function createOutgoingRequestRuntime(
     target: {
       connectionId: string;
       channel?: string;
-      channelScope?: string | null;
+      channelFamily?: string | null;
       /** The channel definition key whose declarations to resolve, or null for top-level. */
       declarationChannelKey?: string | null;
     };
@@ -311,7 +311,7 @@ function createOutgoingRequestRuntime(
         payload,
         correlationId,
         channel: target.channel,
-        channelScope: target.channelScope,
+        channelFamily: target.channelFamily,
       });
       if (!sent) {
         // No live socket for this connection — fail fast instead of waiting out
@@ -335,7 +335,7 @@ function createOutgoingRequestRuntime(
     event: string;
     payload: unknown;
     options: RequestOptions | undefined;
-    routing?: { channel?: string; channelScope?: string | null };
+    routing?: { channel?: string; channelFamily?: string | null };
     /** The channel definition key whose declarations to resolve, or null for top-level. */
     declarationChannelKey?: string | null;
   }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
@@ -365,7 +365,7 @@ function createOutgoingRequestRuntime(
           payload,
           correlationId,
           channel: routing?.channel,
-          channelScope: routing?.channelScope,
+          channelFamily: routing?.channelFamily,
         });
         // A target whose socket is already gone simply contributes no leg —
         // others may still answer; if none remain the timer rejects.
@@ -441,7 +441,7 @@ export function makeServerRequestsPrimitive(
         const extra: Record<string, unknown> = {};
 
         // ctx.request — ask the current connection. Inside a channel handler it
-        // stamps the channel scope so the answer routes back through it.
+        // stamps the channel family so the answer routes back through it.
         if (connectionId) {
           extra.request = (event: string, payload: unknown, options?: RequestOptions) =>
             runtime.sendRequest({
@@ -480,7 +480,7 @@ export function makeServerRequestsPrimitive(
 
         // ctx.channel.request / ctx.channel.broadcastRequest — ask the current
         // connection (targeted) or fan out to every member (broadcast), each
-        // stamping the channel scope so answers route back through it.
+        // stamping the channel family so answers route back through it.
         const channelHandle = ctx.channel as
           | (PublicApi.ChannelHandle & Record<string, unknown>)
           | undefined;
@@ -491,7 +491,7 @@ export function makeServerRequestsPrimitive(
               target: {
                 connectionId,
                 channel: channelHandle.name,
-                channelScope: channelHandle.scope ?? null,
+                channelFamily: channelHandle.family ?? null,
                 declarationChannelKey: channelDeclarationKey(channelHandle),
               },
               event,
@@ -517,7 +517,7 @@ export function makeServerRequestsPrimitive(
               event,
               payload,
               options,
-              routing: { channel: channelHandle.name, channelScope: channelHandle.scope ?? null },
+              routing: { channel: channelHandle.name, channelFamily: channelHandle.family ?? null },
               declarationChannelKey: channelDeclarationKey(channelHandle),
             });
         }
@@ -562,8 +562,8 @@ export function makeServerRequestsPrimitive(
                 event,
                 payload,
                 options,
-                routing: { channel: handle.name, channelScope: handle.scope ?? null },
-                declarationChannelKey: handle.scope ?? handle.name,
+                routing: { channel: handle.name, channelFamily: handle.family ?? null },
+                declarationChannelKey: handle.family ?? handle.name,
               });
             return handle;
           };
