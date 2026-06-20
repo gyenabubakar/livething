@@ -365,8 +365,6 @@ export interface StreamMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCa
 interface DurableStreamOptions {
   /** Behavior when the owning client drops. */
   readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
-  /** Hard cap on buffered chunks. */
-  readonly maxChunks?: number;
   /** How long a suspended stream is kept after the client drops. */
   readonly maxAgeMs?: number;
   /** How long an ended stream is kept so a quick reconnect can still resume. */
@@ -466,6 +464,8 @@ export interface RecordedStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Hard cap on buffered chunks. Default: 500. */
+  readonly maxChunks?: number;
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
@@ -778,6 +778,8 @@ type ChannelRecordedStreamConfig<
   readonly nudges?: TNudges;
   readonly broadcast?: boolean;
   readonly allowConcurrent?: boolean;
+  /** Hard cap on buffered chunks. Default: 500. */
+  readonly maxChunks?: number;
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(

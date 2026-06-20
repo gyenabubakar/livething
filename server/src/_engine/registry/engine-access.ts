@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import * as Scheduling from '~/_engine/scheduling.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
@@ -176,6 +177,7 @@ export function createEngineAccess(
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;
     },
+    getHibernationEnabled: () => core.hibernationEnabled,
     setReplayEnabled: (enabled) => {
       core.replayEnabled = enabled;
     },
@@ -196,6 +198,7 @@ export function createEngineAccess(
       }
       core.pluginApiFactories.set(id, factory);
     },
+    getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
     registerPluginLifecycle: (kind, pluginId, handler) => {
       const list = core.hooks.pluginLifecycle[kind];
       list.push({ pluginId, order: list.length, handler });
@@ -242,6 +245,10 @@ export function createEngineAccess(
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
+    scheduleTask: (taskId, time, data) =>
+      Scheduling.scheduleTask(core, deps.createTaskContext, { taskId, time, data }),
+    cancelScheduled: (taskId, filter) =>
+      Scheduling.cancelScheduled(core, deps.createTaskContext, { taskId, filter }),
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext: () => deps.createTaskContext(),

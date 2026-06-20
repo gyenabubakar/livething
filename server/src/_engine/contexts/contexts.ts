@@ -1,7 +1,6 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
-import { scopePluginContext } from '~/plugin-scope.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
@@ -68,21 +67,9 @@ export function buildConnectionContext(
 
   let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
 
-  function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
-    const result = deps.cancelScheduled(taskId, filter);
-    if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
-        taskId,
-        filter,
-        taskExists: result.taskExists,
-      });
-    }
-  }
-
-  const base: EngineContextTypes.ConnectionContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
+  const base: Omit<
+    EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+    'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
     [EngineContextTypes.ENGINE_SCOPE_META]: {
@@ -116,27 +103,10 @@ export function buildConnectionContext(
       return connection.descriptor.bufferedAmount();
     },
 
-    get latency() {
-      return connection.latency;
-    },
-
-    get quality() {
-      // Quality has no meaning until the first ping/pong lands; mirror `latency`,
-      // which stays null until measured. Also null in hibernation (no pings sent).
-      if (deps.hibernationEnabled || connection.latency === null) return null;
-      return connection.quality;
-    },
-
     // Built on first access — most handlers never touch `ctx.channels`.
     get channels() {
       return (channelsApi ??= buildChannelsApi(connection, deps));
     },
-
-    schedule: (taskId, options) => {
-      deps.scheduleTask(taskId, options.time, options.data);
-    },
-
-    cancelScheduled,
 
     setAlarm: (time) => {
       void deps.getTimers()?.setAlarm?.(time);
@@ -194,30 +164,16 @@ export function buildConnectionContext(
     });
   }
 
-  // ctx.plugin(id) — runs the registered plugin's API factory against a
-  // plugin-scoped context (sends prefixed with the plugin namespace), cached
-  // per connection context so repeated calls return the same API object.
-  const pluginApiCache = new Map<string, unknown>();
-  (base as Record<PropertyKey, unknown>).plugin = (id: string, registrationId?: string) => {
-    const cacheKey = registrationId ? `${id}#${registrationId}` : id;
-    if (pluginApiCache.has(cacheKey)) return pluginApiCache.get(cacheKey);
-    const factory = deps.getPluginApiFactory(id);
-    if (!factory) {
-      throw new Error(
-        `[wskit] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
-          'List the plugin in define({ capabilities: [...] }).',
-      );
-    }
-    const api = factory(scopePluginContext(id, base));
-    pluginApiCache.set(cacheKey, api);
-    return api;
-  };
-
   for (const extend of deps.contextExtenders ?? []) {
-    Object.assign(base, extend(base));
+    Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));
   }
 
-  return base;
+  return base as EngineContextTypes.ConnectionContext<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    unknown
+  > &
+    Record<PropertyKey, unknown>;
 }
 
 /**

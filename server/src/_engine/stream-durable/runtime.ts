@@ -788,8 +788,6 @@ async function runGenerator(
         );
       }
 
-      // Detached stream has no client attached — skip the wire send, the chunk
-      // is already buffered for a later resume.
       const wireTarget = activeStream.connection ?? connection;
       if (!activeStream.detached) {
         runtime.sendThroughPipeline(wireTarget, {

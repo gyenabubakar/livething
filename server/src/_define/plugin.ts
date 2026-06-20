@@ -1,7 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
+import { scopePluginContext } from '~/plugin-scope.ts';
 import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/capability.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
@@ -30,6 +32,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'recorded-stream-generate',
   'channel',
   'scheduled',
+  'scheduledSurface',
   'tag-groups',
   'errors',
   'onInit',
@@ -52,6 +55,55 @@ const ALLOWED_PLUGIN_KINDS = new Set([
 
 /** Symbol key for a plugin's API-registration primitive. */
 const PLUGIN_API_KEY = Symbol('pluginApi');
+
+/** Symbol key so the `ctx.plugin` accessor installs once, however many plugins are listed. */
+const PLUGIN_SURFACE_KEY = Symbol('pluginSurface');
+
+/**
+ * Build the `ctx.plugin(id)` accessor for one connection context. It runs the
+ * registered plugin's API factory against a plugin-scoped context (sends prefixed
+ * with the plugin namespace) and caches the result per context so repeated calls
+ * return the same API object.
+ */
+function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
+  const base = baseCtx as Record<PropertyKey, unknown>;
+  const pluginApiCache = new Map<string, unknown>();
+  return {
+    plugin: (id: string, registrationId?: string) => {
+      const cacheKey = registrationId ? `${id}#${registrationId}` : id;
+      if (pluginApiCache.has(cacheKey)) return pluginApiCache.get(cacheKey);
+      const factory = engine.getPluginApiFactory(id);
+      if (!factory) {
+        throw new Error(
+          `[wskit] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
+            'List the plugin in define({ capabilities: [...] }).',
+        );
+      }
+      const api = factory(scopePluginContext(id, base));
+      pluginApiCache.set(cacheKey, api);
+      return api;
+    },
+  };
+}
+
+/**
+ * Build the primitive every plugin contributes to install the `ctx.plugin`
+ * accessor. Keyed so listing several plugins still installs it once, and present
+ * on a server iff at least one plugin is listed.
+ */
+function pluginSurfacePrimitive(): Primitive {
+  return {
+    __wskit: 'pluginSurface',
+    __kind: 'plugin',
+    __identity: [PLUGIN_SURFACE_KEY],
+    __requires: {},
+    __setup(engine) {
+      engine.installOnce(PLUGIN_SURFACE_KEY, () => {
+        engine.extendContext((baseCtx) => buildPluginAccessor(engine, baseCtx));
+      });
+    },
+  };
+}
 
 /** The scoped-handler shape a plugin manifest accepts, carrying its own contract and ctx. */
 type ScopedHandler<TContract extends ServerContract, TScopedCtx = unknown> = ServerDefinition<
@@ -266,7 +318,7 @@ export function plugin<
     manifest.handler.primitives,
     observesHostTraffic,
   );
-  const primitives: Primitive[] = [...namespaced];
+  const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
   if (manifest.api) primitives.push(pluginApiPrimitive(id, manifest.api));
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(

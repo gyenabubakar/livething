@@ -38,7 +38,6 @@ const handlePaginate = rooms.resumableStream('paginate', {
   input: Empty,
   chunk: RowChunk,
   broadcast: true,
-  maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
   async *run(ctx) {
@@ -54,7 +53,6 @@ const handleAttemptBroadcast = rooms.resumableStream('attempt-broadcast', {
   input: Empty,
   chunk: AttemptChunk,
   broadcast: true,
-  maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
   async *run(ctx) {

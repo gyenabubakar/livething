@@ -194,7 +194,7 @@ function createOutgoingRequestRuntime(
       return true;
     }
 
-    entry.resolve(frame.payload);
+    entry.resolve(undefined);
     return true;
   }
 
@@ -233,7 +233,7 @@ function createOutgoingRequestRuntime(
           valid = false;
         }
       } else {
-        response = frame.payload;
+        response = undefined;
       }
       if (valid) {
         finishBroadcast(group, () => group.resolve({ response, from: entry.from }));

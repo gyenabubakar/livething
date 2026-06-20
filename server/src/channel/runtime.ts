@@ -517,7 +517,11 @@ async function runSubscribeFlow(
     wskit: { ...wskit, source, channelPersistent: isPersistent },
   });
 
-  runtime.sendProtocolMessage(connection, { event: '__memberSync__', payload: { members }, wskit });
+  runtime.sendProtocolMessage(connection, {
+    event: '__memberSync__',
+    payload: { members },
+    wskit: { ...wskit, source },
+  });
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
   // Rejoin skips __memberJoin__ — the user was already a member.

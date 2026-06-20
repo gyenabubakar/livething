@@ -3,6 +3,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { makeScheduledPrimitive } from '~/scheduled/scheduled.ts';
+import { scheduleSurfacePrimitive } from '~/scheduled/surface.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -138,9 +139,9 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
   for (const [taskId, def] of Object.entries(defs)) {
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
-  const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>(
-    [],
-  ) as ScheduledCapability<TDefs>;
+  const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>([
+    scheduleSurfacePrimitive(),
+  ]) as ScheduledCapability<TDefs>;
   const writable = cap as {
     __scheduled: ReadonlyMap<string, ScheduledDeclaration>;
     __buildScheduled: ScheduledCapability['__buildScheduled'];

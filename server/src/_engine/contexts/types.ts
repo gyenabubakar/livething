@@ -127,9 +127,6 @@ export interface ContextCommonDeps {
     connection: EngineRuntimeTypes.RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
-  /** Look up a `plugin(...)` API factory by id for the `ctx.plugin(id)` accessor. */
-  getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
-
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
   /**
    * Whether at least one tag group was declared via the contract's `tagGroups`
@@ -160,7 +157,6 @@ export interface BuildConnectionContextDeps extends ContextCommonDeps {
   compiled: EngineCompileTypes.CompiledServer;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
-  hibernationEnabled: boolean;
 }
 
 /**

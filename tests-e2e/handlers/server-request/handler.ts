@@ -17,10 +17,12 @@ export const serverRequestContract = define({
   capabilities: [
     requests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
+      'ping-ack': t<{ note: string }>(),
     }),
     emits({
       outcome: t<{ allowed: boolean }>(),
       'error-outcome': t<{ code: string }>(),
+      'ack-outcome': t<{ received: string }>(),
     }),
   ],
 });
@@ -55,9 +57,18 @@ const handleTriggerTimeout = serverRequestContract.on('trigger-timeout', {
   },
 });
 
+const handleTriggerAck = serverRequestContract.on('trigger-ack', {
+  input: v.object({}),
+  async run(ctx) {
+    const answer = (await ctx.request('ping-ack', { note: 'go' })) as unknown;
+    ctx.send('ack-outcome', { received: answer === undefined ? 'undefined' : 'payload' });
+  },
+});
+
 export const serverRequestHandler = serverRequestContract.assemble(
   handleTrigger,
   handleTriggerTimeout,
+  handleTriggerAck,
 );
 
 export type ServerRequestClient = InferClient<typeof serverRequestHandler>;

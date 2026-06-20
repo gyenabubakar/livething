@@ -93,6 +93,38 @@ describe('serverRequest — answering server-initiated requests', () => {
     expect(handlerHits).toHaveLength(0);
   });
 
+  it('replies with an empty payload for a void acknowledgement handler', async () => {
+    const { socket, ws } = build();
+    const hits: unknown[] = [];
+    (socket as any).onRequest('ack-me', (p: unknown) => {
+      hits.push(p);
+    });
+
+    ws.emit({
+      event: 'ack-me',
+      payload: { action: 'commit' },
+      __wskit: { correlationId: 'ack1', source: 'server' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(hits).toEqual([{ action: 'commit' }]);
+    const reply = ws.sentFrames().find((f) => f.event === 'ack-me');
+    expect(reply).toBeDefined();
+    expect(reply?.__wskit?.correlationId).toBe('ack1');
+    expect(reply?.payload).toBeUndefined();
+    expect(ws.sentFrames().some((f) => f.event === '__error__')).toBe(false);
+  });
+
+  it('resolves a void acknowledgement request with undefined', async () => {
+    const { socket, ws } = build();
+    const pending = (socket as any).request('ack-thing', { go: true });
+    const correlationId = ws.sentFrames().find((f) => f.event === 'ack-thing')
+      ?.__wskit?.correlationId;
+
+    ws.emit({ event: 'ack-thing', payload: undefined, __wskit: { correlationId } });
+    await expect(pending).resolves.toBeUndefined();
+  });
+
   it('answers a channel-scoped request and echoes channel markers on the reply', async () => {
     const { socket, ws } = build();
     (socket as any).channel('rooms', 'room-1').onRequest('ask-permission', () => ({

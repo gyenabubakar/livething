@@ -146,9 +146,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             case '__memberLeave__':
             case '__memberOnline__':
             case '__memberOffline__': {
-              if (state.pendingLeave !== null) {
+              if (!state.active || state.pendingLeave !== null) {
                 helpers.log.info(
-                  `channel '${name}' ignoring a presence frame while a leave is pending`,
+                  `channel '${name}' ignoring a presence frame for an inactive channel`,
                 );
                 return null;
               }

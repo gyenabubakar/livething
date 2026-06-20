@@ -1271,6 +1271,37 @@ describe('durable stream runtime', () => {
     expect(JSON.parse(Storage.readStream(sql, 'u1', 'gen-1')!.cursor!)).toEqual({ idx: 1 });
   });
 
+  it('resumableStream — a plain yield (no withCursor) advances lastSeq but leaves the cursor null', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection('c1', 'u1');
+
+    const seenCursors: unknown[] = [];
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          seenCursors.push(ctx.stream.cursor);
+          for (let i = 1; i <= 3; i += 1) {
+            yield { i };
+          }
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    const row = Storage.readStream(sql, 'u1', 'gen-1')!;
+    expect(seenCursors[0]).toBeNull();
+    expect(row.cursor).toBeNull();
+    expect(row.lastSeq).toBe(3);
+    expect(
+      Storage.readChunksSince(sql, { identity: 'u1', streamId: 'gen-1', since: 0 }),
+    ).toHaveLength(0);
+  });
+
   it('broadcast resumableStream — peer-subscriber resume goes live, no replay and no generator re-run', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

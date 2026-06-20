@@ -368,6 +368,14 @@ export interface EngineAccess {
   setHibernationEnabled(enabled: boolean): void;
 
   /**
+   * Read whether connection hibernation is enabled. `keepalive()` reads this in
+   * its `ctx.quality` getter, which returns `null` while hibernating (no pings).
+   *
+   * @internal
+   */
+  getHibernationEnabled(): boolean;
+
+  /**
    * Tell the engine that automatic replay is enabled for this handler.
    *
    * The engine uses this only for internal startup validation.
@@ -428,7 +436,7 @@ export interface EngineAccess {
    * one-off status messages (e.g. persistence cleanup row counts).
    * @internal
    */
-  getLogger?(): { info?(message: string, data?: unknown): void } | undefined;
+  getLogger?(): ContextApi.Logger | undefined;
 
   /**
    * Turn on server-side deduplication of incoming messages.
@@ -456,6 +464,15 @@ export interface EngineAccess {
    * is a build error.
    */
   registerPluginApi(id: string, factory: (ctx: unknown) => unknown): void;
+
+  /**
+   * Look up a registered plugin API factory by id, or `undefined` when no plugin
+   * with that id is listed. Backs the `ctx.plugin(id)` accessor, which the plugin
+   * system installs only when at least one plugin is listed.
+   *
+   * @internal
+   */
+  getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
 
   /**
    * Register one new-model plugin lifecycle hook. Kept apart from the app's so
@@ -520,6 +537,25 @@ export interface EngineAccess {
    * Access the engine's in-memory dead-letter queue for scheduled runs.
    */
   getScheduledDlq(): Map<string, ScheduledPrimitive.ScheduledDeadLetter>;
+
+  /**
+   * Queue one future scheduled task run. Backs `ctx.schedule(...)`, registered
+   * by the `scheduled()` capability so a server without it has no such surface.
+   *
+   * @internal
+   */
+  scheduleTask(taskId: string, time: number, data: unknown): void;
+
+  /**
+   * Remove queued runs for one scheduled task id, optionally filtered. Backs
+   * `ctx.cancelScheduled(...)`, registered by the `scheduled()` capability.
+   *
+   * @internal
+   */
+  cancelScheduled(
+    taskId: string,
+    filter?: Record<string, unknown>,
+  ): ScheduledPrimitive.ScheduledCancelResult;
 
   /**
    * Look up one declared scheduled task by task id.

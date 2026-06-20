@@ -58,7 +58,6 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     compiled: core.compiled,
     connections: core.connections,
     tagMembers: core.tagMembers,
-    hibernationEnabled: core.hibernationEnabled,
     ...commonDeps(core),
   });
 }
@@ -151,7 +150,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
-    getPluginApiFactory: (id: string) => core.pluginApiFactories.get(id),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),

@@ -19,9 +19,12 @@ interface CommonResumableConfig {
   retentionAfterEndMs?: number;
   /**
    * One generator, many subscribers. The creator runs the cursor-driven
-   * generator once; every chunk is buffered, fanned out to scope members,
-   * and the cursor is saved for crash recovery. Subscribers catch up from
-   * the buffer on resume — they do not re-invoke the generator.
+   * generator once; only the cursor is saved, and only so the creator can
+   * continue from where it left off after a reconnect (continuation, never
+   * replay). Chunks are fanned out live to scope members as they are produced —
+   * nothing is buffered, so a member that joins late or a peer that reconnects
+   * sees only chunks produced after it joined. For replay or catch-up of missed
+   * chunks, use `recordedStream` instead.
    *
    * Scope is decided by where you declare the stream:
    * - Top-level — fans out to every connection on the handler.
@@ -35,11 +38,6 @@ interface CommonResumableConfig {
    * Default: false.
    */
   broadcast?: boolean;
-  /**
-   * Hard cap on chunks kept in the broadcast buffer. Only meaningful when
-   * `broadcast: true`. Default: 500.
-   */
-  maxChunks?: number;
   /**
    * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Defaults
    * to 256 KB.
@@ -66,7 +64,6 @@ export interface ResumableStreamDef<
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
-  readonly maxChunks: number;
 }
 
 interface ResumableStreamConfig<
@@ -159,7 +156,6 @@ export function resumableStream<
   assertValidHighWaterMark(config?.highWaterMark, context);
   assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
   assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
-  assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
   if (config?.onDisconnect !== undefined) {
     assertOneOf(config.onDisconnect, ['cancel-but-buffer', 'keep-running'] as const, {
       field: 'onDisconnect',
@@ -180,7 +176,6 @@ export function resumableStream<
     onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
     maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
-    maxChunks: config?.maxChunks ?? 500,
     highWaterMark: config?.highWaterMark,
   };
 }

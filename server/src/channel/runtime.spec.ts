@@ -203,7 +203,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', source: 'client' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -999,7 +999,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', source: 'server' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -1329,7 +1329,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'lobby' },
+        wskit: { channel: 'lobby', source: 'server' },
       },
     ]);
   });

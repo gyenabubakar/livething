@@ -139,6 +139,21 @@ describe('server→client request — outgoing runtime', () => {
     await expect(promise).resolves.toEqual({ allowed: true });
   });
 
+  it('ctx.request on a bare-marker ack resolves undefined even if the answer carries a payload', async () => {
+    const env = install(topDeclarations(new Map([['ping', {}]])));
+    const ctx = env.buildCtx('c1');
+    const promise = ctx.request('ping', {});
+    const { correlationId } = env.sent[0]!.opts;
+
+    const handled = env.answerHook('c1', {
+      event: 'ping',
+      payload: { sneaky: true },
+      wskit: { correlationId },
+    });
+    expect(handled).toBe(true);
+    await expect(promise).resolves.toBeUndefined();
+  });
+
   it('rejects with the typed error when the client declines via __error__', async () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
@@ -257,6 +272,24 @@ describe('server→client broadcast request — first answer wins', () => {
 
     await expect(promise).resolves.toEqual({
       response: { ready: true },
+      from: expect.objectContaining({ id: 'b' }),
+    });
+  });
+
+  it('ctx.broadcastRequest on a bare-marker ack resolves a void response with the winner ref', async () => {
+    const env = install(topDeclarations(new Map([['ping', {}]])));
+    const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
+    const promise = ctx.broadcastRequest('ping', {});
+
+    const legB = env.sent.find((s) => s.connectionId === 'b')!;
+    env.answerHook('b', {
+      event: 'ping',
+      payload: { sneaky: true },
+      wskit: { correlationId: legB.opts.correlationId },
+    });
+
+    await expect(promise).resolves.toEqual({
+      response: undefined,
       from: expect.objectContaining({ id: 'b' }),
     });
   });

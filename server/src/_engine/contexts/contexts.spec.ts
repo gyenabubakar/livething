@@ -37,7 +37,7 @@ function baseStorage() {
   };
 }
 
-function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0]> = {}) {
+function baseDeps(overrides: Record<string, unknown> = {}) {
   return {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
@@ -182,24 +182,6 @@ describe('ctx.waitUntil', () => {
 });
 
 describe('ctx.cancelScheduled', () => {
-  it('logs an error when a connection context cancellation matches no runs', () => {
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      cancelScheduled: vi.fn(() => ({ taskExists: false, removed: 0 })),
-    });
-
-    const ctx = buildConnectionContext(deps, connection);
-    ctx.cancelScheduled('missing-task', { id: 'x' });
-
-    expect(deps.cancelScheduled).toHaveBeenCalledWith('missing-task', { id: 'x' });
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
-      taskId: 'missing-task',
-      filter: { id: 'x' },
-      taskExists: false,
-    });
-  });
-
   it('logs an error when a task context cancellation matches no runs', () => {
     const deps = baseDeps({
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 0 })),
@@ -242,29 +224,6 @@ describe('ctx.setAlarm', () => {
 
     const ctx = buildConnectionContext(deps, connection);
     expect(() => ctx.setAlarm(1)).not.toThrow();
-  });
-});
-
-describe('ctx.quality', () => {
-  it('is null until the first ping/pong measurement, then reflects connection.quality', () => {
-    const connection = createConnection('a');
-    const ctx = buildConnectionContext(baseDeps(), connection);
-
-    expect(ctx.latency).toBeNull();
-    expect(ctx.quality).toBeNull();
-
-    connection.latency = 42;
-    connection.quality = 'excellent';
-    expect(ctx.quality).toBe('excellent');
-  });
-
-  it('is null in hibernation even after a measurement', () => {
-    const connection = createConnection('a');
-    connection.latency = 42;
-    connection.quality = 'excellent';
-    const ctx = buildConnectionContext(baseDeps({ hibernationEnabled: true }), connection);
-
-    expect(ctx.quality).toBeNull();
   });
 });
 
@@ -642,39 +601,23 @@ describe('lazy storage in init/shutdown/task contexts', () => {
   });
 });
 
-describe('ctx.plugin', () => {
-  it('runs the registered factory against a plugin-scoped ctx and caches the api', () => {
+describe('contextExtenders', () => {
+  it('preserves getters returned by an extender as live reads', () => {
     const connection = createConnection('conn_1');
-    const factory = vi.fn((scopedCtx: any) => ({
-      announce() {
-        scopedCtx.send('online', { id: scopedCtx.id });
-      },
-    }));
-    const send = vi.fn(() => true);
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
-      sendThroughPipeline: send,
-      getPluginApiFactory: (id: string) => (id === 'acme:presence' ? factory : undefined),
+      contextExtenders: [
+        () => ({
+          get live() {
+            return connection.latency;
+          },
+        }),
+      ],
     });
 
     const ctx = buildConnectionContext(deps, connection) as any;
-    const api = ctx.plugin('acme:presence') as { announce(): void };
-    expect(ctx.plugin('acme:presence')).toBe(api); // cached — factory runs once
-    expect(factory).toHaveBeenCalledTimes(1);
-
-    api.announce();
-    expect(send).toHaveBeenCalledWith(
-      connection,
-      expect.objectContaining({ event: '__acme:presence::online' }),
-    );
-  });
-
-  it('throws for an unregistered plugin id', () => {
-    const connection = createConnection('conn_1');
-    const ctx = buildConnectionContext(
-      baseDeps({ getPluginApiFactory: () => undefined }),
-      connection,
-    ) as any;
-    expect(() => ctx.plugin('acme:nope')).toThrow(/no plugin with id 'acme:nope' is registered/);
+    expect(ctx.live).toBeNull();
+    connection.latency = 7;
+    expect(ctx.live).toBe(7);
   });
 });

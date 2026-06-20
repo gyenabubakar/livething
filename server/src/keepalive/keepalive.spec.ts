@@ -1,3 +1,4 @@
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { keepalive } from '~/keepalive/keepalive.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
@@ -50,6 +51,10 @@ describe('keepalive', () => {
       refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number) {
         refreshed.push({ connectionId, timeoutMs });
       },
+      extendContext() {},
+      getHibernationEnabled() {
+        return false;
+      },
     } as Pick<
       EngineAccess,
       | 'installOnce'
@@ -57,6 +62,8 @@ describe('keepalive', () => {
       | 'onConnectionActivity'
       | 'refreshConnectionIdleTimeout'
       | 'setKeepalivePingInterval'
+      | 'extendContext'
+      | 'getHibernationEnabled'
     > as EngineAccess;
 
     keepalive(OPTS).__setup?.(engine);
@@ -93,6 +100,10 @@ describe('keepalive', () => {
       refreshConnectionIdleTimeout(connectionId: string) {
         refreshed.push(connectionId);
       },
+      extendContext() {},
+      getHibernationEnabled() {
+        return false;
+      },
     } as Pick<
       EngineAccess,
       | 'installOnce'
@@ -100,12 +111,61 @@ describe('keepalive', () => {
       | 'onConnectionActivity'
       | 'refreshConnectionIdleTimeout'
       | 'setKeepalivePingInterval'
+      | 'extendContext'
+      | 'getHibernationEnabled'
     > as EngineAccess;
 
     keepalive(OPTS).__setup?.(engine);
     void connectHandlers[0]!({ id: '' });
 
     expect(refreshed).toHaveLength(0);
+  });
+
+  it('installs a live ctx.latency / ctx.quality surface gated on hibernation', () => {
+    const extenders: Array<(baseCtx: unknown) => Record<string, unknown>> = [];
+    let hibernating = false;
+    const engine = {
+      installOnce(_key, install) {
+        install();
+      },
+      onConnect() {},
+      onConnectionActivity() {},
+      setKeepalivePingInterval() {},
+      refreshConnectionIdleTimeout() {},
+      extendContext(factory) {
+        extenders.push(factory);
+      },
+      getHibernationEnabled() {
+        return hibernating;
+      },
+    } as Pick<
+      EngineAccess,
+      | 'installOnce'
+      | 'onConnect'
+      | 'onConnectionActivity'
+      | 'refreshConnectionIdleTimeout'
+      | 'setKeepalivePingInterval'
+      | 'extendContext'
+      | 'getHibernationEnabled'
+    > as EngineAccess;
+
+    keepalive(OPTS).__setup?.(engine);
+    expect(extenders).toHaveLength(1);
+
+    const connection = { latency: null as number | null, quality: 'good' };
+    const baseCtx = { [ENGINE_INTERNAL_CONNECTION]: connection } as Record<PropertyKey, unknown>;
+    Object.defineProperties(baseCtx, Object.getOwnPropertyDescriptors(extenders[0]!(baseCtx)));
+
+    expect(baseCtx.latency).toBeNull();
+    expect(baseCtx.quality).toBeNull();
+
+    connection.latency = 42;
+    connection.quality = 'excellent';
+    expect(baseCtx.latency).toBe(42);
+    expect(baseCtx.quality).toBe('excellent');
+
+    hibernating = true;
+    expect(baseCtx.quality).toBeNull();
   });
 
   describe('validation', () => {

@@ -323,3 +323,48 @@ describe('resyncMembers() fire-and-forget request', () => {
     expect(ws.sentFrames().some((f) => f.event === '__memberSync__')).toBe(false);
   });
 });
+
+describe('presence frames after the channel has been left', () => {
+  async function leftChannel() {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    room.unsubscribe();
+    const leave = ws.sentFrames().find((f) => f.event === '__unsubscribe__');
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: leave?.__wskit?.unsubscribeId },
+    });
+    return { room, ws };
+  }
+
+  it('ignores a __memberSync__ that lands after __unsubscribeOk__', async () => {
+    const { room, ws } = await leftChannel();
+    const onJoin = vi.fn();
+    room.onMemberJoin(onJoin);
+
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
+  });
+
+  it('ignores a __memberJoin__ that lands after __unsubscribeOk__', async () => {
+    const { room, ws } = await leftChannel();
+    const onJoin = vi.fn();
+    room.onMemberJoin(onJoin);
+
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c1', meta: { name: 'Ada' } },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
+  });
+});

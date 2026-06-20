@@ -73,7 +73,6 @@ export const resumableStream = withCapabilityKind(
           allowConcurrent: config.allowConcurrent,
           highWaterMark: config.highWaterMark,
           onDisconnect: config.onDisconnect,
-          maxChunks: config.maxChunks,
           maxAgeMs: config.maxAgeMs,
           retentionAfterEndMs: config.retentionAfterEndMs,
         });
