@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
@@ -120,6 +121,14 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
     __requires: { storage: true },
+    __requiresCapabilities: [CAPABILITY_KIND.dedup, CAPABILITY_KIND.sequence],
+    __validate(view) {
+      if (!view.sequencePersistent) {
+        throw new Error(
+          '[wskit] replay requires `sequence: { persist: true }` for durable replay.',
+        );
+      }
+    },
     options: opts,
     __setup(engine) {
       engine.setReplayEnabled(true);

@@ -4,6 +4,7 @@ import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
+import type { Primitive, ValidationView } from '~/primitive.ts';
 
 /** Throw if the adapter is missing something the handler said it needs. */
 function validateRequires(core: EngineCore): void {
@@ -25,30 +26,40 @@ function validateRequires(core: EngineCore): void {
   }
 }
 
-/** Throw if the adapter is missing engine-internal guarantees the primitives need. */
-function validateEngineRequirements(core: EngineCore): void {
-  if (core.replayEnabled && !core.sequencePersistent) {
-    throw new Error('[wskit] replay requires `sequence: { persist: true }` for durable replay.');
-  }
-}
-
 /**
- * Throw if a channel registered a `.revalidate()` hook but is not persistent.
- * `revalidate` only runs on auto-rejoin, which only happens for persistent
- * channels — so on a non-persistent channel it is dead code, and almost always
- * means the author meant to enable persistence or use `.check()` instead.
+ * Run every primitive's `__validate` against settled engine state, after all
+ * setups. Each capability owns its own runtime-state rule (replay checks a
+ * persistent sequence, revalidate checks a persistent channel) — the engine
+ * just walks the tree and threads each primitive's channel scope, staying
+ * oblivious to what any capability requires.
  */
-function validateRevalidateRequiresPersistence(core: EngineCore): void {
-  for (const channelKey of core.hooks.revalidate.keys()) {
-    if (!core.isChannelPersistent(channelKey)) {
-      throw new Error(
-        `[wskit] Channel "${channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
-          `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-          `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
-          `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
-      );
+function validatePrimitives(core: EngineCore): void {
+  function visit(primitives: readonly Primitive[], channelKey?: string): void {
+    const view: ValidationView = {
+      sequencePersistent: core.sequencePersistent,
+      channelKey,
+      isChannelPersistent(key: string): boolean {
+        return core.isChannelPersistent(key);
+      },
+    };
+    for (const primitive of primitives) {
+      primitive.__validate?.(view);
+      if (primitive.__wskit === 'channel') {
+        const channelPrimitive = primitive as Primitive & {
+          pattern: string | { key: string };
+          primitives: readonly Primitive[];
+        };
+        visit(
+          channelPrimitive.primitives,
+          typeof channelPrimitive.pattern === 'string'
+            ? channelPrimitive.pattern
+            : channelPrimitive.pattern.key,
+        );
+      }
     }
   }
+
+  visit(core.primitives);
 }
 
 /**
@@ -62,8 +73,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   if (core.compiled.scheduled.size > 0) {
     accessDeps.ensureScheduledRuntime();
   }
-  validateEngineRequirements(core);
-  validateRevalidateRequiresPersistence(core);
+  validatePrimitives(core);
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
   // row says storage is not on the current schema version. On a fresh

@@ -30,6 +30,21 @@ export interface RequiresManifest {
 }
 
 /**
+ * Read-only view of settled engine state, passed to a primitive's `__validate`
+ * hook. It exposes only derived facts a primitive needs to check its own
+ * runtime requirements — not the engine internals — so validation stays
+ * encapsulated in the capability that owns the rule.
+ */
+export interface ValidationView {
+  /** Whether a persistent `sequence` is configured. */
+  readonly sequencePersistent: boolean;
+  /** The channel key this primitive is scoped to, if any. */
+  readonly channelKey?: string;
+  /** Whether the named channel persists its membership. */
+  isChannelPersistent(channelKey: string): boolean;
+}
+
+/**
  * Lightweight marker used by factories that need a stable symbol-typed
  * identity. Kept as a separate type for plugin() factory typing.
  *
@@ -60,9 +75,24 @@ export interface Primitive<Tag extends string = string> {
   readonly __kind: PrimitiveKind;
   readonly __identity: PrimitiveIdentity;
   readonly __requires: RequiresManifest;
+  /**
+   * Capability identity tokens (see `CAPABILITY_KIND`) this primitive needs
+   * listed in the same `define({ capabilities })`. Resolved at `assemble()`:
+   * a missing one is a build error on an app, and on a plugin a host-owned
+   * requirement is auto-recorded as a host dependency. Empty by default.
+   * @internal
+   */
+  readonly __requiresCapabilities?: readonly string[];
 
   /** @internal */
   readonly __setup?: (engine: EngineAccess) => void;
+  /**
+   * Assert this primitive's runtime-state requirements against settled engine
+   * state. Runs once at startup, after every primitive's `__setup`, so it reads
+   * facts other primitives wrote (e.g. replay checks a persistent sequence).
+   * Throw to fail startup with a clear message. @internal
+   */
+  readonly __validate?: (view: ValidationView) => void;
 }
 
 /**
@@ -97,6 +127,17 @@ export interface PrimitiveConfig<
    * persistence is enabled).
    */
   readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
+
+  /**
+   * Capability identity tokens this primitive needs co-listed. Either a static
+   * list or a function computing it from the factory's arguments (use the
+   * function form when the requirement is conditional, e.g. persistent tag
+   * groups need persistence but ephemeral ones do not).
+   */
+  readonly requiresCapabilities?: readonly string[] | ((...args: TArgs) => readonly string[]);
+
+  /** Assert runtime-state requirements at startup. See `Primitive.__validate`. */
+  readonly validate?: (view: ValidationView) => void;
 
   /** Transform the factory's arguments into the data stored on the primitive instance. */
   create(...args: TArgs): TData;
@@ -169,13 +210,19 @@ export function definePrimitive<
     const data = config.create(...args);
     const requires =
       typeof config.requires === 'function' ? config.requires(...args) : (config.requires ?? {});
+    const requiresCapabilities =
+      typeof config.requiresCapabilities === 'function'
+        ? config.requiresCapabilities(...args)
+        : (config.requiresCapabilities ?? []);
 
     return {
       __wskit: config.tag,
       __kind: config.kind,
       __identity: identity,
       __requires: requires,
+      __requiresCapabilities: requiresCapabilities,
       __setup: config.setup ? (engine: EngineAccess) => config.setup!(engine, data) : undefined,
+      __validate: config.validate,
       ...data,
     } as Primitive<TTag> & TData;
   }

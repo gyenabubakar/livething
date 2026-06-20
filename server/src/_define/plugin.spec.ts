@@ -3,13 +3,12 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
-import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
-import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { observeHost, plugin } from './plugin.ts';
@@ -182,11 +181,15 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble(tick),
-      dependsOn: [channels, persistence],
+      dependsOn: [persistence, keepalive],
     });
     const base = define({
       env: t<Env>(),
-      capabilities: [channels(), persistence(), Dep()],
+      capabilities: [
+        persistence(),
+        keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }),
+        Dep(),
+      ],
     });
     expect(() => base.assemble()).not.toThrow();
   });
@@ -196,46 +199,48 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble(tick),
-      dependsOn: [channels, persistence],
+      dependsOn: [persistence, keepalive],
     });
-    const base = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
-    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+    const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
+    expect(() => base.assemble()).toThrow(/the host does not list/);
   });
 
-  it('does not satisfy a brand-only channels() dependency with another brand-only capability', () => {
+  it('does not satisfy a host dependency with a different host capability', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
-    // requests() is brand-only like channels(); it must NOT count as channels().
-    const base = define({ env: t<Env>(), capabilities: [requests(), Dep()] });
-    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [persistence] });
+    // dedup() is a host engine too, but a different one — it must NOT count as persistence().
+    const base = define({ env: t<Env>(), capabilities: [dedup(), Dep()] });
+    expect(() => base.assemble()).toThrow(/the host does not list/);
   });
 
-  it('satisfies a brand-only channels() dependency when channels() is listed', () => {
+  it('satisfies a host dependency when that capability is listed', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [channels] });
-    const base = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
+    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [persistence] });
+    const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
     expect(() => base.assemble()).not.toThrow();
   });
 
-  it('does not satisfy a resumableStream dependency with only stream() listed', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
-    const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
-    const base = define({ env: t<Env>(), capabilities: [stream(), Dep()] });
-    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
-  });
-
-  it('satisfies a resumableStream dependency when resumableStream() is listed', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
-    const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [resumableStream] });
-    const base = define({
+  it("auto-derives a host persistence dependency from a plugin's own durable stream", () => {
+    const h = define({ scoped: true, capabilities: [resumableStream()] });
+    const feed = h.resumableStream('feed', {
+      input: v.object({}),
+      chunk: t<{ n: number }>(),
+      async *run() {
+        yield { n: 1 };
+      },
+    });
+    // No dependsOn — the persistence requirement is inferred from the durable
+    // stream the plugin owns.
+    const Dep = plugin('acme:dep', { handler: h.assemble(feed) });
+    const without = define({ env: t<Env>(), capabilities: [Dep()] });
+    expect(() => without.assemble()).toThrow(/the host does not list/);
+    const withPersistence = define({
       env: t<Env>(),
       capabilities: [persistence(), resumableStream(), Dep()],
     });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => withPersistence.assemble()).not.toThrow();
   });
 
   it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
@@ -243,7 +248,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
     const base = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => base.assemble()).toThrow(/depends on a capability the host does not list/);
+    expect(() => base.assemble()).toThrow(/the host does not list/);
   });
 
   it('satisfies a keepalive dependency when keepalive(...) is listed', () => {

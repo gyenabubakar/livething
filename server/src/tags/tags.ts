@@ -1,4 +1,5 @@
 import { assertValidWSKitIdentifier } from '@wskit/core';
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -122,6 +123,7 @@ export function tagGroups<TKind extends TagKind>(
     __kind: 'infrastructure',
     __identity: [key],
     __requires: kind === 'persistent' ? { storage: true } : {},
+    __requiresCapabilities: kind === 'persistent' ? [CAPABILITY_KIND.persistence] : [],
     kind,
     groups,
     __setup(engine) {

@@ -60,4 +60,17 @@ test.describe('plugins (conformance)', () => {
       .poll(async () => (await page.getByTestId('stream-ids').textContent())!.split(',').length)
       .toBeGreaterThanOrEqual(3);
   });
+
+  // KNOWN-BROKEN (bug #3): a plugin-OWNED durable (resumable) stream compiles
+  // correctly (its `__e2e:feed::feed` entry is in compiled.resumableStreams with
+  // the durable sweep + persistence) and the start frame is accepted, but the
+  // generator never runs — the stream ends empty. A runtime dispatch issue in
+  // the durable-stream path for plugin-scoped streams, under investigation.
+  test.fixme('a plugin-owned durable stream delivers chunks over the wire', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `plg-feed-${testInfo.testId}`);
+    await page.getByTestId('stream-feed').click();
+    await expect.poll(async () => page.getByTestId('feed-rows').textContent()).toBe('1,2,3,4,5');
+  });
 });

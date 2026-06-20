@@ -40,6 +40,7 @@ import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
+import { resolveCapabilityRequirements } from './capability-requirements.ts';
 import { assertHostObservationGranted, assertPluginDependencies } from './plugin.ts';
 import type {
   AppCtx,
@@ -1909,7 +1910,7 @@ export function define(config: any): Base<any, any, any, any> {
       }
       // A durable stream can be declared at the top level or nested inside a
       // channel, so scan both — otherwise a channel-only durable stream would
-      // miss both the persistence gate and the retention sweep below.
+      // miss the retention sweep below.
       const hasDurableStream = primitives.some(
         (p) =>
           isDurableGenerate(p) ||
@@ -1918,12 +1919,6 @@ export function define(config: any): Base<any, any, any, any> {
               isDurableGenerate,
             )),
       );
-      if (hasDurableStream && !features.has('persistence')) {
-        throw new Error(
-          '[wskit] resumableStream / recordedStream require the persistence() capability. ' +
-            'Add persistence() to capabilities.',
-        );
-      }
 
       // Install the durable-stream retention sweep only when a resumable/recorded
       // stream handler actually exists — not merely because the capability is
@@ -1939,21 +1934,23 @@ export function define(config: any): Base<any, any, any, any> {
         }
       }
 
-      const hasPersistentTags = primitives.some(
-        (p) => p.__wskit === 'tag-groups' && (p as { kind?: string }).kind === 'persistent',
+      // Enforce every primitive's capability requirements (durable streams and
+      // persistent tags need persistence, etc.) against what is listed. On an
+      // app a missing one throws; on a plugin a host-owned requirement is
+      // returned as a host dependency the host must satisfy.
+      const { hostDependencies } = resolveCapabilityRequirements(
+        primitives,
+        config.capabilities ?? [],
+        { scoped: !!config.scoped },
       );
-      if (hasPersistentTags && !features.has('persistence')) {
-        throw new Error(
-          '[wskit] persistent tag groups require the persistence() capability. ' +
-            'Add persistence() to capabilities, or declare the groups as ephemeral.',
-        );
-      }
 
       return Object.freeze({
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
-        ...(config.scoped ? { __scoped: true as const } : {}),
+        ...(config.scoped
+          ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
+          : {}),
       });
     },
   };

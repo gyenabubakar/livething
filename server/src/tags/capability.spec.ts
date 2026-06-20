@@ -105,7 +105,7 @@ describe('tags() capability', () => {
       env: t<Env>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
-    expect(() => base.assemble()).toThrow(/persistent tag groups require the persistence\(\)/);
+    expect(() => base.assemble()).toThrow(/persistence\(\) capability is required by tag-groups/);
   });
 
   it('allows persistent groups when persistence() is also listed', () => {

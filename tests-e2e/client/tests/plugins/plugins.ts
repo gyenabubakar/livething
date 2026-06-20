@@ -35,6 +35,10 @@ interface Contract extends SocketContract {
   };
   streams: {
     'stream-connection-id': { payload: { count: number }; chunk: { id: string } };
+    // A plugin-OWNED durable (resumable) stream, namespaced by the `__<id>::`
+    // prefix. The plugin declares no persistence — the host provides it because
+    // the requirement is auto-derived from the stream the plugin owns.
+    '__e2e:feed::feed': { payload: { from: number }; chunk: { row: number } };
   };
 }
 
@@ -46,6 +50,7 @@ export function setup(): void {
     <button data-testid="msg-count">msg-count</button>
     <button data-testid="outgoing-count">outgoing-count</button>
     <button data-testid="stream-conn-id">stream-conn-id</button>
+    <button data-testid="stream-feed">stream-feed</button>
     <span data-testid="status"></span>
     <span data-testid="drizzle-ready"></span>
     <span data-testid="drizzle-hooked"></span>
@@ -54,6 +59,7 @@ export function setup(): void {
     <span data-testid="msg-count-result"></span>
     <span data-testid="outgoing-count-result"></span>
     <span data-testid="stream-ids"></span>
+    <span data-testid="feed-rows"></span>
   `);
 
   const socket = client<Contract>()(connect(wsUrl('plugins')), stream());
@@ -107,6 +113,17 @@ export function setup(): void {
     for await (const chunk of handle) {
       if (chunk.id) streamIds.push(chunk.id);
       el('stream-ids').textContent = streamIds.join(',');
+    }
+  });
+
+  // Drive the plugin-OWNED durable stream over the typed wire — proof the
+  // capability-requirement model lets a plugin ship a durable stream end to end.
+  const feedRows: number[] = [];
+  button('stream-feed', async () => {
+    const handle = await socket.stream('__e2e:feed::feed', { from: 0 }, { streamId: 'feed-1' });
+    for await (const chunk of handle) {
+      feedRows.push(chunk.row);
+      el('feed-rows').textContent = feedRows.join(',');
     }
   });
 

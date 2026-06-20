@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { Primitive } from '~/primitive.ts';
+import type { Primitive, ValidationView } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -176,6 +176,16 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
     __identity: [ON_REVALIDATE_KEY],
     __requires: {},
     handler,
+    __validate(view: ValidationView) {
+      if (view.channelKey && !view.isChannelPersistent(view.channelKey)) {
+        throw new Error(
+          `[wskit] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+            `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
+            `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
+            `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
+        );
+      }
+    },
     __setup(engine: EngineAccess) {
       engine.onRevalidate(handler as RevalidateHandler);
     },

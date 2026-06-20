@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
@@ -56,6 +57,7 @@ export function resumableGenerateFactory(
     __kind: 'handler',
     __identity: [RESUMABLE_STREAM_GENERATE_KEY, input.event],
     __requires: { storage: true },
+    __requiresCapabilities: [CAPABILITY_KIND.persistence],
     event: input.event,
     validator: input.validator,
     cursor: input.cursor,

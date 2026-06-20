@@ -16,6 +16,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
@@ -190,9 +191,10 @@ expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['response']>().toEqualT
 }>();
 
 // ---------------------------------------------------------------------------
-// dependsOn — host capability factories only. A plugin factory is a compile
-// error: a plugin dependency can never be satisfied at runtime (plugins carry
-// no host capability identity token), so the type forbids it up front.
+// dependsOn — host-owned engine factories only. A behavior capability the
+// plugin can own itself (requests, channels, …) and a plugin factory are both
+// compile errors: a plugin lists behavior in its own capabilities, and only the
+// host's engines (which carry __hostOnly) are valid dependsOn targets.
 // ---------------------------------------------------------------------------
 const depScoped = define({ scoped: true });
 const DepPlugin = plugin('acme:dep', {
@@ -200,9 +202,14 @@ const DepPlugin = plugin('acme:dep', {
 });
 
 const depHost = define({ scoped: true });
-// A host capability factory is accepted.
+// A host-owned engine factory is accepted.
 plugin('acme:ok', {
   handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  dependsOn: [persistence],
+});
+plugin('acme:behavior', {
+  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  // @ts-expect-error — requests is a behavior capability a plugin owns itself, not a dependsOn target.
   dependsOn: [requests],
 });
 plugin('acme:bad', {

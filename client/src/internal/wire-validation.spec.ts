@@ -42,6 +42,15 @@ describe('isReservedEventName', () => {
     expect(isReservedEventName('chat')).toBe(false);
     expect(isReservedEventName('ping-pong')).toBe(false);
   });
+
+  it('allows plugin-namespaced events (__<id>::event) but still blocks protocol frames', () => {
+    // A plugin event is a real, sendable user event in its namespace.
+    expect(isReservedEventName('__acme:presence::heartbeat')).toBe(false);
+    expect(isReservedEventName('__e2e:feed::feed')).toBe(false);
+    // A protocol frame has no `::` and stays reserved.
+    expect(isReservedEventName('__streamStart__')).toBe(true);
+    expect(isReservedEventName('__subscribe__')).toBe(true);
+  });
 });
 
 describe('familyKeyError', () => {

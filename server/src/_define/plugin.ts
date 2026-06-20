@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { capabilityDisplayName } from '~/_define/capability-kinds.ts';
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
@@ -8,15 +9,16 @@ import type { Primitive } from '~/primitive.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 /**
- * A host capability factory accepted by a plugin's `dependsOn`. It excludes
- * plugin factories: a plugin capability carries `__pluginId`, so a factory whose
- * result has a `string` `__pluginId` is not assignable to a result typed
- * `__pluginId?: undefined`, making a plugin factory a compile error here. (The
- * runtime matcher reads a host capability's `__capabilityKind`, which plugin
- * factories don't carry, so a plugin dependency could never be satisfied anyway.)
+ * A host capability factory accepted by a plugin's `dependsOn` — only the
+ * host-owned engines (`persistence`, `dedup`, `sequence`, `keepalive`,
+ * `rateLimit`, `replay`), which carry `__hostOnly: true`. A behavior capability
+ * a plugin can own itself (`requests`, `channels`, streams, …) is not assignable
+ * and is rejected at compile time: a plugin lists those in its own
+ * `capabilities` rather than depending on the host for them. Plugin factories
+ * are excluded too — they carry no `__hostOnly`.
  */
 type HostCapabilityFactory = ((...args: any[]) => AnyCapability & {
-  readonly __pluginId?: undefined;
+  readonly __hostOnly: true;
 }) & { readonly __capabilityKind?: string };
 
 /** A plugin id must be lowercase `author:name`. */
@@ -173,6 +175,13 @@ export interface PluginCapability<
   readonly __pluginId: string;
   /** Capabilities the host must list; a missing one is a build error. @internal */
   readonly __pluginDependsOn: readonly CapabilityFactory[];
+  /**
+   * Capability identity tokens the host must provide: the explicit `dependsOn`
+   * plus the host-owned requirements auto-derived from the plugin's own
+   * capabilities (e.g. a plugin durable stream implies persistence). Checked at
+   * the host's `assemble()`. @internal
+   */
+  readonly __pluginRequiredKinds: readonly string[];
   /** Whether the plugin opted its hooks into observing host traffic. @internal */
   readonly __observesHostTraffic: boolean;
   /** Set once `observeHost(...)` wraps this capability; the runtime grant gate reads it. @internal */
@@ -243,13 +252,14 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
 
   for (const cap of capabilities) {
     const pluginCap = cap as Partial<PluginCapability>;
-    if (!pluginCap.__pluginId || !pluginCap.__pluginDependsOn) continue;
-    for (const factory of pluginCap.__pluginDependsOn) {
-      if (factory.__capabilityKind && present.has(factory.__capabilityKind)) continue;
+    if (!pluginCap.__pluginId || !pluginCap.__pluginRequiredKinds) continue;
+    for (const kind of pluginCap.__pluginRequiredKinds) {
+      if (present.has(kind)) continue;
+      const name = capabilityDisplayName(kind);
       throw new Error(
-        `[wskit] plugin('${pluginCap.__pluginId}') depends on a capability the host does not ` +
-          'list. Add the required capability to define({ capabilities: [...] }) — a plugin ' +
-          'declares prerequisites via dependsOn instead of owning host engines.',
+        `[wskit] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
+          `list. Add ${name} to define({ capabilities: [...] }) — a plugin declares prerequisites ` +
+          'instead of owning host engines.',
       );
     }
   }
@@ -327,10 +337,19 @@ export function plugin<
   const writable = cap as {
     __pluginId: string;
     __pluginDependsOn: readonly CapabilityFactory[];
+    __pluginRequiredKinds: readonly string[];
     __observesHostTraffic: boolean;
   };
   writable.__pluginId = id;
   writable.__pluginDependsOn = manifest.dependsOn ?? [];
+  // Host requirements = explicit dependsOn + what the plugin's own capabilities
+  // imply (e.g. a durable stream needs persistence, recorded at assemble).
+  const explicitKinds = (manifest.dependsOn ?? [])
+    .map((factory) => factory.__capabilityKind)
+    .filter((kind): kind is string => typeof kind === 'string');
+  const autoKinds =
+    (manifest.handler as { __hostDependencies?: readonly string[] }).__hostDependencies ?? [];
+  writable.__pluginRequiredKinds = [...new Set([...explicitKinds, ...autoKinds])];
   writable.__observesHostTraffic = observesHostTraffic;
   // A fresh capability is returned each call, so wrapping one in observeHost(...)
   // never mutates another listing of the same plugin.

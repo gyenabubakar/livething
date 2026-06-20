@@ -45,9 +45,16 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
  * True when `name` is a reserved protocol name that can't be a user event:
  * the bare `ping`/`pong` control frames, or anything in the engine's `__x__`
  * namespace (and an empty/non-string name).
+ *
+ * Plugin-owned events are namespaced `__<id>::event`. The `__` prefix alone
+ * would fail the user-identifier rule, but `::` is the plugin-namespace
+ * separator — no protocol frame contains it — so a `__…::…` name is a real,
+ * sendable plugin event, not a reserved protocol frame.
  */
 export function isReservedEventName(name: string): boolean {
-  return name === 'ping' || name === 'pong' || !isValidWSKitIdentifier(name);
+  if (name === 'ping' || name === 'pong') return true;
+  if (typeof name === 'string' && name.startsWith('__') && name.includes('::')) return false;
+  return !isValidWSKitIdentifier(name);
 }
 
 /**

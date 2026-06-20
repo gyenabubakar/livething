@@ -1,6 +1,8 @@
 import { define, emits, t } from '@wskit/server';
+import { persistence } from '@wskit/server/persistence';
 import { observeHost } from '@wskit/server/plugin';
 import { stream } from '@wskit/server/streams';
+import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -45,6 +47,8 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
+    persistence(),
+    Feed(),
     observeHost(Drizzle()),
     emits({
       'record-inserted': t<v.InferOutput<typeof RecordInserted>>(),
