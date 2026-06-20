@@ -23,6 +23,23 @@ const EVENT_KINDS = new Set([
   'recorded-stream-generate',
 ]);
 
+/**
+ * A channel's lifecycle children carry a `handler` and run user code against a
+ * ctx, so their sends must be plugin-scoped like any handler. Each maps to the
+ * `EngineAccess` method that registers it, with `onCheck` taking the validator.
+ */
+const CHANNEL_LIFECYCLE_REGISTER: Record<
+  string,
+  (engine: EngineAccess, handler: (ctx: any, ...rest: any[]) => any, primitive: any) => void
+> = {
+  check: (engine, handler, primitive) => engine.onCheck(handler, primitive.validator),
+  revalidate: (engine, handler) => engine.onRevalidate(handler),
+  commit: (engine, handler) => engine.onCommit(handler),
+  onSubscribe: (engine, handler) => engine.onSubscribe(handler),
+  onUnsubscribe: (engine, handler) => engine.onUnsubscribe(handler),
+  onSessionEnd: (engine, handler) => engine.onSessionEnd(handler),
+};
+
 /** Plugin-contributed lifecycle primitives → the engine registry kind they map to. */
 const LIFECYCLE_KINDS: Record<string, PluginLifecycleKind> = {
   onInit: 'init',
@@ -367,8 +384,34 @@ function namespaceChannel(
     primitives: channel.primitives.map((child) => {
       if (child.__wskit === 'intercept') return ownHook(scope, child, observesHost);
       if (child.__wskit === 'outgoingHook') return ownOutgoingHook(scope, child, observesHost);
+      if (CHANNEL_LIFECYCLE_REGISTER[child.__wskit]) return scopeChannelLifecycle(scope, child);
       return namespaceOne(scope, child);
     }),
+  } as unknown as Primitive;
+}
+
+/**
+ * Scope a plugin channel's lifecycle child (`check`/`commit`/`revalidate`/
+ * `onSubscribe`/`onUnsubscribe`/`onSessionEnd`) so its body runs against a
+ * plugin-scoped ctx — its `ctx.channel.broadcast(...)` and other sends then
+ * carry the `__<id>::` prefix and match the channel's namespaced emits. The
+ * child's own `__setup` closes over the raw handler, so we rebuild `__setup` to
+ * register the scoped handler under the same engine hook.
+ */
+function scopeChannelLifecycle({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+  const register = CHANNEL_LIFECYCLE_REGISTER[primitive.__wskit]!;
+  const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
+    .handler;
+  const scoped = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
+    handler(scopePluginContext(id, ctx), ...rest),
+  );
+  return {
+    ...(primitive as unknown as Record<PropertyKey, unknown>),
+    __plugin: id,
+    handler: scoped,
+    __setup(engine: EngineAccess) {
+      register(engine, scoped, primitive);
+    },
   } as unknown as Primitive;
 }
 

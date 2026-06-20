@@ -1,7 +1,7 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
-import { wireIdError } from '~/internal/wire-validation.ts';
+import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
 import type { WSKitError } from '@wskit/core';
@@ -501,7 +501,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               return null;
             }
             default: {
-              if (message.event.startsWith('__')) return message;
+              if (isProtocolFrameEvent(message.event)) return message;
               const seq = envelope?.seq;
               const state = streams.get(streamId);
               if (state && (seq === undefined || seq > state.lastSeq)) {

@@ -111,12 +111,35 @@ describe('PluginsClient — stream kind', () => {
   });
 });
 
-describe('PluginsClient — empty top-level slots', () => {
-  it('channels is empty', () => {
-    expectTypeOf<keyof PluginsClient['channels']>().toBeNever();
+describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () => {
+  it('exposes the plugin channel and its event under prefixed names', () => {
+    expectTypeOf<
+      PluginsClient['channels']['__e2e:feed::room']['incoming']['joined']
+    >().toEqualTypeOf<{ who: string }>();
   });
-  it('requests is empty', () => {
-    expectTypeOf<keyof PluginsClient['requests']>().toBeNever();
+  it('exposes the plugin request under its prefixed name', () => {
+    expectTypeOf<PluginsClient['requests']['__e2e:feed::echo']>().toEqualTypeOf<{
+      payload: { text: string };
+      response: { echoed: string };
+    }>();
+  });
+  it('exposes the plugin emit under its prefixed name', () => {
+    expectTypeOf<PluginsClient['incoming']['__e2e:feed::pong']>().toEqualTypeOf<{ note: string }>();
+  });
+  it('exposes all three plugin stream kinds under prefixed names', () => {
+    // Both durable kinds surface as 'persistent' on the client; plain is 'ephemeral'.
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed']['kind']
+    >().toEqualTypeOf<'persistent'>();
+    expectTypeOf<PluginsClient['streams']['__e2e:feed::feed']['chunk']>().toEqualTypeOf<{
+      row: number;
+    }>();
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed-plain']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed-recorded']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 });
 

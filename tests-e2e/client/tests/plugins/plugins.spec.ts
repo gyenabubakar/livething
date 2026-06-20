@@ -61,16 +61,49 @@ test.describe('plugins (conformance)', () => {
       .toBeGreaterThanOrEqual(3);
   });
 
-  // KNOWN-BROKEN (bug #3): a plugin-OWNED durable (resumable) stream compiles
-  // correctly (its `__e2e:feed::feed` entry is in compiled.resumableStreams with
-  // the durable sweep + persistence) and the start frame is accepted, but the
-  // generator never runs — the stream ends empty. A runtime dispatch issue in
-  // the durable-stream path for plugin-scoped streams, under investigation.
-  test.fixme('a plugin-owned durable stream delivers chunks over the wire', async ({
+  test('a plugin-owned durable stream delivers chunks over the wire', async ({
     page,
   }, testInfo) => {
     await open(page, `plg-feed-${testInfo.testId}`);
     await page.getByTestId('stream-feed').click();
     await expect.poll(async () => page.getByTestId('feed-rows').textContent()).toBe('1,2,3,4,5');
+  });
+
+  test('a client→plugin incoming event reaches the handler and the plugin replies', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `plg-ping-${testInfo.testId}`);
+    await page.getByTestId('feed-ping').click();
+    await expect.poll(async () => page.getByTestId('feed-pong').textContent()).toBe('hi');
+  });
+
+  test('a client→plugin request returns the plugin response', async ({ page }, testInfo) => {
+    await open(page, `plg-echo-${testInfo.testId}`);
+    await page.getByTestId('feed-echo').click();
+    await expect.poll(async () => page.getByTestId('feed-echo-result').textContent()).toBe('hello');
+  });
+
+  test('a plugin-owned plain stream delivers chunks over the wire', async ({ page }, testInfo) => {
+    await open(page, `plg-plain-${testInfo.testId}`);
+    await page.getByTestId('stream-feed-plain').click();
+    await expect.poll(async () => page.getByTestId('feed-plain-rows').textContent()).toBe('1,2,3');
+  });
+
+  test('a plugin-owned recorded stream delivers chunks over the wire', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `plg-rec-${testInfo.testId}`);
+    await page.getByTestId('stream-feed-recorded').click();
+    await expect
+      .poll(async () => page.getByTestId('feed-recorded-rows').textContent())
+      .toBe('1,2,3');
+  });
+
+  test('a plugin-owned channel subscribes and delivers its broadcast', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `plg-room-${testInfo.testId}`);
+    await page.getByTestId('feed-sub-room').click();
+    await expect.poll(async () => page.getByTestId('feed-joined').textContent()).toBe('joined');
   });
 });

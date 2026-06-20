@@ -58,6 +58,20 @@ export function isReservedEventName(name: string): boolean {
 }
 
 /**
+ * True when an incoming frame's event names a wskit protocol control frame
+ * (`__streamOk__`, `__streamEnd__`, `__error__`, …) rather than user traffic.
+ *
+ * A protocol frame is `__`-prefixed and never contains the plugin-namespace
+ * separator `::`. A plugin-owned event/stream/channel is namespaced
+ * `__<id>::event`, so it also starts with `__` — checking the `::` separator is
+ * what keeps a plugin chunk frame from being mistaken for a protocol frame and
+ * dropped before it reaches the stream/channel handler.
+ */
+export function isProtocolFrameEvent(event: string): boolean {
+  return event.startsWith('__') && !event.includes('::');
+}
+
+/**
  * A family key is optional — an absent (`undefined`) one is a static channel and
  * is fine. But a *supplied* family key must be a non-empty string within the
  * limit: an empty key would drop the `channelFamily` marker and turn the frame

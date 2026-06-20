@@ -1,6 +1,7 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
+import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import {
   buildChannelMessaging,
   buildFamilyHandle,
@@ -18,6 +19,22 @@ import type {
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
+
+/**
+ * Strip a plugin-owned channel's namespace off an incoming event. A plugin
+ * channel travels as `__<id>::<room>` and its emits as `__<id>::<event>`, but
+ * the client contract registers each handler under the bare `<event>` — so an
+ * event sharing the channel's `__<id>::` prefix is delivered under its short
+ * name. A non-plugin channel (no `__<id>::` prefix) and any event that doesn't
+ * carry the channel's own prefix pass through untouched.
+ */
+function channelEventName(channelName: string, event: string): string {
+  if (!channelName.startsWith('__')) return event;
+  const delimAt = channelName.indexOf('::');
+  if (delimAt < 0) return event;
+  const prefix = channelName.slice(0, delimAt + 2);
+  return event.startsWith(prefix) ? event.slice(prefix.length) : event;
+}
 
 /** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
 function readMember(
@@ -205,18 +222,18 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
 
             default: {
-              if (message.event.startsWith('__')) return message;
+              if (isProtocolFrameEvent(message.event)) return message;
               if (wskit?.correlationId !== undefined) return message;
 
               // A channel-scoped stream chunk carries a streamId — it belongs to
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
 
-              if (helpers.config.debug)
-                helpers.log.info(`routing '${message.event}' to channel '${name}'`);
+              const event = channelEventName(name, message.event);
+              if (helpers.config.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
 
-              state.dispatch(message.event, message.payload);
-              notifyFamily((family) => family.dispatch(message.event, message.payload, name));
+              state.dispatch(event, message.payload);
+              notifyFamily((family) => family.dispatch(event, message.payload, name));
 
               return message;
             }

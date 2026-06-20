@@ -1,4 +1,4 @@
-import { client, connect, stream } from '@wskit/client';
+import { channels, client, connect, requestResponse, stream } from '@wskit/client';
 import type { SocketContract } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -26,19 +26,34 @@ interface Contract extends SocketContract {
     // Plugin-owned emit, namespaced by the `__<id>::` wire prefix. The outgoing
     // hook stamps `hooked: true` on it.
     '__e2e:drizzle::drizzle-ready': { tables: string[]; hooked?: boolean };
+    // The Feed plugin's own emit, sent in reply to its `ping` incoming handler.
+    '__e2e:feed::pong': { note: string };
   };
   outgoing: {
     'insert-record': { name: string; value: string };
     'plugin-rewrite-probe': { text: string };
     'get-message-count': Record<string, never>;
     'get-outgoing-count': Record<string, never>;
+    // Client → Feed plugin incoming handler.
+    '__e2e:feed::ping': { note: string };
+  };
+  requests: {
+    // Client → Feed plugin request, plugin returns the response.
+    '__e2e:feed::echo': { payload: { text: string }; response: { echoed: string } };
   };
   streams: {
     'stream-connection-id': { payload: { count: number }; chunk: { id: string } };
-    // A plugin-OWNED durable (resumable) stream, namespaced by the `__<id>::`
-    // prefix. The plugin declares no persistence — the host provides it because
-    // the requirement is auto-derived from the stream the plugin owns.
+    // Plugin-OWNED streams, one per kind. The durable ones declare no
+    // persistence — the host provides it because the requirement is auto-derived
+    // from the streams the plugin owns.
     '__e2e:feed::feed': { payload: { from: number }; chunk: { row: number } };
+    '__e2e:feed::feed-plain': { payload: Record<string, never>; chunk: { n: number } };
+    '__e2e:feed::feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
+  };
+  channels: {
+    // A plugin-OWNED channel: the channel name is `__<id>::`-prefixed, but its
+    // events stay bare within that channel scope.
+    '__e2e:feed::room': { incoming: { joined: { who: string } } };
   };
 }
 
@@ -51,6 +66,11 @@ export function setup(): void {
     <button data-testid="outgoing-count">outgoing-count</button>
     <button data-testid="stream-conn-id">stream-conn-id</button>
     <button data-testid="stream-feed">stream-feed</button>
+    <button data-testid="feed-ping">feed-ping</button>
+    <button data-testid="feed-echo">feed-echo</button>
+    <button data-testid="stream-feed-plain">stream-feed-plain</button>
+    <button data-testid="stream-feed-recorded">stream-feed-recorded</button>
+    <button data-testid="feed-sub-room">feed-sub-room</button>
     <span data-testid="status"></span>
     <span data-testid="drizzle-ready"></span>
     <span data-testid="drizzle-hooked"></span>
@@ -60,9 +80,24 @@ export function setup(): void {
     <span data-testid="outgoing-count-result"></span>
     <span data-testid="stream-ids"></span>
     <span data-testid="feed-rows"></span>
+    <span data-testid="feed-pong"></span>
+    <span data-testid="feed-echo-result"></span>
+    <span data-testid="feed-plain-rows"></span>
+    <span data-testid="feed-recorded-rows"></span>
+    <span data-testid="feed-joined"></span>
   `);
 
-  const socket = client<Contract>()(connect(wsUrl('plugins')), stream());
+  const socket = client<Contract>()(
+    connect(wsUrl('plugins')),
+    stream(),
+    requestResponse(),
+    channels(),
+  );
+
+  const feedRoom = socket.channel('__e2e:feed::room');
+  feedRoom.on('joined', (data) => {
+    el('feed-joined').textContent = data.who ? 'joined' : '';
+  });
 
   socket.subscribe(() => {
     el('status').textContent = socket.getState();
@@ -87,6 +122,10 @@ export function setup(): void {
   });
   socket.on('outgoing-count', (data) => {
     el('outgoing-count-result').textContent = String(data.count);
+  });
+  // Plugin-owned emit sent in reply to the plugin's own incoming handler.
+  socket.on('__e2e:feed::pong', (data) => {
+    el('feed-pong').textContent = data.note;
   });
 
   const streamIds: string[] = [];
@@ -125,6 +164,42 @@ export function setup(): void {
       feedRows.push(chunk.row);
       el('feed-rows').textContent = feedRows.join(',');
     }
+  });
+
+  // Client → plugin incoming event; the plugin replies with its own emit.
+  button('feed-ping', () => {
+    socket.send('__e2e:feed::ping', { note: 'hi' });
+  });
+
+  // Client → plugin request; the plugin returns the response.
+  button('feed-echo', async () => {
+    const res = await socket.request('__e2e:feed::echo', { text: 'hello' });
+    el('feed-echo-result').textContent = res.echoed;
+  });
+
+  // Plugin-owned plain (ephemeral) stream.
+  const plainRows: number[] = [];
+  button('stream-feed-plain', async () => {
+    const handle = await socket.stream('__e2e:feed::feed-plain', {});
+    for await (const chunk of handle) {
+      plainRows.push(chunk.n);
+      el('feed-plain-rows').textContent = plainRows.join(',');
+    }
+  });
+
+  // Plugin-owned recorded (durable, buffered) stream.
+  const recordedRows: number[] = [];
+  button('stream-feed-recorded', async () => {
+    const handle = await socket.stream('__e2e:feed::feed-recorded', {}, { streamId: 'rec-1' });
+    for await (const chunk of handle) {
+      recordedRows.push(chunk.n);
+      el('feed-recorded-rows').textContent = recordedRows.join(',');
+    }
+  });
+
+  // Client → plugin-owned channel: subscribe and receive its broadcast.
+  button('feed-sub-room', async () => {
+    await feedRoom.subscribe();
   });
 
   ready();
