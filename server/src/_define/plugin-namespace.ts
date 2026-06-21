@@ -173,27 +173,32 @@ function channelBareKey(primitive: Primitive): string {
  * prefix every event, prefix a channel key when it belongs to one of this
  * plugin's channels, and rewrite the map in place so both lookups land.
  */
-function renameServerRequests(id: string, primitives: readonly Primitive[]): void {
+function renamedServerRequests(
+  id: string,
+  primitives: readonly Primitive[],
+): Map<string, ResolvedServerRequest> | null {
   const carrier = primitives.find((p) => p.__wskit === 'server-requests') as
     | { __serverRequests?: Map<string, ResolvedServerRequest> }
     | undefined;
   const map = carrier?.__serverRequests;
-  if (!map || map.size === 0) return;
+  if (!map || map.size === 0) return null;
 
   const pluginChannelKeys = new Set(
     primitives.filter((p) => p.__wskit === 'channel').map(channelBareKey),
   );
 
-  const entries = [...map.entries()];
-  map.clear();
-  for (const [key, value] of entries) {
+  // Build a fresh map; never mutate the carrier in `manifest.handler.primitives`
+  // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
+  const next = new Map<string, ResolvedServerRequest>();
+  for (const [key, value] of map.entries()) {
     const [channelKey, event] = JSON.parse(key) as [string | null, string];
     const nextChannelKey =
       channelKey !== null && pluginChannelKeys.has(channelKey)
         ? pluginWireName(id, channelKey)
         : channelKey;
-    map.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+    next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
   }
+  return next;
 }
 
 /**
@@ -208,8 +213,11 @@ export function namespacePluginPrimitives(
   observesHost = false,
 ): Primitive[] {
   const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
-  renameServerRequests(id, primitives);
+  const serverRequests = renamedServerRequests(id, primitives);
   return primitives.map((primitive) => {
+    if (primitive.__wskit === 'server-requests' && serverRequests) {
+      return { ...primitive, __serverRequests: serverRequests } as Primitive;
+    }
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);
     }

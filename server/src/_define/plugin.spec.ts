@@ -3,12 +3,15 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
+import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
+import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { observeHost, plugin } from './plugin.ts';
@@ -240,6 +243,32 @@ describe('plugin() — scoped handler + manifest', () => {
       env: t<Env>(),
       capabilities: [persistence(), resumableStream(), Dep()],
     });
+    expect(() => withPersistence.assemble()).not.toThrow();
+  });
+
+  it('auto-derives persistence from a plugin durable stream nested in a plugin channel', () => {
+    const h = define({ scoped: true, capabilities: [channels(), recordedStream()] });
+    const rooms = h.channel('rooms', {});
+    const feed = rooms.recordedStream('paginate', { async *run() {} } as any);
+    const Dep = plugin('acme:roomfeed', { handler: h.assemble(feed) });
+    const without = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
+    expect(() => without.assemble()).toThrow(/the host does not list/);
+    const withPersistence = define({
+      env: t<Env>(),
+      capabilities: [persistence(), channels(), recordedStream(), Dep()],
+    });
+    expect(() => withPersistence.assemble()).not.toThrow();
+  });
+
+  it('auto-derives persistence from a plugin persistent tag group', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [tags((_e, p) => [p('favorite', t<string>())])],
+    });
+    const Dep = plugin('acme:tagger', { handler: h.assemble() });
+    const without = define({ env: t<Env>(), capabilities: [Dep()] });
+    expect(() => without.assemble()).toThrow(/the host does not list/);
+    const withPersistence = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
     expect(() => withPersistence.assemble()).not.toThrow();
   });
 

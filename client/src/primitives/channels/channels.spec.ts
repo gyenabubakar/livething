@@ -988,3 +988,65 @@ describe('stale payload rejection guard (#14)', () => {
     await expect(second).resolves.toBeUndefined();
   });
 });
+
+interface PluginChannelC {
+  channels: {
+    '__e2e:feed::room': {
+      incoming: { joined: { who: string } };
+    };
+  };
+}
+
+describe('plugin-channel namespace delivery (A3)', () => {
+  function buildPlugin() {
+    const socket = client<PluginChannelC>()(connect('wss://test'), channels());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    return { socket, ws };
+  }
+
+  it("delivers a plugin channel's __id::-prefixed event under its bare contract name", async () => {
+    const { socket, ws } = buildPlugin();
+    const room = socket.channel('__e2e:feed::room');
+    const seen: { who: string }[] = [];
+    room.on('joined', (data) => seen.push(data));
+
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+    });
+    await p;
+
+    ws.emit({
+      event: '__e2e:feed::joined',
+      payload: { who: 'alice' },
+      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+    });
+    expect(seen).toEqual([{ who: 'alice' }]);
+  });
+
+  it("only strips the channel's own prefix — a foreign-prefixed event is not delivered as the bare name", async () => {
+    const { socket, ws } = buildPlugin();
+    const room = socket.channel('__e2e:feed::room');
+    const joined = vi.fn();
+    room.on('joined', joined);
+
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+    });
+    await p;
+
+    ws.emit({
+      event: '__other:plugin::joined',
+      payload: { who: 'x' },
+      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+    });
+    expect(joined).not.toHaveBeenCalled();
+  });
+});

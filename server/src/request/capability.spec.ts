@@ -59,6 +59,18 @@ describe('requests() capability — client to server', () => {
     expect(respond).toHaveBeenCalledWith(0);
   });
 
+  it('responds with an explicit null (a nullable response, not "no answer")', async () => {
+    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const handleFind = base.request('find', {
+      run() {
+        return null;
+      },
+    });
+    const respond = vi.fn();
+    await requestPrimitive(base.assemble(handleFind).primitives).handler({ respond } as never, {});
+    expect(respond).toHaveBeenCalledWith(null);
+  });
+
   it('throws when base.request is used without the requests() capability', () => {
     const base = define({ env: t<Env>() });
     const escapeHatch = base as unknown as {

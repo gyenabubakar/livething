@@ -155,7 +155,9 @@ export const requests = withCapabilityKind(function requests<
       event,
       async (ctx: { respond(value: unknown): void }, payload: unknown) => {
         const result = await run(ctx, payload);
-        if (result !== undefined && result !== null) ctx.respond(result);
+        // `undefined` is the only "no answer" signal (rejects the client with
+        // request-no-response); a returned `null` is a real, nullable response.
+        if (result !== undefined) ctx.respond(result);
       },
       config.input ? { validator: config.input } : undefined,
     );

@@ -68,6 +68,10 @@ export function createEngineAccess(
     onOutgoing: (handler, owner) => {
       // The pipeline supplies the frame; ctx is resolved per-send from the
       // active connection, or undefined when none is in scope (broadcasts).
+      // Note: this ctx is built fresh per send (new locals map) — it carries
+      // stable identity/meta/routing but NOT per-dispatch `locals`/`inject` set
+      // earlier in the same inbound dispatch. Outgoing hooks must not rely on
+      // per-dispatch locals.
       core.hooks.outgoing.push({
         handler: (frame) => handler(deps.buildCurrentContext(), frame),
         owner: owner ?? OutgoingRuntime.APP_HOOK_OWNER,

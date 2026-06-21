@@ -408,6 +408,24 @@ describe('plugin namespacing — channel outgoing.requests are reachable (#10)',
     expect(map.has(JSON.stringify([null, '__acme:ask::confirm']))).toBe(true);
     expect(map.has(JSON.stringify([null, 'confirm']))).toBe(false);
   });
+
+  it('does not mutate the assembled handler server-request carrier (pure namespacing)', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } })],
+    });
+    const go = h.on('go', { input: v.object({}), run() {} });
+    const handler = h.assemble(go);
+    const original = handler.primitives.find((p: any) => p.__wskit === 'server-requests') as any;
+    const originalMap: Map<string, any> = original.__serverRequests;
+
+    plugin('acme:ask', { handler }); // triggers namespacing
+
+    // The handler's own carrier keeps the BARE key — namespacing built a copy,
+    // so a second plugin() on the same handler can't double-prefix.
+    expect(originalMap.has(JSON.stringify([null, 'confirm']))).toBe(true);
+    expect(originalMap.has(JSON.stringify([null, '__acme:ask::confirm']))).toBe(false);
+  });
 });
 
 describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {

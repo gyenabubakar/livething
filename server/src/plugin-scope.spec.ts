@@ -45,6 +45,31 @@ describe('scopePluginContext — tag broadcastRequest (S2)', () => {
   });
 });
 
+describe('scopePluginContext — kv (A4)', () => {
+  it('namespaces keys/prefix and strips the namespace off list() results', async () => {
+    const get = vi.fn();
+    const set = vi.fn();
+    const del = vi.fn();
+    const list = vi.fn(async () => ['__acme:feed::a', '__acme:feed::b', 'leaked-key']);
+    const scoped = scopePluginContext(ID, { kv: { get, set, delete: del, list } });
+
+    await scoped.kv.get('a');
+    expect(get).toHaveBeenCalledWith('__acme:feed::a');
+    await scoped.kv.set('a', 1);
+    expect(set).toHaveBeenCalledWith('__acme:feed::a', 1);
+    await scoped.kv.delete('a');
+    expect(del).toHaveBeenCalledWith('__acme:feed::a');
+
+    const result = await scoped.kv.list('pre');
+    expect(list).toHaveBeenCalledWith('__acme:feed::pre');
+    // Namespaced keys come back short; a foreign key (no prefix) is left as-is.
+    expect(result).toEqual(['a', 'b', 'leaked-key']);
+
+    await scoped.kv.list();
+    expect(list).toHaveBeenLastCalledWith('__acme:feed::');
+  });
+});
+
 describe('frameMatches — plugin intercept on its own event (S3)', () => {
   const compiled: any = {
     incoming: new Map([['__acme:feed::ping', { validator: undefined }]]),
