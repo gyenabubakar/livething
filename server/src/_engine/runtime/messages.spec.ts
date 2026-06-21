@@ -17,6 +17,26 @@ import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
+type RequestDispatchRuntime = Parameters<typeof handleRequest>[0] &
+  Parameters<typeof sendThroughPipeline>[0];
+type RequestDispatchOptions = Parameters<typeof handleRequest>[1];
+
+function requestDispatchForSpec(
+  runtime: RequestDispatchRuntime,
+  _connection: unknown,
+  options: RequestDispatchOptions,
+) {
+  return handleRequest(
+    {
+      asyncContext: runtime.asyncContext,
+      logger: runtime.logger,
+      sendThroughPipeline: (connection, pipelineOptions) =>
+        sendThroughPipeline(runtime, connection, pipelineOptions),
+    },
+    options,
+  );
+}
+
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
@@ -531,15 +551,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
-      requestDispatch: (rt: any, _c: unknown, opts: any) =>
-        handleRequest(
-          {
-            asyncContext: rt.asyncContext,
-            logger: rt.logger,
-            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
-          },
-          opts,
-        ),
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -615,15 +627,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
-      requestDispatch: (rt: any, _c: unknown, opts: any) =>
-        handleRequest(
-          {
-            asyncContext: rt.asyncContext,
-            logger: rt.logger,
-            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
-          },
-          opts,
-        ),
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -702,15 +706,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
-      requestDispatch: (rt: any, _c: unknown, opts: any) =>
-        handleRequest(
-          {
-            asyncContext: rt.asyncContext,
-            logger: rt.logger,
-            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
-          },
-          opts,
-        ),
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -805,15 +801,7 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      requestDispatch: (rt: any, _c: unknown, opts: any) =>
-        handleRequest(
-          {
-            asyncContext: rt.asyncContext,
-            logger: rt.logger,
-            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
-          },
-          opts,
-        ),
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       logger: { warn() {}, error() {} },
       generateId() {
