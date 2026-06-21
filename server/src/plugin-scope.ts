@@ -56,13 +56,22 @@ const SCOPED_SENDS: Record<string, SendPosition> = {
   // to match its namespaced `requests({...})` declaration.
   request: 'event-first',
   broadcastRequest: 'event-first',
+  // sendReplay re-sends a stored message by event name; namespace it so a
+  // plugin's replayed frame matches its own namespaced declaration.
+  sendReplay: 'event-first',
 };
 
 /** The methods on a `ctx.connection(ref)` handle whose first arg is the event name. */
 const SCOPED_CONNECTION_METHODS = new Set(['send', 'request']);
 
 /** The methods on a `ctx.channel` handle whose first arg is the channel event name. */
-const SCOPED_CHANNEL_SENDS = new Set(['send', 'broadcast', 'request', 'broadcastRequest']);
+const SCOPED_CHANNEL_SENDS = new Set([
+  'send',
+  'broadcast',
+  'request',
+  'broadcastRequest',
+  'sendReplay',
+]);
 
 /** The KV methods whose key/prefix argument a plugin scope namespaces. */
 const SCOPED_KV_KEYS = new Set(['get', 'set', 'delete', 'list']);
@@ -305,7 +314,12 @@ export function scopeUpgradeHelpers(id: string, helpers: any): any {
   return { ...helpers, tags: scopeTagsApi(id, tags as Record<PropertyKey, unknown>) };
 }
 
-/** Wrap `ctx.tags` so `tags.ephemeral('group')` / `tags.persistent('group')` namespace the group. */
+/**
+ * Wrap `ctx.tags` so `tags.ephemeral('group')` / `tags.persistent('group')`
+ * namespace the group, and the returned handle's event-first `broadcastRequest`
+ * (on the group and on `.ref(key)`) carries the plugin namespace — the request
+ * is declared under `__<id>::`, so it must go out there too.
+ */
 function scopeTagsApi(id: string, tags: Record<PropertyKey, unknown>): unknown {
   return new Proxy(tags, {
     get(target, key, receiver) {
@@ -313,10 +327,33 @@ function scopeTagsApi(id: string, tags: Record<PropertyKey, unknown>): unknown {
         const original = Reflect.get(target, key, receiver) as (group: string) => unknown;
         if (typeof original !== 'function') return original;
 
-        return (group: string) => original(pluginWireName(id, group));
+        return (group: string) => scopeTagHandle(id, original(pluginWireName(id, group)));
       }
 
       return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+/** Scope a tag-group handle's `broadcastRequest`, recursing through `.ref(key)`. */
+function scopeTagHandle(id: string, handle: unknown): unknown {
+  if (!handle || typeof handle !== 'object') return handle;
+  return new Proxy(handle as Record<PropertyKey, unknown>, {
+    get(target, key, receiver) {
+      const original = Reflect.get(target, key, receiver);
+      if (typeof original !== 'function') return original;
+      if (key === 'broadcastRequest') {
+        return (event: unknown, ...rest: unknown[]) =>
+          (original as (...args: unknown[]) => unknown)(
+            pluginWireName(id, event as string),
+            ...rest,
+          );
+      }
+      if (key === 'ref') {
+        return (refKey: unknown) =>
+          scopeTagHandle(id, (original as (k: unknown) => unknown)(refKey));
+      }
+      return original;
     },
   });
 }

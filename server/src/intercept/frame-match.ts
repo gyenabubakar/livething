@@ -1,7 +1,30 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { pluginWireName } from '~/plugin-scope.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
-import type { InterceptFrame } from './intercept.ts';
+import type { FrameOwner, InterceptFrame } from './intercept.ts';
+
+/**
+ * The catalog key for a name, namespaced when the frame is plugin-owned. A
+ * plugin intercept is presented its event under the short name it declared, but
+ * the catalog and the wire routing carry the `__<id>::` form — so the lookup
+ * and routing checks must namespace, while the event-equality check stays bare.
+ */
+function ownedKey(owner: FrameOwner, name: string): string {
+  return owner.kind === 'plugin' ? pluginWireName(owner.id, name) : name;
+}
+
+/** A parsed key with its event (and channel name) namespaced for a plugin-owned frame. */
+function namespaceParsed(parsed: ParsedKey, owner: FrameOwner): ParsedKey {
+  if (owner.kind !== 'plugin') return parsed;
+  return parsed.scope === 'top'
+    ? { scope: 'top', event: ownedKey(owner, parsed.event) }
+    : {
+        scope: 'channel',
+        name: ownedKey(owner, parsed.name),
+        event: ownedKey(owner, parsed.event),
+      };
+}
 
 /** A parsed `ctx.matches` / `ctx.unsafeCast` key. */
 type ParsedKey =
@@ -105,10 +128,11 @@ function routingMatches(
 ): boolean {
   if (parsed.scope === 'top') return frame.routing.channel === undefined;
   if (!channel) return false;
+  // The wire routing carries the namespaced channel for a plugin-owned frame.
   if (typeof channel.pattern === 'string') {
-    return frame.routing.channel === parsed.name;
+    return frame.routing.channel === ownedKey(frame.owner, parsed.name);
   }
-  if (frame.routing.channelFamily !== parsed.name) return false;
+  if (frame.routing.channelFamily !== ownedKey(frame.owner, parsed.name)) return false;
   if (typeof frame.routing.channel !== 'string') return false;
   return ChannelPrimitive.matchesFamilyPattern(channel.pattern, frame.routing.channel);
 }
@@ -124,7 +148,7 @@ export function frameMatches(
   frame: InterceptFrame,
 ): boolean {
   const parsed = parseKey(key);
-  const { validator, channel } = resolveKey(compiled, key, parsed);
+  const { validator, channel } = resolveKey(compiled, key, namespaceParsed(parsed, frame.owner));
   if (frame.event !== parsed.event) return false;
   if (!routingMatches(parsed, channel, frame)) return false;
   try {
@@ -146,6 +170,6 @@ export function frameUnsafeCast(
   frame: InterceptFrame,
 ): InterceptFrame {
   const parsed = parseKey(key);
-  resolveKey(compiled, key, parsed);
+  resolveKey(compiled, key, namespaceParsed(parsed, frame.owner));
   return frame;
 }
