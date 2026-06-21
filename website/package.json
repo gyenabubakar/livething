@@ -25,6 +25,7 @@
     "shaders": "^2.5.109"
   },
   "devDependencies": {
+    "@iconify-json/ph": "^1.2.2",
     "vue-tsc": "^2.2.0"
   }
 }
