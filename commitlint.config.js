@@ -15,6 +15,7 @@ const scopes = [
   'server-core',
   'server-cloudflare',
   'e2e-cloudflare',
+  'website',
 ];
 
 export default {

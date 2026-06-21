@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --color-blue-400: #2853ff;
+  --color-blue-500: #2853ff;
+}
+
+@theme {
+  --font-sans: "Geist", sans-serif;
+  --font-mono: "Geist Mono", monospace;
+  --font-pixel: "Geist Pixel Line", monospace;
+  --font-pixel-square: "Geist Pixel Line", monospace;
+}
+
+:root {
+  --ui-radius: 0;
+  --ui-bg: var(--color-zinc-950);
+  --ui-text-dimmed: var(--color-zinc-400);
+}
+
+@layer base {
+  :root {
+    @apply selection:bg-primary selection:text-white;
+  }
+
+  html, body {
+    @apply bg-default text-default;
+  }
+}
+
+.section-label {
+  @apply font-pixel text-[10px] uppercase tracking-widest text-muted mb-4 flex items-center;
+}
+
+.section-label::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background-color: var(--ui-color-primary-500);
+  margin-right: 0.5rem;
+  box-shadow: 0 0 8px var(--ui-color-primary-500);
+}
+
+.section-title {
+  @apply font-pixel text-4xl md:text-5xl lg:text-6xl tracking-tight text-highlighted;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.landing-code pre[style] {
+  background-color: var(--ui-bg-muted) !important;
+}
+
+.landing-code > div > div {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ui-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--ui-border);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--ui-border-accented);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}

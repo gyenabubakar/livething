@@ -7,16 +7,16 @@
     "node": ">=24"
   },
   "scripts": {
-    "postinstall": "pnpm -r run build",
+    "postinstall": "pnpm -r --filter='!@wskit/website' run build",
     "prepare": "husky",
-    "build": "pnpm -r run build",
+    "build": "pnpm -r --filter='!@wskit/website' run build",
     "dev": "pnpm -r --parallel run dev",
     "test": "pnpm -r --parallel run test",
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
     "test:e2e:cloudflare": "pnpm -r run test:e2e:cloudflare",
     "bench": "pnpm -r run bench",
-    "typecheck": "pnpm run build && pnpm -r --parallel run typecheck",
+    "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@wskit/website' run typecheck",
     "dup": "jscpd",
     "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src --config .dependency-cruiser.cjs",
     "bundle-check": "node scripts/bundle-check.mjs",
@@ -48,6 +48,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "better-sqlite3",
       "esbuild",
       "workerd"
     ]

@@ -4,3 +4,4 @@ packages:
   - server
   - server-adapters/*
   - tests-e2e/*
+  - website

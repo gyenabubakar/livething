@@ -11,3 +11,8 @@
 # Framework-generated, not committed
 **/.svelte-kit/
 **/.wrangler/
+**/.nuxt/
+**/.output/
+
+# Imported docs site — keep upstream formatting
+website/
