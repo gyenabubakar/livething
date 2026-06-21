@@ -11,6 +11,7 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
+import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
@@ -337,7 +338,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  * ```
  */
 export const channels = withCapabilityKind(function channels(): ChannelsCapability {
-  const cap = capability<{}, never, 'channels'>([]) as ChannelsCapability;
+  const cap = capability<{}, never, 'channels'>([channelRuntimePrimitive()]) as ChannelsCapability;
   (cap as { __channelFactory: ChannelsCapability['__channelFactory'] }).__channelFactory = (
     pattern,
     config,

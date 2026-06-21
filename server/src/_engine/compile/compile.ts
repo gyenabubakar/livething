@@ -1,19 +1,23 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
-import {
-  compileChannelPrimitive,
-  validateChannelFamilyPatternsDisjointFromStaticNames,
-} from '~/channel/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
+/**
+ * Walk the top-level primitives into the compiled lookup maps. Returns the
+ * channel disjointness validator (carried by any channel primitive seen), or
+ * `undefined` when the handler declares no channels — so the core compile step
+ * never imports the channel compile code.
+ */
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],
-): void {
+): ((compiled: EngineCompileTypes.CompiledServer) => void) | undefined {
+  let validateDisjoint: ((compiled: EngineCompileTypes.CompiledServer) => void) | undefined;
+
   for (const primitive of primitives) {
     EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
@@ -93,7 +97,8 @@ function visitCompiledPrimitives(
     }
 
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
-      const compiledChannel = compileChannelPrimitive(primitive);
+      const compiledChannel = primitive.__compile(primitive);
+      validateDisjoint ??= primitive.__validateDisjoint;
 
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
@@ -122,6 +127,8 @@ function visitCompiledPrimitives(
       continue;
     }
   }
+
+  return validateDisjoint;
 }
 
 /**
@@ -146,7 +153,7 @@ export function compileHandlerDefinition(
     replayClaimedChannelKeys: new Set<string>(),
   };
 
-  visitCompiledPrimitives(compiled, handler.primitives);
+  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
@@ -154,7 +161,7 @@ export function compileHandlerDefinition(
   const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
-  validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
+  validateChannelsDisjoint?.(compiled);
   return compiled;
 }
 

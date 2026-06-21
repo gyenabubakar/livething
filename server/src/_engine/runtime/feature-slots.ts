@@ -16,7 +16,9 @@
 
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { SQLProvider } from '~/context.ts';
+import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import type * as ChannelRuntime from '~/channel/runtime.ts';
+import type { ConnectionInfo, ConnectionRef, SQLProvider } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
 import type { MembershipKey } from '~/persistence/storage.ts';
@@ -170,6 +172,63 @@ export interface FrameMatch {
   unsafeCast(compiled: any, key: string, frame: InterceptFrame): InterceptFrame;
 }
 
+/**
+ * The channel subscribe/leave/kick runtime. Set by the `channels()` capability,
+ * so a handler without it never pulls the membership-protocol engine, the
+ * subscribe/unsubscribe frame handlers, or the member-sync code. Each method
+ * takes the engine `core` and builds its own dependency bag, so the engine never
+ * imports the channel runtime to call them.
+ */
+export interface ChannelService {
+  handleSubscribe(
+    core: any,
+    connection: RuntimeConnection,
+    frame: Protocol.SubscribeFrame,
+  ): Promise<void>;
+  handleUnsubscribe(
+    core: any,
+    connection: RuntimeConnection,
+    frame: Protocol.UnsubscribeFrame,
+  ): Promise<void>;
+  handleMemberSync(
+    core: any,
+    connection: RuntimeConnection,
+    frame: Protocol.MemberSyncRequestFrame,
+  ): void;
+  leaveChannel(
+    core: any,
+    connection: RuntimeConnection,
+    opts: ChannelRuntime.LeaveChannelOptions,
+  ): Promise<void>;
+  getChannelMembers(
+    core: any,
+    channelName: string,
+    channelFamily: string | null,
+  ): ConnectionInfo<Record<string, unknown>>[];
+  kickChannelMembers(core: any, opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
+  removeChannelMember(
+    core: any,
+    key: { channelName: string; channelFamily: string | null; identity: string },
+  ): Promise<void>;
+  subscribeFromServer(
+    core: any,
+    ref: ConnectionRef,
+    opts: Omit<ChannelRuntime.SubscribeConnectionAsServerOptions, 'rejoining'> & {
+      rejoining?: boolean;
+    },
+  ): Promise<void>;
+}
+
+/**
+ * The `ctx.channels` / `ctx.channel` surface builders. Set by the `channels()`
+ * capability so the connection context exposes the channel accessor without the
+ * engine statically importing the channel-context module.
+ */
+export interface ChannelContext {
+  buildChannelsApi: typeof buildChannelsApi;
+  buildChannelFamilyExtra: typeof buildChannelFamilyExtra;
+}
+
 /** The bag of optional feature slots the engine core carries. */
 export interface FeatureDispatchSlots {
   streamTrigger?: StreamTrigger;
@@ -177,6 +236,8 @@ export interface FeatureDispatchSlots {
   streamCancel?: StreamCancel;
   durableStream?: DurableStreamService;
   requestDispatch?: RequestDispatch;
+  channelService?: ChannelService;
+  channelContext?: ChannelContext;
 }
 
 /** Re-exported so the durable dispatch service can satisfy the runtime contract. */

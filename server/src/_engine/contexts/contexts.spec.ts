@@ -5,6 +5,7 @@ import {
   createShutdownContext,
   persistAttachment,
 } from '~/_engine/contexts/contexts.ts';
+import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -55,6 +56,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     broadcastToChannel: vi.fn(),
     getChannelMembers: vi.fn(() => []),
     kickChannelMembers: vi.fn(async () => {}),
+    channelContext: { buildChannelsApi, buildChannelFamilyExtra },
     resolveChannel: vi.fn((target: any) =>
       typeof target === 'string'
         ? { channelName: target }

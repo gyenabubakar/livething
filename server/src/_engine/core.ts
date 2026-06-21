@@ -83,6 +83,8 @@ export class EngineCore {
   scheduledService?: FeatureSlots.ScheduledService;
   runIntercepts?: FeatureSlots.RunIntercepts;
   frameMatch?: FeatureSlots.FrameMatch;
+  channelService?: FeatureSlots.ChannelService;
+  channelContext?: FeatureSlots.ChannelContext;
 
   initialized = false;
   /**

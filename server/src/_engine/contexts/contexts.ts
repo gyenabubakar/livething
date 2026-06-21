@@ -1,6 +1,5 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
-import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -8,7 +7,6 @@ import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
 export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-export { buildChannelHandle } from '~/channel/context.ts';
 export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
@@ -63,11 +61,9 @@ export function buildConnectionContext(
 
   const locals = new Map<LocalKey<unknown>, unknown>();
 
-  let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
-
   const base: Omit<
     EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-    'latency' | 'quality' | 'schedule' | 'cancelScheduled'
+    'channels' | 'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
     [EngineContextTypes.ENGINE_CHANNEL_META]: {
@@ -101,16 +97,11 @@ export function buildConnectionContext(
       return connection.descriptor.bufferedAmount();
     },
 
-    // Built on first access — most handlers never touch `ctx.channels`.
-    get channels() {
-      return (channelsApi ??= buildChannelsApi(connection, deps));
-    },
-
     setAlarm: (time) => {
       void deps.getTimers()?.setAlarm?.(time);
     },
 
-    ...buildChannelFamilyExtra(connection, scope, deps),
+    ...(deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps) ?? {}),
 
     sql,
     kv,
@@ -141,6 +132,22 @@ export function buildConnectionContext(
       return deps.frameMatch.unsafeCast(deps.compiled, key, frame);
     },
   };
+
+  // `ctx.channels` exists only when the `channels()` capability is listed, and
+  // is built on first access. Defined conditionally (not a throwing getter) so a
+  // channel-less handler simply has no `channels` property — enumerating the
+  // context never trips it.
+  const channelContext = deps.channelContext;
+  if (channelContext) {
+    let channelsApi: ReturnType<typeof channelContext.buildChannelsApi> | undefined;
+    Object.defineProperty(base, 'channels', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return (channelsApi ??= channelContext.buildChannelsApi(connection, deps));
+      },
+    });
+  }
 
   // `ctx.tags` exists only on tag-enabled servers, and is built on first
   // access — most handlers never touch it.

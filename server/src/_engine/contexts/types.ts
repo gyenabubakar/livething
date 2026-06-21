@@ -162,6 +162,13 @@ export interface ContextCommonDeps {
    * `intercepts()` capability. Absent otherwise; the ctx methods then throw.
    */
   frameMatch?: FeatureSlots.FrameMatch;
+
+  /**
+   * Builders for the `ctx.channels` / `ctx.channel` surface, registered by the
+   * `channels()` capability. Absent otherwise, so the channel-context module
+   * stays out of a handler that lists no channels.
+   */
+  channelContext?: FeatureSlots.ChannelContext;
 }
 
 /**

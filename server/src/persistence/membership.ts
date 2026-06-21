@@ -2,30 +2,12 @@ import { sendProtocolMessage } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { autoRejoinIdentity as runAutoRejoin } from '~/persistence/rejoin.ts';
 import * as PersistenceStorage from '~/persistence/storage.ts';
-import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type { MembershipKey } from '~/persistence/storage.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type CompiledChannel = EngineCompileTypes.CompiledChannel;
-
-/**
- * Standard leave-channel flow (unsubscribe hooks, peer broadcast, durable
- * cleanup). Supplied by the caller so this file doesn't need to pull in the
- * dispatch runtime.
- */
-type LeaveChannelFn = (
-  connection: RuntimeConnection,
-  opts: {
-    channel?: CompiledChannel;
-    channelName: string;
-    channelFamily: string | null;
-    kickedReason?: string;
-    disconnect?: boolean;
-  },
-) => Promise<void>;
 
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
 type SubscribeFromServerFn = (
@@ -78,26 +60,12 @@ export function hasDurableMembership(core: EngineCore, key: MembershipKey): bool
   return PersistenceStorage.membershipExists(core.requireStorage().sql, key);
 }
 
-/** Build the dep bag the relocated `channel` kick needs from core. */
-function removeMemberDeps(core: EngineCore) {
-  return {
-    compiled: core.compiled,
-    connections: core.connections,
-    logger: core.logger,
-    deleteDurableMembership: (key: MembershipKey) => deleteDurableMembership(core, key),
-  };
-}
-
 /**
  * "This user is gone, wipe them everywhere". Drops every persistent
  * membership and persistent tag for `identity`, then closes every live
  * socket. Backs the future `admin().purgeIdentity()` surface.
  */
-export async function purgeIdentity(
-  core: EngineCore,
-  leaveChannel: LeaveChannelFn,
-  identity: string,
-): Promise<void> {
+export async function purgeIdentity(core: EngineCore, identity: string): Promise<void> {
   // Dedup the channels by membership key; the pair itself is the map value,
   // so the key stays opaque and is never parsed back.
   const channels = new Map<string, { channelName: string; channelFamily: string | null }>();
@@ -130,11 +98,7 @@ export async function purgeIdentity(
   }
 
   for (const { channelName, channelFamily } of channels.values()) {
-    await ChannelPrimitive.removeChannelMember(removeMemberDeps(core), leaveChannel, {
-      identity,
-      channelName,
-      channelFamily,
-    });
+    await core.channelService?.removeChannelMember(core, { channelName, channelFamily, identity });
   }
 
   if (core.persistenceEnabled) {

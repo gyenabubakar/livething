@@ -708,4 +708,22 @@ export interface EngineAccess {
     runIntercepts: FeatureSlots.RunIntercepts,
     frameMatch: FeatureSlots.FrameMatch,
   ): void;
+
+  /**
+   * Register the channel subscribe/leave/kick runtime. Set by the `channels()`
+   * capability so a handler without it never bundles the membership-protocol
+   * engine or the subscribe/unsubscribe frame handlers.
+   *
+   * @internal
+   */
+  setChannelService(service: FeatureSlots.ChannelService): void;
+
+  /**
+   * Register the `ctx.channels` / `ctx.channel` surface builders. Set by the
+   * `channels()` capability so the connection context exposes the channel
+   * accessor without the engine importing the channel-context module.
+   *
+   * @internal
+   */
+  setChannelContext(context: FeatureSlots.ChannelContext): void;
 }

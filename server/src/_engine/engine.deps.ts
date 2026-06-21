@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
-import * as EngineChannelFrames from '~/_engine/runtime/channel-frames.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
@@ -43,12 +42,6 @@ function depsMemoFor(core: EngineCore): DepsMemo {
   return memo;
 }
 
-/** Bound `leaveChannel` closure used by persistence and identity ops. */
-function buildLeaveChannel(core: EngineCore) {
-  return (connection: RuntimeConnection, opts: ChannelPrimitive.LeaveChannelOptions) =>
-    EngineChannelFrames.leaveChannel(channelRuntime(core), connection, opts);
-}
-
 /** The constant dep bag passed to `EngineContexts.buildConnectionContext`. */
 function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDeps {
   return (depsMemoFor(core).ctxDeps ??= {
@@ -57,6 +50,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     tagMembers: core.tagMembers,
     buildTagsApi: core.buildTagsApi,
     frameMatch: core.frameMatch,
+    channelContext: core.channelContext,
     ...commonDeps(core),
   });
 }
@@ -97,33 +91,14 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
     getChannelMembers: (channelName, channelFamily) =>
-      EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelFamily),
-    kickChannelMembers: (opts) => {
-      return EngineChannelFrames.kickChannelMembers(
-        { ...channelRuntime(core), leaveChannel: buildLeaveChannel(core) },
-        opts,
-      );
-    },
-    removeChannelMember: (channelName, channelFamily, identity) => {
-      return ChannelPrimitive.removeChannelMember(
-        {
-          compiled: core.compiled,
-          connections: core.connections,
-          logger: core.logger,
-          deleteDurableMembership: (key) =>
-            core.persistenceService?.deleteDurableMembership(core, key),
-        },
-        buildLeaveChannel(core),
-        { identity, channelName, channelFamily },
-      );
-    },
-    subscribeConnectionAsServer: (ref, opts) => {
-      return EngineChannelFrames.subscribeFromServer(
-        { ...channelRuntime(core), instanceId: core.engineInstanceId },
-        ref,
-        opts,
-      );
-    },
+      core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
+    kickChannelMembers: (opts) =>
+      core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve(),
+    removeChannelMember: (channelName, channelFamily, identity) =>
+      core.channelService?.removeChannelMember(core, { channelName, channelFamily, identity }) ??
+      Promise.resolve(),
+    subscribeConnectionAsServer: (ref, opts) =>
+      core.channelService?.subscribeFromServer(core, ref, opts) ?? Promise.resolve(),
     resolveChannel: (target) => {
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
@@ -348,18 +323,12 @@ function buildDispatchRuntime(core: EngineCore) {
     ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
-      EngineChannelFrames.handleSubscribe(channelRuntime(core), connection, frame),
+      core.channelService?.handleSubscribe(core, connection, frame) ?? Promise.resolve(),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
-      EngineChannelFrames.handleUnsubscribe(
-        {
-          ...channelRuntime(core),
-          leaveChannel: buildLeaveChannel(core),
-        },
-        connection,
-        frame,
-      ),
-    handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) =>
-      EngineChannelFrames.handleMemberSync(channelRuntime(core), connection, frame),
+      core.channelService?.handleUnsubscribe(core, connection, frame) ?? Promise.resolve(),
+    handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) => {
+      core.channelService?.handleMemberSync(core, connection, frame);
+    },
     durableStreamSchemaReady: false,
 
     get streamTrigger() {
@@ -458,11 +427,13 @@ function buildConnectionRuntime(core: EngineCore) {
               core.persistenceService?.autoRejoinIdentity(
                 core,
                 (ref: PublicApi.ConnectionRef, opts: unknown) =>
-                  EngineChannelFrames.subscribeFromServer(
-                    { ...channelRuntime(core), instanceId: core.engineInstanceId },
+                  core.channelService?.subscribeFromServer(
+                    core,
                     ref,
-                    opts as Parameters<typeof EngineChannelFrames.subscribeFromServer>[2],
-                  ),
+                    opts as Parameters<
+                      NonNullable<EngineCore['channelService']>['subscribeFromServer']
+                    >[2],
+                  ) ?? Promise.resolve(),
                 connection,
               ) ?? Promise.resolve()
             );
@@ -546,7 +517,8 @@ export function handleConnectionClose(
         ),
       buildConnectionContext: buildConnectionContext(core),
       runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
-      leaveChannel: buildLeaveChannel(core),
+      leaveChannel: (connection, opts) =>
+        core.channelService?.leaveChannel(core, connection, opts) ?? Promise.resolve(),
       logger: core.logger,
     },
     opts,

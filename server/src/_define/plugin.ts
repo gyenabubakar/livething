@@ -58,6 +58,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'resumable-stream-runtime',
   'recorded-stream-runtime',
   'intercept-runtime',
+  'channel-runtime',
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */

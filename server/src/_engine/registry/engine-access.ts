@@ -312,6 +312,12 @@ export function createEngineAccess(
       core.runIntercepts = runIntercepts;
       core.frameMatch = frameMatch;
     },
+    setChannelService: (service) => {
+      core.channelService = service;
+    },
+    setChannelContext: (context) => {
+      core.channelContext = context;
+    },
   };
 }
 

@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitConfigError } from '@wskit/core';
+import {
+  compileChannelPrimitive,
+  validateChannelFamilyPatternsDisjointFromStaticNames,
+} from '~/channel/compile.ts';
 import { compileChannelTemplate } from '~/channel/template.ts';
+import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type {
   CheckPrimitive,
   CommitPrimitive,
@@ -142,6 +147,17 @@ export interface ChannelPrimitive<
   readonly pattern: TPattern;
   /** The primitives that define this channel's behaviour. */
   readonly primitives: TPrimitives;
+  /**
+   * Build-seam: compile this channel primitive into a `CompiledChannel`. Carried
+   * on the primitive so the core compile step never imports the channel compile
+   * code; a handler with no channels ships none of it. @internal
+   */
+  readonly __compile: (primitive: ChannelPrimitive) => CompiledChannel;
+  /**
+   * Build-seam: reject a family pattern that overlaps a static channel name.
+   * Carried here for the same reason as `__compile`. @internal
+   */
+  readonly __validateDisjoint: (compiled: CompiledServer) => void;
 }
 
 /** Unique symbol. The registration ID is the pattern key, so each pattern is its own singleton. */
@@ -239,6 +255,8 @@ export function channel<
     __requires: {},
     pattern,
     primitives: Object.freeze([...primitives]) as unknown as TPrimitives,
+    __compile: compileChannelPrimitive,
+    __validateDisjoint: validateChannelFamilyPatternsDisjointFromStaticNames,
   };
 }
 
