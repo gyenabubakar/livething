@@ -156,6 +156,12 @@ export interface ContextCommonDeps {
    * bundle.
    */
   buildTagsApi?: FeatureSlots.BuildTagsApi;
+
+  /**
+   * Frame matchers behind `ctx.matches` / `ctx.unsafeCast`, registered by the
+   * `intercepts()` capability. Absent otherwise; the ctx methods then throw.
+   */
+  frameMatch?: FeatureSlots.FrameMatch;
 }
 
 /**

@@ -16,7 +16,10 @@ export interface EngineAccessDeps {
   /** Queue one future scheduled task run. */
   scheduleTask(opts: { taskId: string; time: number; data: unknown }): void;
   /** Remove queued runs for one scheduled task id. */
-  cancelScheduled(opts: { taskId: string; filter?: Record<string, unknown> }): ScheduledCancelResult;
+  cancelScheduled(opts: {
+    taskId: string;
+    filter?: Record<string, unknown>;
+  }): ScheduledCancelResult;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
   /**
@@ -304,6 +307,10 @@ export function createEngineAccess(
     },
     setScheduledService: (service) => {
       core.scheduledService = service;
+    },
+    setInterceptRuntime: (runIntercepts, frameMatch) => {
+      core.runIntercepts = runIntercepts;
+      core.frameMatch = frameMatch;
     },
   };
 }

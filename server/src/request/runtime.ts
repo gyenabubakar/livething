@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestNoCorrelation, RequestNoResponse } from '@wskit/core';
-import { runWithScopedContext } from '~/intercept/runtime.ts';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -62,29 +62,27 @@ export async function handleRequest(
   let response: unknown;
   let responded = false;
 
-  await runWithScopedContext(runtime, connection, {
-    ctx: options.ctx,
-    handler: (ctx) => {
-      ctx.respond = (value: unknown) => {
-        if (responded) {
-          // Calling respond() twice is a server-side programming mistake, not
-          // something the client did. The first response already settled the
-          // client's promise, so swallow the extra call and log it instead of
-          // throwing — a throw here would surface a spurious `internal-error`
-          // to a client that already got its answer.
-          runtime.logger.error(
-            '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
-            { event },
-          );
-          return;
-        }
+  await withConnectionContext(runtime.asyncContext, connection.id, () => {
+    const ctx = options.ctx;
+    ctx.respond = (value: unknown) => {
+      if (responded) {
+        // Calling respond() twice is a server-side programming mistake, not
+        // something the client did. The first response already settled the
+        // client's promise, so swallow the extra call and log it instead of
+        // throwing — a throw here would surface a spurious `internal-error`
+        // to a client that already got its answer.
+        runtime.logger.error(
+          '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
+          { event },
+        );
+        return;
+      }
 
-        responded = true;
-        response = value;
-      };
+      responded = true;
+      response = value;
+    };
 
-      return request.handler(ctx, payload);
-    },
+    return request.handler(ctx, payload);
   });
 
   // Handler exited without calling ctx.respond(). Surface this as a

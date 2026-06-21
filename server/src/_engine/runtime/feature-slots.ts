@@ -17,6 +17,8 @@
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
+import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
 import type { MembershipKey } from '~/persistence/storage.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
@@ -146,6 +148,26 @@ export interface ScheduledService {
   ): ScheduledCancelResult;
   rescheduleAlarm(core: any): void;
   createTaskContext(core: any, commonDeps: any): unknown;
+}
+
+/**
+ * The intercept pipeline runner. Set by the `intercepts()` capability, so a
+ * handler that never lists it skips the intercept block and never bundles the
+ * pipeline runner.
+ */
+export type RunIntercepts = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: RunInterceptsOptions,
+) => Promise<InterceptFrame>;
+
+/**
+ * The frame matchers behind `ctx.matches` / `ctx.unsafeCast`. Set by the
+ * `intercepts()` capability; the ctx methods throw without it.
+ */
+export interface FrameMatch {
+  matches(compiled: any, key: string, frame: InterceptFrame): boolean;
+  unsafeCast(compiled: any, key: string, frame: InterceptFrame): InterceptFrame;
 }
 
 /** The bag of optional feature slots the engine core carries. */

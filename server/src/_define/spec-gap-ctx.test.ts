@@ -2,6 +2,7 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { emits } from '~/emits/emits.ts';
+import { intercepts } from '~/intercept/capability.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import { replay } from '~/replay/capability.ts';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -70,7 +71,7 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [emits({ msg: t<{ text: string }>() })],
+      capabilities: [emits({ msg: t<{ text: string }>() }), intercepts()],
     });
     base.intercept((ctx, frame: InterceptFrame) => {
       expectTypeOf(ctx.matches).toBeFunction();

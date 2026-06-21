@@ -696,4 +696,16 @@ export interface EngineAccess {
    * @internal
    */
   setScheduledService(service: FeatureSlots.ScheduledService): void;
+
+  /**
+   * Register the intercept pipeline runner and the `ctx.matches` / `unsafeCast`
+   * frame matchers. Set by the `intercepts()` capability so a handler without it
+   * skips the intercept block and never bundles the pipeline.
+   *
+   * @internal
+   */
+  setInterceptRuntime(
+    runIntercepts: FeatureSlots.RunIntercepts,
+    frameMatch: FeatureSlots.FrameMatch,
+  ): void;
 }

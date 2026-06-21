@@ -15,27 +15,6 @@ interface InterceptRuntime {
 /** Returns the dispatch-shared connection context, building it on first call. */
 type GetContext = () => Record<PropertyKey, unknown>;
 
-export interface RunWithScopedContextOptions<T> {
-  ctx: Record<PropertyKey, unknown>;
-
-  handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>;
-}
-
-/**
- * Run a handler inside the engine's async context for this connection.
- *
- * Context-aware helpers a plugin calls (like `getState()`) resolve to this
- * connection even while handlers for other connections interleave.
- */
-export async function runWithScopedContext<T>(
-  runtime: InterceptRuntime,
-  connection: RuntimeConnection,
-  options: RunWithScopedContextOptions<T>,
-): Promise<T> {
-  const { ctx, handler } = options;
-  return withConnectionContext(runtime.asyncContext, connection.id, () => handler(ctx));
-}
-
 export interface RunInterceptsOptions {
   intercepts: readonly InterceptPrimitive[];
 

@@ -1,5 +1,6 @@
 import { define, emits, localKey, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { intercepts } from '@wskit/server/intercepts';
 import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -14,7 +15,7 @@ export const ChannelKey = localKey<{ tag: string }>('channel');
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [emits({ echoed: t<{ text: string }>() }), requests(), channels()],
+  capabilities: [emits({ echoed: t<{ text: string }>() }), requests(), channels(), intercepts()],
 });
 
 base.intercept((ctx) => {

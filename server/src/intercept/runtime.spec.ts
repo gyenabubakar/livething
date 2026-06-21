@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { intercept } from './intercept.ts';
-import { runIntercepts, runWithScopedContext } from './runtime.ts';
+import { runIntercepts } from './runtime.ts';
 import type { FrameOwner, InterceptFrame, InterceptHandler } from './intercept.ts';
 
 type AsyncContextStore = {
@@ -344,26 +344,5 @@ describe('intercept/runtime', () => {
     expect(events).toEqual(['chat', 'beat']);
     expect(owners[0]).toEqual({ kind: 'app' });
     expect(owners[1]).toEqual({ kind: 'plugin', id: 'a:p' });
-  });
-
-  it('runs the scoped callback inside the connection async context, auto-scoped on throw', async () => {
-    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
-    const connection = createConnection();
-
-    let seen: string | undefined;
-    await expect(
-      runWithScopedContext({ asyncContext }, connection, {
-        ctx: {},
-        handler: async () => {
-          seen = asyncContext.getStore()?.connectionId;
-          throw new Error('boom');
-        },
-      }),
-    ).rejects.toThrow('boom');
-
-    // The callback ran with the connection id in scope; the throw does not
-    // leak the context — `run()` auto-scopes it.
-    expect(seen).toBe('c1');
-    expect(asyncContext.getStore()).toBeUndefined();
   });
 });

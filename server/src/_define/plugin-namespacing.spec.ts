@@ -5,6 +5,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
+import { intercepts } from '~/intercept/capability.ts';
 import { persistence } from '~/persistence/capability.ts';
 import { scopeUpgradeHelpers } from '~/plugin-scope.ts';
 import { requests } from '~/request/capability.ts';
@@ -432,7 +433,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
   it('namespaces ctx.send and ctx.kv from a plugin intercept hook', () => {
     const h = define({
       scoped: true,
-      capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
+      capabilities: [emits({ 'own-event': t<{ ok: boolean }>() }), intercepts()],
     });
     h.intercept((ctx: any) => {
       ctx.send('own-event', { ok: true });
@@ -485,7 +486,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
 
 describe('plugin namespacing — channel hook is owned and scoped (Major 5)', () => {
   it('owner-stamps and scopes a plugin channel intercept child', () => {
-    const h = define({ scoped: true, capabilities: [channels()] });
+    const h = define({ scoped: true, capabilities: [channels(), intercepts()] });
     const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
     room.intercept((ctx: any) => {
       ctx.channel.send('roster', { who: 'a' });

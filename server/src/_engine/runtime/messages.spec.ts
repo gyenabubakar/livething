@@ -6,6 +6,7 @@ import {
 import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { Defer } from '~/errors/errors.ts';
+import { runIntercepts } from '~/intercept/runtime.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import { handleRequest } from '~/request/runtime.ts';
@@ -796,6 +797,7 @@ describe('message runtime', () => {
       buildConnectionContext() {
         return sharedCtx;
       },
+      runIntercepts,
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
@@ -1310,6 +1312,7 @@ function makeNudgeRuntime(
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,
     streamNudgeBuffer: bufferStreamNudge,
+    runIntercepts,
     buildConnectionContext: () => ({}),
     handleRuntimeError,
     async handleValidationError() {},

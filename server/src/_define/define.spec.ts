@@ -3,6 +3,7 @@ import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
+import { intercepts } from '~/intercept/capability.ts';
 import { requests } from '~/request/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -21,7 +22,7 @@ function makeBase() {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { identity: username, meta: { username } };
     },
-    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound])],
+    capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound]), intercepts()],
   });
 }
 

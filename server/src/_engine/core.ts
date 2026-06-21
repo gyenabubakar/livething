@@ -81,6 +81,8 @@ export class EngineCore {
   buildTagsApi?: FeatureSlots.BuildTagsApi;
   persistenceService?: FeatureSlots.PersistenceService;
   scheduledService?: FeatureSlots.ScheduledService;
+  runIntercepts?: FeatureSlots.RunIntercepts;
+  frameMatch?: FeatureSlots.FrameMatch;
 
   initialized = false;
   /**

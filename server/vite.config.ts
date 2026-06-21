@@ -38,6 +38,7 @@ export default defineConfig({
         'stream-recorded/capability': resolve(__dirname, 'src/stream-recorded/capability.ts'),
         channels: resolve(__dirname, 'src/channel/capability.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
+        intercepts: resolve(__dirname, 'src/intercept/capability.ts'),
         plugin: resolve(__dirname, 'src/_define/plugin.ts'),
       },
       formats: ['es'],

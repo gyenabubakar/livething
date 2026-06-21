@@ -24,6 +24,7 @@ export const CAPABILITY_KIND = {
   tags: 'tags',
   emits: 'emits',
   errors: 'errors',
+  intercepts: 'intercepts',
   stream: 'stream',
   resumableStream: 'resumable-stream',
   recordedStream: 'recorded-stream',

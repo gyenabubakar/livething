@@ -1,6 +1,7 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
+import { intercepts } from '@wskit/server/intercepts';
 import { persistence } from '@wskit/server/persistence';
 import { rateLimit } from '@wskit/server/rate-limit';
 import { replay } from '@wskit/server/replay';
@@ -42,6 +43,7 @@ export const base = define({
     resumableStream(),
     recordedStream(),
     replay.custom(),
+    intercepts(),
     emits({
       welcome: t<{ username: string }>(),
       goodbye: t<{ username: string }>(),

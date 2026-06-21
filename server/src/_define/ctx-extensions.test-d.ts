@@ -13,6 +13,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -59,7 +60,7 @@ const PluginA = plugin('acme:a', { handler: scopedA.assemble(scopedA.on('a-in', 
 const scopedC = define({ scoped: true, capabilities: [emits({ c: t<{}>() })] });
 const PluginC = plugin('acme:c', { handler: scopedC.assemble(scopedC.on('c-in', { run() {} })) });
 
-const ownerBase = define({ env: t<{}>(), capabilities: [PluginA(), PluginC()] });
+const ownerBase = define({ env: t<{}>(), capabilities: [PluginA(), PluginC(), intercepts()] });
 
 ownerBase.intercept((ctx, frame) => {
   void ctx;

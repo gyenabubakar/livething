@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RateLimited } from '@wskit/core';
+import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { Primitive } from '~/primitive.ts';
 import { RateLimitRuntime } from './runtime.ts';
@@ -58,8 +59,8 @@ export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
   const primitive = intercept((ctx, message) => {
     const verdict = runtime.check(ctx, message.event);
     if (verdict) throw RateLimited({ retryAfter: verdict.retryAfter });
-  }) as unknown as RateLimitPrimitive;
-  return primitive;
+  });
+  return { ...primitive, __setup: registerInterceptRuntime } as unknown as RateLimitPrimitive;
 }
 
 rateLimit.__key = RATE_LIMIT_KEY;

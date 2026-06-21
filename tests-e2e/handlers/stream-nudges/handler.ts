@@ -1,6 +1,7 @@
 import { define, emits, errors, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
 import { error } from '@wskit/server/errors';
+import { intercepts } from '@wskit/server/intercepts';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -24,6 +25,7 @@ const base = define({
       'nudge-saw': t<{ events: string[] }>(),
     }),
     stream(),
+    intercepts(),
   ],
 });
 

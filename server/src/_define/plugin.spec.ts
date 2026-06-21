@@ -6,6 +6,7 @@ import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
@@ -295,7 +296,7 @@ describe('plugin() — scoped handler + manifest', () => {
 describe('plugin() — host-traffic observation', () => {
   /** A plugin with one intercept and one outgoing hook; `observes` opts into host traffic. */
   function buildObserver(observes: boolean) {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() }), intercepts()] });
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
     h.outgoing(() => {});

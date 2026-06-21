@@ -8,6 +8,7 @@ import {
   Disconnect,
   ValidationFailed,
 } from '@wskit/server/errors';
+import { intercepts } from '@wskit/server/intercepts';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -28,6 +29,7 @@ const base = define({
       'defer-exhausted-result': t<{ event: string; retries: number }>(),
       'validation-error-fired': t<{ event: string }>(),
     }),
+    intercepts(),
   ],
 });
 

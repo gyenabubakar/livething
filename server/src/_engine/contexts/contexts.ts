@@ -1,7 +1,6 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
-import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -129,11 +128,17 @@ export function buildConnectionContext(
     },
 
     matches(key: string, frame: InterceptFrame) {
-      return frameMatches(deps.compiled, key, frame);
+      if (!deps.frameMatch) {
+        throw new Error('[wskit] ctx.matches(...) requires the intercepts() capability.');
+      }
+      return deps.frameMatch.matches(deps.compiled, key, frame);
     },
 
     unsafeCast(key: string, frame: InterceptFrame) {
-      return frameUnsafeCast(deps.compiled, key, frame);
+      if (!deps.frameMatch) {
+        throw new Error('[wskit] ctx.unsafeCast(...) requires the intercepts() capability.');
+      }
+      return deps.frameMatch.unsafeCast(deps.compiled, key, frame);
     },
   };
 

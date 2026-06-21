@@ -1,6 +1,7 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { Block } from '@wskit/server/errors';
+import { intercepts } from '@wskit/server/intercepts';
 import { requests } from '@wskit/server/requests';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -18,6 +19,7 @@ const base = define({
     requests(),
     stream(),
     channels(),
+    intercepts(),
   ],
 });
 

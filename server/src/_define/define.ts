@@ -1121,7 +1121,8 @@ export type ChannelObjectCore<
     TSubscribe,
     TCaps,
     TServerRequests
-  >;
+  > &
+  ('intercepts' extends BrandsOf<TCaps> ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps> : {});
 
 /** The `on` / `request` / lifecycle methods every channel object carries. */
 export interface ChannelCoreMethods<
@@ -1184,6 +1185,17 @@ export interface ChannelCoreMethods<
   sessionEnd(
     handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
   ): void;
+  /** Register a custom replay strategy scoped to this channel. */
+  replay(hooks: CustomReplayHooks): void;
+}
+
+/** Channel `intercept(...)`, granted by the `intercepts()` capability. */
+export interface ChannelInterceptMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+> {
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
     handler: (
@@ -1191,8 +1203,6 @@ export interface ChannelCoreMethods<
       frame: InterceptFrame,
     ) => unknown | void,
   ): void;
-  /** Register a custom replay strategy scoped to this channel. */
-  replay(hooks: CustomReplayHooks): void;
 }
 
 /** Builder method granted by the `channels()` capability. */
@@ -1277,10 +1287,25 @@ export type CapabilityMethods<
 > = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {}) &
   ('replay-custom' extends TBrand ? ReplayMethods : {}) &
+  ('intercepts' extends TBrand ? InterceptMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('stream' extends TBrand ? StreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('resumableStream' extends TBrand ? ResumableStreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('recordedStream' extends TBrand ? RecordedStreamMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('channels' extends TBrand ? ChannelMethods<TSlots, TEnv, TMeta, TCaps> : {});
+
+/** Builder method granted by the `intercepts()` capability. */
+export interface InterceptMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
+  /**
+   * Inspect every incoming frame before routing and validation. Throw to reject;
+   * return a value to replace the payload. One intercept per server.
+   */
+  intercept(
+    handler: (
+      ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
+      frame: InterceptFrame<PluginIdsOf<TSlots>>,
+    ) => unknown | void,
+  ): void;
+}
 
 /**
  * The builder returned by `define(...)`. Carries the methods every server has
@@ -1341,16 +1366,6 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
   shutdown(
     handler: (ctx: ShutdownContext<TEnv, TMeta, unknown, TSlots>) => void | Promise<void>,
-  ): void;
-  /**
-   * Inspect every incoming frame before routing and validation. Throw to reject;
-   * return a value to replace the payload. One intercept per server.
-   */
-  intercept(
-    handler: (
-      ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
-      frame: InterceptFrame<PluginIdsOf<TSlots>>,
-    ) => unknown | void,
   ): void;
 
   /**

@@ -7,17 +7,18 @@ import {
   ValidationFailed,
   WSKitError,
 } from '@wskit/core';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
+import type * as InterceptPrimitive from '~/intercept/runtime.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -148,6 +149,7 @@ interface DispatchRuntime
   streamCancel?: FeatureSlots.StreamCancel;
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
+  runIntercepts?: FeatureSlots.RunIntercepts;
 }
 
 /**
@@ -346,7 +348,7 @@ export async function dispatchIncoming(
       }
     }
 
-    if (attempt === 0) {
+    if (attempt === 0 && runtime.runIntercepts) {
       let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
       if (incoming) interceptKind = 'incoming';
       else if (request) interceptKind = 'request';
@@ -359,14 +361,14 @@ export async function dispatchIncoming(
         routing: interceptRouting,
         owner: frameOwner(event),
       };
-      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+      frame = await runtime.runIntercepts(runtime, connection, {
         intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
       });
 
       if (scope.channel) {
-        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+        frame = await runtime.runIntercepts(runtime, connection, {
           intercepts: scope.channel.intercepts,
           frame,
           getCtx,
@@ -402,10 +404,9 @@ export async function dispatchIncoming(
     }
 
     if (incoming) {
-      await InterceptPrimitive.runWithScopedContext(runtime, connection, {
-        ctx: getCtx(),
-        handler: (ctx) => incoming.handler(ctx, payloadValue),
-      });
+      await withConnectionContext(runtime.asyncContext, connection.id, () =>
+        incoming.handler(getCtx(), payloadValue),
+      );
       return;
     }
 
@@ -824,7 +825,7 @@ export async function processTextMessage(
       const topIntercepts = runtime.compiled.intercepts;
       const chIntercepts = interceptScope.channel?.intercepts;
 
-      if (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0) {
+      if (runtime.runIntercepts && (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0)) {
         let sharedCtx: Record<PropertyKey, unknown> | undefined;
         function getCtx() {
           return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
@@ -838,13 +839,13 @@ export async function processTextMessage(
             routing: buildInterceptRouting(wskit),
             owner: frameOwner(event),
           };
-          nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+          nudgeFrame = await runtime.runIntercepts(runtime, connection, {
             intercepts: topIntercepts,
             frame: nudgeFrame,
             getCtx,
           });
           if (chIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+            nudgeFrame = await runtime.runIntercepts(runtime, connection, {
               intercepts: chIntercepts,
               frame: nudgeFrame,
               getCtx,

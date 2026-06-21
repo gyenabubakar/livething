@@ -56,6 +56,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     connections: core.connections,
     tagMembers: core.tagMembers,
     buildTagsApi: core.buildTagsApi,
+    frameMatch: core.frameMatch,
     ...commonDeps(core),
   });
 }
@@ -375,6 +376,9 @@ function buildDispatchRuntime(core: EngineCore) {
     },
     get requestDispatch() {
       return core.requestDispatch;
+    },
+    get runIntercepts() {
+      return core.runIntercepts;
     },
   };
 }
