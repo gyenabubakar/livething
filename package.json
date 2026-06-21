@@ -10,7 +10,7 @@
     "postinstall": "pnpm -r --filter='!@wskit/website' run build",
     "prepare": "husky",
     "build": "pnpm -r --filter='!@wskit/website' run build",
-    "docs": "pnpm --filter @wskit/website run dev",
+    "site": "pnpm --filter @wskit/website run dev",
     "test": "pnpm -r --parallel run test",
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
