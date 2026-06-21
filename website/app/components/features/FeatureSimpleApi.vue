@@ -14,9 +14,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Wide events', icon: 'i-lucide-layers' },
-  { label: 'Root cause', icon: 'i-lucide-search' },
-  { label: 'Fix suggestion', icon: 'i-lucide-wrench' },
+  { label: 'Wide events', icon: 'i-ph-stack-duotone' },
+  { label: 'Root cause', icon: 'i-ph-magnifying-glass-duotone' },
+  { label: 'Fix suggestion', icon: 'i-ph-wrench-duotone' },
 ]
 
 onMounted(() => {
@@ -87,7 +87,7 @@ function setOutput(type: 'success' | 'error') {
         </div>
         <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
           {{ props.linkLabel || 'Learn more' }}
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>

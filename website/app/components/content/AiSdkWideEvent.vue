@@ -11,13 +11,13 @@ interface TimelineStep {
 }
 
 const steps: TimelineStep[] = [
-  { id: 'call', label: 'streamText()', hint: 'model wrapped, request sent', icon: 'i-lucide-play', color: 'text-violet-400' },
-  { id: 'first', label: 'first chunk', hint: 'msToFirstChunk: 234', icon: 'i-lucide-radio', color: 'text-sky-400' },
-  { id: 'stream-1', label: 'streaming…', hint: 'output tokens flowing', icon: 'i-lucide-activity', color: 'text-emerald-400' },
-  { id: 'tool-call', label: 'tool: getWeather', hint: 'paris', icon: 'i-lucide-wrench', color: 'text-amber-400' },
-  { id: 'tool-result', label: 'tool result', hint: '22°C, sunny', icon: 'i-lucide-check', color: 'text-emerald-400' },
-  { id: 'stream-2', label: 'streaming…', hint: 'final answer being generated', icon: 'i-lucide-activity', color: 'text-emerald-400' },
-  { id: 'finish', label: 'stream finish', hint: 'finishReason: stop · msToFinish: 4500', icon: 'i-lucide-flag', color: 'text-primary' },
+  { id: 'call', label: 'streamText()', hint: 'model wrapped, request sent', icon: 'i-ph-play-duotone', color: 'text-violet-400' },
+  { id: 'first', label: 'first chunk', hint: 'msToFirstChunk: 234', icon: 'i-ph-radio-duotone', color: 'text-sky-400' },
+  { id: 'stream-1', label: 'streaming…', hint: 'output tokens flowing', icon: 'i-ph-pulse-duotone', color: 'text-emerald-400' },
+  { id: 'tool-call', label: 'tool: getWeather', hint: 'paris', icon: 'i-ph-wrench-duotone', color: 'text-amber-400' },
+  { id: 'tool-result', label: 'tool result', hint: '22°C, sunny', icon: 'i-ph-check-duotone', color: 'text-emerald-400' },
+  { id: 'stream-2', label: 'streaming…', hint: 'final answer being generated', icon: 'i-ph-pulse-duotone', color: 'text-emerald-400' },
+  { id: 'finish', label: 'stream finish', hint: 'finishReason: stop · msToFinish: 4500', icon: 'i-ph-flag-duotone', color: 'text-primary' },
 ]
 
 const FINAL_INPUT = 3312
@@ -149,7 +149,7 @@ const estimatedCost = computed(() => {
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-sparkles" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-sparkle-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">ai sdk · streamText</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="finished ? 'text-primary' : 'text-amber-400'">
@@ -166,7 +166,7 @@ const estimatedCost = computed(() => {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -175,7 +175,7 @@ const estimatedCost = computed(() => {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -183,7 +183,7 @@ const estimatedCost = computed(() => {
       <div class="grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div class="px-4 sm:px-5 py-5">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-radio" class="size-3.5 text-primary" />
+            <UIcon name="i-ph-radio-duotone" class="size-3.5 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">call timeline</span>
           </div>
 
@@ -243,7 +243,7 @@ const estimatedCost = computed(() => {
 
         <div class="border-t border-default/30 lg:border-t-0 lg:border-l">
           <div class="flex items-center gap-2 border-b border-default/30 px-4 py-2.5">
-            <UIcon name="i-lucide-package" class="size-3 text-primary" />
+            <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest text-dimmed uppercase">wide event · ai field</span>
             <span
               v-if="finished"

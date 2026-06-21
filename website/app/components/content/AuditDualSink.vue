@@ -165,7 +165,7 @@ const recentAudit = computed(() =>
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-git-fork" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-git-fork-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">drain pipeline</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase text-primary">
@@ -182,7 +182,7 @@ const recentAudit = computed(() =>
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -191,14 +191,14 @@ const recentAudit = computed(() =>
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
 
       <div class="px-4 sm:px-6 pt-5 pb-3">
         <div class="flex items-center gap-2 mb-2 font-mono text-[9px] tracking-widest uppercase text-dimmed">
-          <UIcon name="i-lucide-package" class="size-3 text-primary" />
+          <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
           <span>active wide event</span>
         </div>
 
@@ -222,12 +222,12 @@ const recentAudit = computed(() =>
             >
               <UIcon
                 v-if="activeEvent.audit"
-                name="i-lucide-shield"
+                name="i-ph-shield-duotone"
                 class="size-4 text-primary shrink-0"
               />
               <UIcon
                 v-else
-                name="i-lucide-circle"
+                name="i-ph-circle-duotone"
                 class="size-4 text-dimmed/50 shrink-0"
               />
               <span class="text-dimmed shrink-0">#{{ activeEvent.id }}</span>
@@ -307,7 +307,7 @@ const recentAudit = computed(() =>
       <div class="grid grid-cols-2 gap-px bg-muted/40 border-t border-muted">
         <div class="bg-default px-3 sm:px-4 py-3.5">
           <div class="flex items-center gap-2 mb-2">
-            <UIcon name="i-lucide-database" class="size-3.5 text-emerald-400" />
+            <UIcon name="i-ph-database-duotone" class="size-3.5 text-emerald-400" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">main drain</span>
             <span
               v-if="isLanded"
@@ -331,7 +331,7 @@ const recentAudit = computed(() =>
               :key="`m-${event.id}`"
               class="flex items-center gap-1.5 text-muted min-w-0"
             >
-              <UIcon name="i-lucide-check" class="size-2.5 text-emerald-400 shrink-0" />
+              <UIcon name="i-ph-check-duotone" class="size-2.5 text-emerald-400 shrink-0" />
               <span class="shrink-0" :class="methodColor(event.method)">{{ event.method }}</span>
               <span class="text-dimmed truncate">{{ event.path }}</span>
             </li>
@@ -340,7 +340,7 @@ const recentAudit = computed(() =>
 
         <div class="bg-default px-3 sm:px-4 py-3.5">
           <div class="flex items-center gap-2 mb-2">
-            <UIcon name="i-lucide-shield-check" class="size-3.5 text-primary" />
+            <UIcon name="i-ph-shield-check-duotone" class="size-3.5 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">audit drain</span>
             <span
               v-if="isLanded && activeEvent?.audit"
@@ -364,7 +364,7 @@ const recentAudit = computed(() =>
               :key="`a-${event.id}`"
               class="flex items-center gap-1.5 text-muted min-w-0"
             >
-              <UIcon name="i-lucide-link-2" class="size-2.5 text-primary shrink-0" />
+              <UIcon name="i-ph-link-simple-duotone" class="size-2.5 text-primary shrink-0" />
               <span class="text-primary truncate">{{ event.auditAction ?? event.path }}</span>
             </li>
           </ul>

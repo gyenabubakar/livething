@@ -18,7 +18,7 @@ const adapters: Adapter[] = [
   { id: 'otlp', name: 'otlp', icon: 'i-simple-icons-opentelemetry', result: '200', okText: 'ingested', flaky: true },
   { id: 'sentry', name: 'sentry', icon: 'i-simple-icons-sentry', result: '200', okText: 'ingested' },
   { id: 'nuxthub', name: 'nuxthub', icon: 'i-simple-icons-nuxt', result: '200', okText: 'stored' },
-  { id: 'fs', name: 'fs', icon: 'i-lucide-hard-drive', result: 'ok', okText: 'written' },
+  { id: 'fs', name: 'fs', icon: 'i-ph-hard-drive-duotone', result: 'ok', okText: 'written' },
 ]
 
 const state = ref<Record<string, AdapterState>>(
@@ -165,12 +165,12 @@ function statusClass(s: AdapterState) {
 
 function statusIcon(s: AdapterState) {
   switch (s) {
-    case 'pending': return 'i-lucide-circle-dashed'
-    case 'inflight': return 'i-lucide-loader'
-    case 'failing': return 'i-lucide-x'
-    case 'backoff': return 'i-lucide-clock'
-    case 'retrying': return 'i-lucide-refresh-ccw'
-    case 'ok': return 'i-lucide-check'
+    case 'pending': return 'i-ph-circle-dashed-duotone'
+    case 'inflight': return 'i-ph-spinner-duotone'
+    case 'failing': return 'i-ph-x-duotone'
+    case 'backoff': return 'i-ph-clock-duotone'
+    case 'retrying': return 'i-ph-arrows-counter-clockwise-duotone'
+    case 'ok': return 'i-ph-check-duotone'
   }
 }
 
@@ -217,7 +217,7 @@ function statusLabel(adapter: Adapter, s: AdapterState) {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -226,7 +226,7 @@ function statusLabel(adapter: Adapter, s: AdapterState) {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -239,7 +239,7 @@ function statusLabel(adapter: Adapter, s: AdapterState) {
             :class="eventSent ? 'border-primary/25' : 'border-muted'"
           >
             <div class="flex items-center gap-2 mb-2.5">
-              <UIcon name="i-lucide-package" class="size-3.5 text-primary" />
+              <UIcon name="i-ph-package-duotone" class="size-3.5 text-primary" />
               <span class="font-mono text-[10px] uppercase tracking-widest text-dimmed">wide event</span>
               <span
                 aria-hidden="true"
@@ -354,15 +354,15 @@ function statusLabel(adapter: Adapter, s: AdapterState) {
 
       <div class="border-t border-muted/50 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[10px] text-dimmed">
         <span class="inline-flex items-center gap-1.5">
-          <UIcon name="i-lucide-zap" class="size-3 text-primary" />
+          <UIcon name="i-ph-lightning-duotone" class="size-3 text-primary" />
           fire-and-forget
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <UIcon name="i-lucide-refresh-ccw" class="size-3 text-amber-500" />
+          <UIcon name="i-ph-arrows-counter-clockwise-duotone" class="size-3 text-amber-500" />
           retry with backoff
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <UIcon name="i-lucide-shield-check" class="size-3 text-emerald-500" />
+          <UIcon name="i-ph-shield-check-duotone" class="size-3 text-emerald-500" />
           one failure ≠ blocked response
         </span>
         <span

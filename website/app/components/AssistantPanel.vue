@@ -39,7 +39,7 @@ const chat = new Chat({
 
     toast.add({
       description: message,
-      icon: 'i-lucide-alert-circle',
+      icon: 'i-ph-warning-circle-duotone',
       color: 'error',
       duration: 0,
     })
@@ -133,7 +133,7 @@ onMounted(() => {
             :text="isExpanded ? t('assistant.collapse') : t('assistant.expand')"
           >
             <UButton
-              :icon="isExpanded ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
+              :icon="isExpanded ? 'i-ph-arrows-in-duotone' : 'i-ph-arrows-out-duotone'"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -147,7 +147,7 @@ onMounted(() => {
             :text="t('assistant.clearChat')"
           >
             <UButton
-              icon="i-lucide-trash-2"
+              icon="i-ph-trash-duotone"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -158,7 +158,7 @@ onMounted(() => {
           </UTooltip>
           <UTooltip :text="t('assistant.close')">
             <UButton
-              icon="i-lucide-x"
+              icon="i-ph-x-duotone"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -214,7 +214,7 @@ onMounted(() => {
           >
             <div class="mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10">
               <UIcon
-                name="i-lucide-message-circle-question"
+                name="i-ph-chat-circle-dots-duotone"
                 class="size-6 text-primary"
               />
             </div>

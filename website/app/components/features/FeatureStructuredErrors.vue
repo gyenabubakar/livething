@@ -2,9 +2,9 @@
 import { Motion } from 'motion-v'
 
 const pills = [
-  { label: 'Root cause', icon: 'i-lucide-search' },
-  { label: 'Fix suggestion', icon: 'i-lucide-wrench' },
-  { label: 'AI-parseable', icon: 'i-lucide-bot' },
+  { label: 'Root cause', icon: 'i-ph-magnifying-glass-duotone' },
+  { label: 'Fix suggestion', icon: 'i-ph-wrench-duotone' },
+  { label: 'AI-parseable', icon: 'i-ph-robot-duotone' },
 ]
 </script>
 
@@ -41,7 +41,7 @@ const pills = [
         </div>
         <NuxtLink to="/learn/structured-errors" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
           Learn about structured errors
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>

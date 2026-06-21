@@ -33,13 +33,13 @@ const logTemplates = [
 ]
 
 const sourcesLeft = [
-  { label: 'Frontend', icon: 'i-lucide-monitor', sublabel: 'Nuxt / Next.js' },
-  { label: 'API Server', icon: 'i-lucide-server', sublabel: 'Nitro / Express' },
+  { label: 'Frontend', icon: 'i-ph-monitor-duotone', sublabel: 'Nuxt / Next.js' },
+  { label: 'API Server', icon: 'i-ph-hard-drives-duotone', sublabel: 'Nitro / Express' },
 ]
 
 const sourcesRight = [
-  { label: 'Workers', icon: 'i-lucide-cpu', sublabel: 'Background jobs' },
-  { label: 'Database', icon: 'i-lucide-database', sublabel: 'Queries & events' },
+  { label: 'Workers', icon: 'i-ph-cpu-duotone', sublabel: 'Background jobs' },
+  { label: 'Database', icon: 'i-ph-database-duotone', sublabel: 'Queries & events' },
 ]
 
 const questions = [
@@ -250,7 +250,7 @@ const levelColors: Record<string, string> = {
                   >
                     <span class="flex items-center gap-2.5">
                       Fix this with evlog
-                      <UIcon name="i-lucide-arrow-right" class="size-3.5 group-hover:translate-x-0.5 transition-transform" />
+                      <UIcon name="i-ph-arrow-right-duotone" class="size-3.5 group-hover:translate-x-0.5 transition-transform" />
                     </span>
                   </button>
                 </div>
@@ -323,7 +323,7 @@ const levelColors: Record<string, string> = {
                     aria-label="Replay terminal demo"
                     @click="reset"
                   >
-                    <UIcon name="i-lucide-rotate-ccw" class="size-2.5" />
+                    <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-2.5" />
                     replay
                   </button>
                 </div>

@@ -134,7 +134,7 @@ const reachedRendered = computed(() => phase.value === 'rendered')
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-shield-alert" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-shield-warning-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">error context</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="reachedRendered ? 'text-primary' : 'text-amber-400'">
@@ -151,7 +151,7 @@ const reachedRendered = computed(() => phase.value === 'rendered')
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -160,7 +160,7 @@ const reachedRendered = computed(() => phase.value === 'rendered')
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -193,7 +193,7 @@ err.fix     <span class="text-dimmed">→</span> <span class="text-rose-400/80">
             :class="reachedRendered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'"
           >
             <div class="flex items-center gap-2 mb-1.5">
-              <UIcon name="i-lucide-circle-alert" class="size-3.5 text-rose-400" />
+              <UIcon name="i-ph-warning-circle-duotone" class="size-3.5 text-rose-400" />
               <span class="font-mono text-[10px] tracking-widest uppercase text-rose-400">error</span>
             </div>
             <p class="font-mono text-[11px] text-muted leading-relaxed">
@@ -234,7 +234,7 @@ err.fix     <span class="text-dimmed">→</span> <span class="text-rose-400/80">
             :class="reachedRendered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'"
           >
             <div class="flex items-center gap-2 mb-1.5">
-              <UIcon name="i-lucide-circle-alert" class="size-3.5 text-primary" />
+              <UIcon name="i-ph-warning-circle-duotone" class="size-3.5 text-primary" />
               <span class="font-mono text-[10px] tracking-widest uppercase text-primary">payment failed · 402</span>
             </div>
             <p class="font-mono text-[11px] text-muted leading-relaxed mb-1.5">
@@ -242,7 +242,7 @@ err.fix     <span class="text-dimmed">→</span> <span class="text-rose-400/80">
             </p>
             <a class="inline-flex items-center gap-1 font-mono text-[10px] text-primary">
               read more
-              <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+              <UIcon name="i-ph-arrow-up-right-duotone" class="size-3" />
             </a>
           </div>
         </div>
@@ -250,11 +250,11 @@ err.fix     <span class="text-dimmed">→</span> <span class="text-rose-400/80">
 
       <div class="border-t border-muted/50 px-4 py-3 grid grid-cols-2 gap-3 font-mono text-[10px]">
         <div class="flex items-center gap-1.5 text-muted">
-          <UIcon name="i-lucide-x" class="size-3 text-rose-400" />
+          <UIcon name="i-ph-x-duotone" class="size-3 text-rose-400" />
           <span>1 field · user has to guess</span>
         </div>
         <div class="flex items-center gap-1.5 text-muted justify-end text-right">
-          <UIcon name="i-lucide-check" class="size-3 text-emerald-400" />
+          <UIcon name="i-ph-check-duotone" class="size-3 text-emerald-400" />
           <span>{{ fields.length }} fields · actionable end-to-end</span>
         </div>
       </div>

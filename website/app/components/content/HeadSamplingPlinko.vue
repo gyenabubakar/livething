@@ -195,7 +195,7 @@ const allDone = computed(() => phase.value === 'done')
           {{ allDone ? 'sampled' : 'flowing' }}
         </span>
         <div class="ml-auto hidden sm:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-filter" class="size-3 text-primary" />
+          <UIcon name="i-ph-funnel-duotone" class="size-3 text-primary" />
           <span>random per call</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -206,7 +206,7 @@ const allDone = computed(() => phase.value === 'done')
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -215,7 +215,7 @@ const allDone = computed(() => phase.value === 'done')
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -244,12 +244,12 @@ const allDone = computed(() => phase.value === 'done')
 
           <div class="flex items-center justify-end gap-2 font-mono text-[10px]">
             <span class="inline-flex items-center gap-1" :class="level.accent">
-              <UIcon name="i-lucide-check" class="size-3" />
+              <UIcon name="i-ph-check-duotone" class="size-3" />
               {{ totals[idx]?.kept ?? 0 }}
             </span>
             <span class="text-dimmed/70">·</span>
             <span class="inline-flex items-center gap-1 text-rose-400/80">
-              <UIcon name="i-lucide-x" class="size-3" />
+              <UIcon name="i-ph-x-duotone" class="size-3" />
               {{ totals[idx]?.dropped ?? 0 }}
             </span>
           </div>

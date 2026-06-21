@@ -251,7 +251,7 @@ function statusClass() {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -260,7 +260,7 @@ function statusClass() {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -312,7 +312,7 @@ function statusClass() {
                 aria-hidden="true"
                 class="absolute -right-5 top-0 text-emerald-400"
               >
-                <UIcon name="i-lucide-check" class="size-3" />
+                <UIcon name="i-ph-check-duotone" class="size-3" />
               </span>
 
               <div
@@ -320,7 +320,7 @@ function statusClass() {
                 class="absolute left-[5.6em] top-[1.4em] z-10 w-[290px] sm:w-[320px] border border-primary/40 bg-elevated shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]"
               >
                 <div class="flex items-center gap-1.5 border-b border-default/30 px-2.5 py-1.5">
-                  <UIcon name="i-lucide-list" class="size-3 text-primary" />
+                  <UIcon name="i-ph-list-duotone" class="size-3 text-primary" />
                   <span class="font-mono text-[9px] tracking-widest uppercase text-dimmed">suggestions</span>
                   <span class="ml-auto font-mono text-[9px] text-dimmed">{{ suggestions.length }}</span>
                 </div>
@@ -332,7 +332,7 @@ function statusClass() {
                     :class="i === completionHighlight ? 'bg-primary/15' : ''"
                   >
                     <UIcon
-                      :name="s.hint === 'InternalFields' ? 'i-lucide-shield' : 'i-lucide-square-pen'"
+                      :name="s.hint === 'InternalFields' ? 'i-ph-shield-duotone' : 'i-ph-note-pencil-duotone'"
                       class="size-3 shrink-0"
                       :class="s.hint === 'InternalFields' ? 'text-dimmed' : 'text-sky-400'"
                     />
@@ -347,8 +347,8 @@ function statusClass() {
                   </li>
                 </ul>
                 <div class="border-t border-default/30 px-2.5 py-1 font-mono text-[9px] text-dimmed">
-                  <UIcon name="i-lucide-arrow-up-down" class="size-3 inline mr-1 -mt-0.5" />
-                  pick · <UIcon name="i-lucide-corner-down-left" class="size-3 inline mx-1 -mt-0.5" /> accept · <span class="text-dimmed/70">esc</span> dismiss
+                  <UIcon name="i-ph-arrows-down-up-duotone" class="size-3 inline mr-1 -mt-0.5" />
+                  pick · <UIcon name="i-ph-arrow-elbow-down-left-duotone" class="size-3 inline mx-1 -mt-0.5" /> accept · <span class="text-dimmed/70">esc</span> dismiss
                 </div>
               </div>
             </div>
@@ -376,7 +376,7 @@ function statusClass() {
                 aria-hidden="true"
                 class="absolute -right-5 top-0 text-rose-400"
               >
-                <UIcon name="i-lucide-x" class="size-3" />
+                <UIcon name="i-ph-x-duotone" class="size-3" />
               </span>
             </div>
           </div>
@@ -385,7 +385,7 @@ function statusClass() {
         <div class="border-t border-default/30 lg:border-t-0 lg:border-l">
           <div class="flex items-center gap-2 border-b border-default/30 px-4 py-2.5">
             <UIcon
-              :name="errorVisible ? 'i-lucide-circle-alert' : 'i-lucide-info'"
+              :name="errorVisible ? 'i-ph-warning-circle-duotone' : 'i-ph-info-duotone'"
               class="size-3"
               :class="errorVisible ? 'text-rose-400' : 'text-primary'"
             />
@@ -400,7 +400,7 @@ function statusClass() {
               v-if="!errorVisible"
               class="flex items-start gap-2 font-mono text-[10px] sm:text-[11px] text-dimmed"
             >
-              <UIcon name="i-lucide-check" class="size-3 text-emerald-400 mt-0.5 shrink-0" />
+              <UIcon name="i-ph-check-duotone" class="size-3 text-emerald-400 mt-0.5 shrink-0" />
               <span>No type errors. Excess properties on the literal would be flagged here.</span>
             </div>
 
@@ -409,7 +409,7 @@ function statusClass() {
               class="border border-rose-400/30 bg-rose-500/5 p-3 space-y-2"
             >
               <div class="flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase text-rose-400">
-                <UIcon name="i-lucide-circle-alert" class="size-3" />
+                <UIcon name="i-ph-warning-circle-duotone" class="size-3" />
                 <span>ts2353</span>
                 <span class="ml-auto text-dimmed font-normal normal-case tracking-normal">checkout.post.ts:11</span>
               </div>
@@ -420,14 +420,14 @@ function statusClass() {
                 <span class="text-sky-400">'CheckoutFields &amp; Partial&lt;InternalFields&gt;'</span>.
               </p>
               <div class="font-mono text-[10px] text-dimmed leading-relaxed">
-                <UIcon name="i-lucide-lightbulb" class="size-3 inline -mt-0.5 mr-1 text-amber-400" />
+                <UIcon name="i-ph-lightbulb-duotone" class="size-3 inline -mt-0.5 mr-1 text-amber-400" />
                 Did you mean <span class="text-sky-400">user</span>, <span class="text-sky-400">cart</span>, or <span class="text-sky-400">action</span>?
               </div>
             </div>
 
             <div class="border-t border-default/30 pt-3 font-mono text-[10px] text-dimmed space-y-1">
               <div class="flex items-center gap-2">
-                <UIcon name="i-lucide-shield" class="size-3 text-primary/70" />
+                <UIcon name="i-ph-shield-duotone" class="size-3 text-primary/70" />
                 <span>useLogger&lt;CheckoutFields&gt;(event)</span>
               </div>
               <div class="text-dimmed/70 pl-5">

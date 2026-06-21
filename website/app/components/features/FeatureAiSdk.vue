@@ -14,31 +14,31 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Token tracking', icon: 'i-lucide-coins' },
-  { label: 'Tool calls', icon: 'i-lucide-wrench' },
-  { label: 'Streaming metrics', icon: 'i-lucide-gauge' },
-  { label: 'Cost estimation', icon: 'i-lucide-dollar-sign' },
-  { label: 'Tool timing', icon: 'i-lucide-timer' },
+  { label: 'Token tracking', icon: 'i-ph-coins-duotone' },
+  { label: 'Tool calls', icon: 'i-ph-wrench-duotone' },
+  { label: 'Streaming metrics', icon: 'i-ph-gauge-duotone' },
+  { label: 'Cost estimation', icon: 'i-ph-currency-dollar-duotone' },
+  { label: 'Tool timing', icon: 'i-ph-timer-duotone' },
 ]
 
 const benefits = [
   {
-    icon: 'i-lucide-zap',
+    icon: 'i-ph-lightning-duotone',
     title: 'Zero boilerplate',
     text: 'Wrap the model, done. No manual token tracking needed.',
   },
   {
-    icon: 'i-lucide-box',
+    icon: 'i-ph-cube-duotone',
     title: 'Works with everything',
     text: 'generateText, streamText, ToolLoopAgent, embed, multi-step agents.',
   },
   {
-    icon: 'i-lucide-bar-chart-3',
+    icon: 'i-ph-chart-bar-duotone',
     title: 'Cost and performance',
     text: 'Token usage, cache hits, cost estimation, time to first chunk, tokens per second.',
   },
   {
-    icon: 'i-lucide-timer',
+    icon: 'i-ph-timer-duotone',
     title: 'Telemetry integration',
     text: 'Per-tool execution timing, success/failure tracking, and total generation wall time.',
   },
@@ -113,7 +113,7 @@ function setView(view: 'without' | 'with') {
             </div>
             <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
               {{ props.linkLabel || 'Learn more' }}
-              <UIcon name="i-lucide-arrow-right" class="size-3" />
+              <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
             </NuxtLink>
           </div>
         </Motion>

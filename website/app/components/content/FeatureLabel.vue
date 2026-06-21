@@ -20,7 +20,7 @@ defineProps<{
         class="inline-flex items-center text-muted hover:text-default focus:text-default focus:outline-none cursor-help leading-none"
         aria-label="What does this mean?"
       >
-        <UIcon name="i-lucide-info" class="size-3.5" />
+        <UIcon name="i-ph-info-duotone" class="size-3.5" />
       </button>
 
       <template #content>

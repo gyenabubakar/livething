@@ -195,7 +195,7 @@ const stats = computed(() => {
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-funnel" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-funnel-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">sampling decision</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase text-amber-400">
@@ -212,7 +212,7 @@ const stats = computed(() => {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -221,7 +221,7 @@ const stats = computed(() => {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -264,12 +264,12 @@ const stats = computed(() => {
             >
               <UIcon
                 v-if="row.matches[ruleIdx]"
-                name="i-lucide-check"
+                name="i-ph-check-duotone"
                 class="size-3 text-emerald-400"
               />
               <UIcon
                 v-else
-                name="i-lucide-x"
+                name="i-ph-x-duotone"
                 class="size-3 text-dimmed/50"
               />
             </span>
@@ -280,17 +280,17 @@ const stats = computed(() => {
             :class="rowPhase[i] === 'resolved' ? 'opacity-100' : 'opacity-0'"
           >
             <span v-if="isTailKept(row)" class="inline-flex items-center gap-1 text-emerald-400">
-              <UIcon name="i-lucide-arrow-right-to-line" class="size-3" />
+              <UIcon name="i-ph-arrow-line-right-duotone" class="size-3" />
               <span class="hidden sm:inline">force-kept</span>
               <span class="sm:hidden">kept</span>
             </span>
             <span v-else-if="isHeadKept(row)" class="inline-flex items-center gap-1 text-emerald-400/80">
-              <UIcon name="i-lucide-dice-5" class="size-3" />
+              <UIcon name="i-ph-dice-five-duotone" class="size-3" />
               <span class="hidden sm:inline">head ({{ row.random.toFixed(2) }})</span>
               <span class="sm:hidden">kept</span>
             </span>
             <span v-else class="inline-flex items-center gap-1 text-muted line-through decoration-muted/60">
-              <UIcon name="i-lucide-trash-2" class="size-3 no-underline" />
+              <UIcon name="i-ph-trash-duotone" class="size-3 no-underline" />
               <span>dropped</span>
             </span>
           </div>

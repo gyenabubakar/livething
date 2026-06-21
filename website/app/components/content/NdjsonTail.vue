@@ -134,7 +134,7 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-3 py-1.5">
-        <UIcon name="i-lucide-folder-search" class="size-3 text-primary" />
+        <UIcon name="i-ph-folder-open-duotone" class="size-3 text-primary" />
         <span class="font-mono text-[11px] text-dimmed">tailFsLogs()</span>
         <span class="text-dimmed text-[10px]">·</span>
         <span class="font-mono text-[9px] tracking-widest uppercase text-amber-400">following</span>
@@ -143,10 +143,10 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
         </div>
         <div class="flex items-center gap-0.5 ml-1">
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" :aria-label="paused ? 'Play animation' : 'Pause animation'" :disabled="!started" @click="toggle">
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" aria-label="Restart animation" :disabled="!started" @click="restart">
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -154,7 +154,7 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
       <div class="grid gap-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,200px)]">
         <div class="px-3 py-2.5 border-b border-default/30 sm:border-b-0 sm:border-r font-mono text-[10px] leading-snug">
           <div class="flex items-center gap-1.5 mb-1.5 text-dimmed">
-            <UIcon name="i-lucide-file-text" class="size-2.5" />
+            <UIcon name="i-ph-file-text-duotone" class="size-2.5" />
             <span class="text-[9px] tracking-wider truncate">.evlog/logs/2026-05-08.jsonl</span>
             <span class="ml-auto text-[9px] tabular-nums whitespace-nowrap">{{ file0Visible }}/{{ file0Lines.length }}</span>
           </div>
@@ -172,7 +172,7 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
 
           <div class="mt-2 pt-2 border-t border-muted/30 transition-opacity duration-300" :class="rotated ? 'opacity-100' : 'opacity-50'">
             <div class="flex items-center gap-1.5 mb-1.5 text-dimmed">
-              <UIcon name="i-lucide-file-plus" class="size-2.5" :class="rotated ? 'text-primary' : 'text-dimmed'" />
+              <UIcon name="i-ph-file-plus-duotone" class="size-2.5" :class="rotated ? 'text-primary' : 'text-dimmed'" />
               <span class="text-[9px] tracking-wider truncate">.evlog/logs/2026-05-09.jsonl</span>
               <span class="ml-auto text-[9px] tabular-nums whitespace-nowrap" :class="rotated ? 'text-primary' : 'text-dimmed'">
                 {{ rotated ? `rotated · ${file1Visible}/${file1Lines.length}` : 'awaiting rotation' }}
@@ -194,7 +194,7 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
 
         <div class="px-3 py-2.5">
           <div class="flex items-center gap-1.5 mb-2 text-dimmed">
-            <UIcon name="i-lucide-cpu" class="size-2.5 text-emerald-400" />
+            <UIcon name="i-ph-cpu-duotone" class="size-2.5 text-emerald-400" />
             <span class="font-mono text-[9px] tracking-widest uppercase">reader</span>
             <span class="ml-auto font-mono text-[10px] text-emerald-400 tabular-nums">{{ cursor + 1 }}/{{ lines.length }}</span>
           </div>
@@ -225,15 +225,15 @@ const progress = computed(() => cursor.value < 0 ? 0 : ((cursor.value + 1) / lin
 
       <div class="border-t border-muted/50 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] text-dimmed">
         <span class="inline-flex items-center gap-1">
-          <UIcon name="i-lucide-folder" class="size-2.5 text-primary" />
+          <UIcon name="i-ph-folder-duotone" class="size-2.5 text-primary" />
           NDJSON · 1 line / event
         </span>
         <span class="inline-flex items-center gap-1">
-          <UIcon name="i-lucide-rotate-ccw" class="size-2.5 text-amber-400" />
+          <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-2.5 text-amber-400" />
           daily rotation
         </span>
         <span class="inline-flex items-center gap-1">
-          <UIcon name="i-lucide-shield-check" class="size-2.5 text-emerald-500" />
+          <UIcon name="i-ph-shield-check-duotone" class="size-2.5 text-emerald-500" />
           partial-write safe
         </span>
       </div>

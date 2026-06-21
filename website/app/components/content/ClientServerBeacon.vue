@@ -162,7 +162,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-radio-tower" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-broadcast-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">client → server transport</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="phase === 'processed' ? 'text-primary' : phase === 'flying' || phase === 'received' ? 'text-amber-400' : 'text-dimmed'">
@@ -179,7 +179,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -188,7 +188,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -196,7 +196,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
       <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-px bg-muted/40">
         <div class="bg-default px-4 py-4">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-globe" class="size-3.5 text-sky-400" />
+            <UIcon name="i-ph-globe-duotone" class="size-3.5 text-sky-400" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">browser</span>
             <span class="ml-auto font-mono text-[10px] text-muted">queue · {{ queueCount }}</span>
           </div>
@@ -221,7 +221,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
           </div>
 
           <div class="mt-3 flex items-center gap-2 font-mono text-[9px] text-dimmed transition-opacity duration-300" :class="showTrigger ? 'opacity-100' : 'opacity-0'">
-            <UIcon name="i-lucide-zap" class="size-3 text-amber-400 animate-pulse" />
+            <UIcon name="i-ph-lightning-duotone" class="size-3 text-amber-400 animate-pulse" />
             <span class="text-amber-400">window.addEventListener('pagehide')</span>
           </div>
         </div>
@@ -247,7 +247,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
               :class="phase === 'flying' ? 'border-primary/50 scale-110' : phase === 'received' || phase === 'processed' ? 'border-emerald-500/40' : 'border-muted'"
             >
               <div class="font-mono text-[10px] text-muted flex items-center gap-1.5">
-                <UIcon name="i-lucide-package" class="size-3" :class="phase === 'flying' ? 'text-primary' : phase === 'received' || phase === 'processed' ? 'text-emerald-400' : 'text-dimmed'" />
+                <UIcon name="i-ph-package-duotone" class="size-3" :class="phase === 'flying' ? 'text-primary' : phase === 'received' || phase === 'processed' ? 'text-emerald-400' : 'text-dimmed'" />
                 <span>batch · {{ browserEvents.length }} events</span>
               </div>
             </div>
@@ -257,14 +257,14 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
           </div>
 
           <div class="lg:hidden flex items-center gap-2 font-mono text-[10px] text-muted">
-            <UIcon name="i-lucide-arrow-down" class="size-3 text-primary" />
+            <UIcon name="i-ph-arrow-down-duotone" class="size-3 text-primary" />
             <span>POST /api/_evlog/ingest</span>
           </div>
         </div>
 
         <div class="bg-default px-4 py-4">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-server" class="size-3.5 text-emerald-400" />
+            <UIcon name="i-ph-hard-drives-duotone" class="size-3.5 text-emerald-400" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">server · /api/_evlog/ingest</span>
             <span class="ml-auto font-mono text-[10px] text-muted">ingested · {{ sentCount }}</span>
           </div>
@@ -280,7 +280,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
                 class="flex items-baseline gap-2 transition-all duration-300"
                 :class="serverReceived[i] ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-2'"
               >
-                <UIcon name="i-lucide-check" class="size-2.5 text-emerald-400 shrink-0 self-center" />
+                <UIcon name="i-ph-check-duotone" class="size-2.5 text-emerald-400 shrink-0 self-center" />
                 <span class="shrink-0" :class="levelClass(event.level)">{{ event.level }}</span>
                 <span class="text-muted truncate">{{ event.action }}</span>
                 <span class="hidden sm:inline text-primary text-[9px] shrink-0 ml-auto">+identity</span>
@@ -289,7 +289,7 @@ const isReceived = computed(() => phase.value === 'received' || phase.value === 
           </div>
 
           <div class="mt-3 flex items-center gap-2 font-mono text-[9px] text-dimmed transition-opacity duration-300" :class="phase === 'processed' ? 'opacity-100' : 'opacity-0'">
-            <UIcon name="i-lucide-check-circle" class="size-3 text-emerald-400" />
+            <UIcon name="i-ph-check-circle-duotone" class="size-3 text-emerald-400" />
             <span class="text-emerald-400">drain pipeline · same as server-side wide events</span>
           </div>
         </div>

@@ -247,7 +247,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
           {{ statusLabel() }}
         </span>
         <div class="ml-auto hidden md:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-workflow" class="size-3 text-primary" />
+          <UIcon name="i-ph-tree-structure-duotone" class="size-3 text-primary" />
           <span>size={{ BATCH_SIZE }} · interval=5s</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -258,7 +258,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -267,7 +267,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -275,7 +275,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
       <div class="grid gap-px bg-muted/40 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.1fr)]">
         <div class="bg-default p-4 sm:p-5 min-h-[260px]">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-arrow-right" class="size-3 text-primary" />
+            <UIcon name="i-ph-arrow-right-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">app emits</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed">#{{ incoming }}</span>
           </div>
@@ -287,21 +287,21 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
               class="flex items-center gap-2 transition-all duration-300"
               :style="{ opacity: 1 - (i - 1) * 0.18 }"
             >
-              <UIcon name="i-lucide-package" class="size-3 text-emerald-400" />
+              <UIcon name="i-ph-package-duotone" class="size-3 text-emerald-400" />
               <span class="text-muted">log #{{ Math.max(0, incoming - i + 1) }}</span>
               <span class="ml-auto text-dimmed/60 text-[9px]">→ buffer</span>
             </div>
           </div>
 
           <div class="mt-4 pt-3 border-t border-default/30 font-mono text-[10px] text-dimmed">
-            <UIcon name="i-lucide-info" class="size-3 inline -mt-0.5 mr-1 text-primary/70" />
+            <UIcon name="i-ph-info-duotone" class="size-3 inline -mt-0.5 mr-1 text-primary/70" />
             never blocks the response
           </div>
         </div>
 
         <div class="bg-default p-4 sm:p-5 min-h-[260px]">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-database" class="size-3 text-primary" />
+            <UIcon name="i-ph-database-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">in-memory buffer</span>
             <span class="ml-auto font-mono text-[9px]" :class="phase === 'overflow' ? 'text-rose-400' : 'text-dimmed'">
               {{ buffer.length }} / {{ BATCH_SIZE }}
@@ -335,7 +335,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
           <div class="flex items-center justify-between font-mono text-[9px] text-dimmed">
             <span>fills until size or 5s interval</span>
             <span v-if="overflowed" class="text-rose-400">
-              <UIcon name="i-lucide-trash-2" class="size-3 inline -mt-0.5 mr-0.5" />
+              <UIcon name="i-ph-trash-duotone" class="size-3 inline -mt-0.5 mr-0.5" />
               dropped {{ droppedCount }}
             </span>
           </div>
@@ -343,7 +343,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
 
         <div class="bg-default p-4 sm:p-5 min-h-[260px]">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-cloud-upload" class="size-3 text-primary" />
+            <UIcon name="i-ph-cloud-arrow-up-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">flush · http POST</span>
             <span class="ml-auto font-mono text-[9px] text-emerald-400">{{ flushedBatches }} ok</span>
           </div>
@@ -353,7 +353,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
               v-if="phase === 'flush-ok' || phase === 'recovered' || (phase === 'hold' && flushedBatches > 0)"
               class="flex items-center gap-2 border border-primary/30 bg-primary/10 px-2.5 py-1.5 font-mono text-[10px]"
             >
-              <UIcon name="i-lucide-check" class="size-3 text-primary" />
+              <UIcon name="i-ph-check-duotone" class="size-3 text-primary" />
               <span class="text-default">batch #{{ flushedBatches }} sent</span>
               <span class="ml-auto text-primary text-[9px]">200 OK</span>
             </div>
@@ -363,7 +363,7 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
               class="border border-amber-400/30 bg-amber-500/5 px-2.5 py-2 font-mono text-[10px] space-y-1.5"
             >
               <div class="flex items-center gap-2">
-                <UIcon name="i-lucide-rotate-cw" class="size-3 text-amber-400 animate-spin" />
+                <UIcon name="i-ph-arrow-clockwise-duotone" class="size-3 text-amber-400 animate-spin" />
                 <span class="text-amber-300">drain failed · retrying</span>
                 <span class="ml-auto text-amber-400 text-[9px]">503</span>
               </div>
@@ -388,14 +388,14 @@ const fillPct = computed(() => Math.min(100, (buffer.value.length / BATCH_SIZE) 
               v-if="phase === 'overflow'"
               class="border border-rose-400/30 bg-rose-500/5 px-2.5 py-1.5 font-mono text-[10px]"
             >
-              <UIcon name="i-lucide-alert-triangle" class="size-3 inline -mt-0.5 mr-1 text-rose-400" />
+              <UIcon name="i-ph-warning-duotone" class="size-3 inline -mt-0.5 mr-1 text-rose-400" />
               <span class="text-rose-300">buffer full · oldest dropped</span>
             </div>
           </div>
 
           <div class="mt-4 pt-3 border-t border-default/30 font-mono text-[10px] text-dimmed">
             <div class="flex items-center gap-2">
-              <UIcon name="i-lucide-life-buoy" class="size-3 text-primary/70" />
+              <UIcon name="i-ph-lifebuoy-duotone" class="size-3 text-primary/70" />
               <span>onDropped · maxBufferSize · drain.flush()</span>
             </div>
           </div>

@@ -168,7 +168,7 @@ const injectCount = computed(() => sourceLines.filter(l => l.kind === 'info-obj'
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -177,7 +177,7 @@ const injectCount = computed(() => sourceLines.filter(l => l.kind === 'info-obj'
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -185,7 +185,7 @@ const injectCount = computed(() => sourceLines.filter(l => l.kind === 'info-obj'
       <div class="grid gap-px bg-muted/40 lg:grid-cols-2">
         <div class="bg-default p-4">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-file-code-2" class="size-3 text-primary" />
+            <UIcon name="i-ph-file-code-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">src/checkout.ts</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed">source</span>
           </div>
@@ -212,7 +212,7 @@ const injectCount = computed(() => sourceLines.filter(l => l.kind === 'info-obj'
 
         <div class="bg-default p-4 relative">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-package-check" class="size-3 text-primary" />
+            <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">dist/checkout.js</span>
             <span class="ml-auto font-mono text-[9px]" :class="mode === 'built' ? 'text-emerald-400' : 'text-dimmed'">
               {{ mode === 'built' ? 'built · prod' : (mode === 'building' ? 'transforming…' : 'awaiting build') }}
@@ -239,7 +239,7 @@ const injectCount = computed(() => sourceLines.filter(l => l.kind === 'info-obj'
               v-if="phase === 'idle' || phase === 'dev'"
               class="flex items-center gap-2 mt-3 font-mono text-[10px] text-dimmed"
             >
-              <UIcon name="i-lucide-clock" class="size-3 text-dimmed/60" />
+              <UIcon name="i-ph-clock-duotone" class="size-3 text-dimmed/60" />
               run <span class="text-primary">vite build</span> to transform
             </div>
           </div>

@@ -32,9 +32,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Head sampling', icon: 'i-lucide-percent' },
-  { label: 'Tail sampling', icon: 'i-lucide-filter' },
-  { label: 'Per-level rates', icon: 'i-lucide-sliders-horizontal' },
+  { label: 'Head sampling', icon: 'i-ph-percent-duotone' },
+  { label: 'Tail sampling', icon: 'i-ph-funnel-duotone' },
+  { label: 'Per-level rates', icon: 'i-ph-sliders-horizontal-duotone' },
 ]
 
 const timers: ReturnType<typeof setTimeout>[] = []
@@ -130,7 +130,7 @@ function getLevelColor(level: string): string {
         </div>
         <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
           {{ props.linkLabel || 'Learn more' }}
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>

@@ -7,9 +7,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Auto-batch', icon: 'i-lucide-layers' },
-  { label: 'sendBeacon', icon: 'i-lucide-send' },
-  { label: 'Origin validation', icon: 'i-lucide-shield-check' },
+  { label: 'Auto-batch', icon: 'i-ph-stack-duotone' },
+  { label: 'sendBeacon', icon: 'i-ph-paper-plane-tilt-duotone' },
+  { label: 'Origin validation', icon: 'i-ph-shield-check-duotone' },
 ]
 </script>
 
@@ -50,7 +50,7 @@ const pills = [
             </div>
             <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
               {{ props.linkLabel || 'Learn more' }}
-              <UIcon name="i-lucide-arrow-right" class="size-3" />
+              <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
             </NuxtLink>
           </div>
         </Motion>
@@ -63,7 +63,7 @@ const pills = [
         >
           <div class="space-y-5">
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-layers" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-stack-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Automatic batching
@@ -74,7 +74,7 @@ const pills = [
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-send" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-paper-plane-tilt-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Page-aware delivery
@@ -85,7 +85,7 @@ const pills = [
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-shield-check" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-shield-check-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Server-side validation
@@ -138,7 +138,7 @@ const pills = [
               <!-- Browser node -->
               <div class="flex flex-col items-center gap-2 shrink-0">
                 <div class="border border-muted bg-default p-3">
-                  <UIcon name="i-lucide-globe" class="size-5 text-primary" />
+                  <UIcon name="i-ph-globe-duotone" class="size-5 text-primary" />
                 </div>
                 <span class="font-mono text-[9px] text-muted">Browser</span>
                 <span class="font-mono text-[7px] tracking-widest text-dimmed">EVENTS</span>
@@ -162,7 +162,7 @@ const pills = [
                       <span class="absolute inline-flex size-full animate-ping bg-primary/40" />
                       <span class="relative inline-flex size-1.5 bg-primary" />
                     </span>
-                    <UIcon name="i-lucide-layers" class="size-5 text-primary" />
+                    <UIcon name="i-ph-stack-duotone" class="size-5 text-primary" />
                   </div>
                 </div>
                 <span class="font-mono text-[9px] text-muted">Pipeline</span>
@@ -182,7 +182,7 @@ const pills = [
               <!-- Server node -->
               <div class="flex flex-col items-center gap-2 shrink-0">
                 <div class="border border-muted bg-default p-3">
-                  <UIcon name="i-lucide-server" class="size-5 text-dimmed" />
+                  <UIcon name="i-ph-hard-drives-duotone" class="size-5 text-dimmed" />
                 </div>
                 <span class="font-mono text-[9px] text-muted">Server</span>
                 <span class="font-mono text-[7px] tracking-widest text-dimmed">VALIDATE &middot; DRAIN</span>
@@ -190,7 +190,7 @@ const pills = [
             </div>
 
             <div class="mt-6 flex items-center justify-center gap-2">
-              <UIcon name="i-lucide-eye-off" class="size-3 text-dimmed" />
+              <UIcon name="i-ph-eye-slash-duotone" class="size-3 text-dimmed" />
               <span class="font-mono text-[9px] text-dimmed">auto-flush on page visibility change</span>
             </div>
           </div>

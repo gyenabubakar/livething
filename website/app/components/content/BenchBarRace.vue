@@ -169,7 +169,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
           {{ collapsed ? 'one event' : 'measuring' }}
         </span>
         <div class="ml-auto hidden md:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-gauge" class="size-3 text-primary" />
+          <UIcon name="i-ph-gauge-duotone" class="size-3 text-primary" />
           <span>vitest bench · macbook</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -180,7 +180,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -189,7 +189,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -197,7 +197,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
       <div class="grid gap-px bg-muted/40 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div class="bg-default p-4 sm:p-5">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-flag" class="size-3 text-primary" />
+            <UIcon name="i-ph-flag-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">throughput</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed">create + 3× set + emit</span>
           </div>
@@ -235,14 +235,14 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
           </div>
 
           <div class="mt-4 pt-3 border-t border-default/30 font-mono text-[10px] text-dimmed">
-            <UIcon name="i-lucide-info" class="size-3 inline -mt-0.5 mr-1 text-primary/70" />
+            <UIcon name="i-ph-info-duotone" class="size-3 inline -mt-0.5 mr-1 text-primary/70" />
             consola has no equivalent (no wide-event API) — see the table below for fair scenarios.
           </div>
         </div>
 
         <div class="bg-default p-4 sm:p-5">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-shrink" class="size-3 text-primary" />
+            <UIcon name="i-ph-arrows-in-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">why · 4 lines → 1 event</span>
             <span class="ml-auto font-mono text-[9px]" :class="collapsed ? 'text-primary' : 'text-dimmed'">
               {{ collapsed ? '1 emit · 1 serialize' : `${linesShown} / 4 lines` }}
@@ -259,7 +259,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
                 linesCollapsed ? 'opacity-20! grayscale line-through' : '',
               ]"
             >
-              <UIcon name="i-lucide-package" class="size-3 text-amber-400/70 shrink-0" />
+              <UIcon name="i-ph-package-duotone" class="size-3 text-amber-400/70 shrink-0" />
               <span class="text-muted truncate">{{ line.text }}</span>
             </div>
           </div>
@@ -269,7 +269,7 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
             :class="collapsed ? 'border-primary/30' : 'border-muted'"
           >
             <div class="flex items-center gap-1.5 mb-1.5">
-              <UIcon name="i-lucide-package-check" class="size-3 text-primary" />
+              <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
               <span class="font-mono text-[9px] tracking-widest uppercase text-dimmed">evlog wide event</span>
             </div>
             <pre class="font-mono text-[10px] leading-relaxed text-muted overflow-x-auto"><code>{
@@ -285,12 +285,12 @@ const collapsed = computed(() => phase.value === 'collapsed' || phase.value === 
             :class="collapsed ? 'opacity-100' : 'opacity-50'"
           >
             <span class="inline-flex items-center gap-1.5">
-              <UIcon name="i-lucide-trending-down" class="size-3 text-emerald-400" />
+              <UIcon name="i-ph-trend-down-duotone" class="size-3 text-emerald-400" />
               <span class="text-emerald-400">75%</span>
               <span class="text-dimmed">less data on the wire</span>
             </span>
             <span class="ml-auto inline-flex items-center gap-1.5 text-dimmed">
-              <UIcon name="i-lucide-database" class="size-3" />
+              <UIcon name="i-ph-database-duotone" class="size-3" />
               <span>1 row to query</span>
             </span>
           </div>

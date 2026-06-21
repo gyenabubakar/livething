@@ -12,9 +12,9 @@ interface Subscriber {
 }
 
 const subscribers: Subscriber[] = [
-  { id: 'sync', label: 'subscribe()', hint: 'sync listener', icon: 'i-lucide-bell' },
-  { id: 'iter', label: 'events()', hint: 'async iterator', icon: 'i-lucide-rotate-ccw' },
-  { id: 'ring', label: 'replay()', hint: 'ring buffer', icon: 'i-lucide-database' },
+  { id: 'sync', label: 'subscribe()', hint: 'sync listener', icon: 'i-ph-bell-duotone' },
+  { id: 'iter', label: 'events()', hint: 'async iterator', icon: 'i-ph-arrow-counter-clockwise-duotone' },
+  { id: 'ring', label: 'replay()', hint: 'ring buffer', icon: 'i-ph-database-duotone' },
 ]
 
 const RING_MAX = 8
@@ -146,9 +146,9 @@ function rowBorderClass(s: DeliveryState) {
 
 function statusIcon(s: DeliveryState) {
   switch (s) {
-    case 'idle': return 'i-lucide-circle-dashed'
-    case 'inflight': return 'i-lucide-loader'
-    case 'delivered': return 'i-lucide-check'
+    case 'idle': return 'i-ph-circle-dashed-duotone'
+    case 'inflight': return 'i-ph-spinner-duotone'
+    case 'delivered': return 'i-ph-check-duotone'
   }
 }
 
@@ -172,7 +172,7 @@ const stage = computed(() => {
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-3 py-2">
-        <UIcon name="i-lucide-radio-tower" class="size-3 text-primary" />
+        <UIcon name="i-ph-broadcast-duotone" class="size-3 text-primary" />
         <span class="font-mono text-[11px] text-dimmed">createStreamDrain()</span>
         <span class="text-dimmed text-[10px]">·</span>
         <span class="font-mono text-[9px] tracking-widest uppercase transition-colors" :class="onBus ? 'text-primary' : 'text-dimmed'">
@@ -183,10 +183,10 @@ const stage = computed(() => {
         </div>
         <div class="flex items-center gap-0.5 ml-1">
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" :aria-label="paused ? 'Play animation' : 'Pause animation'" :disabled="!started" @click="toggle">
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" aria-label="Restart animation" :disabled="!started" @click="restart">
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -197,7 +197,7 @@ const stage = computed(() => {
             class="flex items-center gap-1.5 px-2 py-1 border transition-all duration-300 shrink-0"
             :class="stage >= 0 ? 'border-primary/40 text-primary' : 'border-muted/40 text-dimmed'"
           >
-            <UIcon name="i-lucide-package" class="size-3" />
+            <UIcon name="i-ph-package-duotone" class="size-3" />
             <span class="tabular-nums">emit{{ totalEmitted ? ` #${totalEmitted}` : '' }}</span>
           </div>
           <div class="flex-1 h-px bg-muted/40 relative overflow-hidden">
@@ -210,7 +210,7 @@ const stage = computed(() => {
             class="flex items-center gap-1.5 px-2 py-1 border transition-all duration-300 shrink-0"
             :class="stage >= 1 ? 'border-primary/40 text-primary' : 'border-muted/40 text-dimmed'"
           >
-            <UIcon name="i-lucide-radio-tower" class="size-3" />
+            <UIcon name="i-ph-broadcast-duotone" class="size-3" />
             <span>bus</span>
           </div>
           <div class="flex-1 h-px bg-muted/40 relative overflow-hidden">
@@ -223,7 +223,7 @@ const stage = computed(() => {
             class="flex items-center gap-1.5 px-2 py-1 border transition-all duration-300 shrink-0"
             :class="stage >= 2 ? 'border-emerald-500/30 text-emerald-500' : 'border-muted/40 text-dimmed'"
           >
-            <UIcon name="i-lucide-share-2" class="size-3" />
+            <UIcon name="i-ph-share-network-duotone" class="size-3" />
             <span class="tabular-nums">{{ deliveredCount }}/{{ subscribers.length }}</span>
           </div>
         </div>
@@ -283,11 +283,11 @@ const stage = computed(() => {
 
       <div class="border-t border-muted/50 px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] text-dimmed">
         <span class="inline-flex items-center gap-1">
-          <UIcon name="i-lucide-zap" class="size-2.5 text-primary" />
+          <UIcon name="i-ph-lightning-duotone" class="size-2.5 text-primary" />
           one emit · all subscribers
         </span>
         <span class="inline-flex items-center gap-1">
-          <UIcon name="i-lucide-database" class="size-2.5 text-emerald-500" />
+          <UIcon name="i-ph-database-duotone" class="size-2.5 text-emerald-500" />
           replay for late joiners
         </span>
         <span class="ml-auto tabular-nums">

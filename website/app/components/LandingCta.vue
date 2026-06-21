@@ -72,7 +72,7 @@ onBeforeUnmount(() => {
             >
               Get Started
               <template #trailing>
-                <UIcon name="i-lucide-arrow-right" class="size-4" />
+                <UIcon name="i-ph-arrow-right-duotone" class="size-4" />
               </template>
             </UButton>
             <UButton
@@ -83,7 +83,7 @@ onBeforeUnmount(() => {
               class="bg-white/10 border border-white/40 text-white hover:bg-white/20 backdrop-blur-sm"
             >
               <template #leading>
-                <UIcon name="i-lucide-megaphone" class="size-4" />
+                <UIcon name="i-ph-megaphone-duotone" class="size-4" />
               </template>
               Just fucking use evlog
             </UButton>

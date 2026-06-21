@@ -27,9 +27,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Structured context', icon: 'i-lucide-braces' },
-  { label: 'Machine-parseable', icon: 'i-lucide-cpu' },
-  { label: 'Local NDJSON files', icon: 'i-lucide-hard-drive' },
+  { label: 'Structured context', icon: 'i-ph-brackets-curly-duotone' },
+  { label: 'Machine-parseable', icon: 'i-ph-cpu-duotone' },
+  { label: 'Local NDJSON files', icon: 'i-ph-hard-drive-duotone' },
 ]
 
 const timers: ReturnType<typeof setTimeout>[] = []
@@ -119,7 +119,7 @@ function startAnimation() {
         </div>
         <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
           {{ props.linkLabel || 'Learn more' }}
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>
@@ -205,7 +205,7 @@ function startAnimation() {
               <div class="size-3 rounded-full bg-accented" />
             </div>
             <span class="ml-3 flex items-center gap-1.5 font-mono text-xs text-dimmed">
-              <UIcon name="i-lucide-bot" class="size-3 text-violet-500" />
+              <UIcon name="i-ph-robot-duotone" class="size-3 text-violet-500" />
               AI Agent
             </span>
             <span

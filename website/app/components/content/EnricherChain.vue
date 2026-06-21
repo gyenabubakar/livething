@@ -13,7 +13,7 @@ const enrichers: Enricher[] = [
   {
     id: 'ua',
     name: 'UserAgent',
-    icon: 'i-lucide-monitor-smartphone',
+    icon: 'i-ph-devices-duotone',
     fields: [
       { key: 'userAgent.browser', value: '"chrome 142"' },
       { key: 'userAgent.os', value: '"macOS 26"' },
@@ -23,7 +23,7 @@ const enrichers: Enricher[] = [
   {
     id: 'geo',
     name: 'Geo',
-    icon: 'i-lucide-map-pin',
+    icon: 'i-ph-map-pin-duotone',
     fields: [
       { key: 'geo.country', value: '"FR"' },
       { key: 'geo.city', value: '"Paris"' },
@@ -33,7 +33,7 @@ const enrichers: Enricher[] = [
   {
     id: 'size',
     name: 'RequestSize',
-    icon: 'i-lucide-hard-drive',
+    icon: 'i-ph-hard-drive-duotone',
     fields: [
       { key: 'request.size', value: '1248' },
       { key: 'response.size', value: '8412' },
@@ -42,7 +42,7 @@ const enrichers: Enricher[] = [
   {
     id: 'trace',
     name: 'TraceContext',
-    icon: 'i-lucide-route',
+    icon: 'i-ph-path-duotone',
     fields: [
       { key: 'trace.traceId', value: '"4bf92f3577b34da6a3ce…"' },
       { key: 'trace.spanId', value: '"00f067aa0ba902b7"' },
@@ -162,7 +162,7 @@ const totalEnrichedFields = computed(() =>
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-sparkles" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-sparkle-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">enrich pipeline</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="drained ? 'text-primary' : enricherActive >= 0 ? 'text-amber-400' : 'text-dimmed'">
@@ -179,7 +179,7 @@ const totalEnrichedFields = computed(() =>
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -188,7 +188,7 @@ const totalEnrichedFields = computed(() =>
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -228,7 +228,7 @@ const totalEnrichedFields = computed(() =>
               />
               <UIcon
                 v-else-if="isDone(i)"
-                name="i-lucide-check"
+                name="i-ph-check-duotone"
                 class="ml-auto size-3 text-emerald-400"
               />
             </div>
@@ -242,7 +242,7 @@ const totalEnrichedFields = computed(() =>
               class="hidden sm:block absolute top-1/2 right-0 translate-x-full -translate-y-1/2 z-10"
             >
               <UIcon
-                name="i-lucide-chevron-right"
+                name="i-ph-caret-right-duotone"
                 class="size-4 transition-colors duration-300"
                 :class="isDone(i) ? 'text-primary/60' : 'text-dimmed/40'"
               />
@@ -255,7 +255,7 @@ const totalEnrichedFields = computed(() =>
           :class="drained ? 'border-primary/30' : 'border-muted'"
         >
           <div class="flex items-center gap-2 border-b border-default/30 px-3.5 py-2">
-            <UIcon name="i-lucide-package" class="size-3 text-primary" />
+            <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">wide event</span>
             <span class="text-dimmed">·</span>
             <span class="font-mono text-[10px] text-muted">{{ 4 + totalEnrichedFields }} fields</span>

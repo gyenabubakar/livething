@@ -7,31 +7,31 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'log.audit()', icon: 'i-lucide-shield-check' },
-  { label: 'auditOnly()', icon: 'i-lucide-filter' },
-  { label: 'signed()', icon: 'i-lucide-fingerprint' },
-  { label: 'auditDiff()', icon: 'i-lucide-git-compare' },
-  { label: 'mockAudit()', icon: 'i-lucide-flask-conical' },
+  { label: 'log.audit()', icon: 'i-ph-shield-check-duotone' },
+  { label: 'auditOnly()', icon: 'i-ph-funnel-duotone' },
+  { label: 'signed()', icon: 'i-ph-fingerprint-duotone' },
+  { label: 'auditDiff()', icon: 'i-ph-git-diff-duotone' },
+  { label: 'mockAudit()', icon: 'i-ph-flask-duotone' },
 ]
 
 const benefits = [
   {
-    icon: 'i-lucide-shield-check',
+    icon: 'i-ph-shield-check-duotone',
     title: 'Reserved schema',
     text: 'Typed action, actor, target, outcome, changes, causation. No magic strings.',
   },
   {
-    icon: 'i-lucide-fingerprint',
+    icon: 'i-ph-fingerprint-duotone',
     title: 'Tamper-evident',
     text: 'HMAC signatures or hash-chain integrity composable on any drain.',
   },
   {
-    icon: 'i-lucide-rotate-ccw',
+    icon: 'i-ph-arrow-counter-clockwise-duotone',
     title: 'Safe retries',
     text: 'Deterministic idempotency keys auto-derived per audit event.',
   },
   {
-    icon: 'i-lucide-key-round',
+    icon: 'i-ph-key-duotone',
     title: 'Compose, do not replace',
     text: 'Reuses your drains, enrichers, redact, sampling. No parallel pipeline.',
   },
@@ -76,7 +76,7 @@ const benefits = [
             </div>
             <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
               {{ props.linkLabel || 'Learn more' }}
-              <UIcon name="i-lucide-arrow-right" class="size-3" />
+              <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
             </NuxtLink>
           </div>
         </Motion>
@@ -123,7 +123,7 @@ const benefits = [
             <span class="ml-3 font-mono text-xs text-dimmed">audit.jsonl</span>
             <div class="ml-auto flex items-center gap-1.5">
               <span class="inline-flex items-center gap-1 font-mono text-[10px] text-emerald-500">
-                <UIcon name="i-lucide-shield-check" class="size-3" />
+                <UIcon name="i-ph-shield-check-duotone" class="size-3" />
                 hash-chain
               </span>
             </div>

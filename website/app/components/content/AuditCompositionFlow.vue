@@ -11,11 +11,11 @@ interface Stage {
 }
 
 const stages: Stage[] = [
-  { id: 'callsite', label: 'log.audit / audit / withAudit', hint: 'callsite', icon: 'i-lucide-file-pen-line', origin: 'audit' },
-  { id: 'set', label: 'set event.audit', hint: 'reserved field', icon: 'i-lucide-square-pen', origin: 'audit' },
-  { id: 'forceKeep', label: 'force-keep tail-sample', hint: 'never dropped', icon: 'i-lucide-shield-check', origin: 'audit' },
-  { id: 'enricher', label: 'auditEnricher()', hint: '+ requestId · ip · ua', icon: 'i-lucide-sparkles', origin: 'audit' },
-  { id: 'redact', label: 'redact + auditRedactPreset', hint: 'PII scrubbed', icon: 'i-lucide-eye-off', origin: 'shared' },
+  { id: 'callsite', label: 'log.audit / audit / withAudit', hint: 'callsite', icon: 'i-ph-note-pencil-duotone', origin: 'audit' },
+  { id: 'set', label: 'set event.audit', hint: 'reserved field', icon: 'i-ph-note-pencil-duotone', origin: 'audit' },
+  { id: 'forceKeep', label: 'force-keep tail-sample', hint: 'never dropped', icon: 'i-ph-shield-check-duotone', origin: 'audit' },
+  { id: 'enricher', label: 'auditEnricher()', hint: '+ requestId · ip · ua', icon: 'i-ph-sparkle-duotone', origin: 'audit' },
+  { id: 'redact', label: 'redact + auditRedactPreset', hint: 'PII scrubbed', icon: 'i-ph-eye-slash-duotone', origin: 'shared' },
 ]
 
 interface DrainTarget {
@@ -27,8 +27,8 @@ interface DrainTarget {
 }
 
 const drains: DrainTarget[] = [
-  { id: 'main', label: 'main drain', hint: 'Axiom · Datadog · Sentry · …', icon: 'i-lucide-cloud-upload', accent: 'text-primary' },
-  { id: 'signed', label: 'auditOnly(signed(fsDrain))', hint: 'hash-chain · WORM · 7y retention', icon: 'i-lucide-link-2', accent: 'text-emerald-400' },
+  { id: 'main', label: 'main drain', hint: 'Axiom · Datadog · Sentry · …', icon: 'i-ph-cloud-arrow-up-duotone', accent: 'text-primary' },
+  { id: 'signed', label: 'auditOnly(signed(fsDrain))', hint: 'hash-chain · WORM · 7y retention', icon: 'i-ph-link-simple-duotone', accent: 'text-emerald-400' },
 ]
 
 const stageIdx = ref(-1)
@@ -171,7 +171,7 @@ const fanOutReached = computed(() => phase.value === 'fan-out' || phase.value ==
           {{ phase === 'done' || phase === 'hold' ? 'persisted' : (fanOutReached ? 'fan-out' : 'flowing') }}
         </span>
         <div class="ml-auto hidden md:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-shield-check" class="size-3 text-primary" />
+          <UIcon name="i-ph-shield-check-duotone" class="size-3 text-primary" />
           <span>each layer is opt-in</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -182,7 +182,7 @@ const fanOutReached = computed(() => phase.value === 'fan-out' || phase.value ==
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -191,7 +191,7 @@ const fanOutReached = computed(() => phase.value === 'fan-out' || phase.value ==
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>

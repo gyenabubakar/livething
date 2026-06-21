@@ -161,7 +161,7 @@ const collapsedCount = computed(() => lineCollapsed.value.filter(Boolean).length
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-shrink" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-arrows-in-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">narrow logs → wide event</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="phase === 'wide' ? 'text-primary' : phase === 'collapsing' ? 'text-amber-400' : 'text-dimmed'">
@@ -178,7 +178,7 @@ const collapsedCount = computed(() => lineCollapsed.value.filter(Boolean).length
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -187,7 +187,7 @@ const collapsedCount = computed(() => lineCollapsed.value.filter(Boolean).length
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -219,7 +219,7 @@ const collapsedCount = computed(() => lineCollapsed.value.filter(Boolean).length
           </div>
 
           <div class="mt-3 pt-2 border-t border-default/30 flex items-center gap-2 font-mono text-[9px] text-dimmed">
-            <UIcon name="i-lucide-search-x" class="size-3 text-amber-400/70" />
+            <UIcon name="i-ph-magnifying-glass-minus-duotone" class="size-3 text-amber-400/70" />
             <span>matching to one request needs IDs everywhere</span>
           </div>
         </div>
@@ -249,7 +249,7 @@ const collapsedCount = computed(() => lineCollapsed.value.filter(Boolean).length
           </div>
 
           <div class="mt-3 pt-2 border-t border-default/30 flex items-center gap-2 font-mono text-[9px] text-dimmed">
-            <UIcon name="i-lucide-search-check" class="size-3 text-emerald-400/80" />
+            <UIcon name="i-ph-magnifying-glass-duotone" class="size-3 text-emerald-400/80" />
             <span>filter on any field, no joins, no IDs to chase</span>
           </div>
         </div>

@@ -268,6 +268,9 @@ importers:
         specifier: ^2.5.109
         version: 2.5.131(svelte@5.55.3(@typescript-eslint/types@8.61.1))(vue@3.5.38(typescript@6.0.2))
     devDependencies:
+      '@iconify-json/ph':
+        specifier: ^1.2.2
+        version: 1.2.2
       vue-tsc:
         specifier: ^2.2.0
         version: 2.2.12(typescript@6.0.2)
@@ -1859,6 +1862,12 @@ packages:
     resolution:
       {
         integrity: sha512-NbvH3B1BYo6wBtS7joLi7f2UVQOqK2dtZodMFf3kkBs+Tnh9TkRuy8oVHr1RM8UK6bUtvAXxfNlGAah0CuvPCw==,
+      }
+
+  '@iconify-json/ph@1.2.2':
+    resolution:
+      {
+        integrity: sha512-PgkEZNtqa8hBGjHXQa4pMwZa93hmfu8FUSjs/nv4oUU6yLsgv+gh9nu28Kqi8Fz9CCVu4hj1MZs9/60J57IzFw==,
       }
 
   '@iconify-json/simple-icons@1.2.86':
@@ -15663,6 +15672,10 @@ snapshots:
       '@iconify/types': 2.0.0
 
   '@iconify-json/lucide@1.2.114':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/ph@1.2.2':
     dependencies:
       '@iconify/types': 2.0.0
 

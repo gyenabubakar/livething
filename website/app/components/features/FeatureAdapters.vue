@@ -19,9 +19,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Batching', icon: 'i-lucide-layers' },
-  { label: 'Retry & backoff', icon: 'i-lucide-refresh-cw' },
-  { label: 'Fan-out', icon: 'i-lucide-git-fork' },
+  { label: 'Batching', icon: 'i-ph-stack-duotone' },
+  { label: 'Retry & backoff', icon: 'i-ph-arrows-clockwise-duotone' },
+  { label: 'Fan-out', icon: 'i-ph-git-fork-duotone' },
 ]
 
 let animId: number | undefined
@@ -288,7 +288,7 @@ function setupCanvas() {
             </div>
             <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
               {{ props.linkLabel || 'Learn more' }}
-              <UIcon name="i-lucide-arrow-right" class="size-3" />
+              <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
             </NuxtLink>
           </div>
         </Motion>
@@ -301,7 +301,7 @@ function setupCanvas() {
         >
           <div class="space-y-5">
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-zap" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-lightning-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Non-blocking
@@ -312,7 +312,7 @@ function setupCanvas() {
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-shield-check" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-shield-check-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Guaranteed delivery
@@ -323,7 +323,7 @@ function setupCanvas() {
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <UIcon name="i-lucide-plug" class="size-4 mt-0.5 shrink-0 text-primary" />
+              <UIcon name="i-ph-plug-duotone" class="size-4 mt-0.5 shrink-0 text-primary" />
               <div>
                 <p class="font-mono text-xs text-highlighted">
                   Bring your own drain

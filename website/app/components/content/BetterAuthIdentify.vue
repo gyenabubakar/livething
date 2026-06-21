@@ -30,10 +30,10 @@ interface Step {
 }
 
 const steps: Step[] = [
-  { id: 'middleware', label: 'middleware', hint: 'route check · skip auth/**', icon: 'i-lucide-route' },
+  { id: 'middleware', label: 'middleware', hint: 'route check · skip auth/**', icon: 'i-ph-path-duotone' },
   { id: 'session', label: 'getSession(headers)', hint: 'reads cookie · 12ms', icon: 'i-simple-icons-betterauth' },
-  { id: 'identify', label: 'identifyUser(log, session)', hint: 'safe-fields whitelist', icon: 'i-lucide-user-check' },
-  { id: 'emit', label: 'emit wide event', hint: 'all fields drained', icon: 'i-lucide-package-check' },
+  { id: 'identify', label: 'identifyUser(log, session)', hint: 'safe-fields whitelist', icon: 'i-ph-user-check-duotone' },
+  { id: 'emit', label: 'emit wide event', hint: 'all fields drained', icon: 'i-ph-package-duotone' },
 ]
 
 const stepIdx = ref(-1)
@@ -203,7 +203,7 @@ function valueColor(value: string) {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -212,7 +212,7 @@ function valueColor(value: string) {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -286,7 +286,7 @@ function valueColor(value: string) {
 
         <div class="border-t border-default/30 lg:border-t-0 lg:border-l min-w-0">
           <div class="flex items-center gap-2 border-b border-default/30 px-4 py-2.5">
-            <UIcon name="i-lucide-layers" class="size-3 text-primary" />
+            <UIcon name="i-ph-stack-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest text-dimmed uppercase">
               wide event
             </span>
@@ -318,7 +318,7 @@ function valueColor(value: string) {
 
             <div class="border-t border-default/30 pt-2 mt-2 space-y-0.5">
               <div class="flex items-center gap-1.5 text-[9px] tracking-widest uppercase text-dimmed mb-1">
-                <UIcon name="i-lucide-user" class="size-3 text-primary" />
+                <UIcon name="i-ph-user-duotone" class="size-3 text-primary" />
                 <span>added by better-auth</span>
               </div>
               <div

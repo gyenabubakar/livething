@@ -56,7 +56,7 @@ export default defineAppConfig({
         'fastify': 'i-simple-icons-fastify',
         'elysia': 'i-custom:elysia',
         'nestjs': 'i-simple-icons-nestjs',
-        'standalone': 'i-lucide-box',
+        'standalone': 'i-ph-cube-duotone',
         'nitro': 'i-custom:nitro',
       },
     },

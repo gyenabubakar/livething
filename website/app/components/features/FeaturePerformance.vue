@@ -11,9 +11,9 @@ const props = defineProps<{
 }>()
 
 const pills = [
-  { label: 'Zero-alloc hot path', icon: 'i-lucide-zap' },
-  { label: 'CodSpeed CI', icon: 'i-lucide-shield-check' },
-  { label: 'Open source benchmarks', icon: 'i-lucide-code' },
+  { label: 'Zero-alloc hot path', icon: 'i-ph-lightning-duotone' },
+  { label: 'CodSpeed CI', icon: 'i-ph-shield-check-duotone' },
+  { label: 'Open source benchmarks', icon: 'i-ph-code-duotone' },
 ]
 
 interface Benchmark {
@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
         </div>
         <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-dimmed hover:text-primary transition-colors">
           {{ props.linkLabel || 'Learn more' }}
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>
@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
           <div class="p-5 sm:p-6 space-y-5 flex-1">
             <div class="flex items-start gap-3">
               <div class="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-primary/20 bg-primary/5">
-                <UIcon name="i-lucide-merge" class="size-3.5 text-primary" />
+                <UIcon name="i-ph-git-merge-duotone" class="size-3.5 text-primary" />
               </div>
               <div>
                 <p class="font-mono text-xs text-highlighted">
@@ -280,7 +280,7 @@ onBeforeUnmount(() => {
 
             <div class="flex items-start gap-3">
               <div class="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-primary/20 bg-primary/5">
-                <UIcon name="i-lucide-pen-tool" class="size-3.5 text-primary" />
+                <UIcon name="i-ph-pen-nib-duotone" class="size-3.5 text-primary" />
               </div>
               <div>
                 <p class="font-mono text-xs text-highlighted">
@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
 
             <div class="flex items-start gap-3">
               <div class="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-primary/20 bg-primary/5">
-                <UIcon name="i-lucide-clock" class="size-3.5 text-primary" />
+                <UIcon name="i-ph-clock-duotone" class="size-3.5 text-primary" />
               </div>
               <div>
                 <p class="font-mono text-xs text-highlighted">
@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
 
             <div class="flex items-start gap-3">
               <div class="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-primary/20 bg-primary/5">
-                <UIcon name="i-lucide-file-code" class="size-3.5 text-primary" />
+                <UIcon name="i-ph-file-code-duotone" class="size-3.5 text-primary" />
               </div>
               <div>
                 <p class="font-mono text-xs text-highlighted">
@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
 
             <div class="flex items-start gap-3">
               <div class="mt-0.5 flex size-6 shrink-0 items-center justify-center border border-primary/20 bg-primary/5">
-                <UIcon name="i-lucide-box" class="size-3.5 text-primary" />
+                <UIcon name="i-ph-cube-duotone" class="size-3.5 text-primary" />
               </div>
               <div>
                 <p class="font-mono text-xs text-highlighted">

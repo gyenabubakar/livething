@@ -238,14 +238,14 @@ function outcomeClass(outcome: 'success' | 'denied' | 'failure') {
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-link-2" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-link-simple-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">audit chain</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase transition-colors duration-300" :class="statusClass">
           {{ statusLabel }}
         </span>
         <div class="ml-auto hidden sm:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-shield-check" class="size-3" />
+          <UIcon name="i-ph-shield-check-duotone" class="size-3" />
           <span>signed · hash-chain</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -256,7 +256,7 @@ function outcomeClass(outcome: 'success' | 'denied' | 'failure') {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -265,7 +265,7 @@ function outcomeClass(outcome: 'success' | 'denied' | 'failure') {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -329,28 +329,28 @@ function outcomeClass(outcome: 'success' | 'denied' | 'failure') {
                   v-if="linkState[i] === 'broken'"
                   class="inline-flex items-center gap-1 text-rose-400"
                 >
-                  <UIcon name="i-lucide-unlink" class="size-3" />
+                  <UIcon name="i-ph-link-break-duotone" class="size-3" />
                   <span class="hidden sm:inline">hash mismatch</span>
                 </span>
                 <span
                   v-else-if="linkState[i] === 'invalid'"
                   class="inline-flex items-center gap-1 text-rose-400/80"
                 >
-                  <UIcon name="i-lucide-x" class="size-3" />
+                  <UIcon name="i-ph-x-duotone" class="size-3" />
                   <span class="hidden sm:inline">invalid</span>
                 </span>
                 <span
                   v-else-if="linkState[i] === 'ok'"
                   class="inline-flex items-center gap-1 text-emerald-400"
                 >
-                  <UIcon name="i-lucide-check" class="size-3" />
+                  <UIcon name="i-ph-check-duotone" class="size-3" />
                   <span class="hidden sm:inline">link ok</span>
                 </span>
                 <span
                   v-else
                   class="inline-flex items-center gap-1 text-dimmed/70"
                 >
-                  <UIcon name="i-lucide-loader" class="size-3 animate-spin" />
+                  <UIcon name="i-ph-spinner-duotone" class="size-3 animate-spin" />
                   <span class="hidden sm:inline">pending</span>
                 </span>
               </div>
@@ -361,7 +361,7 @@ function outcomeClass(outcome: 'success' | 'denied' | 'failure') {
             >
               <span class="text-dimmed">prev:</span>
               <span class="text-dimmed/80 truncate">{{ row.prevHash ?? '∅' }}</span>
-              <UIcon name="i-lucide-arrow-right" class="size-2.5 text-dimmed/60 shrink-0" />
+              <UIcon name="i-ph-arrow-right-duotone" class="size-2.5 text-dimmed/60 shrink-0" />
               <span class="text-dimmed">hash:</span>
               <span
                 class="truncate transition-colors duration-300"

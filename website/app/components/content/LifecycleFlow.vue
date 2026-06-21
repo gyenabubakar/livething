@@ -209,7 +209,7 @@ const isDone = computed(() => phase.value >= stages.length - 1)
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -218,7 +218,7 @@ const isDone = computed(() => phase.value >= stages.length - 1)
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -287,7 +287,7 @@ const isDone = computed(() => phase.value >= stages.length - 1)
         <!-- Side panel: context accumulation + emitted event -->
         <div class="border-t border-default/30 lg:border-t-0 lg:border-l">
           <div class="flex items-center gap-2 border-b border-default/30 px-4 py-2.5">
-            <UIcon name="i-lucide-layers" class="size-3 text-primary" />
+            <UIcon name="i-ph-stack-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest text-dimmed uppercase">
               context
             </span>
@@ -327,7 +327,7 @@ const isDone = computed(() => phase.value >= stages.length - 1)
               :class="isReached(5) ? 'opacity-100' : 'opacity-30'"
             >
               <div class="flex items-center gap-2 mb-1.5">
-                <UIcon name="i-lucide-package-check" class="size-3 text-primary" />
+                <UIcon name="i-ph-package-duotone" class="size-3 text-primary" />
                 <span class="text-[10px] uppercase tracking-widest text-dimmed">wide event</span>
               </div>
               <pre class="text-[10px] sm:text-[11px] leading-relaxed text-muted overflow-x-auto"><code>{

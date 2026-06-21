@@ -13,7 +13,7 @@ const activeTab = ref(0)
 const frameworkRows = [
   [
     { name: 'Nuxt', icon: 'i-simple-icons-nuxtdotjs', tab: 0 },
-    { name: 'Script', icon: 'i-lucide-terminal', tab: 12 },
+    { name: 'Script', icon: 'i-ph-terminal-window-duotone', tab: 12 },
     { name: 'Next.js', icon: 'i-simple-icons-nextdotjs', tab: 1 },
     { name: 'SvelteKit', icon: 'i-simple-icons-svelte', tab: 2 },
     { name: 'Nitro', icon: 'i-custom-nitro', tab: 3 },
@@ -26,7 +26,7 @@ const frameworkRows = [
     { name: 'Hono', icon: 'i-simple-icons-hono', tab: 8 },
     { name: 'Fastify', icon: 'i-simple-icons-fastify', tab: 9 },
     { name: 'Elysia', icon: 'i-custom-elysia', tab: 10 },
-    { name: 'oRPC', icon: 'i-lucide-network', tab: 13 },
+    { name: 'oRPC', icon: 'i-ph-graph-duotone', tab: 13 },
     { name: 'Cloudflare', icon: 'i-simple-icons-cloudflare', tab: 11 },
     { name: 'Vite', icon: 'i-custom-vite', link: '/reference/vite-plugin' },
   ],
@@ -59,7 +59,7 @@ const frameworkRows = [
         </p>
         <NuxtLink v-if="props.link" :to="props.link" class="mt-4 inline-flex items-center gap-1.5 font-mono text-xs text-muted hover:text-primary transition-colors">
           {{ props.linkLabel || 'Learn more' }}
-          <UIcon name="i-lucide-arrow-right" class="size-3" />
+          <UIcon name="i-ph-arrow-right-duotone" class="size-3" />
         </NuxtLink>
       </div>
     </Motion>

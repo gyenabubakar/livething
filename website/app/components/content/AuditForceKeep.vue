@@ -146,14 +146,14 @@ const stats = computed(() => {
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-4 py-2.5">
-        <UIcon name="i-lucide-filter" class="size-3.5 text-primary" />
+        <UIcon name="i-ph-funnel-duotone" class="size-3.5 text-primary" />
         <span class="font-mono text-xs text-dimmed">tail-sample gate</span>
         <span class="text-dimmed">·</span>
         <span class="font-mono text-[10px] tracking-widest uppercase text-amber-400">
           keep rate {{ Math.round(KEEP_RATE * 100) }}%
         </span>
         <div class="ml-auto hidden sm:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-shield" class="size-3 text-primary" />
+          <UIcon name="i-ph-shield-duotone" class="size-3 text-primary" />
           <span>audit = force-keep</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -164,7 +164,7 @@ const stats = computed(() => {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -173,7 +173,7 @@ const stats = computed(() => {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -194,7 +194,7 @@ const stats = computed(() => {
           <div class="flex items-center gap-2 font-mono text-[11px] sm:text-xs min-w-0">
             <UIcon
               v-if="row.audit"
-              name="i-lucide-shield"
+              name="i-ph-shield-duotone"
               class="size-3.5 text-primary shrink-0"
             />
             <span v-else class="size-3.5 shrink-0" aria-hidden="true" />
@@ -208,7 +208,7 @@ const stats = computed(() => {
             :class="(rowPhase[i] === 'evaluated' || rowPhase[i] === 'resolved') ? 'opacity-100' : 'opacity-0'"
           >
             <span v-if="row.audit" class="inline-flex items-center gap-1.5 text-primary">
-              <UIcon name="i-lucide-arrow-down-to-line" class="size-3" />
+              <UIcon name="i-ph-arrow-line-down-duotone" class="size-3" />
               <span>audit · force</span>
             </span>
             <span v-else class="text-dimmed">
@@ -223,15 +223,15 @@ const stats = computed(() => {
             :class="rowPhase[i] === 'resolved' ? 'opacity-100' : 'opacity-0'"
           >
             <span v-if="isKept(row) && row.audit" class="inline-flex items-center gap-1 text-primary">
-              <UIcon name="i-lucide-arrow-right-to-line" class="size-3" />
+              <UIcon name="i-ph-arrow-line-right-duotone" class="size-3" />
               <span>kept</span>
             </span>
             <span v-else-if="isKept(row)" class="inline-flex items-center gap-1 text-emerald-400">
-              <UIcon name="i-lucide-arrow-right-to-line" class="size-3" />
+              <UIcon name="i-ph-arrow-line-right-duotone" class="size-3" />
               <span>kept</span>
             </span>
             <span v-else class="inline-flex items-center gap-1 text-muted line-through decoration-muted/60">
-              <UIcon class="size-3 no-underline" name="i-lucide-trash-2" />
+              <UIcon class="size-3 no-underline" name="i-ph-trash-duotone" />
               <span>dropped</span>
             </span>
           </div>

@@ -9,37 +9,37 @@ const landingItems = [
     children: [
       {
         label: 'Introduction',
-        icon: 'i-lucide-book-open',
+        icon: 'i-ph-book-open-duotone',
         description: 'What is evlog and why use it',
         to: '/start/introduction'
       },
       {
         label: 'Why start with evlog',
-        icon: 'i-lucide-rocket',
+        icon: 'i-ph-rocket-launch-duotone',
         description: 'The case for adopting evlog on day zero',
         to: '/start/why-evlog'
       },
       {
         label: 'Installation',
-        icon: 'i-lucide-download',
+        icon: 'i-ph-download-simple-duotone',
         description: 'Install evlog in your project',
         to: '/start/installation'
       },
       {
         label: 'Quick Start',
-        icon: 'i-lucide-zap',
+        icon: 'i-ph-lightning-duotone',
         description: 'Get up and running in minutes',
         to: '/start/quick-start'
       },
       {
         label: 'vs Other Loggers',
-        icon: 'i-lucide-git-compare-arrows',
+        icon: 'i-ph-git-diff-duotone',
         description: 'How evlog compares to pino, consola, winston',
         to: '/reference/vs-other-loggers'
       },
       {
         label: 'Agent Skills',
-        icon: 'i-lucide-bot',
+        icon: 'i-ph-robot-duotone',
         description: 'Use evlog with AI coding agents',
         to: '/reference/agent-skills'
       }
@@ -51,37 +51,37 @@ const landingItems = [
     children: [
       {
         label: 'Simple Logging',
-        icon: 'i-lucide-terminal',
+        icon: 'i-ph-terminal-window-duotone',
         description: 'Fire-and-forget structured logs',
         to: '/learn/simple-logging'
       },
       {
         label: 'Wide Events',
-        icon: 'i-lucide-rows-3',
+        icon: 'i-ph-rows-duotone',
         description: 'Accumulate context, emit once',
         to: '/learn/wide-events'
       },
       {
         label: 'Structured Errors',
-        icon: 'i-lucide-shield-alert',
+        icon: 'i-ph-shield-warning-duotone',
         description: 'Errors that explain why and how to fix',
         to: '/learn/structured-errors'
       },
       {
         label: 'Catalogs',
-        icon: 'i-lucide-book-marked',
+        icon: 'i-ph-book-bookmark-duotone',
         description: 'Refactor-safe typed error and audit catalogs',
         to: '/learn/catalogs'
       },
       {
         label: 'Lifecycle',
-        icon: 'i-lucide-arrow-right-left',
+        icon: 'i-ph-arrows-left-right-duotone',
         description: 'From emit() to drain in detail',
         to: '/learn/lifecycle'
       },
       {
         label: 'Sampling',
-        icon: 'i-lucide-filter',
+        icon: 'i-ph-funnel-duotone',
         description: 'Keep all errors, drop healthy noise',
         to: '/learn/sampling'
       }
@@ -135,13 +135,13 @@ const landingItems = [
       },
       {
         label: 'Standalone',
-        icon: 'i-lucide-code',
+        icon: 'i-ph-code-duotone',
         description: 'Scripts, jobs, libraries, anything',
         to: '/integrate/frameworks/standalone'
       },
       {
         label: 'All frameworks',
-        icon: 'i-lucide-layers',
+        icon: 'i-ph-stack-duotone',
         description: 'See all 16 framework integrations',
         to: '/integrate/frameworks/overview'
       }
@@ -195,7 +195,7 @@ const landingItems = [
       },
       {
         label: 'File System',
-        icon: 'i-lucide-hard-drive',
+        icon: 'i-ph-hard-drive-duotone',
         description: 'Write NDJSON logs locally',
         to: '/integrate/adapters/self-hosted/fs'
       },
@@ -231,19 +231,19 @@ const landingItems = [
       },
       {
         label: 'Audit Logs',
-        icon: 'i-lucide-shield-check',
+        icon: 'i-ph-shield-check-duotone',
         description: 'Tamper-evident who-did-what trails',
         to: '/use-cases/audit/overview'
       },
       {
         label: 'Client Logging',
-        icon: 'i-lucide-monitor',
+        icon: 'i-ph-monitor-duotone',
         description: 'Browser-side logging and transport',
         to: '/use-cases/client-logging'
       },
       {
         label: 'Enrichers',
-        icon: 'i-lucide-sparkles',
+        icon: 'i-ph-sparkle-duotone',
         description: 'Auto-add User-Agent, geo, trace context',
         to: '/use-cases/enrichers'
       }

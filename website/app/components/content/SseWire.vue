@@ -116,7 +116,7 @@ const replayCount = computed(() => visible.value.filter((v, i) => v && frames[i]
   >
     <div ref="wrapperRef" class="overflow-hidden border border-muted bg-default">
       <div class="flex items-center gap-2 border-b border-muted px-3 py-2">
-        <UIcon name="i-lucide-radio" class="size-3 text-primary" />
+        <UIcon name="i-ph-radio-duotone" class="size-3 text-primary" />
         <span class="font-mono text-[11px] text-dimmed">GET /sse</span>
         <span class="text-dimmed text-[10px]">·</span>
         <span class="font-mono text-[9px] tracking-widest uppercase transition-colors duration-300" :class="connected ? 'text-emerald-500' : 'text-dimmed'">
@@ -127,10 +127,10 @@ const replayCount = computed(() => visible.value.filter((v, i) => v && frames[i]
         </div>
         <div class="flex items-center gap-0.5 ml-1">
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" :aria-label="paused ? 'Play animation' : 'Pause animation'" :disabled="!started" @click="toggle">
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button type="button" class="size-5 inline-flex items-center justify-center text-dimmed hover:text-default focus:text-default focus:outline-none transition-colors" aria-label="Restart animation" :disabled="!started" @click="restart">
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>

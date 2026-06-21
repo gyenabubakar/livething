@@ -11,9 +11,9 @@ interface Branch {
 }
 
 const branches: Branch[] = [
-  { code: '\'PAYMENT_DECLINED\'', label: 'showRetryWithDifferentCard()', toast: 'Try a different payment method', icon: 'i-lucide-credit-card', color: 'text-rose-400' },
-  { code: '\'CART_EXPIRED\'', label: 'rebuildCart()', toast: 'Your cart expired — rebuilding…', icon: 'i-lucide-shopping-cart', color: 'text-amber-400' },
-  { code: 'default', label: 'toast.add({ ...error })', toast: '—', icon: 'i-lucide-bell-ring', color: 'text-dimmed' },
+  { code: '\'PAYMENT_DECLINED\'', label: 'showRetryWithDifferentCard()', toast: 'Try a different payment method', icon: 'i-ph-credit-card-duotone', color: 'text-rose-400' },
+  { code: '\'CART_EXPIRED\'', label: 'rebuildCart()', toast: 'Your cart expired — rebuilding…', icon: 'i-ph-shopping-cart-duotone', color: 'text-amber-400' },
+  { code: 'default', label: 'toast.add({ ...error })', toast: '—', icon: 'i-ph-bell-ringing-duotone', color: 'text-dimmed' },
 ]
 
 const ACTIVE_BRANCH = 0
@@ -211,7 +211,7 @@ function statusClass() {
           {{ statusLabel() }}
         </span>
         <div class="ml-auto hidden md:flex items-center gap-1.5 font-mono text-[9px] tracking-widest text-dimmed">
-          <UIcon name="i-lucide-shield-alert" class="size-3 text-rose-400" />
+          <UIcon name="i-ph-shield-warning-duotone" class="size-3 text-rose-400" />
           <span>code: PAYMENT_DECLINED</span>
         </div>
         <div class="flex items-center gap-0.5 ml-1.5 sm:ml-2">
@@ -222,7 +222,7 @@ function statusClass() {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -231,7 +231,7 @@ function statusClass() {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -239,7 +239,7 @@ function statusClass() {
       <div class="grid gap-px bg-muted/40 lg:grid-cols-3">
         <div class="bg-default px-4 py-4 sm:px-5 sm:py-5 min-w-0">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-server" class="size-3 text-primary" />
+            <UIcon name="i-ph-hard-drives-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">server</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed truncate max-w-[55%]">checkout.post.ts</span>
           </div>
@@ -252,7 +252,7 @@ function statusClass() {
 })</code></pre>
           <div class="mt-3 pt-3 border-t border-default/30 font-mono text-[9px] tracking-widest text-dimmed">
             <UIcon
-              :name="phase === 'idle' || phase === 'server-typing' ? 'i-lucide-circle-dashed' : 'i-lucide-flame'"
+              :name="phase === 'idle' || phase === 'server-typing' ? 'i-ph-circle-dashed-duotone' : 'i-ph-fire-duotone'"
               class="size-3 inline -mt-0.5 mr-1"
               :class="phase === 'idle' || phase === 'server-typing' ? 'text-dimmed/60' : 'text-rose-400'"
             />
@@ -264,7 +264,7 @@ function statusClass() {
 
         <div class="bg-default relative px-4 py-4 sm:px-5 sm:py-5 min-h-[210px] flex flex-col overflow-hidden min-w-0">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-globe" class="size-3 text-primary" />
+            <UIcon name="i-ph-globe-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">network</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed truncate max-w-[55%]">POST /api/checkout</span>
           </div>
@@ -278,7 +278,7 @@ function statusClass() {
               ]"
             >
               <div class="flex items-center gap-1.5 mb-1.5">
-                <UIcon name="i-lucide-package" class="size-3 text-rose-400" />
+                <UIcon name="i-ph-package-duotone" class="size-3 text-rose-400" />
                 <span class="font-mono text-[9px] tracking-widest uppercase text-dimmed">json envelope</span>
               </div>
               <pre class="font-mono text-[10px] leading-relaxed text-muted overflow-hidden"><code>{
@@ -289,7 +289,7 @@ function statusClass() {
             </div>
 
             <div class="flex items-center gap-2 font-mono text-[9px] tracking-widest uppercase text-dimmed">
-              <UIcon name="i-lucide-server" class="size-3 shrink-0" :class="envelopeInFlight ? 'text-primary' : ''" />
+              <UIcon name="i-ph-hard-drives-duotone" class="size-3 shrink-0" :class="envelopeInFlight ? 'text-primary' : ''" />
               <span class="shrink-0">server</span>
               <div class="flex-1 relative h-px bg-muted/60 mx-1">
                 <div
@@ -304,7 +304,7 @@ function statusClass() {
               </div>
               <span class="shrink-0">client</span>
               <UIcon
-                name="i-lucide-monitor"
+                name="i-ph-monitor-duotone"
                 class="size-3 shrink-0"
                 :class="envelopeProgress >= 1 ? 'text-emerald-400' : ''"
               />
@@ -314,7 +314,7 @@ function statusClass() {
 
         <div class="bg-default px-4 py-4 sm:px-5 sm:py-5 min-w-0">
           <div class="flex items-center gap-2 mb-3">
-            <UIcon name="i-lucide-monitor" class="size-3 text-primary" />
+            <UIcon name="i-ph-monitor-duotone" class="size-3 text-primary" />
             <span class="font-mono text-[10px] tracking-widest uppercase text-dimmed">client</span>
             <span class="ml-auto font-mono text-[9px] text-dimmed truncate max-w-[55%]">useCheckout.ts</span>
           </div>
@@ -392,7 +392,7 @@ function statusClass() {
           class="flex items-center gap-2 transition-all duration-500"
           :class="toastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'"
         >
-          <UIcon name="i-lucide-bell-ring" class="size-3 text-emerald-400" />
+          <UIcon name="i-ph-bell-ringing-duotone" class="size-3 text-emerald-400" />
           <span class="text-dimmed">toast →</span>
           <span class="border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
             {{ branches[ACTIVE_BRANCH]?.toast }}
@@ -400,7 +400,7 @@ function statusClass() {
         </div>
         <div class="ml-auto flex items-center gap-3 text-dimmed">
           <span class="inline-flex items-center gap-1.5">
-            <UIcon name="i-lucide-shield-check" class="size-3 text-emerald-400" />
+            <UIcon name="i-ph-shield-check-duotone" class="size-3 text-emerald-400" />
             <span>stable code, no message parsing</span>
           </span>
         </div>

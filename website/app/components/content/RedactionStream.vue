@@ -151,7 +151,7 @@ function display(field: Field, idx: number) {
             :disabled="!started"
             @click="toggle"
           >
-            <UIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-3" />
+            <UIcon :name="paused ? 'i-ph-play-duotone' : 'i-ph-pause-duotone'" class="size-3" />
           </button>
           <button
             type="button"
@@ -160,7 +160,7 @@ function display(field: Field, idx: number) {
             :disabled="!started"
             @click="restart"
           >
-            <UIcon name="i-lucide-rotate-ccw" class="size-3" />
+            <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-3" />
           </button>
         </div>
       </div>
@@ -210,21 +210,21 @@ function display(field: Field, idx: number) {
                   v-if="field.kind === 'safe'"
                   class="inline-flex items-center gap-1 text-[9px] tracking-widest text-emerald-500"
                 >
-                  <UIcon name="i-lucide-check" class="size-3" />
+                  <UIcon name="i-ph-check-duotone" class="size-3" />
                   <span class="hidden sm:inline">SAFE</span>
                 </span>
                 <span
                   v-else-if="field.kind === 'path'"
                   class="inline-flex items-center gap-1 text-[9px] tracking-widest text-rose-400"
                 >
-                  <UIcon name="i-lucide-shield-x" class="size-3" />
+                  <UIcon name="i-ph-shield-slash-duotone" class="size-3" />
                   <span class="hidden sm:inline">PATH</span>
                 </span>
                 <span
                   v-else
                   class="inline-flex items-center gap-1 text-[9px] tracking-widest text-amber-500"
                 >
-                  <UIcon name="i-lucide-eye-off" class="size-3" />
+                  <UIcon name="i-ph-eye-slash-duotone" class="size-3" />
                   <span class="hidden sm:inline">{{ field.pattern }}</span>
                 </span>
               </template>

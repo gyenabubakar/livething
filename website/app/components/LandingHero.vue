@@ -46,7 +46,7 @@ async function copyCommand() {
           to="/start/installation"
           size="lg"
           class="bg-primary hover:bg-blue-600 text-white font-medium"
-          trailing-icon="i-lucide-arrow-right"
+          trailing-icon="i-ph-arrow-right-duotone"
           label="Fix your logs"
         />
         <UButton
