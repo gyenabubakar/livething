@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
+import { collectUnique } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
 import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';

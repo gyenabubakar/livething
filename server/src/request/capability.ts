@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
@@ -132,6 +133,7 @@ export const requests = withCapabilityKind(function requests<
 >(declarations: TDeclarations = {} as TDeclarations): RequestsCapability<TDeclarations> {
   const serverRequests = new Map<string, ResolvedServerRequest>();
   for (const [event, declaration] of Object.entries(declarations)) {
+    assertValidWSKitIdentifier(event, 'requests() event name');
     serverRequests.set(serverRequestKey(null, event), resolveServerRequest(declaration));
   }
 
@@ -148,6 +150,7 @@ export const requests = withCapabilityKind(function requests<
   writable.__serverRequests = serverRequests;
   writable.__registerServerRequests = (channelKey, channelDeclarations) => {
     for (const [event, declaration] of Object.entries(channelDeclarations)) {
+      assertValidWSKitIdentifier(event, 'requests() event name');
       serverRequests.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
     }
   };

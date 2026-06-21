@@ -1,3 +1,4 @@
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 
 /**
@@ -29,6 +30,7 @@ const OUTGOING_KEY = Symbol('outgoing');
 export function outgoing<TEvent extends string, TPayload = unknown>(
   event: TEvent,
 ): OutgoingPrimitive<TEvent, TPayload> {
+  assertValidWSKitIdentifier(event, 'outgoing() event name');
   return {
     __wskit: 'outgoing',
     __kind: 'contract',

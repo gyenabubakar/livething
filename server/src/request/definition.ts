@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
 import type { Validator } from '~/types.ts';
 
 /**

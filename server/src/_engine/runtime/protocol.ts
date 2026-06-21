@@ -353,12 +353,7 @@ export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
 export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
 
 /**
- * True when `name` has the protocol-event shape `__x__`. The engine uses this
- * to split protocol frames (parsed against the protocol variant) from
- * user-event frames (parsed against the user-event schema) before validation.
- *
- * Plugin-owned events use the `__pluginId:event` form — they start with `__`
- * but do not end with it, so this check leaves them on the user-event path.
+ * True when `name` has the protocol-event shape `__x__`.
  */
 export function isProtocolEventName(name: unknown): name is `__${string}__` {
   return (

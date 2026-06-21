@@ -708,7 +708,7 @@ async function runGenerator(
           seq,
           messageId: null,
           payload: serializeJsonOrThrow(
-            chunkValue ?? null,
+            chunkToPayload(chunkValue),
             `Durable stream chunk for "${def.event}"`,
           ),
           now,

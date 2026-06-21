@@ -75,6 +75,7 @@ describe('StreamDurableClient — streams', () => {
       | 'paginate-bare'
       | 'attempt-stream'
       | 'buffer-full-demo'
+      | 'primitive-recorded'
       | 'count-tokens-nudged'
       | 'paginate-nudged'
     >();

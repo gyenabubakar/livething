@@ -14,6 +14,7 @@ const AttemptPayload = v.object({});
 const AttemptChunk = t<{ attempt: number }>();
 const BufferFullPayload = v.object({});
 const BufferChunk = t<{ n: number }>();
+const NumberChunk = t<number>();
 const StopPayload = v.object({});
 
 const base = define({
@@ -95,6 +96,18 @@ const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
   },
 });
 
+const handlePrimitiveRecorded = base.recordedStream('primitive-recorded', {
+  input: v.object({}),
+  chunk: NumberChunk,
+  maxChunks: 10,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run() {
+    yield 1;
+    yield 2;
+  },
+});
+
 const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   input: CountTokensPayload,
   chunk: TokenChunk,
@@ -142,6 +155,7 @@ export const streamDurableHandler = base.assemble(
   handlePaginateBare,
   handleAttemptStream,
   handleBufferFullDemo,
+  handlePrimitiveRecorded,
   handleCountTokensNudged,
   handlePaginateNudged,
   handleServerDrop,

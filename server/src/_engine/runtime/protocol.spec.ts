@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
+  isProtocolEventName,
   OUTGOING_PROTOCOL_EVENT_NAMES,
   OutgoingProtocolFrame,
   UserEventFrameSchema,
@@ -154,5 +155,13 @@ describe('outgoing protocol-frame conformance', () => {
       __wskit: { channel: 'room:1', channelFamily: '' },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('protocol event detection', () => {
+  it('detects protocol-shaped double-underscore names', () => {
+    expect(isProtocolEventName('__subscribe__')).toBe(true);
+    expect(isProtocolEventName('__e2e:feed::ping')).toBe(false);
+    expect(isProtocolEventName('ping')).toBe(false);
   });
 });

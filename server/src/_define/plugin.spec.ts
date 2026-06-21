@@ -122,8 +122,12 @@ describe('plugin() — scoped handler + manifest', () => {
 
   it('rejects a user-declared event in the reserved __<id>::<name> space', () => {
     const base = define({ env: t<Env>() });
-    const sneaky = base.on('__acme:presence::heartbeat', { run() {} });
-    expect(() => compileHandlerDefinition(base.assemble(sneaky))).toThrow(/reserved/);
+    expect(() => base.on('__acme:presence::heartbeat', { run() {} })).toThrow(/reserved/);
+  });
+
+  it('rejects a plugin short event name ending with __ before namespacing', () => {
+    const h = define({ scoped: true });
+    expect(() => h.on('heartbeat__', { run() {} })).toThrow(/reserved '__' suffix/);
   });
 
   it('lets two plugins coexist without their namespaced surfaces colliding', () => {
