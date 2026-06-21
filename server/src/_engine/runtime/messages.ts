@@ -10,20 +10,15 @@ import {
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
-import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
-import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
-import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
-import * as RequestPrimitive from '~/request/runtime.ts';
-import * as StreamPrimitive from '~/stream/runtime.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
-import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
-import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
+import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -141,11 +136,18 @@ interface DispatchRuntime
   ): void;
 
   /**
-   * Tracks whether `ensureDurableStreamSchema` has already run in this
-   * engine instance lifetime. Flipped to `true` on first stream start or
-   * resume so subsequent operations skip the redundant DDL check.
+   * Tracks whether the durable-stream schema has already run in this engine
+   * instance lifetime. Flipped to `true` on first stream start or resume so
+   * subsequent operations skip the redundant DDL check.
    */
   durableStreamSchemaReady: boolean;
+
+  /** Feature dispatch slots filled by the stream/request capabilities. */
+  streamTrigger?: FeatureSlots.StreamTrigger;
+  streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
+  streamCancel?: FeatureSlots.StreamCancel;
+  durableStream?: FeatureSlots.DurableStreamService;
+  requestDispatch?: FeatureSlots.RequestDispatch;
 }
 
 /**
@@ -408,21 +410,20 @@ export async function dispatchIncoming(
     }
 
     if (request) {
-      await RequestPrimitive.handleRequest(
-        {
-          asyncContext: runtime.asyncContext,
-          logger: runtime.logger,
-          sendThroughPipeline: (nextConnection, nextOpts) => {
-            return OutgoingRuntime.sendThroughPipeline(runtime, nextConnection, nextOpts);
-          },
-        },
-        { connection, ctx: getCtx(), scope, event, request, payload: payloadValue, wskit },
-      );
+      await runtime.requestDispatch?.(runtime, connection, {
+        connection,
+        ctx: getCtx(),
+        scope,
+        event,
+        request,
+        payload: payloadValue,
+        wskit,
+      });
       return;
     }
 
     if (stream) {
-      await StreamPrimitive.runStream(runtime, connection, {
+      await runtime.streamTrigger?.(runtime, connection, {
         scope,
         event,
         stream,
@@ -431,40 +432,13 @@ export async function dispatchIncoming(
       });
     } else if (resumableStream || recordedStream) {
       const durable = resumableStream ?? recordedStream!;
-      if (!runtime.sql) {
-        throw new Error(
-          '[wskit] durable stream "' +
-            durable.event +
-            '" requires storage; the adapter did not provide storage.',
-        );
-      }
-      if (!runtime.durableStreamSchemaReady) {
-        ensureDurableStreamSchema(runtime.sql);
-        runtime.durableStreamSchemaReady = true;
-      }
-      await DurableStreamRuntime.runDurableStream(
-        runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
-        connection,
-        {
-          scope,
-          def: {
-            event: durable.event,
-            kind: resumableStream ? 'resumable' : 'recorded',
-            generator: durable.generator,
-            allowConcurrent: durable.allowConcurrent,
-            broadcast: durable.broadcast ?? false,
-            nudges: durable.nudges,
-            maxChunks: recordedStream?.maxChunks,
-            maxAgeMs: durable.maxAgeMs,
-            retentionAfterEndMs: durable.retentionAfterEndMs,
-            cursor: resumableStream?.cursor,
-            onDisconnect: durable.onDisconnect,
-            highWaterMark: durable.highWaterMark,
-          },
-          payload: payloadValue,
-          wskit,
-        },
-      );
+      await runtime.durableStream?.trigger(runtime, connection, {
+        scope,
+        durable,
+        kind: resumableStream ? 'resumable' : 'recorded',
+        payload: payloadValue,
+        wskit,
+      });
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, {
@@ -546,79 +520,6 @@ async function handleDispatchError(
   await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWSKit(wskit) });
 }
 
-// Find the compiled durable-stream def for a stored row, in the scope the row
-// was started in. Returns undefined if the def or scope is gone, or the
-// resuming connection is not a member of the stream's channel.
-function resolveDurableDefForRow(
-  runtime: DispatchRuntime,
-  connection: RuntimeConnection,
-  row: DurableStreamStorage.DurableStreamRow,
-):
-  | {
-      def: DurableStreamRuntime.DurableStreamRuntimeDef;
-      scope: EngineRuntimeTypes.ResolvedChannel;
-    }
-  | undefined {
-  let scope: EngineRuntimeTypes.ResolvedChannel = {};
-  let resumable: EngineCompileTypes.AnyResumableStream | undefined;
-  let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
-
-  if (row.channelKey) {
-    const channel =
-      row.channelFamily !== null
-        ? runtime.compiled.channelFamilies.get(row.channelFamily)
-        : runtime.compiled.channels.get(row.channelKey);
-    if (!channel) return undefined;
-    if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelFamily)) {
-      return undefined;
-    }
-    scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
-    resumable = channel.resumableStreams.get(row.event);
-    recorded = channel.recordedStreams.get(row.event);
-  } else {
-    resumable = runtime.compiled.resumableStreams.get(row.event);
-    recorded = runtime.compiled.recordedStreams.get(row.event);
-  }
-
-  if (resumable) {
-    return {
-      scope,
-      def: {
-        event: resumable.event,
-        kind: 'resumable',
-        generator: resumable.generator,
-        allowConcurrent: resumable.allowConcurrent,
-        broadcast: resumable.broadcast,
-        nudges: resumable.nudges,
-        maxAgeMs: resumable.maxAgeMs,
-        retentionAfterEndMs: resumable.retentionAfterEndMs,
-        cursor: resumable.cursor,
-        onDisconnect: resumable.onDisconnect,
-        highWaterMark: resumable.highWaterMark,
-      },
-    };
-  }
-  if (recorded) {
-    return {
-      scope,
-      def: {
-        event: recorded.event,
-        kind: 'recorded',
-        generator: recorded.generator,
-        allowConcurrent: recorded.allowConcurrent,
-        broadcast: recorded.broadcast,
-        nudges: recorded.nudges,
-        maxChunks: recorded.maxChunks,
-        maxAgeMs: recorded.maxAgeMs,
-        retentionAfterEndMs: recorded.retentionAfterEndMs,
-        onDisconnect: recorded.onDisconnect,
-        highWaterMark: recorded.highWaterMark,
-      },
-    };
-  }
-  return undefined;
-}
-
 /** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
 async function handleResumeStream(
   runtime: DispatchRuntime,
@@ -628,11 +529,7 @@ async function handleResumeStream(
   const streamId = frame.__wskit.streamId;
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
-  if (!runtime.sql) {
-    // No storage means durable streams aren't supported at all. Say so, rather
-    // than implying this particular stream merely expired or went missing.
-    // streamId stays on the envelope so the client correlates the error to the
-    // stream it tried to resume and surfaces it to that consumer.
+  if (!runtime.durableStream) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
@@ -640,16 +537,7 @@ async function handleResumeStream(
     });
     return;
   }
-  if (!runtime.durableStreamSchemaReady) {
-    ensureDurableStreamSchema(runtime.sql);
-    runtime.durableStreamSchemaReady = true;
-  }
 
-  // Routing markers let a non-creator resume a broadcast stream by its channel key.
-  // Malformed markers used to fall back to a top-level lookup, which then
-  // matched and resumed an unrelated top-level stream with the same id.
-  // Surface the routing failure as a typed __error__ tied to the streamId
-  // instead — the client gets a clear signal and no other stream is touched.
   let resumeScope: EngineRuntimeTypes.ResolvedChannel;
   try {
     resumeScope = resolveChannel(runtime.compiled, frame.__wskit);
@@ -661,17 +549,8 @@ async function handleResumeStream(
     });
     return;
   }
-  const durableRuntime = runtime as unknown as DurableStreamRuntime.DurableStreamRuntime;
-  const row = DurableStreamRuntime.findResumeRow(durableRuntime, connection, {
-    resumeScope,
-    streamId,
-  });
-  await DurableStreamRuntime.resumeDurableStream(durableRuntime, connection, {
-    resolveDef: (matched) => resolveDurableDefForRow(runtime, connection, matched),
-    row,
-    streamId,
-    lastKnownSeq,
-  });
+
+  await runtime.durableStream.resume(runtime, connection, { resumeScope, streamId, lastKnownSeq });
 }
 
 /**
@@ -709,16 +588,8 @@ async function dispatchProtocolFrame(
         runtime.handleMemberSync(connection, frame);
         return;
       case '__streamCancel__': {
-        await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
-        if (runtime.sql) {
-          // A broadcast stream's row is keyed by scope, so we need the cancel
-          // frame's routing markers to find it. A malformed scope marker (e.g.
-          // a channel name that does not match its declared family pattern)
-          // used to fall back to a top-level lookup, which then matched and
-          // cancelled the caller's unrelated top-level stream with the same
-          // id. Surface the routing failure as a typed __error__ tied to the
-          // streamId instead — the client gets a clear signal and no other
-          // stream is touched.
+        await runtime.streamCancel?.(runtime, connection, frame.__wskit.streamId);
+        if (runtime.durableStream && runtime.sql) {
           let cancelScope: EngineRuntimeTypes.ResolvedChannel;
           try {
             cancelScope = resolveChannel(runtime.compiled, frame.__wskit);
@@ -730,11 +601,10 @@ async function dispatchProtocolFrame(
             });
             return;
           }
-          await DurableStreamRuntime.cancelDurableStream(
-            runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
-            connection,
-            { streamId: frame.__wskit.streamId, cancelScope },
-          );
+          await runtime.durableStream.cancel(runtime, connection, {
+            streamId: frame.__wskit.streamId,
+            cancelScope,
+          });
         }
         return;
       }
@@ -1013,7 +883,7 @@ export async function processTextMessage(
       }
     }
 
-    const buffered = await StreamPrimitive.bufferStreamNudge(runtime, connection, {
+    const buffered = await runtime.streamNudgeBuffer?.(runtime, connection, {
       event,
       payload: nudgePayload,
       wskit,

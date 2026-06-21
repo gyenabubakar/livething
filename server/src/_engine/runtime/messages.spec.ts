@@ -7,6 +7,9 @@ import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { Defer } from '~/errors/errors.ts';
 import { localKey } from '~/local-key/local-key.ts';
+import { sendThroughPipeline } from '~/outgoing/runtime.ts';
+import { handleRequest } from '~/request/runtime.ts';
+import { bufferStreamNudge } from '~/stream/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
@@ -527,6 +530,15 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: (rt: any, _c: unknown, opts: any) =>
+        handleRequest(
+          {
+            asyncContext: rt.asyncContext,
+            logger: rt.logger,
+            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
+          },
+          opts,
+        ),
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -602,6 +614,15 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: (rt: any, _c: unknown, opts: any) =>
+        handleRequest(
+          {
+            asyncContext: rt.asyncContext,
+            logger: rt.logger,
+            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
+          },
+          opts,
+        ),
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -680,6 +701,15 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: (rt: any, _c: unknown, opts: any) =>
+        handleRequest(
+          {
+            asyncContext: rt.asyncContext,
+            logger: rt.logger,
+            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
+          },
+          opts,
+        ),
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -773,6 +803,15 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
+      requestDispatch: (rt: any, _c: unknown, opts: any) =>
+        handleRequest(
+          {
+            asyncContext: rt.asyncContext,
+            logger: rt.logger,
+            sendThroughPipeline: (c: any, o: any) => sendThroughPipeline(rt, c, o),
+          },
+          opts,
+        ),
       waitUntil() {},
       logger: { warn() {}, error() {} },
       generateId() {
@@ -1270,6 +1309,7 @@ function makeNudgeRuntime(
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,
+    streamNudgeBuffer: bufferStreamNudge,
     buildConnectionContext: () => ({}),
     handleRuntimeError,
     async handleValidationError() {},

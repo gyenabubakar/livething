@@ -1,7 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { defineHostCapability } from '~/_define/capability.ts';
 import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
-import type { HostCapability } from '~/_define/capability.ts';
 import type { SequenceOptions } from '~/sequence/sequence.ts';
 
 /**
@@ -21,11 +20,7 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
  * const base = define({ env: t<Env>(), capabilities: [sequence({ persist: true })] });
  * ```
  */
-export const sequence = withCapabilityKind(function sequence(
-  options?: SequenceOptions,
-): HostCapability<{}, 'sequence'> {
-  return stampKind(
-    hostCapability<{}, 'sequence'>([sequenceFactory(options)], ['sequence']),
-    CAPABILITY_KIND.sequence,
-  );
-}, CAPABILITY_KIND.sequence);
+export const sequence = defineHostCapability(
+  CAPABILITY_KIND.sequence,
+  (options?: SequenceOptions) => sequenceFactory(options),
+);

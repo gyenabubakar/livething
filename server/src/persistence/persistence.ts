@@ -1,4 +1,5 @@
 import { reconcilePersistenceOnBoot } from '~/persistence/cleanup.ts';
+import { persistenceService } from '~/persistence/service.ts';
 import { ensurePersistenceSchema } from '~/persistence/storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -38,6 +39,7 @@ export function persistence(): PersistencePrimitive {
     __requires: { storage: true },
     __setup(engine) {
       engine.setPersistenceEnabled(true);
+      engine.setPersistenceService(persistenceService);
       engine.onBootSchema(() => {
         ensurePersistenceSchema(engine.requireStorage().sql);
       });

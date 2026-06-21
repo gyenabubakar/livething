@@ -1,4 +1,5 @@
-import { addConnectionTag, buildGroupHandle } from '~/tags/runtime.ts';
+import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
+import { buildGroupHandle } from '~/tags/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { TagsRuntime } from '~/tags/runtime.ts';

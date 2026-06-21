@@ -147,6 +147,29 @@ export function stampKind<TCap extends AnyCapability>(cap: TCap, kind: string): 
 }
 
 /**
+ * Build a plain host capability factory in one call.
+ *
+ * Most host engines (`dedup`, `keepalive`, `persistence`, `sequence`) do nothing
+ * but wrap a single runtime primitive, flag one feature, and stamp their kind.
+ * This collapses that shared boilerplate: the `kind` doubles as the feature flag
+ * and the identity token, and `build` turns the factory's arguments into the one
+ * primitive the capability contributes. Engines with a build seam or extra
+ * fields (`stream`, `requests`, `rateLimit`, `channels`) keep their own factory.
+ *
+ * @internal
+ */
+export function defineHostCapability<TKind extends string, TArgs extends readonly any[] = []>(
+  kind: TKind,
+  build: (...args: TArgs) => Primitive,
+): KindedFactory<(...args: TArgs) => HostCapability<{}, TKind>> {
+  return withCapabilityKind(
+    (...args: TArgs): HostCapability<{}, TKind> =>
+      stampKind(hostCapability<{}, TKind>([build(...args)], [kind]), kind),
+    kind,
+  );
+}
+
+/**
  * A capability of any shape. Use this in constraint positions (`extends
  * readonly AnyCapability[]`) — the default `Capability` narrows the brand to
  * `never`, which would reject any capability that grants a builder method.

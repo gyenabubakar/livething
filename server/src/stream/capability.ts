@@ -1,11 +1,32 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { definePrimitive } from '~/primitive.ts';
+import { registerActiveStreamOps } from '~/stream/active-ops.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { stream as streamDef } from '~/stream/definition.ts';
+import { runStream } from '~/stream/runtime.ts';
 import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
+
+const STREAM_RUNTIME_KEY = Symbol('stream-runtime');
+
+/**
+ * Registers the plain-stream trigger and the shared active-stream ops so the
+ * engine's dispatch hub can run a matched `stream(...)` without importing the
+ * stream runtime itself.
+ */
+const streamRuntimePrimitive = definePrimitive({
+  tag: 'stream-runtime',
+  key: STREAM_RUNTIME_KEY,
+  kind: 'infrastructure',
+  create: () => ({}),
+  setup(engine) {
+    engine.setStreamTrigger(runStream);
+    registerActiveStreamOps(engine);
+  },
+});
 
 export type { NudgeMap } from '~/stream/shared.ts';
 export { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
@@ -39,7 +60,7 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  * ```
  */
 export const stream = withCapabilityKind(function stream(): StreamCapability {
-  const cap = capability<{}, never, 'stream'>([]) as StreamCapability;
+  const cap = capability<{}, never, 'stream'>([streamRuntimePrimitive()]) as StreamCapability;
   (cap as { __streamBuild: StreamCapability['__streamBuild'] }).__streamBuild = {
     kind: 'plain',
     build(event, config) {

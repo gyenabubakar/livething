@@ -1,5 +1,6 @@
 import { assertValidWSKitIdentifier } from '@wskit/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
+import { buildTagsApi } from '~/tags/runtime.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -85,6 +86,8 @@ export interface TagGroupsPrimitive<
 const TAG_GROUPS_EPHEMERAL_KEY = Symbol('tag-groups-ephemeral');
 /** @internal */
 const TAG_GROUPS_PERSISTENT_KEY = Symbol('tag-groups-persistent');
+/** Installs the `ctx.tags` builder once, however many group kinds are listed. @internal */
+const TAG_API_KEY = Symbol('tag-api');
 
 function validateGroupRegistrations(kind: TagKind, groups: readonly TagGroupRegistration[]): void {
   if (groups.length === 0) {
@@ -128,6 +131,9 @@ export function tagGroups<TKind extends TagKind>(
     groups,
     __setup(engine) {
       engine.registerTagGroups(kind, groups);
+      engine.installOnce(TAG_API_KEY, () => {
+        engine.setBuildTagsApi(buildTagsApi);
+      });
     },
   };
 }

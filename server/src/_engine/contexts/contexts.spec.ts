@@ -3,9 +3,9 @@ import {
   buildConnectionContext,
   createInitContext,
   createShutdownContext,
-  createTaskContext,
   persistAttachment,
 } from '~/_engine/contexts/contexts.ts';
+import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 

@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { resumableDurableRegistrar } from '~/_engine/stream-durable/registrar.ts';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import { scheduled as scheduledFactory } from '~/scheduled/scheduled.ts';
@@ -55,7 +56,9 @@ function buildDurableSweep(): Primitive {
  */
 export const resumableStream = withCapabilityKind(
   function resumableStream(): ResumableStreamCapability {
-    const cap = capability<{}, never, 'resumableStream'>([]) as ResumableStreamCapability;
+    const cap = capability<{}, never, 'resumableStream'>([
+      resumableDurableRegistrar(),
+    ]) as ResumableStreamCapability;
     (cap as { __streamBuild: ResumableStreamCapability['__streamBuild'] }).__streamBuild = {
       kind: 'resumable',
       build(event, config) {

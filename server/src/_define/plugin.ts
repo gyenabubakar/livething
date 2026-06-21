@@ -53,6 +53,10 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   // install. Outgoing request frames are prefixed by the normal scoped-send
   // path, so the carrier itself needs no per-plugin namespacing.
   'server-requests',
+  'request-runtime',
+  'stream-runtime',
+  'resumable-stream-runtime',
+  'recorded-stream-runtime',
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */

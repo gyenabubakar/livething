@@ -293,6 +293,17 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   };
 }
 
+/**
+ * One queued snapshot write held in the invocation scope. `row` is the value a
+ * later write in the same handler merges against; `flush` writes (or deletes)
+ * the row and runs the retention prune. The engine drains the queue by calling
+ * `flush`, so it never imports the replay storage helpers.
+ */
+export interface ReplaySnapshotEntry {
+  row: ReplayRow | null;
+  flush: (sql: Pick<SQLProvider, 'exec'>) => void;
+}
+
 export interface PersistReplayMessageOptions {
   options: ReplayOptions;
 
@@ -308,7 +319,7 @@ export interface PersistReplayMessageOptions {
    * The engine's open invocation scope, if a handler is currently running.
    * When this is set AND the replay mode is `snapshot`, this function does
    * NOT write to SQL. Instead, it adds the row to
-   * `scope.pendingReplaySnapshotRows` under the row key the snapshot maps
+   * `scope.pendingSnapshotFlushes` under the row key the snapshot maps
    * to. A later write in the same handler that targets the same key will
    * find the queued row and either replace it with the new value, or run
    * the reducer to merge the two — all in memory. When the handler
@@ -318,13 +329,7 @@ export interface PersistReplayMessageOptions {
    * writes to SQL right away.
    */
   scope?: {
-    pendingReplaySnapshotRows: Map<
-      string,
-      {
-        row: ReplayRow | null;
-        postFlush: (sql: Pick<SQLProvider, 'exec'>) => void;
-      }
-    >;
+    pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
   } | null;
 
   /**
@@ -388,7 +393,7 @@ export function persistReplayMessage(
   // delete the key when the reducer returned `null`).
   if (scope) {
     const nextValue: ReplaySnapshotValue = { event, payload };
-    const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
+    const queued = scope.pendingSnapshotFlushes.get(row.rowKey);
 
     let previousValue: ReplaySnapshotValue | null;
     if (queued !== undefined) {
@@ -399,11 +404,15 @@ export function persistReplayMessage(
     }
 
     const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
+    const prune = postFlush ?? noopPostFlush;
 
     if (!reduced) {
-      scope.pendingReplaySnapshotRows.set(row.rowKey, {
+      scope.pendingSnapshotFlushes.set(row.rowKey, {
         row: null,
-        postFlush: postFlush ?? noopPostFlush,
+        flush: (sqlForFlush) => {
+          deleteReplayRow(sqlForFlush, row.rowKey);
+          prune(sqlForFlush);
+        },
       });
       return null;
     }
@@ -416,9 +425,12 @@ export function persistReplayMessage(
       payload: JSON.stringify(reduced.payload),
     };
 
-    scope.pendingReplaySnapshotRows.set(row.rowKey, {
+    scope.pendingSnapshotFlushes.set(row.rowKey, {
       row: snapshotRow,
-      postFlush: postFlush ?? noopPostFlush,
+      flush: (sqlForFlush) => {
+        storeReplayRow(sqlForFlush, snapshotRow);
+        prune(sqlForFlush);
+      },
     });
 
     return snapshotRow;

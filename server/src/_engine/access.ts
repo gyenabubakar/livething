@@ -1,11 +1,11 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
-import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type { TagGroupRegistration } from '~/tags/tags.ts';
 import type * as ValidationTypes from '~/types.ts';
@@ -348,12 +348,9 @@ export interface EngineAccess {
    * @internal
    */
   getInvocationScope(): {
-    pendingReplaySnapshotRows: Map<
+    pendingSnapshotFlushes: Map<
       string,
-      {
-        row: ReplayPrimitiveTypes.ReplayRow | null;
-        postFlush: (sql: Pick<ContextApi.SQLProvider, 'exec'>) => void;
-      }
+      { flush: (sql: Pick<ContextApi.SQLProvider, 'exec'>) => void }
     >;
   } | null;
 
@@ -636,4 +633,67 @@ export interface EngineAccess {
    * `sendReplay` instead.
    */
   rawSend(connectionId: string, event: string, payload: unknown): void;
+
+  /**
+   * Register the plain-stream trigger so the dispatch hub can start a matched
+   * `stream(...)` without importing its runtime. Set by the `stream()`
+   * capability.
+   *
+   * @internal
+   */
+  setStreamTrigger(trigger: FeatureSlots.StreamTrigger): void;
+
+  /**
+   * Register the active-stream nudge buffer and cancel, shared by plain and
+   * durable streams. Either stream kind sets it, so the owner registers it
+   * through `installOnce` to keep it set exactly once.
+   *
+   * @internal
+   */
+  setActiveStreamOps(
+    buffer: FeatureSlots.StreamNudgeBuffer,
+    cancel: FeatureSlots.StreamCancel,
+  ): void;
+
+  /**
+   * Register the durable-stream dispatch surface (trigger, resume, cancel,
+   * schema). Set once when either `resumableStream()` or `recordedStream()` is
+   * listed.
+   *
+   * @internal
+   */
+  setDurableStreamService(service: FeatureSlots.DurableStreamService): void;
+
+  /**
+   * Register the request dispatcher so the hub can run a matched `request(...)`
+   * without importing its runtime. Set by the `requests()` capability.
+   *
+   * @internal
+   */
+  setRequestDispatch(dispatch: FeatureSlots.RequestDispatch): void;
+
+  /**
+   * Register the `ctx.tags` builder so the connection context can expose the tag
+   * surface without importing the tag runtime. Set by the `tags()` capability.
+   *
+   * @internal
+   */
+  setBuildTagsApi(build: FeatureSlots.BuildTagsApi): void;
+
+  /**
+   * Register the durable membership/persistent-tag operations. Set by the
+   * `persistence()` capability so storage code stays out of a bare handler.
+   *
+   * @internal
+   */
+  setPersistenceService(service: FeatureSlots.PersistenceService): void;
+
+  /**
+   * Register the scheduled-task runtime. Set by `scheduled()` and by durable
+   * streams (their retention sweep is a scheduled task) so the scheduler stays
+   * out of a handler that uses neither.
+   *
+   * @internal
+   */
+  setScheduledService(service: FeatureSlots.ScheduledService): void;
 }

@@ -1,6 +1,10 @@
+import * as ScheduledContext from '~/scheduled/context.ts';
 import * as Scheduled from '~/scheduled/runtime.ts';
 import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
+import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { ScheduledService } from '~/_engine/runtime/feature-slots.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 
 /** Build the access object the scheduled runtime needs from core + task-context factory. */
@@ -96,5 +100,38 @@ export function rescheduleAlarm(core: EngineCore): void {
         await hook();
       }
     },
+  });
+}
+
+/** Build a fresh scheduled task context from the engine's common messaging deps. */
+function taskContextFactory(
+  core: EngineCore,
+  commonDeps: EngineContextTypes.ContextCommonDeps,
+): () => unknown {
+  return () => ScheduledContext.createTaskContext({ connections: core.connections, ...commonDeps });
+}
+
+/**
+ * The scheduled runtime, reached through the engine's `scheduledService` slot.
+ * It owns the task-context construction, so the engine core never imports the
+ * scheduler or the scheduled context builder.
+ */
+export const scheduledService: ScheduledService = {
+  ensureRuntime: (core, commonDeps) =>
+    ensureScheduledRuntime(core, taskContextFactory(core, commonDeps)),
+  scheduleTask: (core, commonDeps, opts) =>
+    scheduleTask(core, taskContextFactory(core, commonDeps), opts),
+  cancelScheduled: (core, commonDeps, opts) =>
+    cancelScheduled(core, taskContextFactory(core, commonDeps), opts),
+  rescheduleAlarm: (core) => rescheduleAlarm(core),
+  createTaskContext: (core, commonDeps) => taskContextFactory(core, commonDeps)(),
+};
+
+/** Installs the scheduled service once, set by `scheduled()` or a durable stream. */
+const SCHEDULED_SERVICE_KEY = Symbol('wskit.scheduledService');
+
+export function registerScheduledService(engine: EngineAccess): void {
+  engine.installOnce(SCHEDULED_SERVICE_KEY, () => {
+    engine.setScheduledService(scheduledService);
   });
 }

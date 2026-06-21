@@ -78,54 +78,14 @@ export function hasDurableMembership(core: EngineCore, key: MembershipKey): bool
   return PersistenceStorage.membershipExists(core.requireStorage().sql, key);
 }
 
-/**
- * Kick every live connection of `identity` out of one channel AND drop
- * the durable row. True leave: `onUnsubscribe` fires, peers get
- * `__memberLeave__`/`__memberOffline__`, and the user will NOT auto-rejoin on the
- * next reconnect. No-op if nothing matches and persistence is off.
- */
-export async function removeChannelMember(
-  core: EngineCore,
-  leaveChannel: LeaveChannelFn,
-  key: MembershipKey,
-): Promise<void> {
-  const { identity, channelName, channelFamily } = key;
-  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily);
-
-  if (core.persistenceEnabled) {
-    PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
-  }
-
-  const resolved = ChannelPrimitive.resolveCompiledChannel(
-    core.compiled,
-    channelName,
-    channelFamily,
-  );
-
-  const targets: RuntimeConnection[] = [];
-  for (const connection of core.connections.values()) {
-    if (connection.identity !== identity) continue;
-    if (!connection.channelMemberships.has(membershipKey)) continue;
-    targets.push(connection);
-  }
-
-  for (const connection of targets) {
-    try {
-      await leaveChannel(connection, {
-        channel: resolved,
-        channelName,
-        channelFamily,
-      });
-    } catch (error) {
-      core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
-        identity,
-        channel: channelName,
-        channelFamily,
-        connectionId: connection.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+/** Build the dep bag the relocated `channel` kick needs from core. */
+function removeMemberDeps(core: EngineCore) {
+  return {
+    compiled: core.compiled,
+    connections: core.connections,
+    logger: core.logger,
+    deleteDurableMembership: (key: MembershipKey) => deleteDurableMembership(core, key),
+  };
 }
 
 /**
@@ -170,7 +130,11 @@ export async function purgeIdentity(
   }
 
   for (const { channelName, channelFamily } of channels.values()) {
-    await removeChannelMember(core, leaveChannel, { identity, channelName, channelFamily });
+    await ChannelPrimitive.removeChannelMember(removeMemberDeps(core), leaveChannel, {
+      identity,
+      channelName,
+      channelFamily,
+    });
   }
 
   if (core.persistenceEnabled) {

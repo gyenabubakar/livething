@@ -1,4 +1,5 @@
 import { processTextMessage } from '~/_engine/runtime/messages.ts';
+import { bufferStreamNudge } from '~/stream/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -51,6 +52,7 @@ function makeRuntime(cap: number) {
     activityHooks: [],
     errorHooks: [],
     incomingDedupCap: cap,
+    streamNudgeBuffer: bufferStreamNudge,
     connections: new Map(),
     logger: { warn() {}, error() {} },
     buildConnectionContext: () => ({}),

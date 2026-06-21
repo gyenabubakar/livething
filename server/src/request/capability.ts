@@ -2,6 +2,7 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
+import { requestRuntimePrimitive } from '~/request/registrar.ts';
 import { request as requestFactory } from '~/request/request.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Capability } from '~/_define/capability.ts';
@@ -136,6 +137,7 @@ export const requests = withCapabilityKind(function requests<
 
   const cap = capability<ServerRequestsSlot<TDeclarations>, never, 'requests'>([
     makeServerRequestsPrimitive(serverRequests),
+    requestRuntimePrimitive(),
   ]) as RequestsCapability<TDeclarations>;
 
   const writable = cap as {

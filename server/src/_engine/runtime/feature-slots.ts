@@ -1,0 +1,161 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Type-only definitions for the runtime dispatch slots a feature capability
+ * fills during `__setup`.
+ *
+ * The dispatch hub (`messages.ts`) is feature-agnostic: instead of importing a
+ * stream, durable-stream, or request runtime directly, it reads these optional
+ * slots off the live runtime bag and calls them. A slot is set only when the
+ * owning capability is listed, so a bare incoming/outgoing handler never pulls
+ * the feature runtime into its bundle.
+ *
+ * Every import here is type-only, so referencing the feature runtimes for their
+ * function signatures carries zero bundle cost.
+ */
+
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SQLProvider } from '~/context.ts';
+import type { MembershipKey } from '~/persistence/storage.ts';
+import type { ScheduledCancelResult } from '~/scheduled/types.ts';
+import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
+import type { TagsApi } from '~/tags/types.ts';
+
+/**
+ * Build the `ctx.tags` surface for one connection. Set by the `tags()`
+ * capability, so a handler with no tag groups never pulls the group-handle
+ * runtime into its bundle.
+ */
+export type BuildTagsApi = (runtime: any, connection: RuntimeConnection) => TagsApi;
+
+/** Start one matched plain (ephemeral) stream. Set by the `stream()` capability. */
+export type StreamTrigger = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: RunStreamOptions,
+) => Promise<void>;
+
+/**
+ * Buffer a nudge for a live active stream. Shared by plain and durable streams,
+ * so it is set when either kind is listed. Returns `true` when the frame
+ * belonged to an active stream and normal routing should stop.
+ */
+export type StreamNudgeBuffer = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: BufferStreamNudgeOptions,
+) => Promise<boolean>;
+
+/** Cancel a live active stream by id. Shared by plain and durable streams. */
+export type StreamCancel = (
+  runtime: any,
+  connection: RuntimeConnection,
+  streamId: string,
+) => Promise<void>;
+
+/** Options the durable trigger needs to start a resumable/recorded stream. */
+export interface DurableTriggerOptions {
+  scope: ResolvedChannel;
+  /** The compiled resumable/recorded stream the durable runtime builds its def from. */
+  durable: any;
+  kind: 'resumable' | 'recorded';
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+}
+
+/**
+ * The durable-stream dispatch surface. Set once (idempotently) when either the
+ * `resumableStream()` or `recordedStream()` capability is listed.
+ */
+export interface DurableStreamService {
+  /** Create the durable-stream tables if this engine has not done so yet. */
+  ensureSchema(runtime: any): void;
+  /** Start a matched durable stream. */
+  trigger(
+    runtime: any,
+    connection: RuntimeConnection,
+    options: DurableTriggerOptions,
+  ): Promise<void>;
+  /** Handle a client `__resumeStream__` frame. */
+  resume(
+    runtime: any,
+    connection: RuntimeConnection,
+    options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
+  ): Promise<void>;
+  /** Handle the durable side of a `__streamCancel__` frame. */
+  cancel(
+    runtime: any,
+    connection: RuntimeConnection,
+    options: { streamId: string; cancelScope: ResolvedChannel },
+  ): Promise<void>;
+}
+
+/** Execute a matched `.request(...)` handler. Set by the `requests()` capability. */
+export type RequestDispatch = (
+  runtime: any,
+  connection: RuntimeConnection,
+  options: {
+    connection: RuntimeConnection;
+    ctx: Record<PropertyKey, unknown>;
+    scope: ResolvedChannel;
+    event: string;
+    request: any;
+    payload: unknown;
+    wskit: Protocol.WSKitProtocol | undefined;
+  },
+) => Promise<void>;
+
+/**
+ * Durable channel-membership and persistent-tag operations. Set by the
+ * `persistence()` capability, so a handler without it never pulls the membership
+ * storage, rejoin, or tag-storage code. Each op already no-ops when persistence
+ * is off, so an unset slot is the same as the disabled path.
+ */
+export interface PersistenceService {
+  persistMembership(core: any, key: MembershipKey): void;
+  deleteDurableMembership(core: any, key: MembershipKey): void;
+  hasDurableMembership(core: any, key: MembershipKey): boolean;
+  autoRejoinIdentity(
+    core: any,
+    subscribeFromServer: any,
+    connection: RuntimeConnection,
+  ): Promise<void>;
+  restorePersistentTags(opts: any): void;
+}
+
+/**
+ * Scheduled-task runtime. Set when `scheduled()` is listed (for `ctx.schedule`)
+ * or when a durable stream is listed (its retention sweep is a scheduled task),
+ * so a handler with neither never pulls the scheduler or the task context.
+ *
+ * Each method takes the engine's `commonDeps` so the service can build a task
+ * context without the engine importing the scheduled context builder.
+ */
+export interface ScheduledService {
+  ensureRuntime(core: any, commonDeps: any): void;
+  scheduleTask(
+    core: any,
+    commonDeps: any,
+    opts: { taskId: string; time: number; data: unknown },
+  ): void;
+  cancelScheduled(
+    core: any,
+    commonDeps: any,
+    opts: { taskId: string; filter?: Record<string, unknown> },
+  ): ScheduledCancelResult;
+  rescheduleAlarm(core: any): void;
+  createTaskContext(core: any, commonDeps: any): unknown;
+}
+
+/** The bag of optional feature slots the engine core carries. */
+export interface FeatureDispatchSlots {
+  streamTrigger?: StreamTrigger;
+  streamNudgeBuffer?: StreamNudgeBuffer;
+  streamCancel?: StreamCancel;
+  durableStream?: DurableStreamService;
+  requestDispatch?: RequestDispatch;
+}
+
+/** Re-exported so the durable dispatch service can satisfy the runtime contract. */
+export type { SQLProvider };

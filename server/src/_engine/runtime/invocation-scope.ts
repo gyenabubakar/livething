@@ -1,6 +1,5 @@
 import { getInvocationScope, withAsyncInvocationScope } from '~/_engine/async-context.ts';
 import { flushDirtyAttachment } from '~/_engine/runtime/hibernation.ts';
-import { deleteReplayRow, storeReplayRow } from '~/replay/runtime.ts';
 import type { InvocationScopeState } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 
@@ -18,10 +17,10 @@ import type { EngineCore } from '~/_engine/core.ts';
  *    saved the row five times before; with the scope it saves once at the
  *    end.
  *
- * 2. Each snapshot-mode replay write is added to `pendingReplaySnapshotRows`
+ * 2. Each snapshot-mode replay write is added to `pendingSnapshotFlushes`
  *    under the row key the snapshot maps to. When a later write in the same
  *    handler targets the same key, the new value replaces (or is merged
- *    with) the old one in memory. At the end, each key writes one row.
+ *    with) the old one in memory. At the end, each key's `flush` runs once.
  *
  * When the callback finishes, the two lists are walked and one SQL write
  * happens per dirty connection and per unique snapshot key. So a handler
@@ -46,7 +45,7 @@ export async function withInvocationScope<T>(
 
   const scope: InvocationScopeState = {
     dirtyConnections: new Set(),
-    pendingReplaySnapshotRows: new Map(),
+    pendingSnapshotFlushes: new Map(),
   };
 
   try {
@@ -56,18 +55,12 @@ export async function withInvocationScope<T>(
       flushDirtyAttachment(core, connection);
     }
 
-    if (scope.pendingReplaySnapshotRows.size > 0) {
+    if (scope.pendingSnapshotFlushes.size > 0) {
       const sql = core.storageOrUndefined()?.sql;
 
       if (sql) {
-        for (const [rowKey, entry] of scope.pendingReplaySnapshotRows) {
-          if (entry.row === null) deleteReplayRow(sql, rowKey);
-          else storeReplayRow(sql, entry.row);
-          // Run the per-row clean-up the queue entry carried with it
-          // (replay's retention prune, for example). It runs AFTER the
-          // write above so it sees the row actually on disk and counts
-          // it when deciding whether to drop the oldest rows.
-          entry.postFlush(sql);
+        for (const entry of scope.pendingSnapshotFlushes.values()) {
+          entry.flush(sql);
         }
       }
     }

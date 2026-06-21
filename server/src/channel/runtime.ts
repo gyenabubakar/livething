@@ -85,6 +85,69 @@ export function listChannelMemberships(
   return [...connection.channelMemberships.values()];
 }
 
+/** Standard leave flow (unsubscribe hooks, peer broadcast, durable cleanup). */
+type LeaveChannelFn = (
+  connection: RuntimeConnection,
+  opts: {
+    channel?: CompiledChannel;
+    channelName: string;
+    channelFamily: string | null;
+    kickedReason?: string;
+    disconnect?: boolean;
+  },
+) => Promise<void>;
+
+interface RemoveChannelMemberDeps {
+  compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>;
+  connections: ReadonlyMap<string, RuntimeConnection>;
+  logger: Pick<Logger, 'error'>;
+  deleteDurableMembership(key: {
+    identity: string;
+    channelName: string;
+    channelFamily: string | null;
+  }): void;
+}
+
+/**
+ * Kick every live connection of `identity` out of one channel — a true leave, so
+ * `onUnsubscribe` fires and peers see `__memberLeave__`. The durable row, if any,
+ * is dropped first through `deleteDurableMembership`, which is a no-op when
+ * persistence is off; the in-memory kick runs regardless.
+ */
+export async function removeChannelMember(
+  deps: RemoveChannelMemberDeps,
+  leaveChannel: LeaveChannelFn,
+  key: { identity: string; channelName: string; channelFamily: string | null },
+): Promise<void> {
+  const { identity, channelName, channelFamily } = key;
+  const membershipKey = createChannelMembershipKey(channelName, channelFamily);
+
+  deps.deleteDurableMembership(key);
+
+  const resolved = resolveCompiledChannel(deps.compiled, channelName, channelFamily);
+
+  const targets: RuntimeConnection[] = [];
+  for (const connection of deps.connections.values()) {
+    if (connection.identity !== identity) continue;
+    if (!connection.channelMemberships.has(membershipKey)) continue;
+    targets.push(connection);
+  }
+
+  for (const connection of targets) {
+    try {
+      await leaveChannel(connection, { channel: resolved, channelName, channelFamily });
+    } catch (error) {
+      deps.logger.error('[wskit] removeChannelMember leaveChannel threw', {
+        identity,
+        channel: channelName,
+        channelFamily,
+        connectionId: connection.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 /**
  * Check whether a concrete channel name satisfies a compiled channel's pattern.
  * Static channels carry a string pattern (always passes — exact lookup is the

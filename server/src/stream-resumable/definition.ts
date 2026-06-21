@@ -1,50 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  assertNonReservedEventName,
-  assertValidHighWaterMark,
-  collectUnique,
-} from '~/_engine/compile/utils.ts';
-import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
+import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
+import type { CommonDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { Validator } from '~/types.ts';
 
 export type { OnDisconnect };
-
-interface CommonResumableConfig {
-  onDisconnect?: OnDisconnect;
-  /** How long a suspended stream is kept after the owning connection drops. Default: 5 minutes. */
-  maxAgeMs?: number;
-  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still resume. Default: 30 seconds. */
-  retentionAfterEndMs?: number;
-  /**
-   * One generator, many subscribers. The creator runs the cursor-driven
-   * generator once; only the cursor is saved, and only so the creator can
-   * continue from where it left off after a reconnect (continuation, never
-   * replay). Chunks are fanned out live to scope members as they are produced —
-   * nothing is buffered, so a member that joins late or a peer that reconnects
-   * sees only chunks produced after it joined. For replay or catch-up of missed
-   * chunks, use `recordedStream` instead.
-   *
-   * Scope is decided by where you declare the stream:
-   * - Top-level — fans out to every connection on the handler.
-   * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
-   *
-   * A non-creator that sends `__streamCancel__` is unsubscribed from future
-   * chunks for that stream id (its later resume returns `StreamAborted` with
-   * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
-   * else. A cancel from the creator identity tears the whole stream down.
-   *
-   * Default: false.
-   */
-  broadcast?: boolean;
-  /**
-   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Defaults
-   * to 256 KB.
-   */
-  highWaterMark?: number;
-}
 
 /**
  * Contract-side declaration produced internally when you register a stream with
@@ -56,7 +19,7 @@ export interface ResumableStreamDef<
   TChunk = unknown,
   TCursor = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
-> extends CommonResumableConfig {
+> extends CommonDurableStreamConfig {
   readonly _: 'resumable-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
@@ -72,7 +35,7 @@ interface ResumableStreamConfig<
   TChunk,
   TCursor,
   TNudges extends readonly NudgeDef<string, any>[],
-> extends CommonResumableConfig {
+> extends CommonDurableStreamConfig {
   payload?: Validator<TPayload>;
   chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
@@ -154,17 +117,11 @@ export function resumableStream<
 ): ResumableStreamDef<TName, TPayload, TChunk, TCursor, TNudges> {
   assertNonReservedEventName(name, 'resumableStream');
   const context = `resumableStream("${name}")`;
-  assertValidHighWaterMark(config?.highWaterMark, context);
-  assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
-  assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
-  if (config?.onDisconnect !== undefined) {
-    assertOneOf(config.onDisconnect, ['cancel-but-buffer', 'keep-running'] as const, {
-      field: 'onDisconnect',
-      context,
-    });
-  }
+  validateDurableStreamConfig(config, context);
+
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
+
   return {
     _: 'resumable-stream',
     name,
@@ -174,9 +131,9 @@ export function resumableStream<
     nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,
-    onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
-    maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
-    retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
+    onDisconnect: config?.onDisconnect ?? DURABLE_STREAM_DEFAULTS.onDisconnect,
+    maxAgeMs: config?.maxAgeMs ?? DURABLE_STREAM_DEFAULTS.maxAgeMs,
+    retentionAfterEndMs: config?.retentionAfterEndMs ?? DURABLE_STREAM_DEFAULTS.retentionAfterEndMs,
     highWaterMark: config?.highWaterMark,
   };
 }

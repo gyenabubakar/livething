@@ -1,3 +1,4 @@
+import { registerScheduledService } from '~/_engine/scheduling.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -41,6 +42,7 @@ export function scheduleSurfacePrimitive(): Primitive {
     __identity: [SCHEDULE_SURFACE_KEY],
     __requires: {},
     __setup(engine) {
+      registerScheduledService(engine);
       engine.installOnce(SCHEDULE_SURFACE_KEY, () => {
         engine.extendContext(() => buildScheduleSurface(engine));
       });

@@ -1,9 +1,9 @@
 import {
   addConnectionTag,
-  buildGroupHandle,
   removeConnectionFromTagIndex,
   removeConnectionTag,
-} from '~/tags/runtime.ts';
+} from '~/_engine/runtime/tag-index.ts';
+import { buildGroupHandle } from '~/tags/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';

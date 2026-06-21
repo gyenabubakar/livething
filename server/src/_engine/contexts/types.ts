@@ -1,4 +1,5 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as WireRuntime from '~/_engine/runtime/wire.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
@@ -148,6 +149,13 @@ export interface ContextCommonDeps {
 
   /** The runtime validator for a tag group, or `undefined` when it has none. */
   getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): Validator | undefined;
+
+  /**
+   * Builder for the `ctx.tags` surface, registered by the `tags()` capability.
+   * Absent when no tag groups are declared, so the tag runtime stays out of the
+   * bundle.
+   */
+  buildTagsApi?: FeatureSlots.BuildTagsApi;
 }
 
 /**

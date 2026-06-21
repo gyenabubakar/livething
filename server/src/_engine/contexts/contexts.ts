@@ -1,7 +1,7 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
+import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
-import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -9,7 +9,6 @@ import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
 export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-export { createTaskContext } from '~/scheduled/context.ts';
 export { buildChannelHandle } from '~/channel/context.ts';
 export { persistAttachment } from '~/persistence/context.ts';
 
@@ -140,20 +139,24 @@ export function buildConnectionContext(
 
   // `ctx.tags` exists only on tag-enabled servers, and is built on first
   // access — most handlers never touch it.
-  if (deps.usesTags) {
-    let tagsApi: ReturnType<typeof TagsRuntime.buildTagsApi> | undefined;
+  const buildTags = deps.buildTagsApi;
+  if (deps.usesTags && buildTags) {
+    let tagsApi: ReturnType<typeof buildTags> | undefined;
     Object.defineProperty(base, 'tags', {
       configurable: true,
       enumerable: true,
       get() {
-        return (tagsApi ??= TagsRuntime.buildTagsApi(
+        return (tagsApi ??= buildTags(
           {
             tagMembers: deps.tagMembers,
             isTagGroupDeclared: deps.isTagGroupDeclared,
             getTagGroupSchema: deps.getTagGroupSchema,
             toConnectionInfo: deps.toConnectionInfo,
-            sendThroughPipeline: (target, event, payload) =>
-              deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
+            sendThroughPipeline: (
+              target: EngineContextTypes.RuntimeConnection,
+              event: string,
+              payload: unknown,
+            ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
             persistAttachment: deps.persistAttachment,
             persistenceEnabled: deps.persistenceEnabled,
             requireStorage: deps.requireStorage,
@@ -188,7 +191,7 @@ export function toConnectionInfo(
     id: connection.id,
     identity: connection.identity,
     meta: connection.meta,
-    tags: TagsRuntime.buildConnectionTagRefs(connection),
+    tags: connectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: hibernationEnabled || connection.latency === null ? null : connection.quality,

@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import * as Scheduling from '~/_engine/scheduling.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 /** Callbacks engine-access can't build itself. Supplied by the facade. */
 export interface EngineAccessDeps {
@@ -13,6 +13,10 @@ export interface EngineAccessDeps {
   ensureScheduledRuntime(): void;
   /** Build a fresh task context for scheduled task handlers. */
   createTaskContext(): unknown;
+  /** Queue one future scheduled task run. */
+  scheduleTask(opts: { taskId: string; time: number; data: unknown }): void;
+  /** Remove queued runs for one scheduled task id. */
+  cancelScheduled(opts: { taskId: string; filter?: Record<string, unknown> }): ScheduledCancelResult;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
   /**
@@ -249,10 +253,8 @@ export function createEngineAccess(
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
-    scheduleTask: (taskId, time, data) =>
-      Scheduling.scheduleTask(core, deps.createTaskContext, { taskId, time, data }),
-    cancelScheduled: (taskId, filter) =>
-      Scheduling.cancelScheduled(core, deps.createTaskContext, { taskId, filter }),
+    scheduleTask: (taskId, time, data) => deps.scheduleTask({ taskId, time, data }),
+    cancelScheduled: (taskId, filter) => deps.cancelScheduled({ taskId, filter }),
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext: () => deps.createTaskContext(),
@@ -280,6 +282,28 @@ export function createEngineAccess(
         payload: payload as Record<string, unknown>,
         wskit: {},
       });
+    },
+    setStreamTrigger: (trigger) => {
+      core.streamTrigger = trigger;
+    },
+    setActiveStreamOps: (buffer, cancel) => {
+      core.streamNudgeBuffer = buffer;
+      core.streamCancel = cancel;
+    },
+    setDurableStreamService: (service) => {
+      core.durableStream = service;
+    },
+    setRequestDispatch: (dispatch) => {
+      core.requestDispatch = dispatch;
+    },
+    setBuildTagsApi: (build) => {
+      core.buildTagsApi = build;
+    },
+    setPersistenceService: (service) => {
+      core.persistenceService = service;
+    },
+    setScheduledService: (service) => {
+      core.scheduledService = service;
     },
   };
 }

@@ -12,6 +12,7 @@ describe('persistence()', () => {
       setPersistenceEnabled(value: boolean) {
         enabled = value;
       },
+      setPersistenceService() {},
       onBoot() {},
       onBootSchema() {},
       requireStorage: () => ({
@@ -30,6 +31,7 @@ describe('persistence()', () => {
 
     persistence().__setup?.({
       setPersistenceEnabled() {},
+      setPersistenceService() {},
       onBoot() {},
       onBootSchema(handler: () => void) {
         schemaHooks.push(handler);

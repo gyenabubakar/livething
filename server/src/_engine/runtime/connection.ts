@@ -1,8 +1,8 @@
 import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
-import * as TagPrimitive from '~/tags/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -336,7 +336,7 @@ export async function handleConnectionClose(
     }
   }
 
-  TagPrimitive.removeConnectionFromTagIndex(runtime.tagMembers, connection);
+  removeConnectionFromTagIndex(runtime.tagMembers, connection);
 
   if (connection.keepaliveTimer !== undefined) {
     clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
@@ -385,7 +385,7 @@ export function acceptConnection(
 
   for (const ref of descriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+    addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: ref.group,
       key: ref.key,
@@ -524,7 +524,7 @@ export function wakeHibernatedConnection(
   runtime.wsToConnectionId.set(wsKey, connection.id);
 
   for (const t of row?.ephemeral_tags ?? []) {
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+    addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: t.group,
       key: t.key,

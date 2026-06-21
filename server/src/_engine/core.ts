@@ -18,6 +18,7 @@ import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -66,6 +67,21 @@ export class EngineCore {
    * keepalive was configured — the ping falls back to its built-in default.
    */
   keepalivePingIntervalMs: number | undefined = undefined;
+
+  /**
+   * Runtime dispatch slots filled by feature capabilities during `__setup`. The
+   * dispatch hub calls a feature's runtime only through these, so a handler that
+   * never lists a feature never pulls its runtime into the bundle.
+   */
+  streamTrigger?: FeatureSlots.StreamTrigger;
+  streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
+  streamCancel?: FeatureSlots.StreamCancel;
+  durableStream?: FeatureSlots.DurableStreamService;
+  requestDispatch?: FeatureSlots.RequestDispatch;
+  buildTagsApi?: FeatureSlots.BuildTagsApi;
+  persistenceService?: FeatureSlots.PersistenceService;
+  scheduledService?: FeatureSlots.ScheduledService;
+
   initialized = false;
   /**
    * True after a cold-boot schema run (first wake with no prior schema). The

@@ -4,6 +4,7 @@ import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/conne
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
+import { cancelStream } from '~/stream/runtime.ts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -96,6 +97,7 @@ function baseDispatchRuntime(
     async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
+    streamCancel: cancelStream,
     ...overrides,
   } as any;
 }

@@ -19,6 +19,7 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { ReplaySnapshotEntry } from '~/replay/runtime.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 import type { ReplayWire } from './wire.ts';
 
@@ -286,7 +287,9 @@ class ReplayInstaller {
       return;
 
     const { sql } = this.engine.requireStorage();
-    const scope = this.engine.getInvocationScope();
+    const scope = this.engine.getInvocationScope() as {
+      pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
+    } | null;
     // `replayScope` carries this frame's channel markers. For the row-count
     // limit, `channel`/`channelFamily` pick the store: there are two replay
     // stores (top-level and per-channel). `pruneReplayScopeRows` keys on

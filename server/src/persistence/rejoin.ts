@@ -5,8 +5,8 @@ import {
   ValidationFailed,
 } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
-import { addConnectionTag } from '~/tags/runtime.ts';
 import { deleteTag, listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';

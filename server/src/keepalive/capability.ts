@@ -1,7 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { defineHostCapability } from '~/_define/capability.ts';
 import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
-import type { HostCapability } from '~/_define/capability.ts';
 import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
 
 /**
@@ -21,11 +20,7 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
  * });
  * ```
  */
-export const keepalive = withCapabilityKind(function keepalive(
-  options: KeepaliveOptions,
-): HostCapability<{}, 'keepalive'> {
-  return stampKind(
-    hostCapability<{}, 'keepalive'>([keepaliveFactory(options)], ['keepalive']),
-    CAPABILITY_KIND.keepalive,
-  );
-}, CAPABILITY_KIND.keepalive);
+export const keepalive = defineHostCapability(
+  CAPABILITY_KIND.keepalive,
+  (options: KeepaliveOptions) => keepaliveFactory(options),
+);

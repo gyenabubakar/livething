@@ -1,18 +1,20 @@
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext, AsyncContextFactory, SQLProvider } from '~/context.ts';
-import type { ReplayRow } from '~/replay/types.ts';
 
 export const INVOCATION_SCOPE = Symbol('wskit.invocationScope');
 
+/**
+ * One deferred storage write batched for the end of the current invocation.
+ * The owning feature (replay) builds the entry and carries its own `flush`, so
+ * the engine drains the queue without knowing what kind of row it holds.
+ */
+export interface PendingScopeFlush {
+  flush: (sql: Pick<SQLProvider, 'exec'>) => void;
+}
+
 export interface InvocationScopeState {
   dirtyConnections: Set<RuntimeConnection>;
-  pendingReplaySnapshotRows: Map<
-    string,
-    {
-      row: ReplayRow | null;
-      postFlush: (sql: Pick<SQLProvider, 'exec'>) => void;
-    }
-  >;
+  pendingSnapshotFlushes: Map<string, PendingScopeFlush>;
 }
 
 export interface EngineAsyncContextStore {

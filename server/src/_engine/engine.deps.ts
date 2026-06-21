@@ -6,10 +6,7 @@ import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import * as Scheduling from '~/_engine/scheduling.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as MembershipPersistence from '~/persistence/membership.ts';
-import * as RejoinPersistence from '~/persistence/rejoin.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
@@ -58,6 +55,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     compiled: core.compiled,
     connections: core.connections,
     tagMembers: core.tagMembers,
+    buildTagsApi: core.buildTagsApi,
     ...commonDeps(core),
   });
 }
@@ -68,22 +66,12 @@ function buildConnectionContext(core: EngineCore) {
     EngineContexts.buildConnectionContext(ctxDeps(core), connection, scope);
 }
 
-/** Factory for the task context passed to scheduled handlers. */
-function buildTaskContextFactory(core: EngineCore): () => unknown {
-  return () =>
-    EngineContexts.createTaskContext({
-      connections: core.connections,
-      ...commonDeps(core),
-    });
-}
-
 /** Shared dep bag for init, shutdown, task, and connection context builders. */
 export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
   return (depsMemoFor(core).common ??= buildCommonDeps(core));
 }
 
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
-  const createTaskContext = buildTaskContextFactory(core);
   return {
     env: core.env,
     logger: core.logger,
@@ -92,9 +80,12 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     requireStorage: () => core.requireStorage(),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
-      Scheduling.scheduleTask(core, createTaskContext, { taskId, time, data }),
+      core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
     cancelScheduled: (taskId, filter) =>
-      Scheduling.cancelScheduled(core, createTaskContext, { taskId, filter }),
+      core.scheduledService?.cancelScheduled(core, commonDeps(core), { taskId, filter }) ?? {
+        removed: 0,
+        taskExists: false,
+      },
     broadcastToConnections: (connections, opts) => {
       EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
@@ -113,11 +104,17 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       );
     },
     removeChannelMember: (channelName, channelFamily, identity) => {
-      return MembershipPersistence.removeChannelMember(core, buildLeaveChannel(core), {
-        identity,
-        channelName,
-        channelFamily,
-      });
+      return ChannelPrimitive.removeChannelMember(
+        {
+          compiled: core.compiled,
+          connections: core.connections,
+          logger: core.logger,
+          deleteDurableMembership: (key) =>
+            core.persistenceService?.deleteDurableMembership(core, key),
+        },
+        buildLeaveChannel(core),
+        { identity, channelName, channelFamily },
+      );
     },
     subscribeConnectionAsServer: (ref, opts) => {
       return EngineChannelFrames.subscribeFromServer(
@@ -252,17 +249,25 @@ function buildChannelRuntime(core: EngineCore) {
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
 
     persistMembership: (identity: string, channelName: string, channelFamily: string | null) =>
-      MembershipPersistence.persistMembership(core, { identity, channelName, channelFamily }),
+      core.persistenceService?.persistMembership(core, { identity, channelName, channelFamily }),
 
     deleteDurableMembership: (
       identity: string,
       channelName: string,
       channelFamily: string | null,
     ) =>
-      MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelFamily }),
+      core.persistenceService?.deleteDurableMembership(core, {
+        identity,
+        channelName,
+        channelFamily,
+      }),
 
     hasDurableMembership: (identity: string, channelName: string, channelFamily: string | null) =>
-      MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelFamily }),
+      core.persistenceService?.hasDurableMembership(core, {
+        identity,
+        channelName,
+        channelFamily,
+      }) ?? false,
 
     logger: core.logger,
   };
@@ -355,6 +360,22 @@ function buildDispatchRuntime(core: EngineCore) {
     handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) =>
       EngineChannelFrames.handleMemberSync(channelRuntime(core), connection, frame),
     durableStreamSchemaReady: false,
+
+    get streamTrigger() {
+      return core.streamTrigger;
+    },
+    get streamNudgeBuffer() {
+      return core.streamNudgeBuffer;
+    },
+    get streamCancel() {
+      return core.streamCancel;
+    },
+    get durableStream() {
+      return core.durableStream;
+    },
+    get requestDispatch() {
+      return core.requestDispatch;
+    },
   };
 }
 
@@ -392,11 +413,11 @@ function buildConnectionRuntime(core: EngineCore) {
     ...(core.persistenceEnabled
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
-            RejoinPersistence.restorePersistentTags({
+            core.persistenceService?.restorePersistentTags({
               sql: core.requireStorage().sql,
               tagMembers: core.tagMembers,
               connection,
-              getSchema: (group) => core.getTagGroupSchema('persistent', group),
+              getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
               logger: core.logger,
             }),
         }
@@ -429,15 +450,17 @@ function buildConnectionRuntime(core: EngineCore) {
               core.freshBoot = false;
               return Promise.resolve();
             }
-            return MembershipPersistence.autoRejoinIdentity(
-              core,
-              (ref, opts) =>
-                EngineChannelFrames.subscribeFromServer(
-                  { ...channelRuntime(core), instanceId: core.engineInstanceId },
-                  ref,
-                  opts,
-                ),
-              connection,
+            return (
+              core.persistenceService?.autoRejoinIdentity(
+                core,
+                (ref: PublicApi.ConnectionRef, opts: unknown) =>
+                  EngineChannelFrames.subscribeFromServer(
+                    { ...channelRuntime(core), instanceId: core.engineInstanceId },
+                    ref,
+                    opts as Parameters<typeof EngineChannelFrames.subscribeFromServer>[2],
+                  ),
+                connection,
+              ) ?? Promise.resolve()
             );
           },
         }
@@ -447,12 +470,17 @@ function buildConnectionRuntime(core: EngineCore) {
 
 /** Callbacks needed by `createEngineAccess` and `initialize`. */
 export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
-  const createTaskContext = buildTaskContextFactory(core);
   const buildCtx = buildConnectionContext(core);
   return {
-    ensureScheduledRuntime: () => Scheduling.ensureScheduledRuntime(core, createTaskContext),
-    createTaskContext,
-    rescheduleAlarm: () => Scheduling.rescheduleAlarm(core),
+    ensureScheduledRuntime: () => core.scheduledService?.ensureRuntime(core, commonDeps(core)),
+    createTaskContext: () => core.scheduledService?.createTaskContext(core, commonDeps(core)),
+    scheduleTask: (opts) => core.scheduledService?.scheduleTask(core, commonDeps(core), opts),
+    cancelScheduled: (opts) =>
+      core.scheduledService?.cancelScheduled(core, commonDeps(core), opts) ?? {
+        removed: 0,
+        taskExists: false,
+      },
+    rescheduleAlarm: () => core.scheduledService?.rescheduleAlarm(core),
     buildCurrentContext: () => {
       const activeId = core.asyncContext.getStore()?.connectionId;
       const connection = activeId ? core.connections.get(activeId) : undefined;
