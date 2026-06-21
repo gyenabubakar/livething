@@ -161,7 +161,7 @@ function truncate(str: string, max: number) {
         </div>
         <div
           class="flex text-[15px] tracking-[0.16em] font-semibold uppercase"
-          :style="{ fontFamily: 'Geist Mono', color: '#9ea0a8' }"
+          :style="{ fontFamily: 'DM Mono', color: '#9ea0a8' }"
         >
           evlog.dev
         </div>
@@ -171,7 +171,7 @@ function truncate(str: string, max: number) {
         <div
           v-if="headline"
           class="flex text-[16px] tracking-[0.24em] font-semibold uppercase"
-          :style="{ fontFamily: 'Geist Mono', color: '#9598a1' }"
+          :style="{ fontFamily: 'DM Mono', color: '#9598a1' }"
         >
           {{ headline.toUpperCase() }}
         </div>
@@ -231,14 +231,14 @@ function truncate(str: string, max: number) {
         <div class="flex flex-row justify-between items-center gap-8">
           <div
             class="flex text-[13px] tracking-[0.18em] font-semibold uppercase"
-            :style="{ fontFamily: 'Geist Mono', color: '#787c85' }"
+            :style="{ fontFamily: 'DM Mono', color: '#787c85' }"
           >
             WIDE EVENTS · STRUCTURED ERRORS · TYPESCRIPT
           </div>
           <div
             v-if="headline"
             class="flex text-[13px] tracking-[0.16em] font-semibold uppercase shrink-0"
-            :style="{ fontFamily: 'Geist Mono', color: '#787c85' }"
+            :style="{ fontFamily: 'DM Mono', color: '#787c85' }"
           >
             {{ headline.toUpperCase() }}
           </div>
