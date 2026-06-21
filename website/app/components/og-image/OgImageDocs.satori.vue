@@ -5,7 +5,7 @@ defineOptions({
   inheritAttrs: false,
 })
 
-const brand = '#2853ff'
+const brand = '#f4610f'
 const brandGlow =
   '0 0 10px rgba(40, 83, 255, 0.38), 0 0 22px rgba(40, 83, 255, 0.16)'
 

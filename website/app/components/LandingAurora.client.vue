@@ -7,9 +7,9 @@ import { Shader, Aurora } from 'shaders/vue'
     <div class="size-full">
       <Shader>
         <Aurora
-          color-a="#0044CC"
-          color-b="#0088FF"
-          color-c="#66BBFF"
+          color-a="#cc5200"
+          color-b="#ff7a1a"
+          color-c="#ffb066"
           :speed="2"
           :intensity="50"
           :curtain-count="3"

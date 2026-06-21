@@ -2,8 +2,16 @@
 @import "@nuxt/ui";
 
 @theme static {
-  --color-blue-400: #2853ff;
-  --color-blue-500: #2853ff;
+  /* Brand accent — a warm orange that reads on both light and dark themes. */
+  --color-orange-400: #ff8a3d;
+  --color-orange-500: #f4610f;
+  --color-orange-600: #db5108;
+
+  /* Legacy aliases: components and glows still reference --color-blue-*; keep
+     them pointed at the brand orange so they follow the theme without edits. */
+  --color-blue-400: #ff8a3d;
+  --color-blue-500: #f4610f;
+  --color-blue-600: #db5108;
 }
 
 @theme {

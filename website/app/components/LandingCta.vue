@@ -37,7 +37,7 @@ onBeforeUnmount(() => {
 
     <div
       class="absolute inset-0"
-      style="background: linear-gradient(180deg, #09090b 0%, #000711 6%, #001133 14%, #002266 22%, #0044CC 32%, #0055FF 42%, #0077FF 52%, #0099FF 62%, #44BBFF 72%, #88D4FF 80%, #BBE6FF 88%, #E0F3FF 94%, #FFFFFF 100%)"
+      style="background: linear-gradient(180deg, #09090b 0%, #110600 6%, #331400 14%, #662900 22%, #cc5200 32%, #ff6a00 42%, #ff8420 52%, #ff9d44 62%, #ffbb77 72%, #ffd4a0 80%, #ffe6c8 88%, #fff3e6 94%, #FFFFFF 100%)"
     />
 
     <div class="relative z-10 pt-24 md:pt-32 text-center max-w-2xl mx-auto px-6">
