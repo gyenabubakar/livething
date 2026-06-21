@@ -23,6 +23,10 @@ const Timeout = /* @__PURE__ */ error('timeout');
  */
 const Disconnected = /* @__PURE__ */ error('disconnected');
 
+function RequestNotDeclared(event: string): WSKitError<'request-not-declared', { event: string }> {
+  return new WSKitError('request-not-declared', { event });
+}
+
 /** The built-in wait for a server→client request answer, in ms. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -285,9 +289,11 @@ function createOutgoingRequestRuntime(
     options: RequestOptions | undefined;
   }): Promise<unknown> {
     const { target, event, payload, options } = args;
-    const declaration = serverRequests.get(
-      serverRequestKey(target.declarationChannelKey ?? null, event),
-    );
+    const declarationKey = serverRequestKey(target.declarationChannelKey ?? null, event);
+    if (!serverRequests.has(declarationKey)) {
+      return Promise.reject(RequestNotDeclared(event));
+    }
+    const declaration = serverRequests.get(declarationKey)!;
 
     const correlationId = engine.generateId('sreq');
     return new Promise((resolve, reject) => {
@@ -340,9 +346,11 @@ function createOutgoingRequestRuntime(
     declarationChannelKey?: string | null;
   }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
     const { targets, event, payload, options, routing } = args;
-    const declaration = serverRequests.get(
-      serverRequestKey(args.declarationChannelKey ?? null, event),
-    );
+    const declarationKey = serverRequestKey(args.declarationChannelKey ?? null, event);
+    if (!serverRequests.has(declarationKey)) {
+      return Promise.reject(RequestNotDeclared(event));
+    }
+    const declaration = serverRequests.get(declarationKey)!;
 
     return new Promise((resolve, reject) => {
       const group: BroadcastGroup = {

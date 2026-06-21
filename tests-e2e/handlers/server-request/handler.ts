@@ -23,6 +23,7 @@ export const serverRequestContract = define({
       outcome: t<{ allowed: boolean }>(),
       'error-outcome': t<{ code: string }>(),
       'ack-outcome': t<{ received: string }>(),
+      'undeclared-outcome': t<{ status: string }>(),
     }),
   ],
 });
@@ -65,10 +66,29 @@ const handleTriggerAck = serverRequestContract.on('trigger-ack', {
   },
 });
 
+const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
+  input: v.object({}),
+  async run(ctx) {
+    try {
+      const answer = await (ctx as any).request(
+        'undeclared-question',
+        { action: 'should-not-send' },
+        { timeout: 500 },
+      );
+      ctx.send('undeclared-outcome', {
+        status: answer === undefined ? 'resolved-without-declaration' : 'resolved-with-payload',
+      });
+    } catch (error) {
+      ctx.send('undeclared-outcome', { status: describeError(error) });
+    }
+  },
+});
+
 export const serverRequestHandler = serverRequestContract.assemble(
   handleTrigger,
   handleTriggerTimeout,
   handleTriggerAck,
+  handleTriggerUndeclared,
 );
 
 export type ServerRequestClient = InferClient<typeof serverRequestHandler>;

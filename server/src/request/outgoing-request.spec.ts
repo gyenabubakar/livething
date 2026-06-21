@@ -154,6 +154,17 @@ describe('server→client request — outgoing runtime', () => {
     await expect(promise).resolves.toBeUndefined();
   });
 
+  it('ctx.request rejects undeclared events before sending a wire request', async () => {
+    const env = install(topDeclarations(PERMISSION));
+    const ctx = env.buildCtx('c1');
+
+    await expect(ctx.request('missing', {})).rejects.toMatchObject({
+      code: 'request-not-declared',
+      detail: { event: 'missing' },
+    });
+    expect(env.sent).toHaveLength(0);
+  });
+
   it('rejects with the typed error when the client declines via __error__', async () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
@@ -249,6 +260,21 @@ describe('server→client request — outgoing runtime', () => {
     env.answerHook('c1', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: true });
   });
+
+  it('ctx.channel.request rejects names missing from that channel declaration map', async () => {
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      { channel: { name: 'room-1', family: 'rooms', send: () => true } },
+    );
+
+    await expect(ctx.channel.request('missing', {})).rejects.toMatchObject({
+      code: 'request-not-declared',
+      detail: { event: 'missing' },
+    });
+    expect(env.sent).toHaveLength(0);
+  });
 });
 
 const VOLUNTEER = new Map<string, ResolvedServerRequest>([
@@ -292,6 +318,17 @@ describe('server→client broadcast request — first answer wins', () => {
       response: undefined,
       from: expect.objectContaining({ id: 'b' }),
     });
+  });
+
+  it('ctx.broadcastRequest rejects undeclared events before sending any wire requests', async () => {
+    const env = install(topDeclarations(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
+
+    await expect(ctx.broadcastRequest('missing', {})).rejects.toMatchObject({
+      code: 'request-not-declared',
+      detail: { event: 'missing' },
+    });
+    expect(env.sent).toHaveLength(0);
   });
 
   it('ignores an invalid answer and resolves on a later valid one', async () => {
@@ -439,6 +476,17 @@ describe('server→client broadcast request — first answer wins', () => {
       response: { ready: false },
       from: expect.objectContaining({ id: 'b' }),
     });
+  });
+
+  it('ctx.channels.get(name).broadcastRequest rejects names missing from that channel declaration map', async () => {
+    const env = install(channelDeclarations('lobby', VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { channels: { lobby: ['a', 'b'] } });
+
+    await expect(ctx.channels.get('lobby').broadcastRequest('missing', {})).rejects.toMatchObject({
+      code: 'request-not-declared',
+      detail: { event: 'missing' },
+    });
+    expect(env.sent).toHaveLength(0);
   });
 
   it('ctx.tags group and ref broadcastRequest fan out to their members', async () => {

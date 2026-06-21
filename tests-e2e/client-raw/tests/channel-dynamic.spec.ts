@@ -236,6 +236,40 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error-scope')).toHaveText('unknown-family');
   });
 
+  test('empty _channelFamily is rejected as malformed protocol, not routed as a family', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: 'room:general', channelFamily: '' },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      ws.onmessage = original;
+      return got.filter((message) => message.event === '__error__');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('validation-failed');
+  });
+
   test('onValidationError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
     page,
   }, testInfo) => {

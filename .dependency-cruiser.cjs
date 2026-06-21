@@ -55,21 +55,45 @@ module.exports = {
       },
     },
     {
-      name: 'stream-variant-no-cross-variant',
+      name: 'stream-no-durable-variant',
       comment:
-        'A stream variant capability must not value-import another stream variant. Each variant ' +
-        'is its own bundle entry; importing only one must not pull the others. Shared helpers ' +
-        'live in server/src/stream/shared.ts (allowed) and the durable engine in ' +
-        'server/src/_engine/stream-durable (allowed).',
+        'The plain stream capability must not value-import a durable stream variant. Each variant ' +
+        'is its own bundle entry; importing only one must not pull the others. The plain stream ' +
+        'capability may import its own runtime seam.',
       severity: 'error',
       from: {
-        path: '^server/src/(stream|stream-resumable|stream-recorded)/capability\\.ts$',
+        path: '^server/src/stream/capability\\.ts$',
       },
       to: {
-        // Another variant's capability or runtime, but not the importer's own
-        // folder and not the shared `stream/shared.ts` helper module.
-        path: '^server/src/(stream|stream-resumable|stream-recorded)/(capability|runtime)\\.ts$',
-        pathNot: '/shared\\.ts$',
+        path: '^server/src/(stream-resumable|stream-recorded)/(capability|runtime)\\.ts$',
+        dependencyTypesNot: ['type-only'],
+      },
+    },
+    {
+      name: 'resumable-stream-no-other-variant',
+      comment:
+        'The resumable stream capability must not value-import the plain or recorded stream ' +
+        'variant capability/runtime. Shared helpers live in server/src/stream/shared.ts.',
+      severity: 'error',
+      from: {
+        path: '^server/src/stream-resumable/capability\\.ts$',
+      },
+      to: {
+        path: '^server/src/(stream|stream-recorded)/(capability|runtime)\\.ts$',
+        dependencyTypesNot: ['type-only'],
+      },
+    },
+    {
+      name: 'recorded-stream-no-other-variant',
+      comment:
+        'The recorded stream capability must not value-import the plain or resumable stream ' +
+        'variant capability/runtime. Shared helpers live in server/src/stream/shared.ts.',
+      severity: 'error',
+      from: {
+        path: '^server/src/stream-recorded/capability\\.ts$',
+      },
+      to: {
+        path: '^server/src/(stream|stream-resumable)/(capability|runtime)\\.ts$',
         dependencyTypesNot: ['type-only'],
       },
     },

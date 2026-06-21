@@ -61,4 +61,13 @@ test.describe('server→client request', () => {
     await page.getByTestId('trigger-ack').click();
     await expect(page.getByTestId('ack-outcome')).toHaveText('undefined');
   });
+
+  test('an undeclared server request fails locally instead of sending a wire request', async ({
+    page,
+  }) => {
+    await page.getByTestId('trigger-undeclared').click();
+
+    await expect(page.getByTestId('undeclared-outcome')).toHaveText('request-not-declared');
+    await expect(page.getByTestId('undeclared-seen')).toHaveText('');
+  });
 });

@@ -232,6 +232,7 @@ function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
 
 function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
   const protocolMessages: {
+    targetId: string;
     event: string;
     payload: Record<string, unknown>;
     wskit: Record<string, unknown>;
@@ -252,10 +253,10 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
     generateId: () => `gen-${++nextStreamId}`,
     buildConnectionContext: () => ({ id: 'ctx', nudges: () => [] }),
     sendProtocolMessage: (
-      _conn: RuntimeConnection,
+      conn: RuntimeConnection,
       { event, payload, wskit }: SendProtocolMessageOptions,
     ) => {
-      protocolMessages.push({ event, payload, wskit });
+      protocolMessages.push({ targetId: conn.id, event, payload, wskit });
     },
     sendThroughPipeline: (
       conn: RuntimeConnection,
@@ -1596,6 +1597,47 @@ describe('durable stream runtime', () => {
     await run;
   });
 
+  it('keep-running — finishing while detached does not send a terminal frame to the stale connection', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection('c-orig', 'u1');
+
+    function noopRelease(): void {}
+    let release: () => void = noopRelease;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const run = runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        onDisconnect: 'keep-running',
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          await gate;
+          yield { i: 2 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const live = [...runtime.activeStreams.values()][0]!;
+    await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, connection.id);
+    expect(live.detached).toBe(true);
+
+    protocolMessages.length = 0;
+    release();
+    await run;
+
+    expect(protocolMessages).toEqual([]);
+    expect(Storage.readStream(sql, 'u1', live.id)?.status).toBe('ended');
+  });
+
   it('keep-running — resume from a fresh connection swaps the wire target and replays the buffer', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1667,6 +1709,65 @@ describe('durable stream runtime', () => {
     // (wireTarget = live.connection = c-new), not the stale c-orig.
     const sentAfterResume = pipelineSends.length;
     expect(sentAfterResume).toBeGreaterThan(sentBeforeResume);
+  });
+
+  it('keep-running — after resume, final __streamEnd__ targets the fresh connection and clears its attachment', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const original = createConnection('c-orig', 'u1');
+    const reconnect = createConnection('c-new', 'u1');
+
+    function noopRelease(): void {}
+    let release: () => void = noopRelease;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const run = runDurableStream(runtime as never, original, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        onDisconnect: 'keep-running',
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          await gate;
+          yield { i: 2 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+    const live = [...runtime.activeStreams.values()][0]!;
+    await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
+
+    await resumeDurableStream(runtime as never, reconnect, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'recorded',
+          onDisconnect: 'keep-running',
+          maxChunks: 10,
+          generator: async function* () {} as never,
+        }),
+      }),
+      row: Storage.readStream(sql, 'u1', live.id),
+      streamId: live.id,
+      lastKnownSeq: 0,
+    });
+
+    protocolMessages.length = 0;
+    release();
+    await run;
+
+    const end = protocolMessages.find(
+      (message) => message.event === '__streamEnd__' && message.wskit.streamId === live.id,
+    );
+    expect(end?.targetId).toBe('c-new');
+    expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
   });
 
   it('synchronous throw while creating the generator marks the row ended (not stuck active)', async () => {

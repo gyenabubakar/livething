@@ -6,6 +6,8 @@
 	let outcome = $state('');
 	let errorOutcome = $state('');
 	let ackOutcome = $state('');
+	let undeclaredOutcome = $state('');
+	let undeclaredSeen = $state('');
 	// How to answer the next server→client request: 'good' echoes a valid
 	// response, 'bad' echoes a schema-violating one, 'drop' answers nothing,
 	// 'decline' replies with the `__error__` frame a typed client sends when its
@@ -58,9 +60,22 @@
 				return;
 			}
 
+			if (data.event === 'undeclared-question' && correlationId) {
+				undeclaredSeen = String(data.payload?.action ?? '');
+				ws?.send(
+					JSON.stringify({
+						event: 'undeclared-question',
+						payload: { ok: true },
+						__wskit: { correlationId },
+					}),
+				);
+				return;
+			}
+
 			if (data.event === 'outcome') outcome = String(data.payload?.allowed);
 			if (data.event === 'error-outcome') errorOutcome = String(data.payload?.code);
 			if (data.event === 'ack-outcome') ackOutcome = String(data.payload?.received);
+			if (data.event === 'undeclared-outcome') undeclaredOutcome = String(data.payload?.status);
 		};
 	}
 
@@ -80,6 +95,12 @@
 		ackOutcome = '';
 		ws?.send(JSON.stringify({ event: 'trigger-ack', payload: {} }));
 	}
+
+	function triggerUndeclared() {
+		undeclaredOutcome = '';
+		undeclaredSeen = '';
+		ws?.send(JSON.stringify({ event: 'trigger-undeclared', payload: {} }));
+	}
 </script>
 
 <h1>server→client request feature</h1>
@@ -92,8 +113,11 @@
 <button data-testid="trigger" onclick={trigger}>Trigger</button>
 <button data-testid="trigger-timeout" onclick={triggerTimeout}>Trigger (timeout)</button>
 <button data-testid="trigger-ack" onclick={triggerAck}>Trigger (ack)</button>
+<button data-testid="trigger-undeclared" onclick={triggerUndeclared}>Trigger (undeclared)</button>
 <span data-testid="status">{status}</span>
 <span data-testid="ask-action">{lastRequest?.action ?? ''}</span>
 <span data-testid="outcome">{outcome}</span>
 <span data-testid="error-outcome">{errorOutcome}</span>
 <span data-testid="ack-outcome">{ackOutcome}</span>
+<span data-testid="undeclared-outcome">{undeclaredOutcome}</span>
+<span data-testid="undeclared-seen">{undeclaredSeen}</span>

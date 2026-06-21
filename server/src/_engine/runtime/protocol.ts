@@ -55,7 +55,7 @@ const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.c
  * A bounded family key for dynamic channels. These are short identifiers that
  * must match a declared family, so 128 is never legitimately exceeded.
  */
-const ChannelFamilyKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelFamily));
+const ChannelFamilyKey = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channelFamily));
 
 /**
  * A bounded correlation / message id. The client SDK stamps these as

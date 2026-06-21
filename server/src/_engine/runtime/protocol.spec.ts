@@ -146,4 +146,13 @@ describe('outgoing protocol-frame conformance', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('rejects an empty channelFamily marker', () => {
+    const result = v.safeParse(UserEventFrameSchema, {
+      event: 'send-message',
+      payload: {},
+      __wskit: { channel: 'room:1', channelFamily: '' },
+    });
+    expect(result.success).toBe(false);
+  });
 });

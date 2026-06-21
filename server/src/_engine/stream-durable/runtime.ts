@@ -648,6 +648,11 @@ async function runGenerator(
     return current === undefined || current === activeStream;
   }
 
+  function attachedConnection(): RuntimeConnection | undefined {
+    if (activeStream?.detached) return undefined;
+    return activeStream?.connection ?? connection;
+  }
+
   try {
     const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
     const built = buildActiveStream({
@@ -823,11 +828,14 @@ async function runGenerator(
     if (!stillOwnsSlot()) return;
 
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
-    runtime.sendProtocolMessage(connection, {
-      event: '__streamEnd__',
-      payload: {},
-      wskit: { ...buildScopeRouting(scope), streamId, seq },
-    });
+    const ownerConnection = attachedConnection();
+    if (ownerConnection) {
+      runtime.sendProtocolMessage(ownerConnection, {
+        event: '__streamEnd__',
+        payload: {},
+        wskit: { ...buildScopeRouting(scope), streamId, seq },
+      });
+    }
     if (def.broadcast) {
       // Tell every subscriber the source generator finished.
       const peerTargets = resolveBroadcastTargets({
@@ -869,11 +877,14 @@ async function runGenerator(
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
-    await runtime.handleRuntimeError(connection, {
-      error,
-      event: def.event,
-      routing,
-    });
+    const ownerConnection = attachedConnection();
+    if (ownerConnection) {
+      await runtime.handleRuntimeError(ownerConnection, {
+        error,
+        event: def.event,
+        routing,
+      });
+    }
     // For broadcast streams, tell every subscriber the source died — with the
     // same terminal __error__ the creator gets (not a misleading clean end), so
     // their onError fires instead of them waiting indefinitely.
@@ -914,9 +925,10 @@ async function runGenerator(
       if (ownsSlot) runtime.activeStreams.delete(streamId);
     }
 
-    if (ownsSlot) {
-      connection.activeStreamIds?.delete(streamId);
-      runtime.persistAttachment(connection);
+    const ownerConnection = attachedConnection();
+    if (ownsSlot && ownerConnection) {
+      ownerConnection.activeStreamIds?.delete(streamId);
+      runtime.persistAttachment(ownerConnection);
     }
   }
 }
