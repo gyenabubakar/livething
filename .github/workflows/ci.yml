@@ -66,7 +66,7 @@ jobs:
   e2e:
     name: e2e (Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     # The official Playwright image ships chromium + OS deps prebaked, so there
     # is no browser download to stall on. The image tag MUST match the pinned
     # @playwright/test version (tests-e2e/client-raw/package.json) so the
@@ -97,8 +97,11 @@ jobs:
       - name: e2e — client library (puppet)
         run: pnpm test:e2e:client-puppet
 
-      - name: e2e — cloudflare adapter
-        run: pnpm test:e2e:cloudflare
+      - name: e2e — cloudflare raw client
+        run: pnpm --filter @wskit/tests-e2e-server-cloudflare run test:e2e:cloudflare
+
+      - name: e2e — cloudflare packaged client
+        run: pnpm --filter @wskit/tests-e2e-client run test:e2e:cloudflare
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
@@ -107,6 +110,8 @@ jobs:
           name: playwright-report
           path: |
             tests-e2e/client/playwright-report/
+            tests-e2e/client/test-results/
             tests-e2e/client-raw/playwright-report/
+            tests-e2e/client-raw/test-results/
           retention-days: 7
           if-no-files-found: ignore

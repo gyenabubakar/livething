@@ -20,6 +20,7 @@ export default defineConfig({
   timeout: 30_000,
   workers: adapter ? 4 : 2,
   retries: 0,
+  failOnFlakyTests: !!process.env.CI,
   use: {
     baseURL: 'http://127.0.0.1:4180',
   },
