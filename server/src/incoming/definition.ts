@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
 /**
- * Contract-side declaration of a client→server event. Produced by `incoming()`
- * and matched to a handler later via `implement(contract).on(name, ...)`.
+ * Contract-side declaration of a client→server event. Produced internally when
+ * you register a handler with `base.on(name, ...)`.
  */
 export interface IncomingDef<TName extends string = string, TPayload = unknown> {
   readonly _: 'incoming';
@@ -14,19 +14,21 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
 }
 
 /**
- * Declare a client→server event with an optional schema. Use it in a contract's
- * `definitions` array; bind the handler later via `implement(contract).on(name, ...)`.
+ * Declare a client→server event with an optional schema. This is the internal
+ * builder behind `base.on(name, ...)`, which both declares the event and binds
+ * its handler.
  *
  * @example
  * ```ts
- * import { contract, incoming, implement } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
- * const c = contract('chat', {
- *   definitions: [incoming('send-msg', v.object({ text: v.string() }))],
- * });
+ * const base = define({ env: t<Env>() });
  *
- * implement(c).on('send-msg', (ctx, payload) => { ... });
+ * const handleSend = base.on('send-msg', {
+ *   input: v.object({ text: v.string() }),
+ *   run(ctx, input) { ... },
+ * });
  * ```
  */
 export function incoming<TName extends string>(name: TName): IncomingDef<TName, unknown>;

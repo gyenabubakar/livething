@@ -18,6 +18,7 @@ import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -26,7 +27,6 @@ import type * as DefineServer from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 type ActiveStream = EngineRuntimeTypes.ActiveStream;
 type Primitive = PrimitiveCore.Primitive;
 
@@ -35,17 +35,11 @@ type Primitive = PrimitiveCore.Primitive;
  * runtime plugins read and write these fields directly.
  */
 export class EngineCore {
-  // ─────── compiled handler + primitive tree ───────
-
   readonly options: EngineAdapterTypes.EngineOptions;
   readonly primitives: readonly Primitive[];
   readonly compiled: EngineCompileTypes.CompiledServer;
 
-  // ─────── hook registries ───────
-
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
-
-  // ─────── adapter-provided dependencies ───────
 
   storage?: PublicApi.StorageProvider;
   env: Record<string, unknown>;
@@ -61,8 +55,6 @@ export class EngineCore {
    */
   engineInstanceId: string | undefined;
 
-  // ─────── feature flags set during primitive setup ───────
-
   hibernationEnabled = false;
   replayEnabled = false;
   sequencePersistent = false;
@@ -75,6 +67,25 @@ export class EngineCore {
    * keepalive was configured — the ping falls back to its built-in default.
    */
   keepalivePingIntervalMs: number | undefined = undefined;
+
+  /**
+   * Runtime dispatch slots filled by feature capabilities during `__setup`. The
+   * dispatch hub calls a feature's runtime only through these, so a handler that
+   * never lists a feature never pulls its runtime into the bundle.
+   */
+  streamTrigger?: FeatureSlots.StreamTrigger;
+  streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
+  streamCancel?: FeatureSlots.StreamCancel;
+  durableStream?: FeatureSlots.DurableStreamService;
+  requestDispatch?: FeatureSlots.RequestDispatch;
+  buildTagsApi?: FeatureSlots.BuildTagsApi;
+  persistenceService?: FeatureSlots.PersistenceService;
+  scheduledService?: FeatureSlots.ScheduledService;
+  runIntercepts?: FeatureSlots.RunIntercepts;
+  frameMatch?: FeatureSlots.FrameMatch;
+  channelService?: FeatureSlots.ChannelService;
+  channelContext?: FeatureSlots.ChannelContext;
+
   initialized = false;
   /**
    * True after a cold-boot schema run (first wake with no prior schema). The
@@ -100,6 +111,13 @@ export class EngineCore {
    */
   readonly tagGroupSchemas = new Map<string, Validator>();
 
+  /**
+   * Per-connection API factories for plugins registered through the new
+   * `plugin(...)` model, keyed by plugin id. `ctx.plugin(id)` runs the matching
+   * factory against a plugin-scoped context. Empty when no such plugin is listed.
+   */
+  readonly pluginApiFactories = new Map<string, (ctx: unknown) => unknown>();
+
   readonly declaredErrorCodes = new Set<string>([
     // The engine's own fallback code for any non-WSKitError. It is always a
     // valid code to surface, so declaring it here keeps an explicit
@@ -118,8 +136,6 @@ export class EngineCore {
     UnsupportedProtocol.code,
   ]);
 
-  // ─────── runtime maps ───────
-
   readonly connections = new Map<string, RuntimeConnection>();
   // Channel-key → members index, so broadcasts skip a full connections scan.
   readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
@@ -137,7 +153,6 @@ export class EngineCore {
   readonly scheduledRunsPersisted = new Map<string, string>();
   readonly scheduledDlqPersisted = new Map<string, string>();
   readonly installedFeatures = new Set<symbol>();
-  readonly pluginRuntimes: PluginRuntime[] = [];
 
   alarmHandle: unknown = null;
   idCounter = 0;
@@ -183,8 +198,6 @@ export class EngineCore {
     this.engineInstanceId = id;
   }
 
-  // ─────── dependency accessors ───────
-
   storageOrUndefined(): PublicApi.StorageProvider | undefined {
     return this.storage;
   }
@@ -203,14 +216,10 @@ export class EngineCore {
     return this.timers;
   }
 
-  // ─────── id generation ───────
-
   generateId(prefix = 'id'): string {
     this.idCounter += 1;
     return `${prefix}_${this.instanceNonce}_${this.idCounter}`;
   }
-
-  // ─────── feature-flag readers ───────
 
   usesHibernation(): boolean {
     return this.hibernationEnabled;
@@ -243,17 +252,17 @@ export class EngineCore {
   }
 
   /**
-   * Does a `(channelName, channelScope)` pair from a durable row still match a
+   * Does a `(channelName, channelFamily)` pair from a durable row still match a
    * persistent channel? Used by boot reconcile to find orphan rows from
    * removed or `persistent: false` channels.
    */
-  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean {
+  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean {
     if (!this.persistenceEnabled) return false;
-    if (channelScope === null) {
+    if (channelFamily === null) {
       const channel = this.compiled.channels.get(channelName);
       return channel ? this.isChannelPersistent(channel.key) : false;
     }
-    const family = this.compiled.channelFamilies.get(channelScope);
+    const family = this.compiled.channelFamilies.get(channelFamily);
     return family ? this.isChannelPersistent(family.key) : false;
   }
 }

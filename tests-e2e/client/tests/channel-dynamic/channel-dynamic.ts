@@ -35,7 +35,7 @@ export function setup(): void {
     channels(),
   );
 
-  const rooms = socket.channel.scope('room');
+  const rooms = socket.channel.family('room');
   const general = socket.channel('room', 'room:general');
   const vip = rooms('room:vip');
 

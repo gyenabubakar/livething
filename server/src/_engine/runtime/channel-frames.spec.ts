@@ -18,7 +18,7 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
-    channelMemberships: new Map<string, { channelName: string; channelScope: string | null }>(),
+    channelMemberships: new Map<string, { channelName: string; channelFamily: string | null }>(),
     latency: null,
     quality: 'good',
   };
@@ -26,15 +26,15 @@ function createConnection(id: string): RuntimeConnection {
 
 interface AddMembershipOptions {
   channelName: string;
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 function addMembership(
   channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
-  { channelName, channelScope = null }: AddMembershipOptions,
+  { channelName, channelFamily = null }: AddMembershipOptions,
 ) {
-  addChannelMembership(channelMembers, connection, { channelName, channelScope });
+  addChannelMembership(channelMembers, connection, { channelName, channelFamily });
 }
 
 function memberRuntime(
@@ -68,8 +68,8 @@ describe('getChannelMembers scope isolation', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
-    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelScope: null });
-    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelScope: 'rooms' });
+    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelFamily: null });
+    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelFamily: 'rooms' });
 
     const runtime = memberRuntime([staticMember, familyMember], channelMembers);
 
@@ -86,11 +86,11 @@ describe('getChannelMembers scope isolation', () => {
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
     const otherFamilyMember = createConnection('other');
-    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelScope: null });
-    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelScope: 'rooms' });
+    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelFamily: null });
+    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelFamily: 'rooms' });
     addMembership(channelMembers, otherFamilyMember, {
       channelName: 'lobby',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const runtime = memberRuntime([staticMember, familyMember, otherFamilyMember], channelMembers);

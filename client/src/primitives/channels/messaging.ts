@@ -1,7 +1,7 @@
 import { ChannelNotSubscribed } from '@wskit/core';
 import { Disconnected } from '~/errors.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
-import { isReservedEventName, scopeKeyError, wireIdError } from '~/internal/wire-validation.ts';
+import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
@@ -9,7 +9,7 @@ import type { ChannelMember } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
- * The shared context passed to the messaging and scope-handle builders.
+ * The shared context passed to the messaging and family-handle builders.
  * It gives them access to the socket, helpers, and state lookups without
  * them needing to manage those stores themselves.
  */
@@ -18,20 +18,20 @@ export interface ChannelContext {
   helpers: PrimitiveHelpers;
   resolveTtl(event: string): number | undefined;
   /** Get (or create) the messaging for one channel — cached, so the same name returns the same object. */
-  messagingFor(name: string, scopeKey?: string): MessagingObject;
+  messagingFor(name: string, familyKey?: string): MessagingObject;
   /** Get (or create) the family-level state for a dynamic family. */
-  family(scopeKey: string): FamilyState;
+  family(familyKey: string): FamilyState;
   /** The concrete names currently active in a family. */
-  listFamily(scopeKey: string): string[];
+  listFamily(familyKey: string): string[];
 }
 
 /** The routing fields (`__wskit`) that identify this channel on outgoing frames. */
 export function channelMarkers(state: ChannelState): ScopeMarkers {
-  // Use an explicit absence check, not truthiness: a supplied scope key is always
+  // Use an explicit absence check, not truthiness: a supplied family key is always
   // included so the frame stays a family-scoped channel. (An empty key is rejected
   // before a channel is built, so a present key here is real.)
-  return state.scopeKey !== undefined
-    ? { channel: state.name, channelScope: state.scopeKey }
+  return state.familyKey !== undefined
+    ? { channel: state.name, channelFamily: state.familyKey }
     : { channel: state.name };
 }
 
@@ -79,11 +79,11 @@ export function buildChannelMessaging(
       return result === 'sent' || result === 'buffered';
     },
     subscribe(data?: unknown) {
-      // Reject an empty/over-limit name or scope locally — the server rejects the
+      // Reject an empty/over-limit name or family locally — the server rejects the
       // frame before it can route a channel error back to settle this Promise.
       const nameError =
         wireIdError('__subscribe__', state.name, 'channel') ??
-        scopeKeyError('__subscribe__', state.scopeKey);
+        familyKeyError('__subscribe__', state.familyKey);
       if (nameError) return Promise.reject(nameError);
 
       helpers.ensureConnected();
@@ -178,7 +178,6 @@ export function buildChannelMessaging(
       return promise;
     },
     unsubscribe(): Promise<void> {
-      // Already gone with nothing in flight — a no-op that still resolves.
       if (!state.active && !state.pending && !state.pendingLeave) return Promise.resolve();
 
       // A leave is already outstanding: the latest intent is to leave, so drop
@@ -195,7 +194,7 @@ export function buildChannelMessaging(
       // members clear, any in-flight subscribe() rejects, and onUnsubscribed fires.
       // The leave op below confirms the leave actually reached the server.
       state.markUnsubscribed();
-      if (state.scopeKey) context.family(state.scopeKey).fireUnsubscribed(state.name);
+      if (state.familyKey) context.family(state.familyKey).fireUnsubscribed(state.name);
 
       const unsubscribeId = helpers.generateId('unsub');
       const promise = state.beginLeave(unsubscribeId);
@@ -208,6 +207,14 @@ export function buildChannelMessaging(
       if (result === 'closed') state.failLeave(Disconnected());
       // 'connecting' keeps the leave pending; onOpen resends it on reopen.
       return promise;
+    },
+    resyncMembers(): void {
+      if (!state.active) return;
+      helpers.rawSend({
+        event: '__memberSync__',
+        payload: {},
+        __wskit: { ...channelMarkers(state), source: 'client' },
+      });
     },
     get members(): ReadonlyMap<string, ChannelMember> {
       return state.members;
@@ -226,8 +233,8 @@ export function buildChannelMessaging(
   return messaging;
 }
 
-/** The runtime type of a scope handle: a callable function with family-level listener methods. */
-export type ScopeHandleObject = ((name: string) => MessagingObject) & {
+/** The runtime type of a family handle: a callable function with family-level listener methods. */
+export type FamilyHandle = ((name: string) => MessagingObject) & {
   on(event: string, handler: (data: unknown, channelName: string) => void): () => void;
   onSubscribed(callback: (channelName: string, source: 'server' | 'client') => void): () => void;
   onUnsubscribed(callback: (channelName: string) => void): () => void;
@@ -235,12 +242,12 @@ export type ScopeHandleObject = ((name: string) => MessagingObject) & {
 };
 
 /** Build the callable handle for a whole dynamic channel family. */
-export function buildScopeHandle(context: ChannelContext, scopeKey: string): ScopeHandleObject {
-  const family = context.family(scopeKey);
-  const handle = ((name: string) => context.messagingFor(name, scopeKey)) as ScopeHandleObject;
+export function buildFamilyHandle(context: ChannelContext, familyKey: string): FamilyHandle {
+  const family = context.family(familyKey);
+  const handle = ((name: string) => context.messagingFor(name, familyKey)) as FamilyHandle;
   handle.on = (event, handler) => family.addHandler(event, handler);
   handle.onSubscribed = (callback) => family.onSubscribed(callback);
   handle.onUnsubscribed = (callback) => family.onUnsubscribed(callback);
-  handle.list = () => context.listFamily(scopeKey);
+  handle.list = () => context.listFamily(familyKey);
   return handle;
 }

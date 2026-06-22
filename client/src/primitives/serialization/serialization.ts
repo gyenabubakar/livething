@@ -34,4 +34,5 @@ export function serialization(
     },
   };
 }
+
 serialization.tag = 'serialization';

@@ -29,7 +29,7 @@ test.describe('channel-dynamic', () => {
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
-    // _channelScope='room' is a valid family; _channel='admin' does NOT match /^room:.+$/.
+    // _channelFamily='room' is a valid family; _channel='admin' does NOT match /^room:.+$/.
     // The server must reject this rather than silently accept it as a 'room' subscription.
     await page.getByTestId('sub-name-fails-regex').click();
     await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
@@ -39,8 +39,8 @@ test.describe('channel-dynamic', () => {
     page,
   }, testInfo) => {
     // Scope isolation: a client sending `top-only-action` with a channel
-    // marker claims the event happens inside that channel scope. The channel
-    // scope does NOT register `top-only-action`, so the engine must drop
+    // marker claims the event happens inside that channel. The channel
+    // does NOT register `top-only-action`, so the engine must drop
     // the message rather than fall through to the top-level handler.
     await openPage(page, `test-${testInfo.testId}`);
 
@@ -61,7 +61,7 @@ test.describe('channel-dynamic', () => {
         JSON.stringify({
           event: 'top-only-action',
           payload: {},
-          __wskit: { channel: 'room:general', channelScope: 'room' },
+          __wskit: { channel: 'room:general', channelFamily: 'room' },
         }),
       );
     });
@@ -81,7 +81,7 @@ test.describe('channel-dynamic', () => {
   test('protocol-event with regex-failing scope keeps the websocket alive', async ({
     page,
   }, testInfo) => {
-    // resolveScope throws ChannelNotFound when the wire scope key is known
+    // resolveChannel throws ChannelNotFound when the wire family key is known
     // but the channel name does not match the family regex. The server's
     // protocol-message branch must route that through handleRuntimeError
     // (clean _error frame, websocket stays open) rather than letting the
@@ -95,7 +95,7 @@ test.describe('channel-dynamic', () => {
         JSON.stringify({
           event: '__replay__',
           payload: { lastKnownSeq: 0 },
-          __wskit: { channel: 'admin', channelScope: 'room' },
+          __wskit: { channel: 'admin', channelFamily: 'room' },
         }),
       );
     });
@@ -229,11 +229,45 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('name-result')).toHaveText('room:alpha-123|alpha-123');
   });
 
-  test('unknown _channelScope round-trips in the _error payload', async ({ page }, testInfo) => {
+  test('unknown _channelFamily round-trips in the _error payload', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('sub-unknown-scope').click();
     await expect(page.getByTestId('subscribe-error')).toHaveText('room:x:channel-not-found');
     await expect(page.getByTestId('subscribe-error-scope')).toHaveText('unknown-family');
+  });
+
+  test('empty _channelFamily is rejected as malformed protocol, not routed as a family', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: 'room:general', channelFamily: '' },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      ws.onmessage = original;
+      return got.filter((message) => message.event === '__error__');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('validation-failed');
   });
 
   test('onValidationError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
@@ -253,7 +287,7 @@ test.describe('channel-dynamic', () => {
         JSON.stringify({
           event: 'trigger-manual-validation',
           payload: {},
-          __wskit: { channel: 'room:general', channelScope: 'room' },
+          __wskit: { channel: 'room:general', channelFamily: 'room' },
         }),
       );
     });
@@ -281,13 +315,13 @@ test.describe('channel-dynamic', () => {
         JSON.stringify({
           event: 'trigger-scoped-error',
           payload: {},
-          __wskit: { channel: 'room:general', channelScope: 'room' },
+          __wskit: { channel: 'room:general', channelFamily: 'room' },
         }),
       );
     });
 
     // The hook reports `<channelName>|<scope>|<event>`. ctx.channel.name must
-    // be 'room:general' and ctx.channel.scope must be 'room' — not
+    // be 'room:general' and ctx.channel.family must be 'room' — not
     // '<top-level>' / '<no-scope>'.
     await expect(page.getByTestId('scoped-error-observed')).toHaveText(
       'room:general|room|trigger-scoped-error',
@@ -350,7 +384,7 @@ test.describe('channel-dynamic', () => {
         const frame = {
           event: '__subscribe__',
           payload: {},
-          __wskit: { channel: `room:${room}`, channelScope: 'room' },
+          __wskit: { channel: `room:${room}`, channelFamily: 'room' },
         };
         handles.a!.ws.send(JSON.stringify(frame));
         handles.b!.ws.send(JSON.stringify(frame));
@@ -524,7 +558,7 @@ test.describe('channel-dynamic', () => {
         if (typeof original === 'function') original.call(ws, ev);
       };
       const polluted = JSON.parse(
-        '{"event":"__subscribe__","payload":{"__proto__":{"role":"admin"}},"__wskit":{"channel":"proto:x","channelScope":"proto-probe"}}',
+        '{"event":"__subscribe__","payload":{"__proto__":{"role":"admin"}},"__wskit":{"channel":"proto:x","channelFamily":"proto-probe"}}',
       );
       ws.send(JSON.stringify(polluted));
       await new Promise((r) => setTimeout(r, 400));
@@ -562,7 +596,7 @@ test.describe('channel-dynamic', () => {
         JSON.stringify({
           event: '__subscribe__',
           payload: { role: 'admin' },
-          __wskit: { channel: 'proto:y', channelScope: 'proto-probe' },
+          __wskit: { channel: 'proto:y', channelFamily: 'proto-probe' },
         }),
       );
       await new Promise((r) => setTimeout(r, 400));
@@ -578,12 +612,12 @@ test.describe('channel-dynamic', () => {
     expect(ok).toBeUndefined();
   });
 
-  test('channelHandle.subscribe on a dynamic family stamps channelScope and source server', async ({
+  test('channelHandle.subscribe on a dynamic family stamps channelFamily and source server', async ({
     page,
   }, testInfo) => {
     // Pins the server-side subscribe path for the dynamic-channel family
     // case. The wire frame must carry both `channel: 'room:auto'` and
-    // `channelScope: 'room'` so the client SDK can route to the right
+    // `channelFamily: 'room'` so the client SDK can route to the right
     // family handle, plus `source: 'server'` to mark it as unsolicited.
     await openPage(page, `test-${testInfo.testId}`);
 
@@ -619,8 +653,8 @@ test.describe('channel-dynamic', () => {
       (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'room:auto',
     );
     expect(ok).toBeDefined();
-    expect(ok!.__wskit?.channelScope).toBe('room');
-    expect(ok!.payload.source).toBe('server');
+    expect(ok!.__wskit?.channelFamily).toBe('room');
+    expect(ok!.__wskit?.source).toBe('server');
   });
 
   test('auth-race stress: N concurrent subscribes with awaited checks — rejected users never become members, allowed set is complete and symmetric', async ({
@@ -683,7 +717,7 @@ test.describe('channel-dynamic', () => {
         const frame = JSON.stringify({
           event: '__subscribe__',
           payload: {},
-          __wskit: { channel, channelScope: 'room' },
+          __wskit: { channel, channelFamily: 'room' },
         });
         for (const s of [...allowed, ...banned]) s.ws.send(frame);
 

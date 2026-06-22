@@ -109,8 +109,6 @@ export class WSKitSocket {
    * re-thrown). A throwing `error` listener can't re-enter the error path, so it
    * goes straight to the console instead of looping. */
   _emitter = new Emitter<SocketEvents>((error, event) => {
-    // A thrown 'error' listener must not re-enter the error path. Rethrow it
-    // out-of-band straight to the host's global handler instead of re-emitting.
     if (event === 'error') {
       queueMicrotask(() => {
         throw error;
@@ -142,7 +140,6 @@ export class WSKitSocket {
   /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
-  // Filled in by add-on modules through _helpers().
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
   // One reconnect decision per close: stream cleanup (willReconnect) and the
@@ -160,19 +157,12 @@ export class WSKitSocket {
 
   private _idCounter = 0;
 
-  // A collision-resistant per-socket token in every generated id, so two fresh
-  // clients (both counting from 0) can't mint the same id — stream ids key a
-  // shared server map, where a collision is a real cross-client failure.
-  // Prefer randomUUID; else 16 secure-random bytes from getRandomValues (still
-  // collision-resistant); Math.random is only a last resort with no secure RNG.
   private readonly _idScope = makeIdScope();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
-  // Shared logger for add-on modules and internal dispatch paths. Calls are
-  // no-ops when debug mode is off. `info` maps to console.log, warn/error to their levels.
   private readonly _logger: PrimitiveLogger = {
     info: (...args) => this._logAt('log', ...args),
     warn: (...args) => this._logAt('warn', ...args),
@@ -294,8 +284,6 @@ export class WSKitSocket {
   }
 
   send(event: string, payload: unknown, options?: SendOptions): boolean {
-    // A reserved protocol name (ping/pong or the __ namespace) can't be a user
-    // event — the server drops it, so don't put it on the wire. Drop it locally.
     if (isReservedEventName(event)) {
       this._log(`send('${event}') dropped — reserved event name`);
       return false;
@@ -881,7 +869,7 @@ export class WSKitSocket {
 
     // A send counts as activity. In lazy mode with no active listeners the idle
     // timer is running; restart it so a send-only client isn't closed mid-stream
-    // (matches the "no recent send()" idle condition in the spec).
+    // (matches the "no recent send()" idle condition).
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
       this._startLazyIdleTimer();
     }

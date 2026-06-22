@@ -15,12 +15,13 @@ describe('isValidWSKitIdentifier', () => {
     expect(isValidWSKitIdentifier('_single-underscore-ok')).toBe(true);
   });
 
-  it('rejects empty strings, non-strings, and the reserved __ prefix', () => {
+  it('rejects empty strings, non-strings, and reserved double-underscore edges', () => {
     expect(isValidWSKitIdentifier('')).toBe(false);
     expect(isValidWSKitIdentifier(undefined)).toBe(false);
     expect(isValidWSKitIdentifier(123)).toBe(false);
     expect(isValidWSKitIdentifier('__subscribe__')).toBe(false);
     expect(isValidWSKitIdentifier('__anything')).toBe(false);
+    expect(isValidWSKitIdentifier('anything__')).toBe(false);
   });
 });
 
@@ -33,6 +34,10 @@ describe('assertValidWSKitIdentifier', () => {
 
   it('throws a reserved-prefix message for a leading __', () => {
     expect(() => assertValidWSKitIdentifier('__foo', 'event name')).toThrow(/reserved '__' prefix/);
+  });
+
+  it('throws a reserved-suffix message for a trailing __', () => {
+    expect(() => assertValidWSKitIdentifier('foo__', 'event name')).toThrow(/reserved '__' suffix/);
   });
 
   it('passes through a valid name', () => {
@@ -59,7 +64,7 @@ describe('WIRE_LIMITS / exceedsWireLimit', () => {
     expect(WIRE_LIMITS).toEqual({
       event: 128,
       channel: 256,
-      channelScope: 128,
+      channelFamily: 128,
       streamId: 128,
       wireId: 128,
     });
@@ -81,5 +86,9 @@ describe('error() applies the identifier rule to its code', () => {
 
   it('rejects a code that starts with the reserved __ prefix', () => {
     expect(() => error('__internal')).toThrow(/reserved '__' prefix/);
+  });
+
+  it('rejects a code that ends with the reserved __ suffix', () => {
+    expect(() => error('internal__')).toThrow(/reserved '__' suffix/);
   });
 });

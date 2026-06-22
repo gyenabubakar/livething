@@ -1,51 +1,29 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
-import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import { collectUnique } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
+import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
+import type { CommonDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { Validator } from '~/types.ts';
 
 export type { OnDisconnect };
 
-interface CommonRecordedConfig {
-  onDisconnect?: OnDisconnect;
-  /** How long a suspended stream is kept after the owning connection drops. Default: 5 minutes. */
-  maxAgeMs?: number;
-  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still get the tail. Default: 30 seconds. */
-  retentionAfterEndMs?: number;
-  /**
-   * One generator, many subscribers. The creator runs the generator once;
-   * every chunk lands in the buffer and fans out to scope members. Late
-   * joiners and reconnects catch up from the recorded buffer.
-   *
-   * Scope is decided by where you declare the stream:
-   * - Top-level — fans out to every connection on the handler.
-   * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
-   *
-   * A non-creator that sends `__streamCancel__` is unsubscribed from future
-   * chunks for that stream id (its later resume returns `StreamAborted` with
-   * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
-   * else. A cancel from the creator identity tears the whole stream down.
-   *
-   * Default: false.
-   */
-  broadcast?: boolean;
-}
-
 /**
- * Contract-side declaration produced by `recordedStream()`. Pass it into a
- * contract's `definitions: [...]` array.
+ * Contract-side declaration produced internally when you register a stream with
+ * `base.recordedStream(...)`.
  */
 export interface RecordedStreamDef<
   TName extends string = string,
   TPayload = unknown,
   TChunk = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
-> extends CommonRecordedConfig {
+> extends CommonDurableStreamConfig {
   readonly _: 'recorded-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
@@ -57,9 +35,9 @@ interface RecordedStreamConfig<
   TPayload,
   TChunk,
   TNudges extends readonly NudgeDef<string, any>[],
-> extends CommonRecordedConfig {
+> extends CommonDurableStreamConfig {
   payload?: Validator<TPayload>;
-  chunk?: Validator<TChunk>;
+  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
@@ -80,39 +58,39 @@ interface RecordedStreamConfig<
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`
  * and survive a resume.
  *
- * Requires `persistence: true` on the contract. Build throws otherwise.
+ * Requires the `persistence()` capability. Build throws otherwise.
  *
  * @example
  * ```ts
- * import { contract, recordedStream } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
  * import { StreamAborted } from '@wskit/server/errors';
+ * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * const TokenChunk = v.object({ idx: v.number() });
+ * const TokenChunk = t<{ idx: number }>();
  *
- * const myContract = contract('ai', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     recordedStream('count-tokens', {
- *       payload: v.object({}),
- *       chunk: TokenChunk,
- *       maxChunks: 100,
- *       maxAgeMs: 60_000,
- *       retentionAfterEndMs: 30_000,
- *     }),
- *   ],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), recordedStream()],
  * });
  *
- * // In the handler:
- * implement(myContract).recordedStream('count-tokens', async function* () {
- *   for (let i = 1; i <= 5; i += 1) {
- *     try {
- *       yield { idx: i };
- *     } catch (err) {
- *       if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') return;
- *       throw err;
+ * const handleCountTokens = base.recordedStream('count-tokens', {
+ *   input: v.object({}),
+ *   chunk: TokenChunk,
+ *   maxChunks: 100,
+ *   maxAgeMs: 60_000,
+ *   retentionAfterEndMs: 30_000,
+ *   async *run() {
+ *     for (let i = 1; i <= 5; i += 1) {
+ *       try {
+ *         yield { idx: i };
+ *       } catch (err) {
+ *         if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') return;
+ *         throw err;
+ *       }
  *     }
- *   }
+ *   },
  * });
  * ```
  */
@@ -127,17 +105,11 @@ export function recordedStream<
 ): RecordedStreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'recordedStream');
   const context = `recordedStream("${name}")`;
-  assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
-  assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
-  assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
-  if (config?.onDisconnect !== undefined) {
-    assertOneOf(config.onDisconnect, ['cancel-but-buffer', 'keep-running'] as const, {
-      field: 'onDisconnect',
-      context,
-    });
-  }
+  validateDurableStreamConfig(config, context, { maxChunks: true });
+
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
+
   return {
     _: 'recorded-stream',
     name,
@@ -146,9 +118,10 @@ export function recordedStream<
     nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,
-    onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
-    maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
-    retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
+    onDisconnect: config?.onDisconnect ?? DURABLE_STREAM_DEFAULTS.onDisconnect,
+    maxAgeMs: config?.maxAgeMs ?? DURABLE_STREAM_DEFAULTS.maxAgeMs,
+    retentionAfterEndMs: config?.retentionAfterEndMs ?? DURABLE_STREAM_DEFAULTS.retentionAfterEndMs,
     maxChunks: config?.maxChunks ?? 500,
+    highWaterMark: config?.highWaterMark,
   };
 }

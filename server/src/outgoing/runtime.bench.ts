@@ -1,5 +1,5 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
-import { broadcastToChannel } from '~/outgoing/runtime.ts';
+import { APP_HOOK_OWNER, broadcastToChannel } from '~/outgoing/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { broadcastToChannel as BroadcastToChannel } from '~/outgoing/runtime.ts';
@@ -38,7 +38,10 @@ function createRuntime(
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
     if (i < memberCount)
-      addChannelMembership(channelMembers, connection, { channelName: 'room', channelScope: null });
+      addChannelMembership(channelMembers, connection, {
+        channelName: 'room',
+        channelFamily: null,
+      });
   }
 
   let seq = 0;
@@ -60,14 +63,12 @@ function createRuntime(
         ],
       ]),
       channelFamilies: new Map(),
-      plugins: [],
     },
     connections,
     channelMembers,
-    pluginRuntimes: [],
     outgoingHooks: [
-      (message: { event: string; payload: unknown }) => message.payload,
-      () => undefined,
+      { handler: (message: { payload: unknown }) => message.payload, owner: APP_HOOK_OWNER },
+      { handler: () => undefined, owner: APP_HOOK_OWNER },
     ],
     wskitStampHooks: withStamper ? [() => ({ seq: seq++ })] : [],
     beforeSendHooks: [],
@@ -92,7 +93,6 @@ const largePayload = {
   mentions: ['user-1', 'user-2', 'user-3', 'user-4'],
 };
 
-// [members in the broadcast channel, total connections on the server]
 const scenarios: Array<[number, number]> = [
   [100, 100],
   [1000, 1000],
@@ -109,7 +109,7 @@ for (const [memberCount, total] of scenarios) {
         event: 'chat',
         payload: smallPayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
 
@@ -120,7 +120,7 @@ for (const [memberCount, total] of scenarios) {
         event: 'chat',
         payload: largePayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
   });
@@ -140,7 +140,7 @@ for (const [memberCount, total] of [
         event: 'chat',
         payload: smallPayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
 
@@ -151,7 +151,7 @@ for (const [memberCount, total] of [
         event: 'chat',
         payload: largePayload,
         excludeConnectionId: undefined,
-        channelScope: null,
+        channelFamily: null,
       });
     });
   });

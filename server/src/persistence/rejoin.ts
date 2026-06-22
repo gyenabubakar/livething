@@ -5,8 +5,8 @@ import {
   ValidationFailed,
 } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
-import { addConnectionTag } from '~/tags/runtime.ts';
 import { deleteTag, listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
@@ -16,7 +16,7 @@ import type { Validator } from '~/types.ts';
 export interface RejoinSubscribeOptions {
   channelName: string;
 
-  channelScope: string | null;
+  channelFamily: string | null;
 
   payload: unknown;
 
@@ -154,7 +154,7 @@ export async function autoRejoinIdentity(
     try {
       await runtime.subscribeConnectionAsServer(connection, {
         channelName: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
         payload: undefined,
         rejoining: true,
       });
@@ -170,7 +170,7 @@ export async function autoRejoinIdentity(
       deleteMembership(runtime.sql, {
         identity: connection.identity,
         channelName: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
       });
 
       let reason: string;
@@ -179,7 +179,7 @@ export async function autoRejoinIdentity(
       else reason = String(error);
 
       const wskit: Record<string, unknown> = { channel: row.channelName };
-      if (row.channelScope !== null) wskit.channelScope = row.channelScope;
+      if (row.channelFamily !== null) wskit.channelFamily = row.channelFamily;
 
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
@@ -190,7 +190,7 @@ export async function autoRejoinIdentity(
       runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
         identity: connection.identity,
         channel: row.channelName,
-        channelScope: row.channelScope,
+        channelFamily: row.channelFamily,
         error: reason,
       });
     }

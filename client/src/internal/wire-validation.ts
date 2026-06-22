@@ -24,9 +24,6 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       issues: [{ message: `${label} must be a non-empty string.` }],
     });
   }
-  // A user event name can't be a reserved protocol name. `ping`/`pong` are the
-  // bare control frames and `__x__` is the engine's namespace — the server drops
-  // such a frame before it can route an error back, so the op would only time out.
   if (kind === 'event' && isReservedEventName(value)) {
     return ValidationFailed({
       event,
@@ -48,30 +45,51 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
  * True when `name` is a reserved protocol name that can't be a user event:
  * the bare `ping`/`pong` control frames, or anything in the engine's `__x__`
  * namespace (and an empty/non-string name).
+ *
+ * Plugin-owned events are namespaced `__<id>::event`. The `__` prefix alone
+ * would fail the user-identifier rule, but `::` is the plugin-namespace
+ * separator — no protocol frame contains it — so a `__…::…` name is a real,
+ * sendable plugin event, not a reserved protocol frame.
  */
 export function isReservedEventName(name: string): boolean {
-  return name === 'ping' || name === 'pong' || !isValidWSKitIdentifier(name);
+  if (name === 'ping' || name === 'pong') return true;
+  if (typeof name === 'string' && name.startsWith('__') && name.includes('::')) return false;
+  return !isValidWSKitIdentifier(name);
 }
 
 /**
- * A scope key is optional — an absent (`undefined`) one is a static channel and
+ * True when an incoming frame's event names a wskit protocol control frame
+ * (`__streamOk__`, `__streamEnd__`, `__error__`, …) rather than user traffic.
+ *
+ * A protocol frame is `__`-prefixed and never contains the plugin-namespace
+ * separator `::`. A plugin-owned event/stream/channel is namespaced
+ * `__<id>::event`, so it also starts with `__` — checking the `::` separator is
+ * what keeps a plugin chunk frame from being mistaken for a protocol frame and
+ * dropped before it reaches the stream/channel handler.
+ */
+export function isProtocolFrameEvent(event: string): boolean {
+  return event.startsWith('__') && !event.includes('::');
+}
+
+/**
+ * A family key is optional — an absent (`undefined`) one is a static channel and
  * is fine. But a *supplied* family key must be a non-empty string within the
- * limit: an empty key would drop the `channelScope` marker and turn the frame
+ * limit: an empty key would drop the `channelFamily` marker and turn the frame
  * into a static-channel subscribe that hangs.
  */
-export function scopeKeyError(event: string, scopeKey: string | undefined): WSKitError | null {
-  if (scopeKey === undefined) return null;
-  if (scopeKey.length === 0) {
+export function familyKeyError(event: string, familyKey: string | undefined): WSKitError | null {
+  if (familyKey === undefined) return null;
+  if (familyKey.length === 0) {
     return ValidationFailed({
       event,
-      issues: [{ message: 'channel scope must be a non-empty string when given.' }],
+      issues: [{ message: 'channel family must be a non-empty string when given.' }],
     });
   }
-  if (scopeKey.length > WIRE_LIMITS.channelScope) {
+  if (familyKey.length > WIRE_LIMITS.channelFamily) {
     return ValidationFailed({
       event,
       issues: [
-        { message: `channel scope is over the ${WIRE_LIMITS.channelScope}-character limit.` },
+        { message: `channel family is over the ${WIRE_LIMITS.channelFamily}-character limit.` },
       ],
     });
   }

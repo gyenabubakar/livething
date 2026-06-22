@@ -1,18 +1,41 @@
-import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import {
   broadcastToChannel,
   dispatchIncoming,
   processTextMessage,
 } from '~/_engine/runtime/messages.ts';
-import { resolveScope } from '~/_engine/runtime/scope.ts';
+import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { Defer } from '~/errors/errors.ts';
+import { runIntercepts } from '~/intercept/runtime.ts';
 import { localKey } from '~/local-key/local-key.ts';
+import { sendThroughPipeline } from '~/outgoing/runtime.ts';
+import { handleRequest } from '~/request/runtime.ts';
+import { bufferStreamNudge } from '~/stream/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
+
+type RequestDispatchRuntime = Parameters<typeof handleRequest>[0] &
+  Parameters<typeof sendThroughPipeline>[0];
+type RequestDispatchOptions = Parameters<typeof handleRequest>[1];
+
+function requestDispatchForSpec(
+  runtime: RequestDispatchRuntime,
+  _connection: unknown,
+  options: RequestDispatchOptions,
+) {
+  return handleRequest(
+    {
+      asyncContext: runtime.asyncContext,
+      logger: runtime.logger,
+      sendThroughPipeline: (connection, pipelineOptions) =>
+        sendThroughPipeline(runtime, connection, pipelineOptions),
+    },
+    options,
+  );
+}
 
 function createConnection(id: string): RuntimeConnection {
   return {
@@ -29,7 +52,7 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
-    channelMemberships: new Map<string, { channelName: string; channelScope: string | null }>(),
+    channelMemberships: new Map<string, { channelName: string; channelFamily: string | null }>(),
     latency: null,
     quality: 'good',
   };
@@ -37,15 +60,15 @@ function createConnection(id: string): RuntimeConnection {
 
 interface AddMembershipOptions {
   channelName: string;
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 function addMembership(
   channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
-  { channelName, channelScope = null }: AddMembershipOptions,
+  { channelName, channelFamily = null }: AddMembershipOptions,
 ) {
-  addChannelMembership(channelMembers, connection, { channelName, channelScope });
+  addChannelMembership(channelMembers, connection, { channelName, channelFamily });
 }
 
 describe('message runtime', () => {
@@ -56,11 +79,11 @@ describe('message runtime', () => {
 
     addMembership(channelMembers, roomsMember, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     addMembership(channelMembers, lobbiesMember, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const runtime = {
@@ -93,7 +116,6 @@ describe('message runtime', () => {
           ],
         ]),
       },
-      pluginRuntimes: [],
       outgoingHooks: [],
       beforeSendHooks: [],
       wskitStampHooks: [],
@@ -116,7 +138,7 @@ describe('message runtime', () => {
       event: 'message',
       payload: { text: 'hi' },
       excludeConnectionId: undefined,
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     expect(roomsMember.descriptor.send).toHaveBeenCalledTimes(1);
@@ -130,7 +152,7 @@ describe('message runtime', () => {
     const connection = createConnection('conn_1');
     addMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const runtime = {
@@ -161,7 +183,6 @@ describe('message runtime', () => {
           ],
         ]),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -173,7 +194,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return {
@@ -202,14 +222,14 @@ describe('message runtime', () => {
     };
 
     expect(
-      resolveScope(runtime.compiled as unknown as CompiledServer, {
+      resolveChannel(runtime.compiled as unknown as CompiledServer, {
         channel: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       }),
     ).toEqual({
       channel: runtime.compiled.channelFamilies.get('rooms'),
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     await dispatchIncoming(
@@ -218,7 +238,7 @@ describe('message runtime', () => {
       {
         event: 'message',
         payload: { text: 'hi' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelFamily: 'rooms' },
       },
     );
 
@@ -227,88 +247,9 @@ describe('message runtime', () => {
     expect(errors[0]!.event).toBe('message');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
-  });
-
-  it('ctx.ack() ack id rides on each dispatch ctx, not a shared connection field', async () => {
-    // Regression: two messages on one connection interleave at an await. The
-    // ack id must travel on each dispatch's own ctx — a shared connection
-    // field gets overwritten by the second message before the first acks.
-    const connection = createConnection('conn_1');
-    const acked: Array<{ which: unknown; ackId: unknown }> = [];
-
-    let releaseA!: () => void;
-    const gateA = new Promise<void>((resolve) => {
-      releaseA = resolve;
-    });
-
-    async function handler(ctx: Record<PropertyKey, unknown>, payload: { which: string }) {
-      if (payload.which === 'A') await gateA;
-      acked.push({ which: payload.which, ackId: ctx[ENGINE_ACK_ID] });
-    }
-
-    const runtime = {
-      compiled: {
-        outgoing: new Map(),
-        incoming: new Map([['msg', { event: 'msg', handler, validator: undefined }]]),
-        requests: new Map(),
-        streams: new Map(),
-        resumableStreams: new Map(),
-        recordedStreams: new Map(),
-        intercepts: [],
-        channels: new Map(),
-        channelFamilies: new Map(),
-        scheduled: new Map(),
-        plugins: [],
-        requires: {},
-        replayClaimedChannelKeys: new Set(),
-      },
-      connections: new Map([[connection.id, connection]]),
-      toConnectionInfo() {
-        return { id: connection.id };
-      },
-      activeStreams: new Map(),
-      protocolHandlers: new Map(),
-      incomingHooks: [],
-      pluginRuntimes: [],
-      errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
-      buildConnectionContext() {
-        return { id: connection.id };
-      },
-      broadcastToConnections() {},
-      sendProtocolMessage() {},
-      sendReplay() {},
-      persistAttachment() {},
-      async handleRuntimeError() {},
-      async handleValidationError() {},
-      async handleSubscribe() {},
-      async handleUnsubscribe() {},
-      waitUntil() {},
-      generateId() {
-        return 'id_1';
-      },
-    };
-
-    const pA = dispatchIncoming(
-      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-      connection,
-      { event: 'msg', payload: { which: 'A' }, wskit: { ackId: 'ack-a', channelScope: null } },
-    );
-    const pB = dispatchIncoming(
-      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-      connection,
-      { event: 'msg', payload: { which: 'B' }, wskit: { ackId: 'ack-b', channelScope: null } },
-    );
-    releaseA();
-    await Promise.all([pA, pB]);
-
-    expect(acked).toContainEqual({ which: 'A', ackId: 'ack-a' });
-    expect(acked).toContainEqual({ which: 'B', ackId: 'ack-b' });
   });
 
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
@@ -343,7 +284,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -354,7 +294,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -417,7 +356,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -428,7 +366,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -468,7 +405,6 @@ describe('message runtime', () => {
     const handler = vi.fn();
     const connection = createConnection('conn_1');
 
-    // Standard Schema-shaped validator that always returns issues.
     const rejectingSchema = {
       '~standard': {
         version: 1,
@@ -491,7 +427,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -502,7 +437,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -591,7 +525,6 @@ describe('message runtime', () => {
         channels: new Map([['room', channel]]),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -603,7 +536,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -619,6 +551,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -628,7 +561,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelFamily: null } },
     );
 
     expect(handleValidationError).toHaveBeenCalledTimes(1);
@@ -669,7 +602,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -680,7 +612,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -696,6 +627,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -708,7 +640,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 42 },
-        wskit: { correlationId: 'corr-99', channelScope: null },
+        wskit: { correlationId: 'corr-99', channelFamily: null },
       }, // wrong type — schema fails
     );
 
@@ -749,7 +681,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -760,7 +691,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -776,6 +706,7 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -788,7 +719,7 @@ describe('message runtime', () => {
       {
         event: 'get-user',
         payload: { id: 'u1' },
-        wskit: { correlationId: 'corr-42', channelScope: null },
+        wskit: { correlationId: 'corr-42', channelFamily: null },
       },
     );
 
@@ -844,7 +775,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -859,11 +789,11 @@ describe('message runtime', () => {
       wskitStampHooks: [],
       beforeSendHooks: [],
       afterSendHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       buildConnectionContext() {
         return sharedCtx;
       },
+      runIntercepts,
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
@@ -871,6 +801,7 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
+      requestDispatch: requestDispatchForSpec,
       waitUntil() {},
       logger: { warn() {}, error() {} },
       generateId() {
@@ -884,7 +815,7 @@ describe('message runtime', () => {
       {
         event: 'lookup',
         payload: {},
-        wskit: { correlationId: 'corr-ctx', channelScope: null },
+        wskit: { correlationId: 'corr-ctx', channelFamily: null },
       },
     );
 
@@ -894,7 +825,7 @@ describe('message runtime', () => {
     ).toEqual({
       event: 'lookup',
       payload: { tag: 'top' },
-      __wskit: { correlationId: 'corr-ctx' },
+      __wskit: { correlationId: 'corr-ctx', source: 'client' },
     });
   });
 
@@ -939,7 +870,6 @@ describe('message runtime', () => {
         ]),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -951,7 +881,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -975,7 +904,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelFamily: null } },
     );
 
     expect(topLevelHandler).not.toHaveBeenCalled();
@@ -996,7 +925,7 @@ describe('message runtime', () => {
         intercepts: [],
         channels: new Map(),
         // Family pattern requires room:N. The replay payload below uses the
-        // family key but a name that fails the regex, so resolveScope throws
+        // family key but a name that fails the regex, so resolveChannel throws
         // ChannelNotFound.
         channelFamilies: new Map([
           [
@@ -1016,7 +945,6 @@ describe('message runtime', () => {
           ],
         ]),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1027,7 +955,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1057,7 +984,7 @@ describe('message runtime', () => {
         JSON.stringify({
           event: '__replay__',
           payload: {},
-          __wskit: { channel: 'admin', channelScope: 'rooms' },
+          __wskit: { channel: 'admin', channelFamily: 'rooms' },
         }),
       ),
     ).resolves.toBeUndefined();
@@ -1066,7 +993,7 @@ describe('message runtime', () => {
     const [, { error, event, routing }] = handleRuntimeError.mock.calls[0]!;
     expect((error as { code?: string }).code).toBe('channel-not-found');
     expect(event).toBe('__replay__');
-    expect(routing).toEqual({ channel: 'admin', channelScope: 'rooms' });
+    expect(routing).toEqual({ channel: 'admin', channelFamily: 'rooms' });
   });
 
   it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
@@ -1089,7 +1016,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1100,7 +1026,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1129,7 +1054,7 @@ describe('message runtime', () => {
       JSON.stringify({
         event: '__subscribe__',
         payload: {},
-        __wskit: { channel: 42, channelScope: 'rooms' },
+        __wskit: { channel: 42, channelFamily: 'rooms' },
       }),
     );
 
@@ -1157,7 +1082,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1168,7 +1092,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1197,7 +1120,7 @@ describe('message runtime', () => {
       JSON.stringify({
         event: '__unsubscribe__',
         payload: {},
-        __wskit: { channel: { id: 1 }, channelScope: 99 },
+        __wskit: { channel: { id: 1 }, channelFamily: 99 },
       }),
     );
 
@@ -1227,7 +1150,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1235,7 +1157,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1291,7 +1212,6 @@ describe('message runtime', () => {
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
-        plugins: [],
         requires: {},
         replayClaimedChannelKeys: new Set(),
       },
@@ -1299,7 +1219,6 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       // no `sql` → storage absent
@@ -1336,8 +1255,6 @@ describe('message runtime', () => {
   });
 });
 
-// ── nudge intercept ───────────────────────────────────────────────────────────
-
 function makeScopedNode(intercepts: unknown[] = []) {
   return {
     intercepts,
@@ -1370,7 +1287,6 @@ function makeNudgeRuntime(
       channels,
       channelFamilies: new Map(),
       scheduled: new Map(),
-      plugins: [],
       requires: {},
       replayClaimedChannelKeys: new Set(),
     },
@@ -1378,17 +1294,19 @@ function makeNudgeRuntime(
     activeStreams,
     protocolHandlers: new Map(),
     incomingHooks: [],
-    pluginRuntimes: [],
     errorHooks: [],
     activityHooks: [],
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,
+    streamNudgeBuffer: bufferStreamNudge,
+    runIntercepts,
     buildConnectionContext: () => ({}),
     handleRuntimeError,
     async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
+    handleMemberSync() {},
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
@@ -1417,6 +1335,35 @@ function makeActiveStream(connectionId: string, nudgeEvent: string) {
   };
 }
 
+describe('inbound __memberSync__ request (bug #16)', () => {
+  it('routes a client __memberSync__ frame to handleMemberSync', async () => {
+    const connection = createConnection('conn_1');
+    const handleMemberSync = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map()),
+      connections: new Map([[connection.id, connection]]),
+      handleMemberSync,
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '__memberSync__',
+        payload: {},
+        __wskit: { channel: 'room', source: 'client' },
+      }),
+    );
+
+    expect(handleMemberSync).toHaveBeenCalledTimes(1);
+    const frame = handleMemberSync.mock.calls[0]?.[1] as {
+      __wskit: { channel: string; source?: string };
+    };
+    expect(frame.__wskit.channel).toBe('room');
+    expect(frame.__wskit.source).toBe('client');
+  });
+});
+
 describe('nudge intercepts', () => {
   it('intercept sees kind=nudge and routing.streamId for a nudge frame', async () => {
     const connection = createConnection('conn_1');
@@ -1437,7 +1384,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1461,7 +1408,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { original: true },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1488,7 +1435,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1508,7 +1455,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: { passthrough: true },
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     );
 
@@ -1535,7 +1482,7 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: {},
-        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelFamily: null },
       }),
     );
 
@@ -1570,15 +1517,13 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'ch-nudge',
         payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', channel: 'room', channelScope: null },
+        __wskit: { streamId: 'stream_1', channel: 'room', channelFamily: null },
       }),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
   });
 });
-
-// ── Defer retry hook isolation ────────────────────────────────────────────────
 
 describe('Defer retry hook isolation', () => {
   it('incoming hooks run only once across original dispatch and Defer retry', async () => {
@@ -1612,7 +1557,6 @@ describe('Defer retry hook isolation', () => {
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -1627,7 +1571,6 @@ describe('Defer retry hook isolation', () => {
             hookCallCount += 1;
           },
         ],
-        pluginRuntimes: [],
         errorHooks: [],
         requireTimers() {
           return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1655,12 +1598,10 @@ describe('Defer retry hook isolation', () => {
         { event: 'work', payload: {}, wskit: undefined },
       );
 
-      // First dispatch: handler throws Defer(10). Hook ran once.
       expect(handlerAttempt).toBe(1);
 
       await vi.advanceTimersByTimeAsync(10);
 
-      // Retry completed: handler ran a second time and succeeded.
       expect(handlerAttempt).toBe(2);
 
       // Correct behavior: the incoming hook must have run only ONCE total.
@@ -1717,7 +1658,6 @@ describe('Defer retry hook isolation', () => {
           channels: new Map([['room', channel]]),
           channelFamilies: new Map(),
           scheduled: new Map(),
-          plugins: [],
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
@@ -1729,7 +1669,6 @@ describe('Defer retry hook isolation', () => {
         activeStreams: new Map(),
         protocolHandlers: new Map(),
         incomingHooks: [],
-        pluginRuntimes: [],
         errorHooks: [
           (ctx: { id?: string; channel?: string }) => {
             capturedCtx = ctx;
@@ -1739,7 +1678,6 @@ describe('Defer retry hook isolation', () => {
           return { setTimeout: () => undefined, clearTimeout() {} };
         },
         buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
-          // Reflect the resolved scope into ctx the way the real builder does.
           return { id: connection.id, channel: scope?.channelName };
         },
         broadcastToConnections() {},
@@ -1760,7 +1698,7 @@ describe('Defer retry hook isolation', () => {
       await dispatchIncoming(
         runtime as unknown as Parameters<typeof dispatchIncoming>[0],
         connection,
-        { event: 'work', payload: {}, wskit: { channel: 'room', channelScope: null } },
+        { event: 'work', payload: {}, wskit: { channel: 'room', channelFamily: null } },
       );
       // Exhaust the defer retries (initial + 3 retries at 10ms each).
       await vi.advanceTimersByTimeAsync(100);
@@ -1770,5 +1708,79 @@ describe('Defer retry hook isolation', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('declined server→client request routing (Major 1)', () => {
+  it('routes a correlated __error__ decline to the answer-frame hooks', async () => {
+    const connection = createConnection('conn_1');
+    const claimed: Array<{ id: string; event: string; code: unknown }> = [];
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [
+        (
+          id: string,
+          frame: { event: string; payload: unknown; wskit?: { correlationId?: string } },
+        ) => {
+          if (frame.wskit?.correlationId !== 'sreq_1') return false;
+          claimed.push({
+            id,
+            event: frame.event,
+            code: (frame.payload as { code?: unknown })?.code,
+          });
+          return true;
+        },
+      ],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '__error__',
+        payload: { code: 'request-no-response' },
+        __wskit: { correlationId: 'sreq_1' },
+      }),
+    );
+
+    // The decline reached settle (not dispatchProtocolFrame, which would have
+    // raised a validation error).
+    expect(claimed).toEqual([{ id: 'conn_1', event: '__error__', code: 'request-no-response' }]);
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+  });
+
+  it('drops a correlated __error__ no hook claims without a spurious protocol error', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [() => false],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__error__', payload: {}, __wskit: { correlationId: 'gone' } }),
+    );
+
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+  });
+
+  it('a bare __error__ with no correlationId still surfaces a protocol validation error', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const runtime = {
+      ...makeNudgeRuntime([], new Map(), { handleRuntimeError }),
+      answerFrameHooks: [],
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__error__', payload: { code: 'x' } }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
   });
 });

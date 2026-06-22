@@ -1,26 +1,22 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
-import * as EngineChannelFrames from '~/_engine/runtime/channel-frames.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import * as Scheduling from '~/_engine/scheduling.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as MembershipPersistence from '~/persistence/membership.ts';
-import * as RejoinPersistence from '~/persistence/rejoin.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
+type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
-// ─────── dep-bag memoization ───────
 
 // Each dependency bag closes over `core` and is otherwise constant for the
 // engine's life — build it once per core and reuse it, rather than rebuilding
@@ -46,41 +42,24 @@ function depsMemoFor(core: EngineCore): DepsMemo {
   return memo;
 }
 
-// ─────── shared helpers ───────
-
-/** Bound `leaveChannel` closure used by persistence and identity ops. */
-function buildLeaveChannel(core: EngineCore) {
-  return (connection: RuntimeConnection, opts: ChannelPrimitive.LeaveChannelOptions) =>
-    EngineChannelFrames.leaveChannel(channelRuntime(core), connection, opts);
-}
-
 /** The constant dep bag passed to `EngineContexts.buildConnectionContext`. */
 function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDeps {
   return (depsMemoFor(core).ctxDeps ??= {
     compiled: core.compiled,
     connections: core.connections,
     tagMembers: core.tagMembers,
-    hibernationEnabled: core.hibernationEnabled,
+    buildTagsApi: core.buildTagsApi,
+    frameMatch: core.frameMatch,
+    channelContext: core.channelContext,
     ...commonDeps(core),
   });
 }
 
 /** Closure that builds a live-connection context. Used by error + dispatch helpers. */
 function buildConnectionContext(core: EngineCore) {
-  return (connection: RuntimeConnection, scope?: ResolvedScope) =>
+  return (connection: RuntimeConnection, scope?: ResolvedChannel) =>
     EngineContexts.buildConnectionContext(ctxDeps(core), connection, scope);
 }
-
-/** Factory for the task context passed to scheduled handlers. */
-function buildTaskContextFactory(core: EngineCore): () => unknown {
-  return () =>
-    EngineContexts.createTaskContext({
-      connections: core.connections,
-      ...commonDeps(core),
-    });
-}
-
-// ─────── common deps ───────
 
 /** Shared dep bag for init, shutdown, task, and connection context builders. */
 export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
@@ -88,7 +67,6 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 }
 
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
-  const createTaskContext = buildTaskContextFactory(core);
   return {
     env: core.env,
     logger: core.logger,
@@ -97,9 +75,12 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     requireStorage: () => core.requireStorage(),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
-      Scheduling.scheduleTask(core, createTaskContext, { taskId, time, data }),
+      core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
     cancelScheduled: (taskId, filter) =>
-      Scheduling.cancelScheduled(core, createTaskContext, { taskId, filter }),
+      core.scheduledService?.cancelScheduled(core, commonDeps(core), { taskId, filter }) ?? {
+        removed: 0,
+        taskExists: false,
+      },
     broadcastToConnections: (connections, opts) => {
       EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
@@ -109,40 +90,27 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     broadcastToChannel: (opts) => {
       EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
-    getChannelMembers: (channelName, channelScope) =>
-      EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelScope),
-    kickChannelMembers: (opts) => {
-      return EngineChannelFrames.kickChannelMembers(
-        { ...channelRuntime(core), leaveChannel: buildLeaveChannel(core) },
-        opts,
-      );
-    },
-    removeChannelMember: (channelName, channelScope, identity) => {
-      return MembershipPersistence.removeChannelMember(core, buildLeaveChannel(core), {
-        identity,
-        channelName,
-        channelScope,
-      });
-    },
-    subscribeConnectionAsServer: (ref, opts) => {
-      return EngineChannelFrames.subscribeFromServer(
-        { ...channelRuntime(core), instanceId: core.engineInstanceId },
-        ref,
-        opts,
-      );
-    },
+    getChannelMembers: (channelName, channelFamily) =>
+      core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
+    kickChannelMembers: (opts) =>
+      core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve(),
+    removeChannelMember: (channelName, channelFamily, identity) =>
+      core.channelService?.removeChannelMember(core, { channelName, channelFamily, identity }) ??
+      Promise.resolve(),
+    subscribeConnectionAsServer: (ref, opts) =>
+      core.channelService?.subscribeFromServer(core, ref, opts) ?? Promise.resolve(),
     resolveChannel: (target) => {
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
-        return { channelName: target, channelScope: null, params: {} };
+        return { channelName: target, channelFamily: null, params: {} };
       }
       const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
-      if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
+      if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, target.name)) return undefined;
       return {
         channelName: target.name,
-        channelScope: target.family,
+        channelFamily: target.family,
         params: ChannelPrimitive.matchScopeParams(family.pattern, target.name),
       };
     },
@@ -155,8 +123,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
-    attachPluginApis: (ctx, connection) =>
-      EngineContexts.attachPluginApis(core.pluginRuntimes, ctx, connection),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),
@@ -166,8 +132,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
   };
 }
 
-// ─────── outgoing runtime bag ───────
-
 /** Dep bag for helpers that only touch outgoing messages. */
 export function outgoingRuntime(core: EngineCore) {
   return (depsMemoFor(core).outgoing ??= buildOutgoingRuntime(core));
@@ -176,7 +140,6 @@ export function outgoingRuntime(core: EngineCore) {
 function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
-    pluginRuntimes: core.pluginRuntimes,
     outgoingHooks: core.hooks.outgoing,
     wskitStampHooks: core.hooks.wskitStamp,
     beforeSendHooks: core.hooks.beforeSend,
@@ -187,8 +150,6 @@ function buildOutgoingRuntime(core: EngineCore) {
     activityHooks: core.hooks.activity,
   };
 }
-
-// ─────── member runtime bag ───────
 
 /** Dep bag for helpers that also need live connections and membership data. */
 export function memberRuntime(core: EngineCore) {
@@ -209,8 +170,6 @@ function buildMemberRuntime(core: EngineCore) {
     ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
   };
 }
-
-// ─────── channel runtime bag ───────
 
 /** Dep bag for channel subscribe/unsubscribe helpers. */
 export function channelRuntime(core: EngineCore) {
@@ -245,7 +204,7 @@ function buildChannelRuntime(core: EngineCore) {
 
     handleValidationError: (
       connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
     ) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
@@ -265,20 +224,30 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
 
-    persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.persistMembership(core, { identity, channelName, channelScope }),
+    persistMembership: (identity: string, channelName: string, channelFamily: string | null) =>
+      core.persistenceService?.persistMembership(core, { identity, channelName, channelFamily }),
 
-    deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelScope }),
+    deleteDurableMembership: (
+      identity: string,
+      channelName: string,
+      channelFamily: string | null,
+    ) =>
+      core.persistenceService?.deleteDurableMembership(core, {
+        identity,
+        channelName,
+        channelFamily,
+      }),
 
-    hasDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelScope }),
+    hasDurableMembership: (identity: string, channelName: string, channelFamily: string | null) =>
+      core.persistenceService?.hasDurableMembership(core, {
+        identity,
+        channelName,
+        channelFamily,
+      }) ?? false,
 
     logger: core.logger,
   };
 }
-
-// ─────── dispatch runtime bag ───────
 
 /** Dep bag for inbound text-message dispatch. */
 export function dispatchRuntime(core: EngineCore) {
@@ -295,6 +264,7 @@ function buildDispatchRuntime(core: EngineCore) {
     sql: core.storageOrUndefined()?.sql,
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
+    answerFrameHooks: core.hooks.answerFrame,
     errorHooks: core.hooks.error,
     declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
@@ -312,7 +282,7 @@ function buildDispatchRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       opts: {
         channelName: string | null;
-        channelScope: string | null;
+        channelFamily: string | null;
         event: string;
         payload: unknown;
         wire: { seq: number; messageId: string; channel?: string };
@@ -334,7 +304,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     handleValidationError: (
       connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
     ) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
@@ -353,21 +323,34 @@ function buildDispatchRuntime(core: EngineCore) {
     ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
-      EngineChannelFrames.handleSubscribe(channelRuntime(core), connection, frame),
+      core.channelService?.handleSubscribe(core, connection, frame) ?? Promise.resolve(),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
-      EngineChannelFrames.handleUnsubscribe(
-        {
-          ...channelRuntime(core),
-          leaveChannel: buildLeaveChannel(core),
-        },
-        connection,
-        frame,
-      ),
+      core.channelService?.handleUnsubscribe(core, connection, frame) ?? Promise.resolve(),
+    handleMemberSync: (connection: RuntimeConnection, frame: Protocol.MemberSyncRequestFrame) => {
+      core.channelService?.handleMemberSync(core, connection, frame);
+    },
     durableStreamSchemaReady: false,
+
+    get streamTrigger() {
+      return core.streamTrigger;
+    },
+    get streamNudgeBuffer() {
+      return core.streamNudgeBuffer;
+    },
+    get streamCancel() {
+      return core.streamCancel;
+    },
+    get durableStream() {
+      return core.durableStream;
+    },
+    get requestDispatch() {
+      return core.requestDispatch;
+    },
+    get runIntercepts() {
+      return core.runIntercepts;
+    },
   };
 }
-
-// ─────── connection runtime bag ───────
 
 /** Dep bag for connection accept, wake, and close logic. */
 export function connectionRuntime(core: EngineCore) {
@@ -403,11 +386,11 @@ function buildConnectionRuntime(core: EngineCore) {
     ...(core.persistenceEnabled
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
-            RejoinPersistence.restorePersistentTags({
+            core.persistenceService?.restorePersistentTags({
               sql: core.requireStorage().sql,
               tagMembers: core.tagMembers,
               connection,
-              getSchema: (group) => core.getTagGroupSchema('persistent', group),
+              getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
               logger: core.logger,
             }),
         }
@@ -440,15 +423,19 @@ function buildConnectionRuntime(core: EngineCore) {
               core.freshBoot = false;
               return Promise.resolve();
             }
-            return MembershipPersistence.autoRejoinIdentity(
-              core,
-              (ref, opts) =>
-                EngineChannelFrames.subscribeFromServer(
-                  { ...channelRuntime(core), instanceId: core.engineInstanceId },
-                  ref,
-                  opts,
-                ),
-              connection,
+            return (
+              core.persistenceService?.autoRejoinIdentity(
+                core,
+                (ref: PublicApi.ConnectionRef, opts: unknown) =>
+                  core.channelService?.subscribeFromServer(
+                    core,
+                    ref,
+                    opts as Parameters<
+                      NonNullable<EngineCore['channelService']>['subscribeFromServer']
+                    >[2],
+                  ) ?? Promise.resolve(),
+                connection,
+              ) ?? Promise.resolve()
             );
           },
         }
@@ -456,15 +443,40 @@ function buildConnectionRuntime(core: EngineCore) {
   };
 }
 
-// ─────── helpers exposed to the facade ───────
-
 /** Callbacks needed by `createEngineAccess` and `initialize`. */
-export function engineAccessDeps(core: EngineCore) {
-  const createTaskContext = buildTaskContextFactory(core);
+export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
+  const buildCtx = buildConnectionContext(core);
   return {
-    ensureScheduledRuntime: () => Scheduling.ensureScheduledRuntime(core, createTaskContext),
-    createTaskContext,
-    rescheduleAlarm: () => Scheduling.rescheduleAlarm(core),
+    ensureScheduledRuntime: () => core.scheduledService?.ensureRuntime(core, commonDeps(core)),
+    createTaskContext: () => core.scheduledService?.createTaskContext(core, commonDeps(core)),
+    scheduleTask: (opts) => core.scheduledService?.scheduleTask(core, commonDeps(core), opts),
+    cancelScheduled: (opts) =>
+      core.scheduledService?.cancelScheduled(core, commonDeps(core), opts) ?? {
+        removed: 0,
+        taskExists: false,
+      },
+    rescheduleAlarm: () => core.scheduledService?.rescheduleAlarm(core),
+    buildCurrentContext: () => {
+      const activeId = core.asyncContext.getStore()?.connectionId;
+      const connection = activeId ? core.connections.get(activeId) : undefined;
+      return connection ? buildCtx(connection) : undefined;
+    },
+    sendServerRequest: (connectionId, opts) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return false;
+      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
+        routing: {
+          correlationId: opts.correlationId,
+          // The server originated this request, so the client can fast-fail with
+          // `request-no-response` when it has no handler.
+          source: 'server',
+          channel: opts.channel,
+          channelFamily: opts.channelFamily,
+        },
+        event: opts.event,
+        payload: opts.payload,
+      });
+    },
   };
 }
 
@@ -476,12 +488,11 @@ export function runConnectionLifecycle(
 ): Promise<void> {
   return EngineConnectionRuntime.runConnectionLifecycle(
     {
-      pluginRuntimes: core.pluginRuntimes,
       asyncContext: core.asyncContext,
       connectHooks: core.hooks.connect,
       disconnectHooks: core.hooks.disconnect,
-      createPluginScopedContext: (pluginId, targetCtx) =>
-        EngineContexts.createPluginScopedContext(pluginId, targetCtx),
+      pluginConnectHooks: core.hooks.pluginLifecycle.connect,
+      pluginDisconnectHooks: core.hooks.pluginLifecycle.disconnect,
     },
     kind,
     ctx,
@@ -506,7 +517,8 @@ export function handleConnectionClose(
         ),
       buildConnectionContext: buildConnectionContext(core),
       runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
-      leaveChannel: buildLeaveChannel(core),
+      leaveChannel: (connection, opts) =>
+        core.channelService?.leaveChannel(core, connection, opts) ?? Promise.resolve(),
       logger: core.logger,
     },
     opts,

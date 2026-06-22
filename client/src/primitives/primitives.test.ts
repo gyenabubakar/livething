@@ -9,7 +9,6 @@ interface C {
   incoming: { message: { text: string } };
 }
 
-// serialization: you must give binaryType and parseBinary together.
 serialization({
   binaryType: 'arraybuffer',
   parseBinary: (d: ArrayBuffer) => ({ event: 'x', payload: d.byteLength }),
@@ -28,7 +27,6 @@ serialization({
   parseBinary: (d: Blob) => ({ event: 'x', payload: d.size }),
 });
 
-// onError accepts both forms: a protocol Event and a typed WSKitError.
 const socket = client<C>()(connect('wss://example.com'));
 
 socket.onError((error: Event) => {

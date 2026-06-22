@@ -5,6 +5,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
   return {
     activity: [],
     incoming: [],
+    answerFrame: [],
     outgoing: [],
     wskitStamp: [],
     beforeSend: [],
@@ -21,6 +22,15 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     upgrade: [],
     builderUpgrade: undefined,
     validationError: [],
+    pluginLifecycle: {
+      init: [],
+      connect: [],
+      disconnect: [],
+      shutdown: [],
+      error: [],
+      validationError: [],
+    },
+    pluginUpgrade: [],
     alarm: [],
     check: new Map(),
     revalidate: new Map(),

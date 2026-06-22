@@ -1,7 +1,11 @@
-import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { sequence } from '@wskit/server/sequence';
+import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const MsgPayload = v.object({ from: v.string(), text: v.string() });
 const SendInGeneralPayload = v.object({ text: v.string() });
@@ -30,75 +34,103 @@ const KickFamilyPayload = v.object({
 });
 const KickAckPayload = v.object({ where: v.string() });
 
-export const staticVsFamilyIsolationContract = contract('static-vs-family-isolation', {
+const base = define({
   env: t<Env>(),
-  dedup: true,
-  sequence: { persist: true },
-  meta: t<{ username: string }>(),
-  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
-  definitions: [
-    incoming('tag-self', TagSelfPayload),
-    incoming('observe-static', ObserveStaticPayload),
-    incoming('observe-family', ObserveFamilyPayload),
-    incoming('kick-static', KickStaticPayload),
-    incoming('kick-family', KickFamilyPayload),
-
-    outgoing('tag-ack', TagAckPayload),
-    outgoing('observe-result', ObserveResultPayload),
-    outgoing('kick-ack', KickAckPayload),
-
-    channel('general', {
-      definitions: [incoming('send-in-general', SendInGeneralPayload), outgoing('msg', MsgPayload)],
-    }),
-    channel(scope('rooms', 'room:{id}'), {
-      definitions: [incoming('send-in-room', SendInRoomPayload), outgoing('msg', MsgPayload)],
+  upgrade: (request) => requireUsernameWithUserTag(request),
+  capabilities: [
+    dedup(),
+    sequence({ persist: true }),
+    channels(),
+    tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
+    emits({
+      'tag-ack': t<v.InferOutput<typeof TagAckPayload>>(),
+      'observe-result': t<v.InferOutput<typeof ObserveResultPayload>>(),
+      'kick-ack': t<v.InferOutput<typeof KickAckPayload>>(),
     }),
   ],
 });
 
-export const staticVsFamilyIsolationHandler = implement(staticVsFamilyIsolationContract)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers))
-
-  .on('tag-self', (ctx, payload) => {
+const handleTagSelf = base.on('tag-self', {
+  input: TagSelfPayload,
+  run(ctx, payload) {
     ctx.tags.ephemeral('label').add(payload.tag);
     ctx.send('tag-ack', { tag: payload.tag });
-  })
-  .on('observe-static', (ctx, payload) => {
+  },
+});
+
+const handleObserveStatic = base.on('observe-static', {
+  input: ObserveStaticPayload,
+  run(ctx, payload) {
     void payload.name;
     const count = ctx.channels.get('general').members().length;
     ctx.send('observe-result', { where: 'static', name: 'general', count });
-  })
-  .on('observe-family', (ctx, payload) => {
+  },
+});
+
+const handleObserveFamily = base.on('observe-family', {
+  input: ObserveFamilyPayload,
+  run(ctx, payload) {
     const count = ctx.channels.get('rooms', payload.name).members().length;
     ctx.send('observe-result', { where: 'family', name: payload.name, count });
-  })
-  .on('kick-static', async (ctx, payload) => {
+  },
+});
+
+const handleKickStatic = base.on('kick-static', {
+  input: KickStaticPayload,
+  async run(ctx, payload) {
     void payload.name;
     await ctx.channels
       .get('general')
       .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
     ctx.send('kick-ack', { where: 'static' });
-  })
-  .on('kick-family', async (ctx, payload) => {
+  },
+});
+
+const handleKickFamily = base.on('kick-family', {
+  input: KickFamilyPayload,
+  async run(ctx, payload) {
     await ctx.channels
       .get('rooms', payload.name)
       .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
     ctx.send('kick-ack', { where: 'family' });
-  })
+  },
+});
 
-  .channel('general', (ch) =>
-    ch.on('send-in-general', (ctx, payload) => {
-      ctx.channel.broadcast('msg', { from: 'static', text: payload.text }, { excludeSelf: false });
-    }),
-  )
+const general = base.channel('general', {
+  outgoing: {
+    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
+  },
+});
 
-  .channel('rooms', (ch) =>
-    ch.on('send-in-room', (ctx, payload) => {
-      void payload.name;
-      ctx.channel.broadcast('msg', { from: 'family', text: payload.text }, { excludeSelf: false });
-    }),
-  )
+const handleSendInGeneral = general.on('send-in-general', {
+  input: SendInGeneralPayload,
+  run(ctx, payload) {
+    ctx.channel.broadcast('msg', { from: 'static', text: payload.text }, { excludeSelf: false });
+  },
+});
 
-  .build();
+const room = base.channel(['rooms', 'room:{id}'], {
+  outgoing: {
+    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
+  },
+});
+
+const handleSendInRoom = room.on('send-in-room', {
+  input: SendInRoomPayload,
+  run(ctx, payload) {
+    void payload.name;
+    ctx.channel.broadcast('msg', { from: 'family', text: payload.text }, { excludeSelf: false });
+  },
+});
+
+export const staticVsFamilyIsolationHandler = base.assemble(
+  handleTagSelf,
+  handleObserveStatic,
+  handleObserveFamily,
+  handleKickStatic,
+  handleKickFamily,
+  handleSendInGeneral,
+  handleSendInRoom,
+);
 
 export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationHandler>;

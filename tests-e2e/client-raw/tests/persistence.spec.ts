@@ -294,7 +294,7 @@ test.describe('persistence', () => {
       alice2,
       (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
     );
-    expect(ok.payload.source).toBe('server');
+    expect(ok.__wskit?.source).toBe('server');
   });
 
   test('plain disconnect fires onSessionEnd (session-ended) but NOT onUnsubscribe (true-leave)', async ({
@@ -447,9 +447,9 @@ test.describe('persistence', () => {
       (f) =>
         f.event === '__subscribeOk__' &&
         f.__wskit?.channel === 'capacity-room' &&
-        f.payload?.source === 'server',
+        f.__wskit?.source === 'server',
     );
-    expect(rejoined.payload.source).toBe('server');
+    expect(rejoined.__wskit?.source).toBe('server');
   });
 
   test('anonymous connection does NOT auto-rejoin on reconnect (no durable membership row)', async ({

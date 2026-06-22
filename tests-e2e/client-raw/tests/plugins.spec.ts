@@ -168,7 +168,7 @@ test.describe('plugins handler', () => {
         const url = `${protocol}//${location.host}/ws/plugins?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'trigger-plugin-denied', payload: {} }));
+          ws.send(JSON.stringify({ event: '__e2e:drizzle::trigger-plugin-denied', payload: {} }));
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
@@ -184,7 +184,7 @@ test.describe('plugins handler', () => {
     }, room);
 
     const payload = err.payload as { code: string; detail?: { reason?: string; op?: string } };
-    expect(payload.code).toBe('__e2e:drizzle:denied');
+    expect(payload.code).toBe('__e2e:drizzle::denied');
     expect(payload.detail?.reason).toBe('test denial');
     expect(payload.detail?.op).toBe('insert');
   });
@@ -194,8 +194,15 @@ test.describe('plugins handler', () => {
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
 
+    // The plugin's shutdown count is persisted in the DO's storage, so it
+    // survives reconnects — and survives a Playwright retry that reuses this
+    // room. Read the starting value rather than assume 0, then assert one
+    // explicit shutdown increments it by exactly 1.
     await page.getByTestId('shutdown-count-btn').click();
-    await waitForText(page, 'shutdown-count', 'shutdowns: 0');
+    await expect(page.getByTestId('shutdown-count')).toHaveText(/shutdowns: \d+/);
+    const before = Number(
+      (await page.getByTestId('shutdown-count').textContent())!.replace('shutdowns: ', ''),
+    );
 
     const response = await page.request.post(`/ws/plugins/shutdown?room=${room}`);
     expect(response.status()).toBe(204);
@@ -206,7 +213,7 @@ test.describe('plugins handler', () => {
     await waitForText(page, 'db-connected', 'db-ready');
 
     await page.getByTestId('shutdown-count-btn').click();
-    await waitForText(page, 'shutdown-count', 'shutdowns: 1');
+    await waitForText(page, 'shutdown-count', `shutdowns: ${before + 1}`);
   });
 
   test('__streamCancel__ survives a generator finally throw — websocket stays alive', async ({

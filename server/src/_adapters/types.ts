@@ -21,6 +21,16 @@ export interface ConnectionDescriptor {
   bufferedAmount(): number;
 
   /**
+   * Whether this platform exposes real outbound buffer pressure through
+   * `bufferedAmount()`. When `true` (Node/Bun/Deno adapters), `ctx.stream.drain()`
+   * paces the generator against the live buffer. When `false` or absent
+   * (Cloudflare, which does not expose buffer fullness), `bufferedAmount()` is
+   * treated as unsupported and `drain()` resolves immediately as a no-op. This is
+   * a documented Cloudflare limitation, not a hidden difference.
+   */
+  backpressureSupported?: boolean;
+
+  /**
    * Stable string identifying the user-equivalent entity for this socket.
    * Forwarded from the `onUpgrade` result. Required because the descriptor is
    * only built for an accepted upgrade — by that point identity is known.

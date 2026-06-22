@@ -1,93 +1,134 @@
-import { CloseCodes } from '@wskit/core';
-import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
-import { Block, Defer, DeferExhausted, Disconnect, ValidationFailed } from '@wskit/server/errors';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import {
+  Block,
+  CloseCodes,
+  Defer,
+  DeferExhausted,
+  Disconnect,
+  ValidationFailed,
+} from '@wskit/server/errors';
+import { intercepts } from '@wskit/server/intercepts';
+import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const StreamToken = v.object({ index: v.number() });
+const StreamToken = t<{ index: number }>();
 
-export const errorsControlFlowContract = contract('errors-control-flow', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    incoming('do-echo', v.object({ text: v.string() })),
-    incoming('block-test', v.object({})),
-    incoming('defer-test', v.object({})),
-    incoming('always-defer', v.object({})),
-    incoming('manual-validation', v.object({})),
-    incoming('force-disconnect', v.object({})),
-
-    outgoing('echoed', v.object({ text: v.string() })),
-    outgoing('block-reply', v.object({ leaked: v.boolean() })),
-    outgoing('defer-result', v.object({ received: v.boolean() })),
-    outgoing('defer-exhausted-result', v.object({ event: v.string(), retries: v.number() })),
-    outgoing('validation-error-fired', v.object({ event: v.string() })),
-
-    stream('start-defer-stream', {
-      payload: v.object({}),
-      chunk: StreamToken,
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    channels(),
+    stream(),
+    emits({
+      echoed: t<{ text: string }>(),
+      'block-reply': t<{ leaked: boolean }>(),
+      'defer-result': t<{ received: boolean }>(),
+      'defer-exhausted-result': t<{ event: string; retries: number }>(),
+      'validation-error-fired': t<{ event: string }>(),
     }),
-
-    channel('chat', {
-      definitions: [incoming('chat-always-defer', v.object({}))],
-    }),
+    intercepts(),
   ],
 });
 
-export const errorsControlFlowHandler = implement(errorsControlFlowContract)
-  .onUpgrade((request) => requireUsername(request))
-  .onError((ctx, error, evt) => {
-    if (DeferExhausted.matches(error)) {
-      ctx.send('defer-exhausted-result', {
-        event: evt ?? 'unknown',
-        retries: error.detail.retries,
-      });
-    }
-  })
-  .onValidationError((ctx, evt) => {
-    ctx.send('validation-error-fired', { event: evt });
-  })
-  .intercept((_ctx, message) => {
-    if (message.event === 'block-test') throw Block;
-    if (message.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
-    // void return — pass payload through unchanged.
-  })
-  .on('do-echo', (ctx, payload) => {
-    ctx.send('echoed', { text: payload.text });
-  })
-  .on('block-test', (ctx) => {
+base.error((ctx, error, evt) => {
+  if (DeferExhausted.matches(error)) {
+    ctx.send('defer-exhausted-result', {
+      event: evt ?? 'unknown',
+      retries: error.detail.retries,
+    });
+  }
+});
+
+base.validationError((ctx, evt) => {
+  ctx.send('validation-error-fired', { event: evt });
+});
+
+base.intercept((_ctx, frame) => {
+  if (frame.event === 'block-test') throw Block;
+  if (frame.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
+  // void return — pass payload through unchanged.
+});
+
+const handleDoEcho = base.on('do-echo', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
+    ctx.send('echoed', { text: input.text });
+  },
+});
+
+const handleBlockTest = base.on('block-test', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('block-reply', { leaked: true });
-  })
-  .on('defer-test', async (ctx) => {
+  },
+});
+
+const handleDeferTest = base.on('defer-test', {
+  input: v.object({}),
+  async run(ctx) {
     const key = `defer:${ctx.id}`;
     const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
     await ctx.kv.set(key, attempts + 1);
     if (attempts < 1) throw Defer(50);
     await ctx.kv.delete(key);
     ctx.send('defer-result', { received: true });
-  })
-  .on('always-defer', () => {
+  },
+});
+
+const handleAlwaysDefer = base.on('always-defer', {
+  input: v.object({}),
+  run() {
     throw Defer(25);
-  })
-  .on('manual-validation', () => {
+  },
+});
+
+const handleManualValidation = base.on('manual-validation', {
+  input: v.object({}),
+  run() {
     throw ValidationFailed({
       event: 'manual-validation',
       issues: [{ message: 'forced validation failure' }],
     });
-  })
-  .on('force-disconnect', () => {
+  },
+});
+
+const handleForceDisconnect = base.on('force-disconnect', {
+  input: v.object({}),
+  run() {
     throw Disconnect(CloseCodes.BANNED, 'force disconnect');
-  })
-  .stream('start-defer-stream', async function* () {
+  },
+});
+
+const handleStartDeferStream = base.stream('start-defer-stream', {
+  input: v.object({}),
+  chunk: StreamToken,
+  async *run() {
     throw Defer(25);
     yield { index: 0 };
-  })
-  .channel('chat', (ch) =>
-    ch.on('chat-always-defer', () => {
-      throw Defer(25);
-    }),
-  )
-  .build();
+  },
+});
+
+const chat = base.channel('chat', {});
+
+const handleChatAlwaysDefer = chat.on('chat-always-defer', {
+  input: v.object({}),
+  run() {
+    throw Defer(25);
+  },
+});
+
+export const errorsControlFlowHandler = base.assemble(
+  handleDoEcho,
+  handleBlockTest,
+  handleDeferTest,
+  handleAlwaysDefer,
+  handleManualValidation,
+  handleForceDisconnect,
+  handleStartDeferStream,
+  handleChatAlwaysDefer,
+);
 
 export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;

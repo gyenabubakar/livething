@@ -33,11 +33,11 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '__subscribeOk__' && data.__wskit?.channelScope === 'rooms') {
+			if (data.event === '__subscribeOk__' && data.__wskit?.channelFamily === 'rooms') {
 				roomSubscribed = true;
 			}
 			if (data.event === '__streamEnd__') {
-				if (data.__wskit?.channelScope === 'rooms') roomStreamEnd = true;
+				if (data.__wskit?.channelFamily === 'rooms') roomStreamEnd = true;
 				else streamEnd = true;
 			}
 			if (data.event === 'start-broadcast' && typeof data.payload?.index === 'number') {
@@ -45,8 +45,8 @@
 			}
 			if (data.event === 'start-room-broadcast' && typeof data.payload?.index === 'number') {
 				roomIndices = [...roomIndices, data.payload.index];
-				if (typeof data.__wskit?.channelScope === 'string') {
-					roomScopeSeen = data.__wskit.channelScope;
+				if (typeof data.__wskit?.channelFamily === 'string') {
+					roomScopeSeen = data.__wskit.channelFamily;
 				}
 			}
 		};
@@ -63,7 +63,7 @@
 			JSON.stringify({
 				event: '__subscribe__',
 				payload: {},
-				__wskit: { channel: 'room:42', channelScope: 'rooms' },
+				__wskit: { channel: 'room:42', channelFamily: 'rooms' },
 			}),
 		);
 	}
@@ -76,7 +76,7 @@
 			JSON.stringify({
 				event: 'start-room-broadcast',
 				payload: { count },
-				__wskit: { channel: 'room:42', channelScope: 'rooms' },
+				__wskit: { channel: 'room:42', channelFamily: 'rooms' },
 			}),
 		);
 	}

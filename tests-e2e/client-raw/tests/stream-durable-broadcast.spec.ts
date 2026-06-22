@@ -110,7 +110,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
     }
   });
 
-  test('broadcast resumableStream — late joiner gets buffered rows plus the live tail', async ({
+  test('broadcast resumableStream — late joiner is live: only the tail after it joined, no catch-up', async ({
     browser,
   }, testInfo) => {
     const room = `sdbc-${testInfo.testId}-${Date.now()}`;
@@ -126,11 +126,13 @@ test.describe('stream-durable broadcast (channel scope)', () => {
         __wskit: { channel: 'rooms', streamId },
       });
 
+      // Let the source get well past the start before the peer joins, so the
+      // missed rows (which a live stream never replays) are unambiguous.
       await pageA.waitForFunction(
         ([sid]) =>
           (window.__wskitFrames!(sid as string) ?? []).filter(
             (f: WireFrame) => f.event === 'paginate' && typeof f.payload?.row === 'number',
-          ).length >= 2,
+          ).length >= 3,
         [a],
       );
 
@@ -150,7 +152,19 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       const rowsB = (await frames(pageB, b))
         .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
         .map((f) => f.payload.row as number);
-      expect(rowsB).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+      // Resumable broadcast is live: the peer never gets the rows produced
+      // before it joined (no replay), but it does get a contiguous tail that
+      // ends at the final row 10.
+      expect(rowsB.length).toBeGreaterThan(0);
+      expect(rowsB.length).toBeLessThan(10);
+      expect(rowsB).not.toContain(1);
+      expect(rowsB[rowsB.length - 1]).toBe(10);
+      const expectedTail = Array.from(
+        { length: rowsB.length },
+        (_, i) => 10 - rowsB.length + 1 + i,
+      );
+      expect(rowsB).toEqual(expectedTail);
     } finally {
       await ctxA.close();
       await ctxB.close();

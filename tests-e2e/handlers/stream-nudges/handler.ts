@@ -1,55 +1,63 @@
-import { contract, error, implement, incoming, nudge, outgoing, stream, t } from '@wskit/server';
+import { define, emits, errors, t } from '@wskit/server';
+import { dedup } from '@wskit/server/dedup';
+import { error } from '@wskit/server/errors';
+import { intercepts } from '@wskit/server/intercepts';
+import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = v.object({ token: v.string() });
+const Token = t<{ token: string }>();
 
 // A typed error a nudge intercept can throw. The client must see nudge() reject
 // with this code while the stream keeps running (regression: a thrown nudge
 // intercept used to terminate the stream and hang the nudge() Promise).
 export const NudgeRejected = error('nudge-rejected');
 
-export const streamNudgesContract = contract('stream-nudges', {
+const base = define({
   env: t<Env>(),
-  dedup: true,
-  meta: t<{ username: string }>(),
-  errors: [NudgeRejected],
-  definitions: [
-    incoming('pause', v.object({ leak: v.optional(v.string()) })),
-    outgoing('pause-top-level-fired', v.object({ leak: v.string() })),
-    outgoing('nudge-saw', v.object({ events: v.array(v.string()) })),
-
-    stream('start-nudge-stream', {
-      payload: v.object({ prompt: v.string() }),
-      chunk: Token,
-      nudges: [
-        nudge('pause', v.strictObject({})),
-        nudge('speed-up', v.object({ factor: v.number() })),
-      ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    dedup(),
+    errors([NudgeRejected]),
+    emits({
+      'pause-top-level-fired': t<{ leak: string }>(),
+      'nudge-saw': t<{ events: string[] }>(),
     }),
+    stream(),
+    intercepts(),
   ],
 });
 
-export const streamNudgesHandler = implement(streamNudgesContract)
-  .onUpgrade((req) => requireUsername(req))
-  // A speed-up nudge with factor 0 is rejected by the intercept with a typed
-  // error. Everything else passes through untouched, so the other nudge tests
-  // are unaffected.
-  .intercept((_ctx, frame) => {
-    if (frame.kind === 'nudge' && frame.event === 'speed-up') {
-      const p = frame.payload as { factor?: number };
-      if (p.factor === 0) throw NudgeRejected();
-    }
-  })
-  .on('pause', (ctx, payload) => {
-    ctx.send('pause-top-level-fired', { leak: payload.leak ?? '<empty>' });
-  })
-  .stream('start-nudge-stream', async function* (ctx, payload) {
-    const words = payload.prompt.split(' ');
+// A speed-up nudge with factor 0 is rejected by the intercept with a typed
+// error. Everything else passes through untouched, so the other nudge tests
+// are unaffected.
+base.intercept((ctx, frame) => {
+  if (frame.kind === 'nudge' && frame.event === 'speed-up') {
+    const p = frame.payload as { factor?: number };
+    if (p.factor === 0) throw NudgeRejected();
+  }
+});
+
+const handlePause = base.on('pause', {
+  input: v.object({ leak: v.optional(v.string()) }),
+  run(ctx, input) {
+    ctx.send('pause-top-level-fired', { leak: input.leak ?? '<empty>' });
+  },
+});
+
+const handleStartNudgeStream = base.stream('start-nudge-stream', {
+  input: v.object({ prompt: v.string() }),
+  chunk: Token,
+  nudges: {
+    pause: v.strictObject({}),
+    'speed-up': v.object({ factor: v.number() }),
+  },
+  async *run(ctx, input) {
+    const words = input.prompt.split(' ');
     let delay = 50;
     for (const word of words) {
-      const nudges = ctx.nudges(yield { token: word + ' ' });
+      const nudges = ctx.stream.nudges(yield { token: word + ' ' });
       if (nudges.length > 0) {
         ctx.send('nudge-saw', { events: nudges.map((n) => n.event) });
       }
@@ -65,7 +73,9 @@ export const streamNudgesHandler = implement(streamNudgesContract)
       }
       await new Promise((r) => setTimeout(r, delay));
     }
-  })
-  .build();
+  },
+});
+
+export const streamNudgesHandler = base.assemble(handlePause, handleStartNudgeStream);
 
 export type StreamNudgesClient = InferClient<typeof streamNudgesHandler>;

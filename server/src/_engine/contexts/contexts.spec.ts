@@ -3,9 +3,10 @@ import {
   buildConnectionContext,
   createInitContext,
   createShutdownContext,
-  createTaskContext,
   persistAttachment,
 } from '~/_engine/contexts/contexts.ts';
+import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -37,7 +38,7 @@ function baseStorage() {
   };
 }
 
-function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0]> = {}) {
+function baseDeps(overrides: Record<string, unknown> = {}) {
   return {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
@@ -55,10 +56,11 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
     broadcastToChannel: vi.fn(),
     getChannelMembers: vi.fn(() => []),
     kickChannelMembers: vi.fn(async () => {}),
+    channelContext: { buildChannelsApi, buildChannelFamilyExtra },
     resolveChannel: vi.fn((target: any) =>
       typeof target === 'string'
         ? { channelName: target }
-        : { channelName: target.name, channelScope: target.family },
+        : { channelName: target.name, channelFamily: target.family },
     ),
     sendReplay: vi.fn(),
     sendProtocolMessage: vi.fn(),
@@ -85,36 +87,46 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
   } as any;
 }
 
-describe('sendToConnection', () => {
-  it('returns false when the target id is not in the connection map', () => {
+function localRef(id: string) {
+  return { __wskit: 'connection-ref' as const, id, instance: undefined, identity: id };
+}
+
+describe('ctx.connection(ref).send', () => {
+  it('returns false and logs when the target id is not in the connection map', () => {
     const connection = createConnection('conn_1');
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    const result = ctx.sendToConnection('nonexistent-id', 'evt', {});
+    const result = ctx.connection(localRef('nonexistent-id')).send('evt', {});
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
-      connectionId: 'nonexistent-id',
-      event: 'evt',
-    });
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      '[wskit] ctx.connection(ref).send target not found',
+      {
+        connectionId: 'nonexistent-id',
+        event: 'evt',
+      },
+    );
   });
 
-  it('task context sendToConnection returns false for unknown ids', () => {
+  it('task context connection(ref).send returns false for unknown ids', () => {
     const deps = baseDeps();
     const task = createTaskContext(deps);
 
-    expect(task.sendToConnection('missing', 'evt', {})).toBe(false);
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
-      connectionId: 'missing',
-      event: 'evt',
-    });
+    expect(task.connection(localRef('missing')).send('evt', {})).toBe(false);
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      '[wskit] ctx.connection(ref).send target not found',
+      {
+        connectionId: 'missing',
+        event: 'evt',
+      },
+    );
   });
 
-  it('returns true and invokes the send pipeline when target exists', () => {
+  it('returns the pipeline result and routes to the addressed connection when it exists', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
@@ -125,12 +137,32 @@ describe('sendToConnection', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    expect(ctx.sendToConnection('peer', 'evt', { text: 'hi' })).toBe(true);
+    expect(ctx.connection(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
     expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, {
       routing: undefined,
       event: 'evt',
       payload: { text: 'hi' },
     });
+  });
+
+  it('throws the cross-instance error when the ref names another instance', () => {
+    const self = createConnection('self');
+    const deps = baseDeps({
+      connections: new Map([[self.id, self]]),
+      instanceId: 'engine-a',
+    });
+
+    const ctx = buildConnectionContext(deps, self);
+    const foreign = {
+      __wskit: 'connection-ref' as const,
+      id: 'peer',
+      instance: 'engine-b',
+      identity: 'peer',
+    };
+    expect(() => ctx.connection(foreign).send('evt', {})).toThrow(
+      '[wskit] ctx.connection(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
+        'cross-instance routing requires a broker, which is not configured yet.',
+    );
   });
 });
 
@@ -152,24 +184,6 @@ describe('ctx.waitUntil', () => {
 });
 
 describe('ctx.cancelScheduled', () => {
-  it('logs an error when a connection context cancellation matches no runs', () => {
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      cancelScheduled: vi.fn(() => ({ taskExists: false, removed: 0 })),
-    });
-
-    const ctx = buildConnectionContext(deps, connection);
-    ctx.cancelScheduled('missing-task', { id: 'x' });
-
-    expect(deps.cancelScheduled).toHaveBeenCalledWith('missing-task', { id: 'x' });
-    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
-      taskId: 'missing-task',
-      filter: { id: 'x' },
-      taskExists: false,
-    });
-  });
-
   it('logs an error when a task context cancellation matches no runs', () => {
     const deps = baseDeps({
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 0 })),
@@ -212,29 +226,6 @@ describe('ctx.setAlarm', () => {
 
     const ctx = buildConnectionContext(deps, connection);
     expect(() => ctx.setAlarm(1)).not.toThrow();
-  });
-});
-
-describe('ctx.quality', () => {
-  it('is null until the first ping/pong measurement, then reflects connection.quality', () => {
-    const connection = createConnection('a');
-    const ctx = buildConnectionContext(baseDeps(), connection);
-
-    expect(ctx.latency).toBeNull();
-    expect(ctx.quality).toBeNull();
-
-    connection.latency = 42;
-    connection.quality = 'excellent';
-    expect(ctx.quality).toBe('excellent');
-  });
-
-  it('is null in hibernation even after a measurement', () => {
-    const connection = createConnection('a');
-    connection.latency = 42;
-    connection.quality = 'excellent';
-    const ctx = buildConnectionContext(baseDeps({ hibernationEnabled: true }), connection);
-
-    expect(ctx.quality).toBeNull();
   });
 });
 
@@ -324,14 +315,14 @@ describe('ctx.channel.send', () => {
         intercepts: [],
       } as any,
       channelName: 'general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     };
 
     const ctx = buildConnectionContext(deps, connection, scope);
     (ctx as any).channel.send('greeting', { msg: 'hi' });
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
-      routing: { channel: 'general', channelScope: 'rooms' },
+      routing: { channel: 'general', channelFamily: 'rooms' },
       event: 'greeting',
       payload: { msg: 'hi' },
     });
@@ -402,7 +393,7 @@ describe('ctx.channels.get(name).members()', () => {
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'
         ? undefined
-        : { channelName: target.name, channelScope: target.family, params: {} },
+        : { channelName: target.name, channelFamily: target.family, params: {} },
     );
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
@@ -416,6 +407,46 @@ describe('ctx.channels.get(name).members()', () => {
     expect(members).toEqual([memberInfo]);
     expect(resolveChannel).toHaveBeenCalledWith({ family: 'publicRooms', name: 'room:42' });
     expect(deps.getChannelMembers).toHaveBeenCalledWith('room:42', 'publicRooms');
+  });
+
+  it('resolves get(channelDecl) by the declaration key (static channel)', () => {
+    const connection = createConnection('c1');
+    const resolveChannel = vi.fn((target: any) =>
+      target === 'lobby' ? { channelName: 'lobby', channelFamily: null, params: {} } : undefined,
+    );
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => []),
+      resolveChannel,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    (ctx as any).channels.get({ __wskitChannel: true, __key: 'lobby' }).members();
+
+    expect(resolveChannel).toHaveBeenCalledWith('lobby');
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('lobby', null);
+  });
+
+  it("resolves get(family.at(params)) via the ref's family + concrete name", () => {
+    const connection = createConnection('c1');
+    const resolveChannel = vi.fn((target: any) =>
+      typeof target === 'object'
+        ? { channelName: target.name, channelFamily: target.family, params: { id: 'general' } }
+        : undefined,
+    );
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => []),
+      resolveChannel,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    (ctx as any).channels
+      .get({ __wskitChannelRef: true, family: 'rooms', name: 'room:general' })
+      .members();
+
+    expect(resolveChannel).toHaveBeenCalledWith({ family: 'rooms', name: 'room:general' });
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('room:general', 'rooms');
   });
 
   it('kick on the handle is awaitable and forwards scope to kickChannelMembers', async () => {
@@ -433,7 +464,7 @@ describe('ctx.channels.get(name).members()', () => {
       channelName: 'room',
       target: 'banned',
       reason: 'spam',
-      channelScope: undefined,
+      channelFamily: undefined,
     });
   });
 });
@@ -479,7 +510,7 @@ describe('persistAttachment', () => {
     connection.tags.ephemeral.set('role', new Set(['vip']));
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     connection.activeStreamIds = new Set(['stream_1']);
 
@@ -490,7 +521,7 @@ describe('persistAttachment', () => {
       id: 'c1',
       meta: { username: 'user1' },
       tags: [{ group: 'role', key: 'vip' }],
-      channelMemberships: [{ channelName: 'room:general', channelScope: 'rooms' }],
+      channelMemberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
       activeStreamIds: ['stream_1'],
     });
   });
@@ -569,5 +600,26 @@ describe('lazy storage in init/shutdown/task contexts', () => {
     );
     ctx.sql.exec('SELECT 1', 1, 2);
     expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
+  });
+});
+
+describe('contextExtenders', () => {
+  it('preserves getters returned by an extender as live reads', () => {
+    const connection = createConnection('conn_1');
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      contextExtenders: [
+        () => ({
+          get live() {
+            return connection.latency;
+          },
+        }),
+      ],
+    });
+
+    const ctx = buildConnectionContext(deps, connection) as any;
+    expect(ctx.live).toBeNull();
+    connection.latency = 7;
+    expect(ctx.live).toBe(7);
   });
 });

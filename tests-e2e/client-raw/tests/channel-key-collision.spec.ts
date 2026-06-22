@@ -70,13 +70,13 @@ test.describe('channel-key-collision', () => {
     await send('memberA', {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'private-lobby', channelScope: 'rooms' },
+      __wskit: { channel: 'private-lobby', channelFamily: 'rooms' },
     });
     // memberB subscribes to family 'rooms-private' on name 'lobby'.
     await send('memberB', {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'lobby', channelScope: 'rooms-private' },
+      __wskit: { channel: 'lobby', channelFamily: 'rooms-private' },
     });
 
     await expect

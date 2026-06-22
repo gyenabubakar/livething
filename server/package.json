@@ -6,19 +6,68 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "wskit-dev": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./adapters": {
-      "wskit-dev": "./src/_adapters/index.ts",
       "types": "./dist/_adapters/index.d.ts",
       "import": "./dist/_adapters/index.js"
     },
     "./errors": {
-      "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./requests": {
+      "types": "./dist/request/capability.d.ts",
+      "import": "./dist/requests.js"
+    },
+    "./scheduled": {
+      "types": "./dist/scheduled/capability.d.ts",
+      "import": "./dist/scheduled.js"
+    },
+    "./dedup": {
+      "types": "./dist/dedup/capability.d.ts",
+      "import": "./dist/dedup.js"
+    },
+    "./sequence": {
+      "types": "./dist/sequence/capability.d.ts",
+      "import": "./dist/sequence.js"
+    },
+    "./keepalive": {
+      "types": "./dist/keepalive/capability.d.ts",
+      "import": "./dist/keepalive.js"
+    },
+    "./rate-limit": {
+      "types": "./dist/rate-limit/capability.d.ts",
+      "import": "./dist/rate-limit.js"
+    },
+    "./persistence": {
+      "types": "./dist/persistence/capability.d.ts",
+      "import": "./dist/persistence.js"
+    },
+    "./replay": {
+      "types": "./dist/replay/capability.d.ts",
+      "import": "./dist/replay.js"
+    },
+    "./streams": {
+      "types": "./dist/streams.d.ts",
+      "import": "./dist/streams.js"
+    },
+    "./channels": {
+      "types": "./dist/channel/capability.d.ts",
+      "import": "./dist/channels.js"
+    },
+    "./tags": {
+      "types": "./dist/tags/capability.d.ts",
+      "import": "./dist/tags.js"
+    },
+    "./intercepts": {
+      "types": "./dist/intercept/capability.d.ts",
+      "import": "./dist/intercepts.js"
+    },
+    "./plugin": {
+      "types": "./dist/_define/plugin.d.ts",
+      "import": "./dist/plugin.js"
     }
   },
   "publishConfig": {
@@ -31,7 +80,6 @@
     "dist/**/*.d.ts.map"
   ],
   "scripts": {
-    "dev": "vite build --watch",
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",

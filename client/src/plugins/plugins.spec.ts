@@ -2,7 +2,6 @@ import { Block } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -122,18 +121,18 @@ describe('plugin() definition', () => {
 
 describe('plugin() dependencies (assertions)', () => {
   const Needs = plugin({
-    id: 'test:needs-ack',
-    key: Symbol('test:needs-ack'),
-    dependencies: [ack],
+    id: 'test:needs-reconnection',
+    key: Symbol('test:needs-reconnection'),
+    dependencies: [reconnection],
     setup: () => () => ({}),
   });
 
   it('throws when a required primitive is missing', () => {
-    expect(() => client<C>()(connect('wss://test'), Needs())).toThrow(/requires ack/);
+    expect(() => client<C>()(connect('wss://test'), Needs())).toThrow(/requires reconnection/);
   });
 
   it('builds when the required primitive is registered', () => {
-    expect(() => client<C>()(connect('wss://test'), ack(), Needs())).not.toThrow();
+    expect(() => client<C>()(connect('wss://test'), reconnection(), Needs())).not.toThrow();
   });
 
   it('reads a dependency tag without executing the factory (#29)', () => {
@@ -280,7 +279,7 @@ describe('plugin() hooks', () => {
     const ok = socket.send('typing', { channelId: 'x' });
 
     expect(ok).toBe(true); // a bug must not cancel the send
-    expect(ws.sentFrames()).toHaveLength(1); // message passes through unchanged
+    expect(ws.sentFrames()).toHaveLength(1);
     expect(errors).toHaveLength(1); // and the bug is reported
   });
 
@@ -304,7 +303,7 @@ describe('plugin() hooks', () => {
 
     ws.emit({ event: 'message', payload: { text: 'hi' } });
 
-    expect(handler).toHaveBeenCalledWith({ text: 'hi' }); // not swallowed
+    expect(handler).toHaveBeenCalledWith({ text: 'hi' });
     expect(errors).toHaveLength(1);
   });
 
@@ -336,7 +335,6 @@ describe('plugin() hooks', () => {
     socket.onError((error) => errors.push(error));
     socket.send('typing', { channelId: 'x' });
 
-    // The later hook still transformed the frame and it still went out.
     expect(ws.sentFrames()[0].payload).toMatchObject({ tagged: true });
     expect(errors).toHaveLength(1);
   });
@@ -369,11 +367,8 @@ describe('plugin() hooks', () => {
       });
 
       const { ws: first } = build(reconnection(), Rejoiner());
-      // The first open is not a reconnect.
       expect(onReconnect).not.toHaveBeenCalled();
 
-      // Drop → the reconnection primitive schedules a retry; the new socket's
-      // open is a reconnect, so the plugin's onReconnect must fire.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -424,7 +419,7 @@ describe('plugin() hooks', () => {
     });
 
     const { ws } = build(Bad());
-    ws.emit({ event: 'message', payload: {} }); // no error listener → rethrow out-of-band
+    ws.emit({ event: 'message', payload: {} });
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]).toThrow(boom);
 
@@ -492,7 +487,6 @@ describe('ordering', () => {
       },
     });
 
-    // Register the plugin FIRST to prove order is not by position.
     const { ws } = build(P(), fakePrimitive as unknown as Primitive);
     ws.emit({ event: 'message', payload: { text: 'x' } });
     expect(order).toEqual(['primitive', 'plugin']);
@@ -507,7 +501,6 @@ describe('async hook registration', () => {
       id: 'test:async-hook',
       key: Symbol('test:async-hook'),
       setup(_args, hooks) {
-        // Register the hook AFTER a microtask (simulates `await someAsyncInit()`)
         Promise.resolve().then(() => {
           hooks.onIncoming((m) => {
             seen.push(m.event);
@@ -520,7 +513,6 @@ describe('async hook registration', () => {
 
     const { ws } = build(AsyncHook());
 
-    // Let the Promise.resolve().then() microtask run so the hook is registered.
     await Promise.resolve();
 
     ws.emit({ event: 'message', payload: { text: 'hello' } });

@@ -1,32 +1,31 @@
-import { contract, implement, request, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
+import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const errorHookIsolationContract = contract('error-hook-isolation', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    request('do-request', {
-      payload: v.object({ text: v.string() }),
-      response: v.object({ text: v.string() }),
-    }),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [requests()],
 });
 
-export const errorHookIsolationHandler = implement(errorHookIsolationContract)
-  .onUpgrade((request) => requireUsername(request))
-  .onError(() => {
-    // Hook intentionally throws — the engine must still send `__error__` to the
-    // client so the request Promise rejects instead of hanging.
-    throw new Error('observability sink is down');
-  })
-  .request('do-request', async (_ctx) => {
+// Hook intentionally throws — the engine must still send `__error__` to the
+// client so the request Promise rejects instead of hanging.
+base.error(() => {
+  throw new Error('observability sink is down');
+});
+
+const handleDoRequest = base.request('do-request', {
+  input: v.object({ text: v.string() }),
+  run(_ctx): { text: string } {
     // Throw an unrecognized error from the request handler. The engine should
     // normalize it into `internal-error` and still send `__error__` despite the
-    // onError hook above blowing up.
+    // base.error hook above blowing up.
     throw new Error('handler boom');
-  })
-  .build();
+  },
+});
+
+export const errorHookIsolationHandler = base.assemble(handleDoRequest);
 
 export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationHandler>;

@@ -6,9 +6,9 @@ import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
 import type {
   ApplyPrimitives,
-  MissingPrimitiveStubs,
   Primitive,
   ValidatePrimitives,
+  WithMissingPrimitiveStubs,
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { SocketContract } from '~/types.ts';
@@ -35,15 +35,19 @@ export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): Socket<TContract> &
-    ApplyPrimitives<TPrimitives, TContract> &
-    MissingPrimitiveStubs<TContract, TPrimitives> {
+  ): WithMissingPrimitiveStubs<
+    Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+    TContract,
+    TPrimitives
+  > {
     return buildSocket(
       connectDescriptor,
       primitives as readonly Primitive[],
-    ) as unknown as Socket<TContract> &
-      ApplyPrimitives<TPrimitives, TContract> &
-      MissingPrimitiveStubs<TContract, TPrimitives>;
+    ) as unknown as WithMissingPrimitiveStubs<
+      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+      TContract,
+      TPrimitives
+    >;
   };
 }
 
@@ -52,7 +56,6 @@ function buildSocket(
   connectDescriptor: ConnectDescriptor,
   primitives: readonly Primitive[],
 ): WSKitSocket {
-  // Plugins are tracked separately and always run after primitives.
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
   const primitiveSpecs = [
     connectDescriptor,
@@ -68,14 +71,12 @@ function buildSocket(
   // "primitives before plugins" holds for onOpen/onIncoming/onOutgoing/onClose.
   const sorted = [...topoSort(primitiveSpecs), ...pluginSpecs];
 
-  // Each primitive copies its settings into one shared config object.
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
     throw new WSKitConfigError('[wskit] client() requires a connect() capability.');
   }
 
-  // Build the socket first so each primitive's setup() can safely use it.
   const socket = new WSKitSocket(config);
   socket._setKnownTags(new Set(sorted.map((spec) => spec._tag).filter(Boolean)));
   const helpers = socket._helpers();

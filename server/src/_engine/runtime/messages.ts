@@ -7,24 +7,20 @@ import {
   ValidationFailed,
   WSKitError,
 } from '@wskit/core';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
-import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
-import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
-import * as OutgoingRuntime from '~/outgoing/runtime.ts';
-import * as RequestPrimitive from '~/request/runtime.ts';
-import * as StreamPrimitive from '~/stream/runtime.ts';
+import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
-import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
-import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
-import { resolveScope, routingFromWSKit } from './scope.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
+import type * as InterceptPrimitive from '~/intercept/runtime.ts';
+import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
+import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -43,8 +39,6 @@ export {
   broadcastToConnections,
   sendThroughPipeline,
 } from '~/outgoing/runtime.ts';
-
-// ───── Section: dispatch runtime types ─────
 
 /**
  * Larger dependency bag for inbound message dispatch.
@@ -72,6 +66,11 @@ interface DispatchRuntime
 
   incomingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
 
+  answerFrameHooks: readonly ((
+    connectionId: string,
+    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
+  ) => boolean)[];
+
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
    * incoming dedup is disabled (no `dedup()` primitive registered).
@@ -84,7 +83,7 @@ interface DispatchRuntime
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   sendProtocolMessage(
@@ -96,7 +95,7 @@ interface DispatchRuntime
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: {
       channelName: string | null;
-      channelScope: string | null;
+      channelFamily: string | null;
       event: string;
       payload: unknown;
       wire: { seq: number; messageId: string; channel?: string };
@@ -114,7 +113,7 @@ interface DispatchRuntime
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
+    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
   ): Promise<void>;
 
   broadcastToConnections(
@@ -132,15 +131,26 @@ interface DispatchRuntime
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
 
+  handleMemberSync(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    frame: Protocol.MemberSyncRequestFrame,
+  ): void;
+
   /**
-   * Tracks whether `ensureDurableStreamSchema` has already run in this
-   * engine instance lifetime. Flipped to `true` on first stream start or
-   * resume so subsequent operations skip the redundant DDL check.
+   * Tracks whether the durable-stream schema has already run in this engine
+   * instance lifetime. Flipped to `true` on first stream start or resume so
+   * subsequent operations skip the redundant DDL check.
    */
   durableStreamSchemaReady: boolean;
-}
 
-// ───── Section: wire-error helpers ─────
+  /** Feature dispatch slots filled by the stream/request capabilities. */
+  streamTrigger?: FeatureSlots.StreamTrigger;
+  streamNudgeBuffer?: FeatureSlots.StreamNudgeBuffer;
+  streamCancel?: FeatureSlots.StreamCancel;
+  durableStream?: FeatureSlots.DurableStreamService;
+  requestDispatch?: FeatureSlots.RequestDispatch;
+  runIntercepts?: FeatureSlots.RunIntercepts;
+}
 
 /**
  * Turn a valibot parse failure into a typed `ValidationFailed` error so a
@@ -171,8 +181,6 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
     issues: [{ message: error instanceof Error ? error.message : String(error) }],
   });
 }
-
-// ───── Section: incoming dedup ─────
 
 /**
  * Check whether an incoming frame's `messageId` has already been seen on this
@@ -208,8 +216,6 @@ function isDuplicateIncoming(
   return false;
 }
 
-// ───── Section: inbound dispatch ─────
-
 /**
  * Build the curated `routing` view of a frame's `__wskit` envelope for the
  * intercept callback. Returns an empty object when no routing markers were
@@ -221,20 +227,18 @@ function buildInterceptRouting(
   if (!wskit) return {};
   const routing: {
     messageId?: string;
-    ackId?: string;
     correlationId?: string;
     streamId?: string;
     channel?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
     seq?: number;
   } = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
-  if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
-    routing.channelScope = wskit.channelScope ?? null;
+    routing.channelFamily = wskit.channelFamily ?? null;
   }
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
   return routing;
@@ -254,7 +258,7 @@ interface HandleDispatchErrorOptions {
 
   wskit: Protocol.WSKitProtocol | undefined;
 
-  scope: EngineRuntimeTypes.ResolvedScope;
+  scope: EngineRuntimeTypes.ResolvedChannel;
 
   error: unknown;
 
@@ -265,7 +269,7 @@ interface HandleDispatchErrorOptions {
  * Main inbound event dispatcher.
  *
  * Runs plugin hooks, intercepts, validation, incoming handlers, requests, and
- * streams in the order described by the server spec.
+ * streams in that fixed order.
  */
 export async function dispatchIncoming(
   runtime: DispatchRuntime,
@@ -282,11 +286,10 @@ export async function dispatchIncoming(
   // gone — and the connection is already out of the runtime maps by then.
   if (connection.closing) return;
 
-  let scope: EngineRuntimeTypes.ResolvedScope;
+  let scope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    scope = resolveScope(runtime.compiled, wskit);
+    scope = resolveChannel(runtime.compiled, wskit);
   } catch (error) {
-    // Bad routing markers — send the client a typed `__error__` frame.
     await runtime.handleRuntimeError(connection, {
       error,
       event,
@@ -299,14 +302,14 @@ export async function dispatchIncoming(
     !ChannelPrimitive.hasChannelMembership(
       connection,
       scope.channelName,
-      scope.channelScope ?? null,
+      scope.channelFamily ?? null,
     )
   ) {
     // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
     // client can match this error to its pending op, then stamp the channel markers.
     const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {};
     routing.channel = scope.channelName;
-    routing.channelScope = scope.channelScope ?? null;
+    routing.channelFamily = scope.channelFamily ?? null;
     // A nudge frame's reject is non-terminal — keep the stream alive on the client.
     if (wskit?.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
@@ -317,7 +320,6 @@ export async function dispatchIncoming(
     return;
   }
 
-  // A scoped frame can only reach handlers declared in that scope — never top-level ones.
   const scoped = scope.channel;
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
@@ -331,8 +333,6 @@ export async function dispatchIncoming(
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
 
-  // One context for the whole dispatch — reused across intercepts and the
-  // handler. Built on first need.
   let sharedCtx: Record<PropertyKey, unknown> | undefined;
   function getCtx(): Record<PropertyKey, unknown> {
     return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
@@ -341,21 +341,14 @@ export async function dispatchIncoming(
   let message = { event, payload };
 
   try {
-    // A hook's return value becomes the new payload only. The event name is locked.
     if (attempt === 0) {
       for (const hook of runtime.incomingHooks) {
         const next = hook(message);
         if (next !== undefined) message = { event: message.event, payload: next };
       }
-
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (!pluginRuntime.onIncoming) continue;
-        const next = pluginRuntime.onIncoming(message);
-        if (next !== undefined) message = { event: message.event, payload: next };
-      }
     }
 
-    if (attempt === 0) {
+    if (attempt === 0 && runtime.runIntercepts) {
       let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
       if (incoming) interceptKind = 'incoming';
       else if (request) interceptKind = 'request';
@@ -366,15 +359,16 @@ export async function dispatchIncoming(
         payload: message.payload,
         kind: interceptKind,
         routing: interceptRouting,
+        owner: frameOwner(event),
       };
-      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+      frame = await runtime.runIntercepts(runtime, connection, {
         intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
       });
 
       if (scope.channel) {
-        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+        frame = await runtime.runIntercepts(runtime, connection, {
           intercepts: scope.channel.intercepts,
           frame,
           getCtx,
@@ -410,34 +404,27 @@ export async function dispatchIncoming(
     }
 
     if (incoming) {
-      await InterceptPrimitive.runWithScopedContext(runtime, connection, {
-        ctx: getCtx(),
-        handler: (ctx) => {
-          // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
-          // this message, never a later one that interleaved on the connection.
-          (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
-          return incoming.handler(ctx, payloadValue);
-        },
-      });
-      return;
-    }
-
-    if (request) {
-      await RequestPrimitive.handleRequest(
-        {
-          asyncContext: runtime.asyncContext,
-          logger: runtime.logger,
-          sendThroughPipeline: (nextConnection, nextOpts) => {
-            return OutgoingRuntime.sendThroughPipeline(runtime, nextConnection, nextOpts);
-          },
-        },
-        { connection, ctx: getCtx(), scope, event, request, payload: payloadValue, wskit },
+      await withConnectionContext(runtime.asyncContext, connection.id, () =>
+        incoming.handler(getCtx(), payloadValue),
       );
       return;
     }
 
+    if (request) {
+      await runtime.requestDispatch?.(runtime, connection, {
+        connection,
+        ctx: getCtx(),
+        scope,
+        event,
+        request,
+        payload: payloadValue,
+        wskit,
+      });
+      return;
+    }
+
     if (stream) {
-      await StreamPrimitive.runStream(runtime, connection, {
+      await runtime.streamTrigger?.(runtime, connection, {
         scope,
         event,
         stream,
@@ -446,39 +433,13 @@ export async function dispatchIncoming(
       });
     } else if (resumableStream || recordedStream) {
       const durable = resumableStream ?? recordedStream!;
-      if (!runtime.sql) {
-        throw new Error(
-          '[wskit] durable stream "' +
-            durable.event +
-            '" requires storage; the adapter did not provide storage.',
-        );
-      }
-      if (!runtime.durableStreamSchemaReady) {
-        ensureDurableStreamSchema(runtime.sql);
-        runtime.durableStreamSchemaReady = true;
-      }
-      await DurableStreamRuntime.runDurableStream(
-        runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
-        connection,
-        {
-          scope,
-          def: {
-            event: durable.event,
-            kind: resumableStream ? 'resumable' : 'recorded',
-            generator: durable.generator,
-            allowConcurrent: durable.allowConcurrent,
-            broadcast: durable.broadcast ?? false,
-            nudges: durable.nudges,
-            maxChunks: recordedStream?.maxChunks ?? resumableStream?.maxChunks,
-            maxAgeMs: durable.maxAgeMs,
-            retentionAfterEndMs: durable.retentionAfterEndMs,
-            cursor: resumableStream?.cursor,
-            onDisconnect: durable.onDisconnect,
-          },
-          payload: payloadValue,
-          wskit,
-        },
-      );
+      await runtime.durableStream?.trigger(runtime, connection, {
+        scope,
+        durable,
+        kind: resumableStream ? 'resumable' : 'recorded',
+        payload: payloadValue,
+        wskit,
+      });
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, {
@@ -502,7 +463,6 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
-    // Pass `scope` so onValidationError hooks get the right channel ctx.
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
@@ -561,78 +521,6 @@ async function handleDispatchError(
   await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWSKit(wskit) });
 }
 
-// Find the compiled durable-stream def for a stored row, in the scope the row
-// was started in. Returns undefined if the def or scope is gone, or the
-// resuming connection is not a member of the stream's channel.
-function resolveDurableDefForRow(
-  runtime: DispatchRuntime,
-  connection: RuntimeConnection,
-  row: DurableStreamStorage.DurableStreamRow,
-):
-  | {
-      def: DurableStreamRuntime.DurableStreamRuntimeDef;
-      scope: EngineRuntimeTypes.ResolvedScope;
-    }
-  | undefined {
-  let scope: EngineRuntimeTypes.ResolvedScope = {};
-  let resumable: EngineCompileTypes.AnyResumableStream | undefined;
-  let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
-
-  if (row.channelKey) {
-    const channel =
-      row.channelScope !== null
-        ? runtime.compiled.channelFamilies.get(row.channelScope)
-        : runtime.compiled.channels.get(row.channelKey);
-    if (!channel) return undefined;
-    if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelScope)) {
-      return undefined;
-    }
-    scope = { channel, channelName: row.channelKey, channelScope: row.channelScope };
-    resumable = channel.resumableStreams.get(row.event);
-    recorded = channel.recordedStreams.get(row.event);
-  } else {
-    resumable = runtime.compiled.resumableStreams.get(row.event);
-    recorded = runtime.compiled.recordedStreams.get(row.event);
-  }
-
-  if (resumable) {
-    return {
-      scope,
-      def: {
-        event: resumable.event,
-        kind: 'resumable',
-        generator: resumable.generator,
-        allowConcurrent: resumable.allowConcurrent,
-        broadcast: resumable.broadcast,
-        nudges: resumable.nudges,
-        maxChunks: resumable.maxChunks,
-        maxAgeMs: resumable.maxAgeMs,
-        retentionAfterEndMs: resumable.retentionAfterEndMs,
-        cursor: resumable.cursor,
-        onDisconnect: resumable.onDisconnect,
-      },
-    };
-  }
-  if (recorded) {
-    return {
-      scope,
-      def: {
-        event: recorded.event,
-        kind: 'recorded',
-        generator: recorded.generator,
-        allowConcurrent: recorded.allowConcurrent,
-        broadcast: recorded.broadcast,
-        nudges: recorded.nudges,
-        maxChunks: recorded.maxChunks,
-        maxAgeMs: recorded.maxAgeMs,
-        retentionAfterEndMs: recorded.retentionAfterEndMs,
-        onDisconnect: recorded.onDisconnect,
-      },
-    };
-  }
-  return undefined;
-}
-
 /** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
 async function handleResumeStream(
   runtime: DispatchRuntime,
@@ -642,11 +530,7 @@ async function handleResumeStream(
   const streamId = frame.__wskit.streamId;
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
-  if (!runtime.sql) {
-    // No storage means durable streams aren't supported at all. Say so, rather
-    // than implying this particular stream merely expired or went missing.
-    // streamId stays on the envelope so the client correlates the error to the
-    // stream it tried to resume and surfaces it to that consumer.
+  if (!runtime.durableStream) {
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
@@ -654,19 +538,10 @@ async function handleResumeStream(
     });
     return;
   }
-  if (!runtime.durableStreamSchemaReady) {
-    ensureDurableStreamSchema(runtime.sql);
-    runtime.durableStreamSchemaReady = true;
-  }
 
-  // Routing markers let a non-creator resume a broadcast stream by its scope key.
-  // Malformed markers used to fall back to a top-level lookup, which then
-  // matched and resumed an unrelated top-level stream with the same id.
-  // Surface the routing failure as a typed __error__ tied to the streamId
-  // instead — the client gets a clear signal and no other stream is touched.
-  let resumeScope: EngineRuntimeTypes.ResolvedScope;
+  let resumeScope: EngineRuntimeTypes.ResolvedChannel;
   try {
-    resumeScope = resolveScope(runtime.compiled, frame.__wskit);
+    resumeScope = resolveChannel(runtime.compiled, frame.__wskit);
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,
@@ -675,17 +550,8 @@ async function handleResumeStream(
     });
     return;
   }
-  const durableRuntime = runtime as unknown as DurableStreamRuntime.DurableStreamRuntime;
-  const row = DurableStreamRuntime.findResumeRow(durableRuntime, connection, {
-    resumeScope,
-    streamId,
-  });
-  await DurableStreamRuntime.resumeDurableStream(durableRuntime, connection, {
-    resolveDef: (matched) => resolveDurableDefForRow(runtime, connection, matched),
-    row,
-    streamId,
-    lastKnownSeq,
-  });
+
+  await runtime.durableStream.resume(runtime, connection, { resumeScope, streamId, lastKnownSeq });
 }
 
 /**
@@ -719,20 +585,15 @@ async function dispatchProtocolFrame(
       case '__unsubscribe__':
         await runtime.handleUnsubscribe(connection, frame);
         return;
+      case '__memberSync__':
+        runtime.handleMemberSync(connection, frame);
+        return;
       case '__streamCancel__': {
-        await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
-        if (runtime.sql) {
-          // A broadcast stream's row is keyed by scope, so we need the cancel
-          // frame's routing markers to find it. A malformed scope marker (e.g.
-          // a channel name that does not match its declared family pattern)
-          // used to fall back to a top-level lookup, which then matched and
-          // cancelled the caller's unrelated top-level stream with the same
-          // id. Surface the routing failure as a typed __error__ tied to the
-          // streamId instead — the client gets a clear signal and no other
-          // stream is touched.
-          let cancelScope: EngineRuntimeTypes.ResolvedScope;
+        await runtime.streamCancel?.(runtime, connection, frame.__wskit.streamId);
+        if (runtime.durableStream && runtime.sql) {
+          let cancelScope: EngineRuntimeTypes.ResolvedChannel;
           try {
-            cancelScope = resolveScope(runtime.compiled, frame.__wskit);
+            cancelScope = resolveChannel(runtime.compiled, frame.__wskit);
           } catch (error) {
             await runtime.handleRuntimeError(connection, {
               error,
@@ -741,11 +602,10 @@ async function dispatchProtocolFrame(
             });
             return;
           }
-          await DurableStreamRuntime.cancelDurableStream(
-            runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
-            connection,
-            { streamId: frame.__wskit.streamId, cancelScope },
-          );
+          await runtime.durableStream.cancel(runtime, connection, {
+            streamId: frame.__wskit.streamId,
+            cancelScope,
+          });
         }
         return;
       }
@@ -754,7 +614,7 @@ async function dispatchProtocolFrame(
         return;
       case '__replay__': {
         const handlers = runtime.protocolHandlers.get('__replay__') ?? [];
-        const scope = resolveScope(runtime.compiled, frame.__wskit);
+        const scope = resolveChannel(runtime.compiled, frame.__wskit);
         const ctx = runtime.buildConnectionContext(connection, scope);
         for (const handler of handlers) {
           const handled = await handler(ctx, frame);
@@ -830,6 +690,25 @@ export async function processTextMessage(
 
   const event = (parsed as { event: string }).event;
 
+  // A declined server→client request comes back as an `__error__` frame echoing
+  // the request's correlationId. `__error__` is protocol-shaped, so without this
+  // it would route to dispatchProtocolFrame — which has no `__error__` case and
+  // would reject it as a validation error — and never reach the answer-frame
+  // settle hooks, leaving the server's pending ctx.request(...) promise to hang
+  // to timeout. Offer a correlated `__error__` to those hooks first; if none own
+  // it (no requests() capability, or the request already settled/timed out), drop
+  // it rather than emit a spurious protocol-validation error back to the client.
+  if (event === '__error__') {
+    const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;
+    if (declineWskit?.correlationId !== undefined) {
+      const payload = (parsed as { payload?: unknown }).payload;
+      for (const hook of runtime.answerFrameHooks) {
+        if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
+      }
+      return;
+    }
+  }
+
   // Protocol frames skip dedup and nudge buffering — a retried one must still
   // reach its handler.
   if (Protocol.isProtocolEventName(event)) {
@@ -837,7 +716,6 @@ export async function processTextMessage(
     return;
   }
 
-  // User-event frame: app event with an optional `__wskit` block.
   let frame: Protocol.UserEventFrame;
   try {
     frame = v.parse(Protocol.UserEventFrameSchema, parsed);
@@ -850,6 +728,18 @@ export async function processTextMessage(
   }
   const wskit = frame.__wskit;
 
+  // A user-event frame echoing a `correlationId` may be the client's answer to a
+  // server-initiated request. Offer it to the answer-frame hooks (owned by the
+  // requests capability) before anything else — they settle the server's pending
+  // promise and stop routing so the answer never reaches an `on`/`request`
+  // handler or gets dropped by dedup. A correlationId with no matching pending
+  // entry falls through to normal routing.
+  if (wskit?.correlationId !== undefined) {
+    for (const hook of runtime.answerFrameHooks) {
+      if (hook(connection.id, { event, payload: frame.payload, wskit })) return;
+    }
+  }
+
   // Dedup here so every frame with a `messageId` shares one idempotency budget.
   if (
     runtime.incomingDedupCap > 0 &&
@@ -860,10 +750,10 @@ export async function processTextMessage(
 
   // A stream trigger frame skips nudge buffering even with a streamId. Walk the
   // target scope so a scoped durable trigger isn't misrouted into the buffer.
-  let triggerScope: EngineRuntimeTypes.ResolvedScope = {};
+  let triggerScope: EngineRuntimeTypes.ResolvedChannel = {};
   let scopeError: unknown;
   try {
-    triggerScope = resolveScope(runtime.compiled, wskit);
+    triggerScope = resolveChannel(runtime.compiled, wskit);
   } catch (error) {
     scopeError = error;
   }
@@ -906,13 +796,13 @@ export async function processTextMessage(
         const storedScope = activeStream.scope ?? {};
         const sameScope =
           (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
-          (storedScope.channelScope ?? null) === (triggerScope.channelScope ?? null);
+          (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
         const memberOk =
           !storedScope.channelName ||
           ChannelPrimitive.hasChannelMembership(
             connection,
             storedScope.channelName,
-            storedScope.channelScope ?? null,
+            storedScope.channelFamily ?? null,
           );
         if (!sameScope || !memberOk) {
           const rejectRouting: Protocol.WSKitRouting = {
@@ -935,7 +825,7 @@ export async function processTextMessage(
       const topIntercepts = runtime.compiled.intercepts;
       const chIntercepts = interceptScope.channel?.intercepts;
 
-      if (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0) {
+      if (runtime.runIntercepts && (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0)) {
         let sharedCtx: Record<PropertyKey, unknown> | undefined;
         function getCtx() {
           return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
@@ -947,14 +837,15 @@ export async function processTextMessage(
             payload: frame.payload,
             kind: 'nudge',
             routing: buildInterceptRouting(wskit),
+            owner: frameOwner(event),
           };
-          nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+          nudgeFrame = await runtime.runIntercepts(runtime, connection, {
             intercepts: topIntercepts,
             frame: nudgeFrame,
             getCtx,
           });
           if (chIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+            nudgeFrame = await runtime.runIntercepts(runtime, connection, {
               intercepts: chIntercepts,
               frame: nudgeFrame,
               getCtx,
@@ -993,7 +884,7 @@ export async function processTextMessage(
       }
     }
 
-    const buffered = await StreamPrimitive.bufferStreamNudge(runtime, connection, {
+    const buffered = await runtime.streamNudgeBuffer?.(runtime, connection, {
       event,
       payload: nudgePayload,
       wskit,

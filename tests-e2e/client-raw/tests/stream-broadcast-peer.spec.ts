@@ -63,6 +63,49 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
     }
   });
 
+  test('a creator cancel fans a terminal __streamEnd__ out to every peer', async ({
+    browser,
+  }: {
+    browser: Browser;
+  }, testInfo) => {
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const pageB = await ctxB.newPage();
+    await pageA.goto('/stream-broadcast');
+    await installRig(pageA);
+    await pageB.goto('/stream-broadcast');
+    await installRig(pageB);
+    try {
+      const room = `sbc-${testInfo.testId}-${Date.now()}`;
+      const a = await connect(pageA, { path: WS_PATH, username: 'alice', room });
+      const b = await connect(pageB, { path: WS_PATH, username: 'bob', room });
+
+      // A long-running broadcast (100 chunks × 10ms) so a cancel lands mid-stream.
+      await send(pageA, a, { event: 'start-broadcast', payload: { count: 100 } });
+
+      // Bob receives a chunk and learns the streamId.
+      const firstChunk = await waitForFrame(pageB, b, {
+        match: (f) => f.event === 'start-broadcast',
+      });
+      const streamId = firstChunk.__wskit?.streamId;
+      expect(typeof streamId).toBe('string');
+
+      // Alice cancels the stream mid-flight.
+      await send(pageA, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId } });
+
+      // Bob must get a terminal __streamEnd__ for that stream — before the fix the
+      // cancel path notified no peers, so Bob's run hung until socket close.
+      const end = await waitForFrame(pageB, b, {
+        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      });
+      expect(end.__wskit?.eventName).toBe('start-broadcast');
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
+
   test('a creator-generator error fans a terminal __error__ to the creator and every peer', async ({
     browser,
   }: {

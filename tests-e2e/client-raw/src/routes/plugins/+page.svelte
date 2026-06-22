@@ -63,7 +63,7 @@
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
 
 			switch (evt) {
-				case '__e2e:drizzle:drizzle-ready':
+				case '__e2e:drizzle::drizzle-ready':
 					dbConnected = true;
 					drizzleReadyPayload = JSON.stringify(payload);
 					break;
@@ -86,7 +86,7 @@
 				case 'message-count':
 					messageCountResult = `messages: ${payload.count}`;
 					break;
-				case 'drizzle-vacuum-done':
+				case '__e2e:drizzle::drizzle-vacuum-done':
 					vacuumResult = `vacuum:${payload.timestamp}`;
 					break;
 				case 'outgoing-count':
@@ -107,19 +107,19 @@
 				case 'plugin-rewrite-result':
 					rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
 					break;
-				case 'plugin-every-tick':
+				case '__e2e:drizzle::plugin-every-tick':
 					everyTickCount = Number(payload.count);
 					break;
-				case 'plugin-flaky-result':
+				case '__e2e:drizzle::plugin-flaky-result':
 					flakyResult = `attempts:${payload.attempts}`;
 					break;
-				case 'plugin-dlq-result':
+				case '__e2e:drizzle::plugin-dlq-result':
 					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
 					break;
-				case 'error-result':
+				case '__e2e:drizzle::error-result':
 					errorLog = JSON.stringify(payload);
 					break;
-				case 'plugin-task-data-result':
+				case '__e2e:drizzle::plugin-task-data-result':
 					pluginTaskDataResult = payload.result as string;
 					break;
 				case 'stream-connection-id':
@@ -212,7 +212,7 @@
 		<h2>Plugin Extras</h2>
 		<button
 			data-testid="vacuum-btn"
-			onclick={() => send('trigger-vacuum', {})}
+			onclick={() => send('__e2e:drizzle::trigger-vacuum', {})}
 			disabled={status !== 'connected'}>Trigger Vacuum</button
 		>
 		<button
@@ -262,22 +262,22 @@
 		<h2>Plugin Scheduled (every / retry / DLQ)</h2>
 		<button
 			data-testid="trigger-plugin-every-btn"
-			onclick={() => send('trigger-plugin-every', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-every', {})}
 			disabled={status !== 'connected'}>Trigger Every Tick</button
 		>
 		<button
 			data-testid="trigger-plugin-flaky-btn"
-			onclick={() => send('trigger-plugin-flaky', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-flaky', {})}
 			disabled={status !== 'connected'}>Trigger Flaky</button
 		>
 		<button
 			data-testid="trigger-plugin-always-fail-btn"
-			onclick={() => send('trigger-plugin-always-fail', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-always-fail', {})}
 			disabled={status !== 'connected'}>Trigger Always Fail</button
 		>
 		<button
 			data-testid="trigger-plugin-query-dlq-btn"
-			onclick={() => send('trigger-plugin-query-dlq', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-query-dlq', {})}
 			disabled={status !== 'connected'}>Query Plugin DLQ</button
 		>
 		<div data-testid="plugin-every-count">{everyTickCount}</div>
@@ -289,7 +289,7 @@
 		<h2>Plugin Error Handling</h2>
 		<button
 			data-testid="plugin-error-btn"
-			onclick={() => send('trigger-plugin-error', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-error', {})}
 			disabled={status !== 'connected'}>Trigger Plugin Error</button
 		>
 		<div data-testid="error-log">{errorLog}</div>
@@ -299,7 +299,7 @@
 		<h2>Plugin Scheduled with Data Validation</h2>
 		<button
 			data-testid="trigger-plugin-task-with-data-btn"
-			onclick={() => send('trigger-plugin-task-with-data', {})}
+			onclick={() => send('__e2e:drizzle::trigger-plugin-task-with-data', {})}
 			disabled={status !== 'connected'}>Trigger Task with Data</button
 		>
 		<div data-testid="plugin-task-data-result">{pluginTaskDataResult}</div>

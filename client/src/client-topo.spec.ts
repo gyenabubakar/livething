@@ -46,7 +46,6 @@ afterEach(() => {
 
 describe('topoSort — circular dependency detection', () => {
   it('throws "circular primitive dependency detected" when two primitives depend on each other', () => {
-    // alpha depends on beta and beta depends on alpha — a cycle
     const alpha = { _tag: 'alpha', dependencies: ['beta'] };
     const beta = { _tag: 'beta', dependencies: ['alpha'] };
 
@@ -62,15 +61,6 @@ describe('topoSort — circular dependency detection', () => {
 
 describe('topoSort — dependency ordering', () => {
   it('places dedup before replay at runtime even when replay is passed first', () => {
-    // replay() declares 'dedup' as a dependency, so topoSort must sort dedup
-    // first even when the caller registers replay before dedup.
-    //
-    // Observable proof: send the same messageId twice but with a higher seq on
-    // the duplicate. When dedup runs first it drops the duplicate before replay
-    // ever sees it, so replay's high-water mark stays at the original seq (5).
-    // If the order were wrong (replay before dedup), replay would update its
-    // high-water mark to the duplicate's seq (20) before dedup drops the frame,
-    // and on reconnect the __replay__ request would ask for seq after 20.
     const { socket, ws } = build(replay(), dedup(), reconnection());
 
     const handler = vi.fn();
@@ -91,9 +81,8 @@ describe('topoSort — dependency ordering', () => {
     expect(handler).toHaveBeenCalledTimes(1);
 
     ws.emit(dup);
-    expect(handler).toHaveBeenCalledTimes(1); // dedup swallowed the duplicate
+    expect(handler).toHaveBeenCalledTimes(1);
 
-    // Trigger reconnect so replay's onReconnect fires.
     ws.serverClose(1006, 'dropped');
     vi.advanceTimersByTime(1500);
     const ws2 = MockWebSocket.last();
@@ -126,7 +115,7 @@ describe('topoSort — dependency ordering', () => {
 
     const spy = {
       _tag: 'order-spy',
-      dependencies: ['replay'], // must sort after replay; correct order: dedup → replay → spy
+      dependencies: ['replay'],
       setup() {
         return {
           id: 'order-spy',
@@ -138,7 +127,6 @@ describe('topoSort — dependency ordering', () => {
       },
     };
 
-    // Registration order: replay → spy → dedup (wrong without topoSort).
     const socket = client<C>()(
       connect('wss://test'),
       replay(),
@@ -156,25 +144,15 @@ describe('topoSort — dependency ordering', () => {
     const dup = { event: 'msg', payload: { text: 'hi' }, __wskit: { messageId: 'id-x', seq: 99 } };
 
     ws.emit(first);
-    expect(spySeen).toEqual([7]); // spy saw the first delivery
+    expect(spySeen).toEqual([7]);
 
     ws.emit(dup);
-    // dedup (sorted first) dropped the duplicate before replay or spy ran.
-    // If replay had run first, it would have updated lastSeq to 99 and the spy
-    // would have recorded 99 here.
     expect(spySeen).toEqual([7]);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('topoSort — optionalAfter ordering', () => {
-  // On reconnect, a channel's __subscribe__ must reach the server before its
-  // __replay__, or the membership gate drops the replay. replay() declares
-  // `optionalAfter: ['channels']`, so the order must hold no matter how the
-  // caller lists the two primitives.
-  // Registration order is the unit under test, so primitives arrive as a plain
-  // array — cast the builder to a rest-param signature and surface the bits the
-  // test drives (connect / channel).
   type TestSocket = {
     connect(): void;
     channel(name: string): { subscribe(): Promise<void> };
@@ -193,12 +171,10 @@ describe('topoSort — optionalAfter ordering', () => {
     void room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
-    // A channel-scoped frame with a seq, so replay records a high-water mark for
-    // 'general' and will emit a channel __replay__ on reconnect.
     ws.emit({
       event: 'message',
       payload: { text: 'hi' },
@@ -234,12 +210,6 @@ describe('topoSort — optionalAfter ordering', () => {
 
 describe('topoSort — intercept tag collision', () => {
   it('two intercepts keep original registration order (A before B) when a primitive with optionalAfter:[intercept] is listed first', () => {
-    // byTag = new Map(specs.map((s) => [s._tag, s])) overwrites duplicate tags,
-    // so byTag['intercept'] = B (the last one). When a primitive P with
-    // optionalAfter:['intercept'] is listed before the intercepts, visit(P) runs
-    // first and calls visit(byTag.get('intercept')) = visit(B). B is pushed to
-    // sorted before A. applyConfig then calls config.intercepts.push() for B
-    // first, so at runtime B runs before A — wrong.
     const runOrder: string[] = [];
 
     const interceptA = intercept(() => {
@@ -249,8 +219,6 @@ describe('topoSort — intercept tag collision', () => {
       runOrder.push('B');
     });
 
-    // P declares optionalAfter: ['intercept'] and is registered before A and B,
-    // so visit(P) fires before visit(A) and visit(B) in the outer loop.
     const primWithOptAfter = {
       _tag: 'order-probe',
       optionalAfter: ['intercept'],

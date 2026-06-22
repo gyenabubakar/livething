@@ -21,7 +21,7 @@ export function replay(): Primitive<EmptyTypeFn> {
     setup(helpers) {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
-      const lastSeq = new Map<string, { seq: number; channel?: string; channelScope?: string }>();
+      const lastSeq = new Map<string, { seq: number; channel?: string; channelFamily?: string }>();
 
       return {
         id: 'replay',
@@ -57,18 +57,17 @@ export function replay(): Primitive<EmptyTypeFn> {
           if (typeof seq !== 'number') return message;
 
           const channel = message.__wskit?.channel;
-          const channelScope = message.__wskit?.channelScope;
+          const channelFamily = message.__wskit?.channelFamily;
           // Key by scope + name so two channels that share a name in different
           // families each catch up on their own, instead of collapsing into one.
-          const key = channel === undefined ? '' : channelKey(channelScope, channel);
+          const key = channel === undefined ? '' : channelKey(channelFamily, channel);
           const current = lastSeq.get(key);
           if (!current || seq > current.seq) {
-            lastSeq.set(key, { seq, channel, channelScope });
+            lastSeq.set(key, { seq, channel, channelFamily });
           }
           return message;
         },
         onReconnect() {
-          // Nothing seen yet means nothing to catch up on.
           if (lastSeq.size === 0) return null;
 
           const requests: WireMessage[] = [];
@@ -76,7 +75,7 @@ export function replay(): Primitive<EmptyTypeFn> {
             const wskit: WSKitEnvelope = {};
             if (info.channel) {
               wskit.channel = info.channel;
-              if (info.channelScope) wskit.channelScope = info.channelScope;
+              if (info.channelFamily) wskit.channelFamily = info.channelFamily;
             }
             requests.push({
               event: '__replay__',
@@ -90,4 +89,5 @@ export function replay(): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 replay.tag = 'replay';

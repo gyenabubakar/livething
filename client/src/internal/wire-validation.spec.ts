@@ -1,5 +1,5 @@
 import { WIRE_LIMITS } from '@wskit/core';
-import { isReservedEventName, scopeKeyError, wireIdError } from '~/internal/wire-validation.ts';
+import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('wireIdError', () => {
@@ -42,14 +42,23 @@ describe('isReservedEventName', () => {
     expect(isReservedEventName('chat')).toBe(false);
     expect(isReservedEventName('ping-pong')).toBe(false);
   });
+
+  it('allows plugin-namespaced events (__<id>::event) but still blocks protocol frames', () => {
+    // A plugin event is a real, sendable user event in its namespace.
+    expect(isReservedEventName('__acme:presence::heartbeat')).toBe(false);
+    expect(isReservedEventName('__e2e:feed::feed')).toBe(false);
+    // A protocol frame has no `::` and stays reserved.
+    expect(isReservedEventName('__streamStart__')).toBe(true);
+    expect(isReservedEventName('__subscribe__')).toBe(true);
+  });
 });
 
-describe('scopeKeyError', () => {
-  it('allows an absent scope but rejects an empty or over-limit one', () => {
-    expect(scopeKeyError('e', undefined)).toBeNull();
-    expect(scopeKeyError('e', 'x'.repeat(WIRE_LIMITS.channelScope))).toBeNull();
-    expect(scopeKeyError('e', '')).toMatchObject({ code: 'validation-failed' });
-    expect(scopeKeyError('e', 'x'.repeat(WIRE_LIMITS.channelScope + 1))).toMatchObject({
+describe('familyKeyError', () => {
+  it('allows an absent family but rejects an empty or over-limit one', () => {
+    expect(familyKeyError('e', undefined)).toBeNull();
+    expect(familyKeyError('e', 'x'.repeat(WIRE_LIMITS.channelFamily))).toBeNull();
+    expect(familyKeyError('e', '')).toMatchObject({ code: 'validation-failed' });
+    expect(familyKeyError('e', 'x'.repeat(WIRE_LIMITS.channelFamily + 1))).toMatchObject({
       code: 'validation-failed',
     });
   });

@@ -2,10 +2,6 @@ import { WSKitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
 import { CloseCodes, Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
 
-// ===========================================================================
-// CloseCodes
-// ===========================================================================
-
 describe('CloseCodes', () => {
   it('exposes the standard 1xxx codes', () => {
     expect(CloseCodes.NORMAL).toBe(1000);
@@ -33,10 +29,6 @@ describe('CloseCodes', () => {
   });
 });
 
-// ===========================================================================
-// Disconnect
-// ===========================================================================
-
 describe('Disconnect', () => {
   it('creates frozen object with __wskit, code, reason', () => {
     const dc = Disconnect(4009, 'banned');
@@ -58,10 +50,6 @@ describe('Disconnect', () => {
   });
 });
 
-// ===========================================================================
-// RejectUpgrade
-// ===========================================================================
-
 describe('RejectUpgrade', () => {
   it('creates frozen object with __wskit, code, reason', () => {
     const ru = RejectUpgrade(4002, 'Invalid token');
@@ -75,10 +63,6 @@ describe('RejectUpgrade', () => {
   });
 });
 
-// ===========================================================================
-// Defer
-// ===========================================================================
-
 describe('Defer', () => {
   it('creates frozen object with __wskit and delay', () => {
     const df = Defer(1000);
@@ -90,10 +74,6 @@ describe('Defer', () => {
     expect(Object.isFrozen(Defer(500))).toBe(true);
   });
 });
-
-// ===========================================================================
-// DeferExhausted
-// ===========================================================================
 
 describe('DeferExhausted', () => {
   it('has code defer-exhausted', () => {

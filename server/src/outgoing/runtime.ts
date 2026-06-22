@@ -2,11 +2,14 @@
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { hookRunsForFrame } from '~/intercept/intercept.ts';
+import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-type CompiledServer = EngineCompileTypes.CompiledServer;
+export { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 
 /**
  * Minimal dependency bag for outgoing message helpers.
@@ -14,9 +17,7 @@ type CompiledServer = EngineCompileTypes.CompiledServer;
 export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
-  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[];
-
-  outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+  outgoingHooks: readonly OutgoingHookEntry[];
 
   /**
    * Contributors of `__wskit` metadata for outgoing user frames — the sequence
@@ -37,29 +38,14 @@ export interface OutgoingRuntime {
   generateId(prefix?: string): string;
 }
 
-// ───── Section: declaration checks ─────
-
-/** Check whether an event name belongs to any installed plugin's outgoing declarations. */
-function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean {
-  for (const pluginInstance of compiled.plugins) {
-    for (const eventName of Object.keys(pluginInstance.outgoing)) {
-      if (`__${pluginInstance.id}:${eventName}` === event) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 /**
  * Check whether an outgoing event was declared in the correct scope.
  *
  * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
  * — are allowed. An unknown `__x__` name is not, so it cannot slip past the
- * scope check by looking protocol-shaped. Plugin events (`__pluginId:event`)
- * are checked against plugin declarations. Everything else must appear in the
- * scope's outgoing or stream maps.
+ * scope check by looking protocol-shaped. A new-model plugin's namespaced
+ * `emits()` lives in the normal outgoing/channel maps, so it is found by the
+ * scope checks below.
  */
 export function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
@@ -67,13 +53,12 @@ export function isDeclaredOutgoingEvent(
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
   if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
-  if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
   if (routing?.channel) {
     const channel =
-      routing.channelScope === null || routing.channelScope === undefined
+      routing.channelFamily === null || routing.channelFamily === undefined
         ? compiled.channels.get(routing.channel)
-        : compiled.channelFamilies.get(routing.channelScope);
+        : compiled.channelFamilies.get(routing.channelFamily);
     return (
       (channel?.outgoing.has(event) ?? false) ||
       (channel?.streams.has(event) ?? false) ||
@@ -90,8 +75,6 @@ export function isDeclaredOutgoingEvent(
   );
 }
 
-// ───── Section: payload shape check ─────
-
 /** Throw if the payload is not a plain object — arrays and primitives are rejected. */
 export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -103,27 +86,23 @@ function serializePayloadOrThrow(event: string, payload: Record<string, unknown>
   return serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
 }
 
-// ───── Section: outgoing hook pipeline ─────
-
-/** Run global + plugin `onOutgoing` hooks and return the (possibly rewritten) message. */
+/** Run the owner-tagged outgoing hooks and return the (possibly rewritten) message. */
 function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[],
   message: { event: string; payload: unknown },
 ): { event: string; payload: unknown } {
   let current = message;
 
-  // A hook return value replaces the payload only, never the event.
-  for (const hook of outgoingHooks) {
-    const next = hook(current);
-    if (next !== undefined) current = { event: current.event, payload: next };
-  }
-
-  assertPayloadRecord(current.payload);
-
-  for (const pluginRuntime of pluginRuntimes) {
-    if (!pluginRuntime.onOutgoing) continue;
-    const next = pluginRuntime.onOutgoing(current);
+  // Owner is derived from the event name, which the hooks cannot rewrite.
+  const owner = frameOwner(current.event);
+  // A plugin's own-frame hook sees the short name it declared; an app hook (and
+  // an observed app frame) sees the event unchanged.
+  const parsed = parsePluginWireName(current.event);
+  for (const { handler, owner: hookOwner } of outgoingHooks) {
+    if (!hookRunsForFrame(hookOwner, owner)) continue;
+    const ownFrame = hookOwner.owner.kind === 'plugin' && owner.kind === 'plugin';
+    const event = ownFrame && parsed ? parsed.name : current.event;
+    const next = handler({ event, payload: current.payload, owner });
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 
@@ -141,10 +120,11 @@ function buildWSKit(
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (routing?.channel) wskit.channel = routing.channel;
-  if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
-    wskit.channelScope = routing.channelScope;
+  if (routing?.channelFamily !== null && routing?.channelFamily !== undefined) {
+    wskit.channelFamily = routing.channelFamily;
   }
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
+  if (routing?.source) wskit.source = routing.source;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
   if (routing?.streamKind) wskit.streamKind = routing.streamKind;
@@ -192,8 +172,6 @@ function invokeAfterSendHooks(
   }
 }
 
-// ───── Section: wire send primitives ─────
-
 /**
  * Push one outgoing event through plugin hooks, declaration checks, and
  * `__wskit` metadata before sending it to a connection.
@@ -209,15 +187,16 @@ export function sendThroughPipeline(
   connection: EngineRuntimeTypes.RuntimeConnection,
   opts: SendThroughPipelineOptions,
 ): boolean {
-  const { routing, event, payload } = opts;
+  const { routing, event } = opts;
+  const isRequestResponse = !!routing?.correlationId;
+  const payload = opts.payload === undefined && isRequestResponse ? {} : opts.payload;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, {
     event,
     payload,
   });
 
-  const isRequestResponse = !!routing?.correlationId;
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
       `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
@@ -253,8 +232,6 @@ export function sendThroughPipeline(
   return true;
 }
 
-// ───── Section: broadcast fan-out ─────
-
 interface PreparedBroadcast {
   event: string;
 
@@ -282,7 +259,6 @@ type BroadcastRuntime = Pick<
   | 'beforeSendHooks'
   | 'compiled'
   | 'logger'
-  | 'pluginRuntimes'
   | 'outgoingHooks'
   | 'waitUntil'
   | 'wskitStampHooks'
@@ -307,7 +283,7 @@ function prepareBroadcast(
   const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, {
     event,
     payload,
   });
@@ -411,7 +387,7 @@ export interface BroadcastToConnectionsOptions {
 
   options?: PublicApi.BroadcastOptions & {
     channel?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
   };
 
   excludeConnectionId?: string;
@@ -425,7 +401,6 @@ export function broadcastToConnections(
     | 'compiled'
     | 'generateId'
     | 'logger'
-    | 'pluginRuntimes'
     | 'outgoingHooks'
     | 'waitUntil'
     | 'wskitStampHooks'
@@ -441,7 +416,7 @@ export function broadcastToConnections(
     prepared = prepareBroadcast(runtime, {
       routing: {
         channel: options?.channel,
-        channelScope: options?.channelScope,
+        channelFamily: options?.channelFamily,
       },
       event,
       payload,
@@ -487,7 +462,7 @@ export interface BroadcastToChannelOptions {
 
   excludeConnectionId: string | undefined;
 
-  channelScope: string | null;
+  channelFamily: string | null;
 
   excludeSelf?: boolean;
 }
@@ -501,23 +476,22 @@ export function broadcastToChannel(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
     >,
   opts: BroadcastToChannelOptions,
 ): void {
-  const { channelName, event, payload, excludeConnectionId, channelScope, excludeSelf } = opts;
+  const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
   const members = runtime.channelMembers.get(
-    ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members || members.size === 0) return;
 
   let prepared: PreparedBroadcast;
   try {
     prepared = prepareBroadcast(runtime, {
-      routing: { channel: channelName, channelScope },
+      routing: { channel: channelName, channelFamily },
       event,
       payload,
     });
@@ -525,7 +499,7 @@ export function broadcastToChannel(
     // A payload or declaration error fails the same way for every member — log once.
     runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
       channel: channelName,
-      channelScope,
+      channelFamily,
       event,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -542,7 +516,7 @@ export function broadcastToChannel(
       runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         channel: channelName,
-        channelScope,
+        channelFamily,
         event,
         error: error instanceof Error ? error.message : String(error),
       });

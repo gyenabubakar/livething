@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
  * Micro-benchmark for `compileHandlerDefinition` across the same three
- * contract shapes the CF e2e harness uses (tiny / medium / heavy). Runs in
+ * server shapes the CF e2e harness uses (tiny / medium / heavy). Runs in
  * Node with sub-µs `performance.now` resolution so we can actually see where
  * compile time goes — workerd quantizes `performance.now()` to 1ms so the
  * e2e numbers all look like 0µs.
@@ -9,145 +9,155 @@
  * Run: `pnpm --filter @wskit/server bench`
  */
 
-import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
-import { implement } from '~/_api/implement.ts';
-import { scope } from '~/channel/channel.ts';
-import { channel } from '~/channel/definition.ts';
-import { incoming } from '~/incoming/definition.ts';
-import { outgoing } from '~/outgoing/definition.ts';
-import { request } from '~/request/definition.ts';
-import { recordedStream } from '~/stream-recorded/definition.ts';
-import { resumableStream } from '~/stream-resumable/definition.ts';
-import { stream } from '~/stream/definition.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { persistence } from '~/persistence/capability.ts';
+import { replay } from '~/replay/capability.ts';
+import { requests } from '~/request/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
+import { resumableStream } from '~/stream-resumable/capability.ts';
+import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { bench, describe } from 'vitest';
 import { compileHandlerDefinition } from './compile.ts';
 
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
-const NumChunk = v.object({ n: v.number() });
+const NumChunk = t<{ n: number }>();
 
-// ── Tiny: 1 incoming, 1 outgoing ──
-const tinyContract = contract('bench-tiny', {
+const EmptyOut = t<Record<string, never>>();
+const TextOut = t<{ text: string }>();
+
+const tinyBase = define({
   env: t<Record<string, unknown>>(),
-  definitions: [incoming('noop', Empty), outgoing('ack', Empty)],
+  capabilities: [emits({ notify: EmptyOut })],
 });
-const tinyHandler = implement(tinyContract)
-  .on('noop', () => {})
-  .build();
+const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
 
-// ── Medium: ~10 events, 2 channels ──
-const mediumContract = contract('bench-medium', {
+const mediumBase = define({
   env: t<Record<string, unknown>>(),
-  persistence: true,
-  hibernation: true,
-  definitions: [
-    incoming('join', Empty),
-    incoming('leave', Empty),
-    incoming('noop', Empty),
-    outgoing('ack', Empty),
-    outgoing('joined', Empty),
-    request('whoami', { payload: Empty, response: v.object({ id: v.string() }) }),
-    stream('tail', { payload: Empty, chunk: NumChunk }),
-    channel('lobby', {
-      definitions: [incoming('say', Text), outgoing('said', Text)],
-    }),
-    channel(scope('rooms', 'room:{id}'), {
-      definitions: [incoming('post', Text), outgoing('posted', Text)],
-    }),
+  hibernation: { enabled: true },
+  capabilities: [
+    persistence(),
+    requests(),
+    stream(),
+    channels(),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
   ],
 });
-const mediumHandler = implement(mediumContract)
-  .on('noop', () => {})
-  .on('join', () => {})
-  .on('leave', () => {})
-  .request('whoami', (ctx) => {
-    ctx.respond({ id: ctx.identity });
-  })
-  .stream('tail', async function* () {
-    yield { n: 1 };
-  })
-  .channel('lobby', (ch) => ch.on('say', () => {}))
-  .channel('rooms', (ch) => ch.on('post', () => {}))
-  .build();
+const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
+lobby.on('say', { input: Text, run() {} });
+const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
+  outgoing: { emits: { posted: TextOut } },
+});
+rooms.on('post', { input: Text, run() {} });
+const mediumHandler = mediumBase.assemble(
+  mediumBase.on('join', { input: Empty, run() {} }),
+  mediumBase.on('leave', { input: Empty, run() {} }),
+  mediumBase.on('noop', { input: Empty, run() {} }),
+  mediumBase.request('whoami', {
+    input: Empty,
+    run(ctx) {
+      return { id: ctx.identity };
+    },
+  }),
+  mediumBase.stream('tail', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
+  }),
+  lobby,
+  rooms,
+);
 
-// ── Heavy: ~50 events, 10 channels ──
-function channelDefs(prefix: string) {
-  return [
-    incoming(`${prefix}-send`, Text),
-    incoming(`${prefix}-edit`, Text),
-    outgoing(`${prefix}-message`, Text),
-    outgoing(`${prefix}-edited`, Text),
-  ] as const;
+function channelEmits(prefix: string) {
+  return {
+    [`${prefix}-message`]: TextOut,
+    [`${prefix}-edited`]: TextOut,
+  };
 }
-const heavyContract = contract('bench-heavy', {
+
+const heavyBase = define({
   env: t<Record<string, unknown>>(),
-  persistence: true,
-  hibernation: true,
-  replay: true,
-  sequence: { persist: true },
-  dedup: true,
-  definitions: [
-    incoming('a', Empty),
-    incoming('b', Empty),
-    incoming('c', Empty),
-    incoming('d', Empty),
-    incoming('e', Empty),
-    outgoing('o-a', Empty),
-    outgoing('o-b', Empty),
-    outgoing('o-c', Empty),
-    outgoing('o-d', Empty),
-    outgoing('o-e', Empty),
-    request('r-a', { payload: Empty, response: Empty }),
-    request('r-b', { payload: Empty, response: Empty }),
-    request('r-c', { payload: Empty, response: Empty }),
-    stream('s-a', { payload: Empty, chunk: NumChunk }),
-    stream('s-b', { payload: Empty, chunk: NumChunk }),
-    resumableStream('rs-a', { payload: Empty, chunk: NumChunk }),
-    recordedStream('rec-a', { payload: Empty, chunk: NumChunk }),
-    channel('chan-1', { definitions: channelDefs('c1') }),
-    channel('chan-2', { definitions: channelDefs('c2') }),
-    channel('chan-3', { definitions: channelDefs('c3') }),
-    channel('chan-4', { definitions: channelDefs('c4') }),
-    channel('chan-5', { definitions: channelDefs('c5') }),
-    channel(scope('rooms-1', 'r1:{id}'), { definitions: channelDefs('r1') }),
-    channel(scope('rooms-2', 'r2:{id}'), { definitions: channelDefs('r2') }),
-    channel(scope('rooms-3', 'r3:{id}'), { definitions: channelDefs('r3') }),
-    channel(scope('rooms-4', 'r4:{id}'), { definitions: channelDefs('r4') }),
-    channel(scope('rooms-5', 'r5:{id}'), { definitions: channelDefs('r5') }),
+  hibernation: { enabled: true },
+  capabilities: [
+    persistence(),
+    dedup(),
+    sequence({ persist: true }),
+    replay.history(),
+    requests(),
+    stream(),
+    resumableStream(),
+    recordedStream(),
+    channels(),
+    emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
   ],
 });
 
-// Build the heavy implementer programmatically — handlers are no-ops since
-// we're measuring compile cost, not runtime cost.
-const heavyImpl: any = implement(heavyContract as any);
-for (const def of heavyContract.definitions as readonly any[]) {
-  if (def._ === 'incoming') heavyImpl.on(def.name, () => {});
-  if (def._ === 'request') heavyImpl.request(def.name, (ctx: any) => ctx.respond({}));
-  if (def._ === 'stream')
-    heavyImpl.stream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'resumable-stream')
-    heavyImpl.resumableStream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'recorded-stream')
-    heavyImpl.recordedStream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'channel') {
-    const key = typeof def.pattern === 'string' ? def.pattern : def.pattern.key;
-    heavyImpl.channel(key, (ch: any) => {
-      for (const child of def.definitions as readonly any[]) {
-        if (child._ === 'incoming') ch.on(child.name, () => {});
-      }
-      return ch;
-    });
-  }
+const heavyHandlers: any[] = [];
+for (const name of ['a', 'b', 'c', 'd', 'e']) {
+  heavyHandlers.push(heavyBase.on(name, { input: Empty, run() {} }));
 }
-const heavyHandler = heavyImpl.build();
+for (const name of ['r-a', 'r-b', 'r-c']) {
+  heavyHandlers.push(
+    heavyBase.request(name, {
+      input: Empty,
+      run() {
+        return {};
+      },
+    }),
+  );
+}
+for (const name of ['s-a', 's-b']) {
+  heavyHandlers.push(
+    heavyBase.stream(name, {
+      input: Empty,
+      chunk: NumChunk,
+      async *run() {
+        yield { n: 1 };
+      },
+    }),
+  );
+}
+heavyHandlers.push(
+  heavyBase.resumableStream('rs-a', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
+  }),
+);
+heavyHandlers.push(
+  heavyBase.recordedStream('rec-a', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
+  }),
+);
+for (const n of [1, 2, 3, 4, 5]) {
+  const ch = heavyBase.channel(`chan-${n}`, { outgoing: { emits: channelEmits(`c${n}`) } });
+  ch.on(`c${n}-send`, { input: Text, run() {} });
+  ch.on(`c${n}-edit`, { input: Text, run() {} });
+  heavyHandlers.push(ch);
+}
+for (const n of [1, 2, 3, 4, 5]) {
+  const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
+    outgoing: { emits: channelEmits(`r${n}`) },
+  });
+  ch.on(`r${n}-send`, { input: Text, run() {} });
+  ch.on(`r${n}-edit`, { input: Text, run() {} });
+  heavyHandlers.push(ch);
+}
+const heavyHandler = heavyBase.assemble(...heavyHandlers);
 
 describe('compileHandlerDefinition', () => {
   bench('tiny  (1 incoming, 1 outgoing)', () => {

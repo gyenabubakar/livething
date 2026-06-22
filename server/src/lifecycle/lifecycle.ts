@@ -33,20 +33,20 @@ export interface UpgradeResult {
   readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
-/** Handler type for `implement(contract).onInit(...)`. */
+/** Handler type for `base.init(...)`. */
 export type InitHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `implement(contract).onConnect(...)`. */
+/** Handler type for `base.connect(...)`. */
 export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `implement(contract).onDisconnect(...)`. */
+/** Handler type for `base.disconnect(...)`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `implement(contract).onShutdown(...)`. */
+/** Handler type for `base.shutdown(...)`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler type for `implement(contract).onError(...)`. The `event` argument is
+ * Handler type for `base.error(...)`. The `event` argument is
  * the incoming event name that caused the error, when known.
  */
 export type ErrorHandler<TCtx = any> = (
@@ -77,7 +77,7 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/** Handler type for `implement(contract).onValidationError(...)`. */
+/** Handler type for `base.validationError(...)`. */
 export type ValidationErrorHandler<TCtx = any> = (
   ctx: TCtx,
   event: string,
@@ -146,8 +146,8 @@ function makeLifecycle<TTag extends string>(
 }
 
 /**
- * Creates an `onInit` lifecycle primitive. Prefer `implement(contract).onInit(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onInit` lifecycle primitive. Prefer `base.init(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onInit = Object.assign(
   makeLifecycle('onInit', ON_INIT_KEY, (e, h) => e.onInit(h)) as <TCtx>(
@@ -157,8 +157,8 @@ export const onInit = Object.assign(
 );
 
 /**
- * Creates an `onConnect` lifecycle primitive. Prefer `implement(contract).onConnect(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onConnect` lifecycle primitive. Prefer `base.connect(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onConnect = Object.assign(
   makeLifecycle('onConnect', ON_CONNECT_KEY, (e, h) => e.onConnect(h)) as <TCtx>(
@@ -168,8 +168,8 @@ export const onConnect = Object.assign(
 );
 
 /**
- * Creates an `onDisconnect` lifecycle primitive. Prefer `implement(contract).onDisconnect(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onDisconnect` lifecycle primitive. Prefer `base.disconnect(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onDisconnect = Object.assign(
   makeLifecycle('onDisconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
@@ -179,8 +179,8 @@ export const onDisconnect = Object.assign(
 );
 
 /**
- * Creates an `onShutdown` lifecycle primitive. Prefer `implement(contract).onShutdown(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onShutdown` lifecycle primitive. Prefer `base.shutdown(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onShutdown = Object.assign(
   makeLifecycle('onShutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
@@ -190,8 +190,8 @@ export const onShutdown = Object.assign(
 );
 
 /**
- * Creates an `onError` lifecycle primitive. Prefer `implement(contract).onError(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onError` lifecycle primitive. Prefer `base.error(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onError = Object.assign(
   makeLifecycle('onError', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
@@ -201,8 +201,8 @@ export const onError = Object.assign(
 );
 
 /**
- * Creates an `onUpgrade` lifecycle primitive. Prefer `implement(contract).onUpgrade(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onUpgrade` lifecycle primitive. Prefer the `upgrade` option on
+ * `define(...)` — this factory is used internally by `assemble(...)`.
  */
 export const onUpgrade = Object.assign(
   makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (
@@ -212,8 +212,8 @@ export const onUpgrade = Object.assign(
 );
 
 /**
- * Creates an `onValidationError` lifecycle primitive. Prefer `implement(contract).onValidationError(...)`
- * — this factory is used internally by the implementer.
+ * Creates an `onValidationError` lifecycle primitive. Prefer `base.validationError(...)`
+ * — this factory is used internally by `assemble(...)`.
  */
 export const onValidationError = Object.assign(
   makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <

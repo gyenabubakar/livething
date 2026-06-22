@@ -50,26 +50,19 @@ afterEach(() => {
 describe('max attempts exhaustion', () => {
   it('fires reconnectFailed and moves to closed after maxAttempts retry sockets all fail', () => {
     const onFailed = vi.fn();
-    const socket = client<C>()(
-      connect('wss://test'),
-      // maxAttempts=2: allows 2 retries; the 3rd unexpected close exhausts the budget.
-      reconnection({ maxAttempts: 2 }),
-    );
+    const socket = client<C>()(connect('wss://test'), reconnection({ maxAttempts: 2 }));
     socket.connect();
     MockWebSocket.last().open();
     socket.onReconnectFailed(onFailed);
 
-    // Initial drop → schedules retry #1 (attempt becomes 1).
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(60_000); // fires retry #1 → socket #2
+    vi.advanceTimersByTime(60_000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
-    // Retry #1 socket fails → schedules retry #2 (attempt becomes 2).
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(60_000); // fires retry #2 → socket #3
+    vi.advanceTimersByTime(60_000);
     expect(MockWebSocket.instances).toHaveLength(3);
 
-    // Retry #2 socket fails → attempt(2) >= maxAttempts(2) → failReconnect.
     MockWebSocket.last().serverClose(1006);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -83,12 +76,10 @@ describe('max attempts exhaustion', () => {
     MockWebSocket.last().open();
     socket.onReconnectFailed(onFailed);
 
-    // First unexpected close: attempt(0) < 1 → schedules retry (attempt becomes 1).
     MockWebSocket.last().serverClose(1006);
-    vi.advanceTimersByTime(2000); // fires retry → socket #2
+    vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
-    // Retry socket fails: attempt(1) >= maxAttempts(1) → failReconnect.
     MockWebSocket.last().serverClose(1006);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
@@ -104,7 +95,6 @@ describe('backoff growth and jitter', () => {
     ws.serverClose(1006);
     expect(MockWebSocket.instances).toHaveLength(1);
 
-    // At exactly 1000ms the timer fires (random=0.5 => delay=1000ms).
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket.instances).toHaveLength(2);
   });
@@ -113,26 +103,22 @@ describe('backoff growth and jitter', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const { ws } = build(reconnection());
 
-    // First drop → retry 1 fires at 1000ms.
     ws.serverClose(1006);
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
-    // Second drop from the retry socket → retry 2 fires at base=2000ms.
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(1999);
-    expect(MockWebSocket.instances).toHaveLength(2); // not yet
+    expect(MockWebSocket.instances).toHaveLength(2);
     vi.advanceTimersByTime(1);
     expect(MockWebSocket.instances).toHaveLength(3);
   });
 
   it('caps delay at maxDelay regardless of attempt count', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    // maxDelay=500ms, attempt=10 would compute 1000*2^10=~1M, but should be capped.
     const { ws } = build(reconnection({ maxDelay: 500 }));
 
     ws.serverClose(1006);
-    // With jitter=0.5 the exact delay is 500ms (base=500, jitter factor=0 net at 0.5).
     vi.advanceTimersByTime(499);
     expect(MockWebSocket.instances).toHaveLength(1);
     vi.advanceTimersByTime(1);
@@ -144,7 +130,6 @@ describe('backoff growth and jitter', () => {
     const { ws } = build(reconnection());
 
     ws.serverClose(1006);
-    // base=1000, jitter=300, delay = 1000 - 300 + 0 = 700ms
     vi.advanceTimersByTime(699);
     expect(MockWebSocket.instances).toHaveLength(1);
     vi.advanceTimersByTime(1);
@@ -156,7 +141,6 @@ describe('backoff growth and jitter', () => {
     const { ws } = build(reconnection());
 
     ws.serverClose(1006);
-    // base=1000, jitter=300, delay = 1000 - 300 + 600 = 1300ms
     vi.advanceTimersByTime(1299);
     expect(MockWebSocket.instances).toHaveLength(1);
     vi.advanceTimersByTime(1);
@@ -167,25 +151,21 @@ describe('backoff growth and jitter', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const { ws } = build(reconnection());
 
-    // First drop → retry 1 at 1000ms (attempt=0).
     ws.serverClose(1006);
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
-    // Second drop → retry 2 at 2000ms (attempt=1).
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(3);
 
-    // Open the reconnect socket successfully — this resets attempt to 0.
     MockWebSocket.last().open();
 
-    // Now drop again; the next delay should be back to 1000ms, not 4000ms.
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(999);
-    expect(MockWebSocket.instances).toHaveLength(3); // not yet
+    expect(MockWebSocket.instances).toHaveLength(3);
     vi.advanceTimersByTime(1);
-    expect(MockWebSocket.instances).toHaveLength(4); // fired at 1000ms, not 4000ms
+    expect(MockWebSocket.instances).toHaveLength(4);
   });
 });
 
@@ -195,27 +175,22 @@ describe('online signal resets attempt counter', () => {
     const m = mockEnvironment();
     const { ws } = build(platform({ environment: m.environment }), reconnection());
 
-    // First drop → attempt=0, schedules 1000ms timer.
     ws.serverClose(1006);
     expect(socket_instanceCount()).toBe(1);
 
-    // Go offline — the timer is cleared.
     m.setOnline(false);
     vi.advanceTimersByTime(60_000);
-    expect(socket_instanceCount()).toBe(1); // no retry while offline
+    expect(socket_instanceCount()).toBe(1);
 
-    // Come back online — attempt is reset to 0 and reopen() is called immediately.
     m.setOnline(true);
-    expect(socket_instanceCount()).toBe(2); // retry fired at once
+    expect(socket_instanceCount()).toBe(2);
 
-    // Open the new socket and then close it again.
     MockWebSocket.last().open();
-    // Drop it — the next retry should again start from attempt=0 (base=1000ms).
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(999);
-    expect(socket_instanceCount()).toBe(2); // not yet
+    expect(socket_instanceCount()).toBe(2);
     vi.advanceTimersByTime(1);
-    expect(socket_instanceCount()).toBe(3); // fired at 1000ms, not a higher exponent
+    expect(socket_instanceCount()).toBe(3);
   });
 
   it('going back online while reconnecting issues a reopen without waiting for the timer', () => {
@@ -224,12 +199,10 @@ describe('online signal resets attempt counter', () => {
 
     m.setOnline(false);
     ws.serverClose(1006);
-    // Offline: no timer is set, state is reconnecting.
     vi.advanceTimersByTime(60_000);
     expect(socket_instanceCount()).toBe(1);
 
     m.setOnline(true);
-    // Reopen fires synchronously on the online signal.
     expect(socket_instanceCount()).toBe(2);
   });
 });
@@ -267,7 +240,6 @@ describe('shouldReconnect precedence', () => {
   });
 
   it('primitive shouldReconnect hook returning false takes precedence over options.shouldReconnect', () => {
-    // A raw primitive whose shouldReconnect hook says "no" unconditionally.
     const vetoer = {
       _tag: 'vetoer',
       setup: () => ({
@@ -275,11 +247,7 @@ describe('shouldReconnect precedence', () => {
         shouldReconnect: (_code: number, _reason: string): boolean | void => false,
       }),
     };
-    const { ws, socket } = build(
-      // The options callback would say "yes" but the primitive hook fires first.
-      reconnection({ shouldReconnect: () => true }),
-      vetoer,
-    );
+    const { ws, socket } = build(reconnection({ shouldReconnect: () => true }), vetoer);
     ws.serverClose(1006);
     expect(socket.getState()).toBe('closed');
   });
@@ -317,8 +285,6 @@ describe('reconnect policy error isolation (#18)', () => {
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(1000);
 
-    // The throw is reported, not swallowed, and the close flow continues to the
-    // default policy — so the socket still reconnects.
     expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(2);
     expect(errors).toHaveLength(1);
   });

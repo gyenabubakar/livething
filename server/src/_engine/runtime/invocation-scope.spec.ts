@@ -67,7 +67,6 @@ describe('withInvocationScope', () => {
         connection.meta = { step };
         persistAttachment(core, connection);
       }
-      // Nothing on disk yet — all queued.
       expect(writes).toEqual([]);
     });
 
@@ -85,7 +84,6 @@ describe('withInvocationScope', () => {
       persistAttachment(core, a);
       b.meta = { x: 1 };
       persistAttachment(core, b);
-      // Re-queue `a` — should still flush once.
       a.meta = { x: 2 };
       persistAttachment(core, a);
       c.meta = { x: 1 };
@@ -133,7 +131,6 @@ describe('withInvocationScope', () => {
         persistAttachment(core, connection);
       });
 
-      // Inner scope exited but no flush should have run.
       expect(writes).toEqual([]);
 
       connection.meta = { step: 3 };

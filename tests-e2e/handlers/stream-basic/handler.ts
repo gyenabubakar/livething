@@ -1,55 +1,68 @@
-import { contract, error, implement, outgoing, stream, t } from '@wskit/server';
+import { define, emits, errors, t } from '@wskit/server';
+import { error } from '@wskit/server/errors';
+import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Token = v.object({ index: v.number() });
+const Token = t<{ index: number }>();
 
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
-export const streamBasicContract = contract('stream-basic', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  errors: [StreamNotFound],
-  definitions: [
-    stream('start-tokens', { payload: v.object({ count: v.number() }), chunk: Token }),
-    stream('start-boom', { payload: v.object({}), chunk: Token }),
-    stream('start-boom-immediate', { payload: v.object({}), chunk: Token }),
-    stream('start-typed-error', { payload: v.object({}), chunk: Token }),
-    stream('start-cancel-observe', { payload: v.object({}), chunk: Token }),
-    stream('start-empty', { payload: v.object({}), chunk: Token }),
-    outgoing('cancel-observed', v.object({ cancelled: v.boolean() })),
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    stream(),
+    emits({ 'cancel-observed': t<{ cancelled: boolean }>() }),
+    errors([StreamNotFound]),
   ],
 });
 
-export const streamBasicHandler = implement(streamBasicContract)
-  .onUpgrade((req) => requireUsername(req))
-
-  .stream('start-tokens', async function* (_ctx, payload) {
-    for (let i = 0; i < payload.count; i++) {
+const handleStartTokens = base.stream('start-tokens', {
+  input: v.object({ count: v.number() }),
+  chunk: Token,
+  async *run(_ctx, input) {
+    for (let i = 0; i < input.count; i++) {
       yield { index: i };
       await new Promise((r) => setTimeout(r, 200));
     }
-  })
+  },
+});
 
-  .stream('start-boom', async function* () {
+const handleStartBoom = base.stream('start-boom', {
+  input: v.object({}),
+  chunk: Token,
+  async *run() {
     yield { index: 0 };
     await new Promise((r) => setTimeout(r, 20));
     throw new Error('boom');
-  })
+  },
+});
 
-  .stream('start-boom-immediate', async function* () {
+const handleStartBoomImmediate = base.stream('start-boom-immediate', {
+  input: v.object({}),
+  chunk: Token,
+  async *run() {
     throw new Error('boom-immediate');
-    yield { index: 0 }; // unreachable
-  })
+    yield { index: 0 };
+  },
+});
 
-  .stream('start-typed-error', async function* () {
+const handleStartTypedError = base.stream('start-typed-error', {
+  input: v.object({}),
+  chunk: Token,
+  async *run() {
     yield { index: 0 };
     await new Promise((r) => setTimeout(r, 20));
     throw StreamNotFound({ id: 'model-missing' });
-  })
+  },
+});
 
-  .stream('start-cancel-observe', async function* (ctx) {
+const handleStartCancelObserve = base.stream('start-cancel-observe', {
+  input: v.object({}),
+  chunk: Token,
+  async *run(ctx) {
     let completedNaturally = false;
     try {
       for (let i = 0; i < 20; i++) {
@@ -62,12 +75,23 @@ export const streamBasicHandler = implement(streamBasicContract)
         ctx.send('cancel-observed', { cancelled: true });
       }
     }
-  })
+  },
+});
 
-  .stream('start-empty', async function* () {
-    // Generator yields nothing; immediately sends __streamEnd__
-  })
+const handleStartEmpty = base.stream('start-empty', {
+  input: v.object({}),
+  chunk: Token,
+  // Generator yields nothing; immediately sends __streamEnd__
+  async *run() {},
+});
 
-  .build();
+export const streamBasicHandler = base.assemble(
+  handleStartTokens,
+  handleStartBoom,
+  handleStartBoomImmediate,
+  handleStartTypedError,
+  handleStartCancelObserve,
+  handleStartEmpty,
+);
 
 export type StreamBasicClient = InferClient<typeof streamBasicHandler>;

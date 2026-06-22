@@ -31,6 +31,7 @@ export function dedup(options?: { cap?: number }): DedupPrimitive {
     assertPositiveInteger(options.cap, 'cap', 'dedup()');
   }
   const cap = options?.cap ?? DEDUP_DEFAULT_INCOMING_CAP;
+
   return {
     __wskit: 'dedup',
     __kind: 'infrastructure',

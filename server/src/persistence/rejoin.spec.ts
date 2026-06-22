@@ -16,12 +16,12 @@ function inMemorySql(): SQLProvider {
   type Row = {
     identity: string;
     channel_name: string;
-    channel_scope: string;
+    channel_family: string;
     joined_at: number;
   };
   const rows = new Map<string, Row>();
-  function key(r: { identity: string; channel_name: string; channel_scope: string }) {
-    return `${r.identity}|${r.channel_name}|${r.channel_scope}`;
+  function key(r: { identity: string; channel_name: string; channel_family: string }) {
+    return `${r.identity}|${r.channel_name}|${r.channel_family}`;
   }
   function result<T>(items: T[]): SqlResult<T> {
     return {
@@ -34,26 +34,26 @@ function inMemorySql(): SQLProvider {
     const q = query.trim().replace(/\s+/g, ' ');
     if (q.startsWith('CREATE')) return result<TRow>([]);
     if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
-      const [identity, channel_name, channel_scope, joined_at] = params as [
+      const [identity, channel_name, channel_family, joined_at] = params as [
         string,
         string,
         string,
         number,
       ];
-      const row = { identity, channel_name, channel_scope, joined_at };
+      const row = { identity, channel_name, channel_family, joined_at };
       rows.set(key(row), row);
       return result<TRow>([]);
     }
     if (
       q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_family = ?',
       )
     ) {
-      const [identity, channel_name, channel_scope] = params as [string, string, string];
-      rows.delete(key({ identity, channel_name, channel_scope }));
+      const [identity, channel_name, channel_family] = params as [string, string, string];
+      rows.delete(key({ identity, channel_name, channel_family }));
       return result<TRow>([]);
     }
-    if (q.startsWith('SELECT channel_name, channel_scope, joined_at')) {
+    if (q.startsWith('SELECT channel_name, channel_family, joined_at')) {
       const [identity] = params as [string];
       return result<TRow>(
         [...rows.values()].filter((r) => r.identity === identity) as unknown as TRow[],
@@ -81,7 +81,7 @@ describe('autoRejoinIdentity', () => {
         connection: never,
         opts: {
           channelName: string;
-          channelScope: string | null;
+          channelFamily: string | null;
           payload: unknown;
           rejoining: boolean;
         },
@@ -104,7 +104,7 @@ describe('autoRejoinIdentity', () => {
         connection: never,
         opts: {
           channelName: string;
-          channelScope: string | null;
+          channelFamily: string | null;
           payload: unknown;
           rejoining: boolean;
         },
@@ -126,14 +126,14 @@ describe('autoRejoinIdentity', () => {
   it('calls subscribeConnectionAsServer for every stored membership', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, { identity: 'u-42', channelName: 'lobby', channelScope: null });
-    insertMembership(sql, { identity: 'u-42', channelName: 'room', channelScope: 'room:abc' });
+    insertMembership(sql, { identity: 'u-42', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room', channelFamily: 'room:abc' });
     const subscribe = vi.fn<
       (
         connection: never,
         opts: {
           channelName: string;
-          channelScope: string | null;
+          channelFamily: string | null;
           payload: unknown;
           rejoining: boolean;
         },
@@ -152,7 +152,7 @@ describe('autoRejoinIdentity', () => {
     expect(subscribe).toHaveBeenCalledTimes(2);
     const calls = subscribe.mock.calls.map((c) => ({
       name: c[1]?.channelName,
-      scope: c[1]?.channelScope,
+      scope: c[1]?.channelFamily,
     }));
     expect(calls).toContainEqual({ name: 'lobby', scope: null });
     expect(calls).toContainEqual({ name: 'room', scope: 'room:abc' });
@@ -161,7 +161,7 @@ describe('autoRejoinIdentity', () => {
   it('on subscribe rejection drops the durable row and sends scoped _error', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
       throw RejoinRejected({ message: 'not on the eng team' });
@@ -194,7 +194,7 @@ describe('autoRejoinIdentity', () => {
   it('propagates a config error and keeps the durable row', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
       throw new WSKitConfigError('misconfigured gate');
@@ -220,7 +220,7 @@ describe('autoRejoinIdentity', () => {
   it('propagates an internal/storage error and keeps the durable row', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
       throw new Error('transient storage failure');
@@ -246,9 +246,9 @@ describe('autoRejoinIdentity', () => {
   it('one rejection does not stop the rest of the rejoin', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, { identity: 'u-42', channelName: 'room-1', channelScope: null });
-    insertMembership(sql, { identity: 'u-42', channelName: 'room-2', channelScope: null });
-    insertMembership(sql, { identity: 'u-42', channelName: 'room-3', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-1', channelFamily: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-2', channelFamily: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-3', channelFamily: null });
 
     let nth = 0;
     const subscribe = vi.fn(async () => {
@@ -331,7 +331,6 @@ describe('restorePersistentTags', () => {
       sql,
       tagMembers: new Map(),
       connection,
-      // Only 'admin' or 'editor' are valid keys for this group now.
       getSchema: () => v.picklist(['admin', 'editor']) as never,
       logger: { error: () => errors.push(1) },
     });

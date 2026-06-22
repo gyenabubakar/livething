@@ -21,14 +21,12 @@ interface C {
 
 declare const socket: Socket<C>;
 
-// inject — top-level incoming
 inject(socket, 'ping', { id: 'x' });
 // @ts-expect-error wrong payload shape
 inject(socket, 'ping', { id: 123 });
 // @ts-expect-error unknown event name
 inject(socket, 'nope', { id: 'x' });
 
-// injectChannel — channel-scoped incoming
 injectChannel(socket, 'general', 'message', { text: 'hi' });
 // @ts-expect-error wrong payload shape
 injectChannel(socket, 'general', 'message', { text: 123 });
@@ -37,9 +35,6 @@ injectChannel(socket, 'general', 'nope', { text: 'hi' });
 // @ts-expect-error unknown channel
 injectChannel(socket, 'nope', 'message', { text: 'hi' });
 
-// The real builder return (an intersection of Socket<C> with primitive APIs and
-// stubs) must still infer the contract through inject*/injectChannel — a packed
-// external consumer only ever has this type, not a hand-declared Socket<C>.
 const realSocket = client<C>()(connect('wss://test'), channels());
 
 inject(realSocket, 'ping', { id: 'x' });

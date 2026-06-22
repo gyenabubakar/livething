@@ -31,28 +31,6 @@ test.describe('error routing preservation for non-members', () => {
     expect(err.__wskit?.channel).toBe('room');
   });
 
-  test('a non-member ack-bearing event error keeps the ackId', async ({ page }, testInfo) => {
-    await page.goto('/intercept');
-    await installRig(page);
-
-    const a = await connect(page, {
-      path: '/ws/intercept',
-      username: 'alice',
-      room: `erp-ack-${testInfo.testId}`,
-    });
-
-    await send(page, a, {
-      event: 'echo',
-      payload: { text: 'hi' },
-      __wskit: { channel: 'room', ackId: 'ack-xyz' },
-    });
-
-    const err = await waitForFrame(page, a, {
-      match: (f) => f.event === '__error__' && f.__wskit?.ackId === 'ack-xyz',
-    });
-    expect(err.payload.code).toBe('channel-not-subscribed');
-  });
-
   test('a non-member stream-trigger error keeps the streamId', async ({ page }, testInfo) => {
     await page.goto('/intercept');
     await installRig(page);
@@ -125,7 +103,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'not-a-room',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamId: 'bn-1',
         streamNudgeId: 'bn-nudge-1',
       },
@@ -151,7 +129,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'room:1',
-        channelScope: 'no-such-family',
+        channelFamily: 'no-such-family',
         streamId: 'bf-1',
         streamNudgeId: 'bf-nudge-1',
       },
@@ -172,7 +150,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       room: `bsn-missfam-${testInfo.testId}`,
     });
 
-    // `room:1` is a dynamic-family name but carries no channelScope, so it is
+    // `room:1` is a dynamic-family name but carries no channelFamily, so it is
     // read as a static channel that does not exist.
     await send(page, a, {
       event: 'ch-hint',
@@ -204,7 +182,7 @@ test.describe('bad-scope nudge keeps nudge routing', () => {
       payload: { hint: 'x' },
       __wskit: {
         channel: 'room',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamId: 'wk-1',
         streamNudgeId: 'wk-nudge-1',
       },

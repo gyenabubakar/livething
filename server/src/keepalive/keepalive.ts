@@ -1,4 +1,7 @@
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
+import type { RuntimeConnection } from '~/_engine/contexts/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** Options accepted by the keepalive primitive factory. Both are required. */
@@ -65,10 +68,10 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
     pingIntervalMs: options.pingIntervalMs,
     idleTimeoutMs: options.idleTimeoutMs,
     __setup(engine) {
-      // `installOnce` ensures the timer logic is set up only once even if the
-      // keepalive primitive is included in multiple groups or scopes.
       engine.installOnce(KEEPALIVE_KEY, () => {
         engine.setKeepalivePingInterval(options.pingIntervalMs);
+
+        engine.extendContext((baseCtx) => buildLatencySurface(engine, baseCtx));
 
         engine.onConnect((ctx) => {
           const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
@@ -80,6 +83,26 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
           engine.refreshConnectionIdleTimeout(connectionId, options.idleTimeoutMs);
         });
       });
+    },
+  };
+}
+
+/**
+ * Build the `ctx.latency` / `ctx.quality` surface for a connection context.
+ * Both stay live getters off the raw connection so a context reused across a
+ * dispatch's intercepts and handler always reflects the current measurement.
+ */
+function buildLatencySurface(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
+  const connection = (baseCtx as Record<PropertyKey, unknown>)[
+    ENGINE_INTERNAL_CONNECTION
+  ] as RuntimeConnection;
+  return {
+    get latency() {
+      return connection.latency;
+    },
+    get quality() {
+      if (engine.getHibernationEnabled() || connection.latency === null) return null;
+      return connection.quality;
     },
   };
 }

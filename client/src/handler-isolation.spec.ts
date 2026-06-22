@@ -71,8 +71,8 @@ describe('a throwing message handler is isolated from its siblings', () => {
     room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     const calls: string[] = [];
@@ -91,12 +91,12 @@ describe('a throwing message handler is isolated from its siblings', () => {
   it('channel family: a throwing family handler still lets the other one run', () => {
     const { socket, ws } = connectedCh();
     socket.onError(() => {});
-    const rooms = socket.channel.scope('rooms');
+    const rooms = socket.channel.family('rooms');
     socket.channel('rooms', 'lobby').subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'lobby', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'lobby', channelFamily: 'rooms' },
     });
 
     const calls: string[] = [];
@@ -110,7 +110,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
       ws.emit({
         event: 'message',
         payload: {},
-        __wskit: { channel: 'lobby', channelScope: 'rooms' },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
       }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
@@ -125,8 +125,8 @@ describe('a throwing presence or stream callback is isolated from its siblings',
     room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     const calls: string[] = [];
@@ -191,7 +191,7 @@ describe('a throwing handler is surfaced, not swallowed', () => {
         throw boom;
       });
 
-      ws.emit({ event: 'message', payload: {} }); // no error listener → rethrow out-of-band
+      ws.emit({ event: 'message', payload: {} });
       expect(scheduled).toHaveLength(1);
       expect(scheduled[0]).toThrow(boom);
     } finally {
@@ -213,8 +213,6 @@ describe('a throwing handler is surfaced, not swallowed', () => {
         throw new Error('handler boom');
       });
 
-      // The handler throw surfaces on the error listener, whose own throw is
-      // rethrown out-of-band exactly once — no re-entry into the error path.
       expect(() => ws.emit({ event: 'message', payload: {} })).not.toThrow();
       expect(scheduled).toHaveLength(1);
     } finally {

@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitConfigError } from '@wskit/core';
+import {
+  compileChannelPrimitive,
+  validateChannelFamilyPatternsDisjointFromStaticNames,
+} from '~/channel/compile.ts';
 import { compileChannelTemplate } from '~/channel/template.ts';
+import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type {
   CheckPrimitive,
   CommitPrimitive,
@@ -18,7 +23,6 @@ import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-r
 import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
-// Internal aliases that keep the union type below readable.
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
 type AnyIntercept = InterceptPrimitive<any>;
@@ -74,25 +78,21 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  *
  * @example
  * ```ts
- * import { contract, implement, channel, scope } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { channels } from '@wskit/server/channels';
  *
- * // Declare a channel family that matches `room:<anything>` subscriptions.
- * // The `key` ('rooms') is the family name used in handlers.
- * const app = contract('app', { env: t<Env>(),
- *   definitions: [
- *     channel(scope('rooms', 'room:{id}'), {
- *       definitions: [],
- *     }),
- *   ],
+ * const base = define({ env: t<Env>(), capabilities: [channels()] });
+ *
+ * // A `[familyKey, pattern]` tuple declares a channel family that matches
+ * // `room:<anything>` subscriptions. The family key ('rooms') is used in
+ * // `ctx.channels.get(key, name)` lookups.
+ * const rooms = base.channel(['rooms', 'room:{id}']);
+ *
+ * rooms.subscribe((ctx) => {
+ *   // ctx.channel.family is the family key ('rooms')
+ *   // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
+ *   // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
  * });
- *
- * implement(app).channel('rooms', (ch) =>
- *   ch.onSubscribe((ctx) => {
- *     // ctx.channel.scope is the family key ('rooms')
- *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
- *     // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
- *   }),
- * );
  * ```
  */
 export interface ScopeDeclaration<
@@ -147,6 +147,17 @@ export interface ChannelPrimitive<
   readonly pattern: TPattern;
   /** The primitives that define this channel's behaviour. */
   readonly primitives: TPrimitives;
+  /**
+   * Build-seam: compile this channel primitive into a `CompiledChannel`. Carried
+   * on the primitive so the core compile step never imports the channel compile
+   * code; a handler with no channels ships none of it. @internal
+   */
+  readonly __compile: (primitive: ChannelPrimitive) => CompiledChannel;
+  /**
+   * Build-seam: reject a family pattern that overlaps a static channel name.
+   * Carried here for the same reason as `__compile`. @internal
+   */
+  readonly __validateDisjoint: (compiled: CompiledServer) => void;
 }
 
 /** Unique symbol. The registration ID is the pattern key, so each pattern is its own singleton. */
@@ -176,33 +187,27 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
  * matches many subscription paths against one template and groups them under a
  * single family key.
  *
- * Pass the result as the first argument to `channel(...)` inside `definitions`.
- * `channel(scope('rooms', 'room:{id}'), { definitions: [...] })` creates a
- * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
- * The full matched string is available at `ctx.channel.name`, the family key at
- * `ctx.channel.scope`, and each `{name}` capture at `ctx.channel.params.name`.
+ * In the authoring API you declare a family with a `[familyKey, pattern]`
+ * tuple: `base.channel(['rooms', 'room:{id}'])` matches subscriptions like
+ * `room:general`, `room:alpha-42`, etc. The full matched string is available at
+ * `ctx.channel.name`, the family key at `ctx.channel.family`, and each `{name}`
+ * capture at `ctx.channel.params.name`.
  *
  * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
  * literal brace). wskit compiles it to a linear-time matcher itself, so unlike a
  * raw regex it can never trigger catastrophic backtracking.
  *
- * @param key      Family identifier. Passed to `implement(c).channel(key, ch => ...)`
- *   and used in `ctx.channels.get(key, name)` lookups.
+ * @param key      Family identifier. Used as the first tuple element in
+ *   `base.channel([key, pattern])` and in `ctx.channels.get(key, name)` lookups.
  * @param template Pattern matched against the subscription path, e.g.
  *   `'room:{id}'` or `'org:{org}/thread:{tid}'`. Each `{name}` matches one or
  *   more characters; a literal must separate two adjacent params.
  *
  * @example
  * ```ts
- * import { contract, channel, scope } from '@wskit/server';
- *
- * const app = contract('app', { env: t<Env>(),
- *   definitions: [
- *     channel(scope('rooms', 'room:{id}'), { definitions: [] }),
- *   ],
- * });
+ * const rooms = base.channel(['rooms', 'room:{id}']);
  * // ctx.channel.name      → 'room:alpha-42'
- * // ctx.channel.scope     → 'rooms'
+ * // ctx.channel.family    → 'rooms'
  * // ctx.channel.params.id → 'alpha-42'
  * ```
  */
@@ -250,6 +255,8 @@ export function channel<
     __requires: {},
     pattern,
     primitives: Object.freeze([...primitives]) as unknown as TPrimitives,
+    __compile: compileChannelPrimitive,
+    __validateDisjoint: validateChannelFamilyPatternsDisjointFromStaticNames,
   };
 }
 

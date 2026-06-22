@@ -1,29 +1,27 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
-import {
-  compileChannelPrimitive,
-  validateChannelFamilyPatternsDisjointFromStaticNames,
-} from '~/channel/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
-// Walk the declarative primitive tree and fill the compiled runtime shape.
-// Per-kind work lives next to the primitive (channel/compile.ts,
-// intercept/compile.ts); this function dispatches.
+/**
+ * Walk the top-level primitives into the compiled lookup maps. Returns the
+ * channel disjointness validator (carried by any channel primitive seen), or
+ * `undefined` when the handler declares no channels — so the core compile step
+ * never imports the channel compile code.
+ */
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],
-): void {
+): ((compiled: EngineCompileTypes.CompiledServer) => void) | undefined {
+  let validateDisjoint: ((compiled: EngineCompileTypes.CompiledServer) => void) | undefined;
+
   for (const primitive of primitives) {
     EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
     switch (primitive.__wskit) {
-      case 'ack':
-        continue;
-
       case 'sequence':
         continue;
 
@@ -96,14 +94,11 @@ function visitCompiledPrimitives(
       case 'intercept':
         compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
         continue;
-
-      case 'plugin':
-        compiled.plugins.push(primitive as EngineCompileTypes.AnyPlugin);
-        continue;
     }
 
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
-      const compiledChannel = compileChannelPrimitive(primitive);
+      const compiledChannel = primitive.__compile(primitive);
+      validateDisjoint ??= primitive.__validateDisjoint;
 
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
@@ -132,6 +127,8 @@ function visitCompiledPrimitives(
       continue;
     }
   }
+
+  return validateDisjoint;
 }
 
 /**
@@ -152,67 +149,20 @@ export function compileHandlerDefinition(
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
   };
 
-  visitCompiledPrimitives(compiled, handler.primitives);
+  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
-  validateUniquePluginIds(compiled);
-  validateUniquePluginEventNames(compiled);
-  validatePluginDependencies(compiled, handler.__features);
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
-  validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
-  validateScopeAndEventNameSyntax(compiled);
-  validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
+  const declaredPluginEvents = collectPluginEventNames(compiled);
+  const declaredPluginChannels = collectPluginChannelNames(compiled);
+  validateNoReservedEventNames(compiled, declaredPluginEvents);
+  validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
+  validateChannelsDisjoint?.(compiled);
   return compiled;
-}
-
-/**
- * Refuse to boot when two mounted plugins share the same id. Plugin ids own a
- * wire prefix (`__<id>:<event>`) and the plugin's `<Plugin>.use(ctx)` API
- * lookup keys off the id. Two plugins with the same id would silently overwrite
- * each other's prefixed event ownership and make the .use() lookup ambiguous.
- */
-function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): void {
-  const seen = new Set<string>();
-  for (const plugin of compiled.plugins) {
-    if (seen.has(plugin.id)) {
-      throw new Error(
-        `[wskit] Duplicate plugin id "${plugin.id}". Each plugin id must be unique across all mounted plugins.`,
-      );
-    }
-    seen.add(plugin.id);
-  }
-}
-
-/**
- * Refuse to boot when a plugin lists a `dependencies: [...]` feature that the
- * host contract did not turn on. Without this, the plugin's `setup()` would
- * only fail later when it reached for the missing capability — often on the
- * first request, deep in the handler stack, far from the real cause.
- *
- * Checks against `features`, the set of flags read straight from the contract
- * config (`replay`, `persistence`, and so on). So a flag set to
- * `false` reads as off and a flag set to `true` reads as on, whatever handlers
- * the contract did or did not register.
- */
-function validatePluginDependencies(
-  compiled: EngineCompileTypes.CompiledServer,
-  features: ReadonlySet<string> | undefined,
-): void {
-  for (const plugin of compiled.plugins) {
-    for (const dep of plugin.dependencies) {
-      if (!features?.has(dep)) {
-        throw new Error(
-          `[wskit] Plugin "${plugin.id}" declares a dependency on "${dep}", ` +
-            `but the contract did not enable it. Add \`${dep}: true\` to the contract config.`,
-        );
-      }
-    }
-  }
 }
 
 function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
@@ -266,22 +216,6 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   }
 }
 
-function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledServer): void {
-  const seen = new Map<string, string>();
-  for (const plugin of compiled.plugins) {
-    for (const eventName of Object.keys(plugin.outgoing)) {
-      const prefixed = `__${plugin.id}:${eventName}`;
-      const owner = seen.get(prefixed);
-      if (owner !== undefined) {
-        throw new Error(
-          `[wskit] Duplicate plugin event "${prefixed}" declared by plugins "${owner}" and "${plugin.id}".`,
-        );
-      }
-      seen.set(prefixed, plugin.id);
-    }
-  }
-}
-
 /**
  * Refuse to boot when a scope or event name uses characters reserved by the
  * `contract.matches(...)` / `contract.unsafeCast(...)` path key grammar.
@@ -295,12 +229,28 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * These rules are easier to enforce as a build-time hard error than to escape
  * at parse time; real-world names don't need any of these characters.
  */
-function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
+function validateScopeAndEventNameSyntax(
+  compiled: EngineCompileTypes.CompiledServer,
+  declaredPluginEvents: ReadonlySet<string>,
+  declaredPluginChannels: ReadonlySet<string>,
+): void {
   // A static channel name travels on the wire as `channel` (limit 256); a
-  // dynamic family key travels as `channelScope` (limit 128). Validating a
+  // dynamic family key travels as `channelFamily` (limit 128). Validating a
   // family key against the larger channel limit lets a 129-char key boot that
   // no client can ever address.
   function checkScopeName(name: string, kind: 'channel', limit: number): void {
+    // A plugin's channel is framework-namespaced as `__<id>::<name>` — it
+    // legitimately carries `__` and `::`. Provenance (not string shape) is what
+    // exempts it, so a hand-declared `::` channel still throws.
+    if (declaredPluginChannels.has(name)) {
+      if (name.length > limit) {
+        throw new Error(
+          `[wskit] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
+        );
+      }
+      return;
+    }
+
     assertValidWSKitIdentifier(name, `${kind} name`, limit);
 
     if (name.startsWith('@') || name.startsWith('#')) {
@@ -319,7 +269,10 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
   }
 
   function checkEventName(event: string, scopeLabel: string): void {
-    if (event.includes('::')) {
+    // A namespaced plugin event travels as `__<id>::<name>`, where `::` is the
+    // intentional id↔name boundary. Exempt it only when it is a known plugin
+    // event (by provenance), so a hand-declared `::` name still throws.
+    if (event.includes('::') && !declaredPluginEvents.has(event)) {
       throw new Error(
         `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
           `separator in the contract.matches(...) path key syntax — pick a different name.`,
@@ -379,7 +332,7 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
   }
 
   for (const family of compiled.channelFamilies.values()) {
-    checkScopeName(family.key, 'channel', WIRE_LIMITS.channelScope);
+    checkScopeName(family.key, 'channel', WIRE_LIMITS.channelFamily);
     checkEventsInScope(family, `channel family '${family.key}'`);
   }
 }
@@ -455,12 +408,65 @@ function validateNoCrossPrimitiveEventCollisions(
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
 
-  for (const pluginInstance of compiled.plugins) {
-    for (const eventName of Object.keys(pluginInstance.outgoing)) {
-      names.add(EngineCompileUtils.prefixedPluginEvent(pluginInstance.id, eventName));
-    }
+  // New-model plugins contribute namespaced incoming/request/outgoing/stream
+  // primitives that carry a `__plugin` provenance marker. Collecting their wire
+  // names here is what lets the reserved-name guards allow the framework-managed
+  // `__<id>::name` form while still rejecting any hand-declared reserved name.
+  collectFromScope(compiled, names);
+  // A plugin's channel carries its own provenance marker; its child events are
+  // namespaced too. Collect them so the guards allow the prefixed child names.
+  for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
+    if (channel.__plugin) collectFromScope(channel, names);
   }
 
+  return names;
+}
+
+/**
+ * Collect every plugin-provenance event name in one scope — plain events plus
+ * the nudge names a plugin stream declares (those travel as their own frames).
+ */
+function collectFromScope(
+  scope: {
+    incoming: ReadonlyMap<string, unknown>;
+    requests: ReadonlyMap<string, unknown>;
+    outgoing: ReadonlyMap<string, unknown>;
+    streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+    resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+    recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+  },
+  names: Set<string>,
+): void {
+  for (const map of [scope.incoming, scope.requests, scope.outgoing]) {
+    for (const [event, primitive] of map) {
+      if ((primitive as { __plugin?: string }).__plugin) names.add(event);
+    }
+  }
+  for (const [event, generate] of scope.streams) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.stream.nudges) names.add(nudge.event);
+  }
+  for (const [event, generate] of scope.resumableStreams ?? []) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.nudges) names.add(nudge.event);
+  }
+  for (const [event, generate] of scope.recordedStreams ?? []) {
+    if (!(generate as { __plugin?: string }).__plugin) continue;
+    names.add(event);
+    for (const nudge of generate.nudges) names.add(nudge.event);
+  }
+}
+
+/** The channel names a plugin owns, so the `::`/`@`/`#` guards allow them. */
+function collectPluginChannelNames(
+  compiled: EngineCompileTypes.CompiledServer,
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
+    if (channel.__plugin) names.add(channel.key);
+  }
   return names;
 }
 
@@ -484,8 +490,9 @@ function validateNoReservedEventNames(
 
     // The double-underscore prefix is reserved for WSKit protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
-    // names installed plugins actually declared — anything else with the
-    // prefix is a user-declared event that would clash with the protocol.
+    // names installed plugins actually declared (by provenance, not by string
+    // shape) — anything else with the prefix is a user-declared event that would
+    // clash with the protocol.
     if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
       throw new Error(
         `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +

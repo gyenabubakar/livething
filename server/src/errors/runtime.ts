@@ -1,7 +1,7 @@
 import { InternalError, WSKitError } from '@wskit/core';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 
 /**
@@ -10,7 +10,7 @@ import type { Logger } from '~/context.ts';
 interface RuntimeErrorDeps {
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   /**
@@ -18,7 +18,7 @@ interface RuntimeErrorDeps {
    * runtime error so the hook context can carry `ctx.channel`. Returns
    * undefined when no scope can be derived.
    */
-  resolveScopeFromRouting?(routing: Protocol.WSKitRouting): ResolvedScope | undefined;
+  resolveScopeFromRouting?(routing: Protocol.WSKitRouting): ResolvedChannel | undefined;
 
   declaredErrorCodes: ReadonlySet<string>;
 
@@ -38,7 +38,7 @@ interface RuntimeErrorDeps {
 interface ValidationErrorDeps {
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   validationErrorHooks: readonly ((
@@ -130,7 +130,7 @@ export interface NotifyValidationErrorOptions {
 
   validationError: unknown;
 
-  scope?: ResolvedScope;
+  scope?: ResolvedChannel;
 }
 
 /**

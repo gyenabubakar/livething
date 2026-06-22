@@ -50,7 +50,7 @@ function createRuntime(memberCount: number) {
   for (let i = 0; i < memberCount; i++) {
     const member = createConnection(`m${i}`);
     connections.set(member.id, member);
-    addChannelMembership(channelMembers, member, { channelName: 'general', channelScope: null });
+    addChannelMembership(channelMembers, member, { channelName: 'general', channelFamily: null });
   }
 
   const runtime = {
@@ -104,12 +104,12 @@ for (const memberCount of [100, 500]) {
       connections.set(joiner.id, joiner);
       await subscribeConnection(runtime, joiner, {
         channelName: 'general',
-        channelScope: null,
+        channelFamily: null,
         data: undefined,
       });
       removeChannelMembership(channelMembers, joiner, {
         channelName: 'general',
-        channelScope: null,
+        channelFamily: null,
       });
       connections.delete(joiner.id);
     });

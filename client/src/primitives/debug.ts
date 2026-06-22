@@ -9,4 +9,5 @@ export function debug(enabled: boolean): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 debug.tag = 'debug';

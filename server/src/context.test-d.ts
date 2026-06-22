@@ -8,10 +8,6 @@
 
 import type { InitContext, KVProvider, Logger, SQLProvider } from '~/context.ts';
 
-// ---------------------------------------------------------------------------
-// sql: SQLProvider
-// ---------------------------------------------------------------------------
-
 declare const initCtx: InitContext<{ SECRET: string }, { doId: string }>;
 
 const _sql: SQLProvider = initCtx.sql;
@@ -26,10 +22,6 @@ const _txResult: string = initCtx.sql.transaction((tx) => {
 });
 void _txResult;
 
-// ---------------------------------------------------------------------------
-// kv: KVProvider
-// ---------------------------------------------------------------------------
-
 const _kv: KVProvider = initCtx.kv;
 void _kv;
 
@@ -39,19 +31,11 @@ const _kvDel: Promise<void> = initCtx.kv.delete('key');
 const _kvList: Promise<string[]> = initCtx.kv.list('prefix:');
 void [_kvGet, _kvSet, _kvDel, _kvList];
 
-// ---------------------------------------------------------------------------
-// env: typed by generic
-// ---------------------------------------------------------------------------
-
 const _secret: string = initCtx.env.SECRET;
 void _secret;
 
 // @ts-expect-error — unknown env keys are not present
 initCtx.env.UNKNOWN_KEY;
-
-// ---------------------------------------------------------------------------
-// log: Logger
-// ---------------------------------------------------------------------------
 
 const _log: Logger = initCtx.log;
 void _log;
@@ -60,16 +44,8 @@ initCtx.log.info('setup complete');
 initCtx.log.warn('slow query', { ms: 120 });
 initCtx.log.error('migration failed', { table: 'users' });
 
-// ---------------------------------------------------------------------------
-// platform: typed by generic
-// ---------------------------------------------------------------------------
-
 const _platform: { doId: string } = initCtx.platform;
 void _platform;
-
-// ---------------------------------------------------------------------------
-// InitContext does NOT have connection-level APIs
-// ---------------------------------------------------------------------------
 
 // @ts-expect-error — no send on InitContext
 initCtx.send('evt', {});

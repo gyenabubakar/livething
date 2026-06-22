@@ -67,7 +67,7 @@ test.describe('channel-static', () => {
         JSON.stringify({
           event: '__subscribe__',
           payload: {},
-          __wskit: { channel: 42, channelScope: { evil: true } },
+          __wskit: { channel: 42, channelFamily: { evil: true } },
         }),
       );
       await new Promise((r) => setTimeout(r, 300));
@@ -80,7 +80,7 @@ test.describe('channel-static', () => {
     // The error reaches the client. Routing fields are stripped because
     // the inputs were not strings.
     expect(err.__wskit?.channel).toBeUndefined();
-    expect(err.__wskit?.channelScope).toBeUndefined();
+    expect(err.__wskit?.channelFamily).toBeUndefined();
   });
 
   test('_unsubscribe when not subscribed emits _error channel-not-subscribed', async ({
@@ -420,7 +420,7 @@ test.describe('channel-static', () => {
     // After the fix _subscribeOk fires before onSubscribe, and the throw
     // routes through the runtime-error path with channel routing markers,
     // so the client receives both a successful subscribe confirmation
-    // AND a separate _error addressed to the channel scope.
+    // AND a separate _error addressed to the channel.
     const room = `test-${testInfo.testId}-onsubscribe-throw`;
     const ctxThrower = await browser.newContext();
     const ctxObserver = await browser.newContext();
@@ -674,7 +674,7 @@ test.describe('channel-static', () => {
       (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
     );
     expect(subscribeOk).toBeDefined();
-    expect(subscribeOk!.payload.source).toBe('server');
+    expect(subscribeOk!.__wskit?.source).toBe('server');
   });
 
   test('a second channelHandle.subscribe for an already-subscribed connection is a no-op', async ({

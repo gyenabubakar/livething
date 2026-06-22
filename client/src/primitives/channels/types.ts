@@ -12,7 +12,7 @@ export interface ChannelMember {
 export type SubscribeSource = 'server' | 'client';
 
 /**
- * A channel handle: an messaging (on/send/request/sendWithAck) plus the
+ * A channel handle: an messaging (on/send/request) plus the
  * server-managed-room controls — subscribing, membership, and presence.
  */
 export type ChannelMessaging<C> = ScopedMessaging<C> & {
@@ -38,6 +38,13 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
    * then. Rejects if the connection is abandoned before it can confirm.
    */
   unsubscribe(): Promise<void>;
+
+  /**
+   * Ask the server to resend this channel's member roster. Fire-and-forget —
+   * it sends a `__memberSync__` request and returns immediately, with nothing to
+   * await. Use it to recover a stale roster, e.g. after a leave that failed.
+   */
+  resyncMembers(): void;
 
   /** Who's in the room right now, keyed by connection id. */
   readonly members: ReadonlyMap<string, ChannelMember>;
@@ -65,7 +72,7 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
  * A handle for a whole dynamic channel family. Call it like a function to get
  * one channel, or use the family-level listeners to watch every channel in it.
  */
-export interface ScopeHandle<C> {
+export interface FamilyHandle<C> {
   /** Get the channel handle for one concrete name in this family. */
   (name: string): ChannelMessaging<C>;
   /** Listen across every channel in the family; the second arg is which one. */
@@ -82,7 +89,7 @@ export interface ScopeHandle<C> {
 }
 
 // A dynamic family has `addressing: 'dynamic'` in its contract entry, set by a
-// `scope('key', 'tmpl-{id}')` declaration. A static channel has `addressing: 'static'`
+// `channel(['key', 'tmpl-{id}'])` declaration. A static channel has `addressing: 'static'`
 // or no addressing field at all. All channels in a family share one event contract,
 // so the family entry holds that shared contract plus the addressing marker.
 type IsFamily<T> = T extends { addressing: 'dynamic' } ? true : false;
@@ -94,14 +101,48 @@ type FixedKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? never : K }[
 type FamilyKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? K : never }[keyof C];
 
 /**
- * The `channel` method: `channel(name)` for a fixed channel, `channel(scope,
- * name)` for one inside a dynamic family, and `channel.scope(scope)` for a
+ * The `channel` method: `channel(name)` for a fixed channel, `channel(family,
+ * name)` for one inside a dynamic family, and `channel.family(family)` for a
  * whole family.
  */
 export interface ChannelMethod<C> {
   <K extends FixedKeys<C> & string>(name: K): ChannelMessaging<C[K]>;
-  <K extends FamilyKeys<C> & string>(scopeKey: K, name: string): ChannelMessaging<C[K]>;
-  scope<K extends FamilyKeys<C> & string>(scopeKey: K): ScopeHandle<C[K]>;
+  <K extends FamilyKeys<C> & string>(familyKey: K, name: string): ChannelMessaging<C[K]>;
+  family<K extends FamilyKeys<C> & string>(familyKey: K): FamilyHandle<C[K]>;
+}
+
+/**
+ * Like `ChannelMethod`, but every handle it hands back carries `Stubs` — the
+ * `NeedsPrimitive` markers for channel-scoped methods whose primitive wasn't
+ * installed. Used by the client's missing-primitive guard to push those markers
+ * one level down into the channel, so `channel('x').request(...)` stops
+ * compiling exactly like the top-level `socket.request(...)` does.
+ */
+export interface StubbedChannelMethod<C, Stubs> {
+  <K extends FixedKeys<C> & string>(name: K): StubbedMessaging<C[K], Stubs>;
+  <K extends FamilyKeys<C> & string>(familyKey: K, name: string): StubbedMessaging<C[K], Stubs>;
+  family<K extends FamilyKeys<C> & string>(familyKey: K): StubbedFamilyHandle<C[K], Stubs>;
+}
+
+/**
+ * One channel handle with the missing-primitive `Stubs` applied. The contract
+ * always types `request`/`onStream`/etc. on the handle, so the stub must REPLACE
+ * (`Omit` then add), not intersect — an intersected callable would still be
+ * callable and the guard would do nothing.
+ */
+export type StubbedMessaging<C, Stubs> = Omit<ChannelMessaging<C>, keyof Stubs> & Stubs;
+
+/** A `FamilyHandle` whose member handles carry the channel-scoped stubs. */
+export interface StubbedFamilyHandle<C, Stubs> {
+  /** Get the channel handle for one concrete name in this family. */
+  (name: string): StubbedMessaging<C, Stubs>;
+  on<E extends keyof IncomingOf<C> & string>(
+    event: E,
+    handler: (data: IncomingOf<C>[E], channelName: string) => void,
+  ): () => void;
+  onSubscribed(callback: (channelName: string, source: SubscribeSource) => void): () => void;
+  onUnsubscribed(callback: (channelName: string) => void): () => void;
+  list(): string[];
 }
 
 /** Adds `socket.channel(...)` typed from the contract's `channels`. */

@@ -1,3 +1,4 @@
+import { t } from '@wskit/server';
 import * as v from 'valibot';
 
 export const ChatMsg = v.object({ text: v.string(), from: v.string() });
@@ -17,5 +18,5 @@ export const TriggerBadReplay = v.object({});
 export const TriggerBigIntReplay = v.object({});
 
 export const StartTinyStream = v.object({});
-export const TinyChunk = v.object({ value: v.string() });
+export const TinyChunk = t<{ value: string }>();
 export const ReplayGuardError = v.object({ undeclared: v.string() });

@@ -23,7 +23,6 @@ export function buildStreamHandle(
       return state.active;
     },
     nudge(event, payload, options) {
-      // After the stream ends, a nudge resolves to a no-op.
       if (!state.active) return Promise.resolve();
       return dependencies.nudge(state, { event, payload, timeout: options?.timeout });
     },

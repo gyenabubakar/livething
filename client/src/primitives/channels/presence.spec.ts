@@ -33,8 +33,8 @@ async function subscribeChannel(socket: BuiltSocket, ws: MockWebSocket, channelN
   const p = room.subscribe();
   ws.emit({
     event: '__subscribeOk__',
-    payload: { source: 'client' },
-    __wskit: { channel: channelName },
+    payload: {},
+    __wskit: { source: 'client', channel: channelName },
   });
   await p;
   return room;
@@ -107,7 +107,6 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     const { socket, ws } = build();
     const room = await subscribeChannel(socket, ws, 'general');
 
-    // Add a member via __memberJoin__ first so the map is non-empty.
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1', meta: {} },
@@ -125,7 +124,6 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     });
 
     expect(onOffline).toHaveBeenCalledWith('c1');
-    // Member is still in the map — offline != leave.
     expect(room.members.has('c1')).toBe(true);
   });
 });
@@ -143,16 +141,13 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
     expect(room.members.has('c1')).toBe(true);
     expect(room.members.size).toBe(1);
 
-    // Second sync with a completely different roster.
     ws.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'c2', meta: { name: 'Bob' } }] },
       __wskit: { channel: 'general' },
     });
 
-    // c1 was in the first sync but not the second — it must be gone.
     expect(room.members.has('c1')).toBe(false);
-    // c2 is the only member now.
     expect(room.members.has('c2')).toBe(true);
     expect(room.members.size).toBe(1);
   });
@@ -178,7 +173,6 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
       __wskit: { channel: 'general' },
     });
 
-    // Only c2 triggers join and online events.
     expect(onJoin).toHaveBeenCalledOnce();
     expect(onJoin).toHaveBeenCalledWith('c2', { meta: { role: 'admin' } });
     expect(onOnline).toHaveBeenCalledOnce();
@@ -190,13 +184,12 @@ describe('top-level channel and scoped channel with same name are independent', 
   it('a top-level channel(name) and a scoped channel(scope, name) sharing the same name have distinct state and members', async () => {
     const { socket, ws } = build();
 
-    // Subscribe both channels: top-level 'general' and scoped 'rooms'/'general'.
     const topLevel = socket.channel('general');
     const topPromise = topLevel.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await topPromise;
 
@@ -204,19 +197,17 @@ describe('top-level channel and scoped channel with same name are independent', 
     const scopedPromise = scoped.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
     });
     await scopedPromise;
 
-    // Add a member only to the scoped channel.
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c1' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      __wskit: { channel: 'general', channelFamily: 'rooms' },
     });
 
-    // The scoped channel has the member; the top-level channel does not.
     expect(scoped.members.has('c1')).toBe(true);
     expect(topLevel.members.has('c1')).toBe(false);
   });
@@ -228,8 +219,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const topPromise = topLevel.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await topPromise;
 
@@ -237,8 +228,8 @@ describe('top-level channel and scoped channel with same name are independent', 
     const scopedPromise = scoped.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', channelFamily: 'rooms' },
     });
     await scopedPromise;
 
@@ -250,7 +241,7 @@ describe('top-level channel and scoped channel with same name are independent', 
     ws.emit({
       event: 'message',
       payload: { text: 'scoped only' },
-      __wskit: { channel: 'general', channelScope: 'rooms' },
+      __wskit: { channel: 'general', channelFamily: 'rooms' },
     });
 
     expect(scopedHandler).toHaveBeenCalledWith({ text: 'scoped only' });
@@ -262,5 +253,118 @@ describe('top-level channel and scoped channel with same name are independent', 
     const topLevel = socket.channel('general');
     const scoped = socket.channel('rooms', 'general');
     expect(topLevel).not.toBe(scoped);
+  });
+});
+
+describe('presence frames are ignored while a leave is pending', () => {
+  async function subscribedWithPendingLeave() {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      __wskit: { channel: 'general' },
+    });
+    expect(room.members.size).toBe(1);
+    room.unsubscribe();
+    return { socket, ws, room };
+  }
+
+  it('ignores a __memberSync__ that would repopulate a roster of a leaving channel', async () => {
+    const { ws, room } = await subscribedWithPendingLeave();
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c2', meta: {} }] },
+      __wskit: { channel: 'general' },
+    });
+    expect(room.members.size).toBe(0);
+  });
+
+  it('ignores __memberJoin__/__memberOnline__ while a leave is pending', async () => {
+    const { ws, room } = await subscribedWithPendingLeave();
+    const onJoin = vi.fn();
+    const onOnline = vi.fn();
+    room.onMemberJoin(onJoin);
+    room.onMemberOnline(onOnline);
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c3', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__memberOnline__',
+      payload: { connectionId: 'c3', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(onOnline).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
+  });
+});
+
+describe('resyncMembers() fire-and-forget request', () => {
+  it('sends a client-source __memberSync__ when subscribed', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    room.resyncMembers();
+    const frame = ws
+      .sentFrames()
+      .filter((f) => f.event === '__memberSync__')
+      .at(-1);
+    expect(frame).toBeDefined();
+    expect(frame?.__wskit?.channel).toBe('general');
+    expect(frame?.__wskit?.source).toBe('client');
+  });
+
+  it('is a no-op (sends nothing) when the channel is not active', () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+    room.resyncMembers();
+    expect(ws.sentFrames().some((f) => f.event === '__memberSync__')).toBe(false);
+  });
+});
+
+describe('presence frames after the channel has been left', () => {
+  async function leftChannel() {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+    room.unsubscribe();
+    const leave = ws.sentFrames().find((f) => f.event === '__unsubscribe__');
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId: leave?.__wskit?.unsubscribeId },
+    });
+    return { room, ws };
+  }
+
+  it('ignores a __memberSync__ that lands after __unsubscribeOk__', async () => {
+    const { room, ws } = await leftChannel();
+    const onJoin = vi.fn();
+    room.onMemberJoin(onJoin);
+
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
+  });
+
+  it('ignores a __memberJoin__ that lands after __unsubscribeOk__', async () => {
+    const { room, ws } = await leftChannel();
+    const onJoin = vi.fn();
+    room.onMemberJoin(onJoin);
+
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c1', meta: { name: 'Ada' } },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(room.members.size).toBe(0);
   });
 });

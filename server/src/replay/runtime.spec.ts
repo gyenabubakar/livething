@@ -46,14 +46,14 @@ function createReplaySql() {
       normalized.startsWith('SELECT rowKey, messageId, seq, event, payload') &&
       normalized.includes('channel IS')
     ) {
-      if (normalized.includes('channelScope IS NULL') && normalized.includes('channel IS ?')) {
+      if (normalized.includes('channelFamily IS NULL') && normalized.includes('channel IS ?')) {
         const [channel, since] = params;
         return new FakeSqlResult<TRow>(
           [...rows.values()]
             .filter(
               (row) =>
                 row.channel === ((channel as string | null) ?? null) &&
-                row.channelScope === null &&
+                row.channelFamily === null &&
                 row.seq > Number(since),
             )
             .sort((a, b) => a.seq - b.seq)
@@ -61,13 +61,13 @@ function createReplaySql() {
         );
       }
       if (normalized.includes('channel IS ?')) {
-        const [channel, channelScope, since] = params;
+        const [channel, channelFamily, since] = params;
         return new FakeSqlResult<TRow>(
           [...rows.values()]
             .filter(
               (row) =>
                 row.channel === ((channel as string | null) ?? null) &&
-                row.channelScope === ((channelScope as string | null) ?? null) &&
+                row.channelFamily === ((channelFamily as string | null) ?? null) &&
                 row.seq > Number(since),
             )
             .sort((a, b) => a.seq - b.seq)
@@ -75,12 +75,11 @@ function createReplaySql() {
         );
       }
 
-      // Top-level: every non-channel row.
       const [since] = params;
       return new FakeSqlResult<TRow>(
         [...rows.values()]
           .filter(
-            (row) => row.channel === null && row.channelScope === null && row.seq > Number(since),
+            (row) => row.channel === null && row.channelFamily === null && row.seq > Number(since),
           )
           .sort((a, b) => a.seq - b.seq)
           .map((row) => ({ ...row })),
@@ -100,7 +99,7 @@ function createReplaySql() {
         event,
         payload,
         channel,
-        channelScope,
+        channelFamily,
         snapshotKey,
         createdAt,
       ] = params;
@@ -111,7 +110,7 @@ function createReplaySql() {
         event: String(event),
         payload: String(payload),
         channel: (channel as string | null) ?? null,
-        channelScope: (channelScope as string | null) ?? null,
+        channelFamily: (channelFamily as string | null) ?? null,
         snapshotKey: (snapshotKey as string | null) ?? null,
         createdAt: Number(createdAt),
       });
@@ -132,14 +131,14 @@ function createReplaySql() {
     }
 
     if (normalized.startsWith('DELETE FROM __wskit_replay WHERE rowKey IN (')) {
-      // Limit keys on channel/channelScope only. A null channel binds the
+      // Limit keys on channel/channelFamily only. A null channel binds the
       // top-level store (all non-channel rows together).
-      const [channel, channelScope, offset] = params;
+      const [channel, channelFamily, offset] = params;
       const doomed = [...rows.values()]
         .filter(
           (row) =>
             row.channel === ((channel as string | null) ?? null) &&
-            row.channelScope === ((channelScope as string | null) ?? null),
+            row.channelFamily === ((channelFamily as string | null) ?? null),
         )
         .sort((a, b) => b.seq - a.seq)
         .slice(Number(offset));
@@ -187,44 +186,41 @@ describe('replay/runtime', () => {
     expect(matchesReplayScope(undefined, { channelName: 'room-1' }, new Set(['room-1']))).toBe(
       false,
     );
-    expect(matchesReplayScope('rooms', { channelScope: 'rooms' })).toBe(true);
+    expect(matchesReplayScope('rooms', { channelFamily: 'rooms' })).toBe(true);
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(true);
     expect(
       shouldStoreReplayMessage('typing', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(['typing']),
       }),
     ).toBe(false);
   });
 
   it('server-level shouldStoreReplayMessage cascades into channels not in the claimed set', () => {
-    // No channel has claimed; server-level captures channel traffic.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
 
-    // 'rooms' is claimed (channel registered its own replay) — server-level skips.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
         claimedChannelKeys: new Set(['rooms']),
       }),
     ).toBe(false);
 
-    // Static channel claimed by name (no channelScope on the frame).
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -234,7 +230,6 @@ describe('replay/runtime', () => {
       }),
     ).toBe(false);
 
-    // Top-level traffic is always captured by server-level replay.
     expect(
       shouldStoreReplayMessage('message', {
         channelKey: undefined,
@@ -246,7 +241,6 @@ describe('replay/runtime', () => {
   });
 
   it('skips frames with correlationId — request responses are private and must not be replayed', () => {
-    // Server-level replay.
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: undefined,
@@ -254,22 +248,19 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Channel-scoped replay.
     expect(
       shouldStoreReplayMessage('get-token', {
         channelKey: 'rooms',
-        wskit: { correlationId: 'req-abc', channel: 'room-1', channelScope: 'rooms' },
+        wskit: { correlationId: 'req-abc', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Sanity: the same frame without correlationId is captured.
     expect(
       shouldStoreReplayMessage('message', { channelKey: undefined, wskit: {}, exclude: new Set() }),
     ).toBe(true);
   });
 
   it('skips frames with streamId — stream chunks reference an active stream and cannot be replayed', () => {
-    // Server-level replay.
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: undefined,
@@ -277,15 +268,13 @@ describe('replay/runtime', () => {
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Channel-scoped replay.
     expect(
       shouldStoreReplayMessage('token', {
         channelKey: 'rooms',
-        wskit: { streamId: 'stream_abc_1', channel: 'room-1', channelScope: 'rooms' },
+        wskit: { streamId: 'stream_abc_1', channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
-    // Sanity: the same frame without streamId is captured.
     expect(
       shouldStoreReplayMessage('token', { channelKey: undefined, wskit: {}, exclude: new Set() }),
     ).toBe(true);
@@ -298,21 +287,19 @@ describe('replay/runtime', () => {
     expect(
       shouldStoreReplayMessage('__memberOffline__', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(false);
-    // A few more protocol frames at the top level.
     for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
       expect(
         shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
       ).toBe(false);
     }
-    // Sanity: a normal user event with the same scope is still captured.
     expect(
       shouldStoreReplayMessage('room-msg', {
         channelKey: 'rooms',
-        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        wskit: { channel: 'room-1', channelFamily: 'rooms' },
         exclude: new Set(),
       }),
     ).toBe(true);
@@ -324,12 +311,12 @@ describe('replay/runtime', () => {
       seq: 7,
       messageId: 'msg_1',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     };
 
     expect(readReplayScope(wskit)).toEqual({
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     expect(
@@ -348,7 +335,7 @@ describe('replay/runtime', () => {
       seq: 7,
       event: 'message',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       snapshotKey: 'hello',
       createdAt: 99,
     });
@@ -374,7 +361,7 @@ describe('replay/runtime', () => {
     });
     const b = buildReplayRow('e', {
       options: { type: 'snapshot', snapshotKey: () => '|c' },
-      wskit: { seq: 1, messageId: 'm', channel: 'a', channelScope: 'b' },
+      wskit: { seq: 1, messageId: 'm', channel: 'a', channelFamily: 'b' },
       ...base,
     });
     expect(a.rowKey).not.toBe(b.rowKey);
@@ -453,7 +440,7 @@ describe('replay/runtime', () => {
       event: 'message',
       payload: '{}',
       channel: null,
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 10,
     });
@@ -464,7 +451,7 @@ describe('replay/runtime', () => {
       event: 'message',
       payload: '{}',
       channel: null,
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 90,
     });
@@ -475,7 +462,7 @@ describe('replay/runtime', () => {
       event: 'message',
       payload: '{}',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       snapshotKey: null,
       createdAt: 100,
     });
@@ -486,7 +473,7 @@ describe('replay/runtime', () => {
       event: 'message',
       payload: '{}',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       snapshotKey: null,
       createdAt: 110,
     });
@@ -497,7 +484,7 @@ describe('replay/runtime', () => {
       event: 'message',
       payload: '{}',
       channel: 'room-1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       snapshotKey: null,
       createdAt: 120,
     });
@@ -505,17 +492,17 @@ describe('replay/runtime', () => {
     pruneExpiredReplayRows(sql, { maxAgeMs: 20 }, 100);
     expect(rows.has('old')).toBe(false);
 
-    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelScope: 'rooms' });
+    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelFamily: 'rooms' });
     expect([...rows.keys()]).not.toContain('c1');
 
     expect(
-      loadReplayRows(sql, 1, { channelScope: null } as {
+      loadReplayRows(sql, 1, { channelFamily: null } as {
         channelName?: string;
-        channelScope: string | null;
+        channelFamily: string | null;
       }).map((row) => row.seq),
     ).toEqual([2]);
     expect(
-      loadReplayRows(sql, 2, { channelName: 'room-1', channelScope: 'rooms' }).map(
+      loadReplayRows(sql, 2, { channelName: 'room-1', channelFamily: 'rooms' }).map(
         (row) => row.seq,
       ),
     ).toEqual([4, 5]);
@@ -534,7 +521,7 @@ describe('replay/runtime', () => {
         event: 'message',
         payload: '{}',
         channel: null,
-        channelScope: null,
+        channelFamily: null,
         snapshotKey: null,
         createdAt: seq,
       };
@@ -544,24 +531,23 @@ describe('replay/runtime', () => {
     rows.set('c', make('c', 3));
     rows.set('d', make('d', 4));
 
-    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelScope: null });
+    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelFamily: null });
 
-    // Only the two newest by seq survive: 3 and 4.
-    const surviving = loadReplayRows(sql, 0, { channelScope: null } as {
+    const surviving = loadReplayRows(sql, 0, { channelFamily: null } as {
       channelName?: string;
-      channelScope: string | null;
+      channelFamily: string | null;
     }).map((row) => row.seq);
     expect(surviving).toEqual([3, 4]);
   });
 
   describe('isChannelReplayAuthorized', () => {
     function makeConnection(memberships: { name: string; scope?: string }[]): RuntimeConnection {
-      const map = new Map<string, { channelName: string; channelScope: string | null }>();
+      const map = new Map<string, { channelName: string; channelFamily: string | null }>();
       for (const m of memberships) {
         const scope: string | null = m.scope ?? null;
         map.set(createChannelMembershipKey(m.name, scope), {
           channelName: m.name,
-          channelScope: scope,
+          channelFamily: scope,
         });
       }
       return { channelMemberships: map } as unknown as RuntimeConnection;
@@ -569,7 +555,7 @@ describe('replay/runtime', () => {
 
     it('returns true when no channel scope is on the request', () => {
       expect(isChannelReplayAuthorized(undefined, {}, undefined)).toBe(true);
-      expect(isChannelReplayAuthorized(makeConnection([]), {}, { channelScope: null })).toBe(true);
+      expect(isChannelReplayAuthorized(makeConnection([]), {}, { channelFamily: null })).toBe(true);
     });
 
     it('returns false when channel scope is present but no connection is supplied', () => {
@@ -581,21 +567,21 @@ describe('replay/runtime', () => {
     it('returns false when the connection has no membership matching the channel + scope', () => {
       const conn = makeConnection([{ name: 'public', scope: 'rooms' }]);
       expect(
-        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelScope: 'rooms' }),
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelFamily: 'rooms' }),
       ).toBe(false);
     });
 
     it('returns true when the connection is a member of the requested channel + scope', () => {
       const conn = makeConnection([{ name: 'private', scope: 'rooms' }]);
       expect(
-        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelScope: 'rooms' }),
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelFamily: 'rooms' }),
       ).toBe(true);
     });
 
-    it('returns true for a static channel membership when the request omits channelScope', () => {
+    it('returns true for a static channel membership when the request omits channelFamily', () => {
       const conn = makeConnection([{ name: 'lobby' }]);
       expect(
-        isChannelReplayAuthorized(conn, { channelName: 'lobby' }, { channelScope: null }),
+        isChannelReplayAuthorized(conn, { channelName: 'lobby' }, { channelFamily: null }),
       ).toBe(true);
     });
   });
@@ -610,7 +596,7 @@ describe('replay/runtime', () => {
       event: 'room-msg',
       payload: '{}',
       channel: 'replay-room',
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 100,
     });
@@ -621,14 +607,14 @@ describe('replay/runtime', () => {
       event: 'room-msg',
       payload: '{}',
       channel: 'replay-room',
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 110,
     });
 
     const result = loadReplayRows(sql, 0, {
       channelName: 'replay-room',
-      channelScope: null,
+      channelFamily: null,
     });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
   });
@@ -645,7 +631,7 @@ describe('replay/runtime', () => {
       event: 'notice',
       payload: '{}',
       channel: null,
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 100,
     });
@@ -656,46 +642,45 @@ describe('replay/runtime', () => {
       event: 'notice',
       payload: '{}',
       channel: null,
-      channelScope: null,
+      channelFamily: null,
       snapshotKey: null,
       createdAt: 110,
     });
 
-    const result = loadReplayRows(sql, 0, { channelScope: null });
+    const result = loadReplayRows(sql, 0, { channelFamily: null });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
   });
 });
 
 describe('buildLoadReplayQuery', () => {
-  it('produces the static-channel query (channelScope IS NULL) when scope.channelScope is null', () => {
-    const query = buildLoadReplayQuery(0, { channelName: 'lobby', channelScope: null });
-    expect(query.sql).toMatch(/channelScope\s+IS\s+NULL/);
-    expect(query.sql).not.toMatch(/channelScope\s+IS\s+\?/);
+  it('produces the static-channel query (channelFamily IS NULL) when scope.channelFamily is null', () => {
+    const query = buildLoadReplayQuery(0, { channelName: 'lobby', channelFamily: null });
+    expect(query.sql).toMatch(/channelFamily\s+IS\s+NULL/);
+    expect(query.sql).not.toMatch(/channelFamily\s+IS\s+\?/);
     expect(query.params).toEqual(['lobby', 0]);
   });
 
-  it('produces the family query when scope.channelScope is a non-null family key', () => {
-    const query = buildLoadReplayQuery(7, { channelName: 'room:1', channelScope: 'rooms' });
-    expect(query.sql).toMatch(/channelScope\s+IS\s+\?/);
+  it('produces the family query when scope.channelFamily is a non-null family key', () => {
+    const query = buildLoadReplayQuery(7, { channelName: 'room:1', channelFamily: 'rooms' });
+    expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
     expect(query.params).toEqual(['room:1', 'rooms', 7]);
   });
 
   it('still produces the family query when the family key happens to equal the channel name', () => {
-    // Regression: the previous heuristic compared scope.channelScope to
+    // Regression: the previous heuristic compared scope.channelFamily to
     // scope.channelName and silently fell into the static path. Now the
     // null-vs-string marker drives the branch, so a family with key 'rooms'
     // and concrete name 'rooms' resolves as a family query.
-    const query = buildLoadReplayQuery(0, { channelName: 'rooms', channelScope: 'rooms' });
-    expect(query.sql).toMatch(/channelScope\s+IS\s+\?/);
-    expect(query.sql).not.toMatch(/channelScope\s+IS\s+NULL/);
+    const query = buildLoadReplayQuery(0, { channelName: 'rooms', channelFamily: 'rooms' });
+    expect(query.sql).toMatch(/channelFamily\s+IS\s+\?/);
+    expect(query.sql).not.toMatch(/channelFamily\s+IS\s+NULL/);
     expect(query.params).toEqual(['rooms', 'rooms', 0]);
   });
 
   it('produces the top-level query when no channelName is provided', () => {
-    // Top-level replay returns every non-channel row.
-    const query = buildLoadReplayQuery(0, { channelScope: null });
+    const query = buildLoadReplayQuery(0, { channelFamily: null });
     expect(query.sql).toMatch(/channel IS NULL/);
-    expect(query.sql).toMatch(/channelScope IS NULL/);
+    expect(query.sql).toMatch(/channelFamily IS NULL/);
     expect(query.params).toEqual([0]);
   });
 });
@@ -714,7 +699,7 @@ describe('ReplayFrame schema', () => {
     const result = v.safeParse(ReplayFrame, {
       event: '__replay__',
       payload: {},
-      __wskit: { channel: 'room', channelScope: 'rooms' },
+      __wskit: { channel: 'room', channelFamily: 'rooms' },
     });
     expect(result.success).toBe(true);
   });

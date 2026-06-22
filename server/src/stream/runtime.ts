@@ -11,16 +11,21 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import {
+  abortActiveStream,
   assertNoConcurrentStream,
   buildActiveStream,
+  buildDrain,
+  DEFAULT_HIGH_WATER_MARK,
+  installCtxDrain,
   installCtxNudges,
+  installCtxSignal,
 } from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 
 /**
@@ -43,7 +48,7 @@ interface StreamRuntime {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   sendProtocolMessage(
@@ -57,7 +62,7 @@ interface StreamRuntime {
       routing:
         | {
             channel?: string;
-            channelScope?: string | null;
+            channelFamily?: string | null;
             streamId?: string;
             seq?: number;
             streamKind?: 'ephemeral' | 'persistent';
@@ -77,7 +82,7 @@ interface StreamRuntime {
 
   handleValidationError(
     connection: RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: ResolvedScope },
+    opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
   ): Promise<void>;
 
   connections: Map<string, RuntimeConnection>;
@@ -88,19 +93,42 @@ interface StreamRuntime {
 /** Build the `__wskit` routing block for a stream protocol frame. */
 function buildStreamRouting(
   streamId: string,
-  scope: ResolvedScope,
+  scope: ResolvedChannel,
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = { streamId };
   if (scope.channelName) wskit.channel = scope.channelName;
-  if (scope.channelScope) wskit.channelScope = scope.channelScope;
+  if (scope.channelFamily) wskit.channelFamily = scope.channelFamily;
   return wskit;
+}
+
+/**
+ * The peers a broadcast stream fans out to: channel members for a channel
+ * stream, every connection otherwise — minus the creator, who handles its own
+ * copy. Shared by the live fan-out and the cancel terminal so a cancel reaches
+ * the same peers a normal end would.
+ */
+function streamBroadcastTargets(
+  connections: Map<string, RuntimeConnection>,
+  creatorId: string,
+  scope: ResolvedChannel,
+): RuntimeConnection[] {
+  const all = scope.channelName
+    ? [...connections.values()].filter((target) =>
+        ChannelPrimitive.hasChannelMembership(
+          target,
+          scope.channelName!,
+          scope.channelFamily ?? null,
+        ),
+      )
+    : [...connections.values()];
+  return all.filter((target) => target.id !== creatorId);
 }
 
 /**
  * Cancel one live stream when the owning client sends `__streamCancel__`.
  */
 export async function cancelStream(
-  runtime: Pick<StreamRuntime, 'activeStreams'> & {
+  runtime: Pick<StreamRuntime, 'activeStreams' | 'connections' | 'sendProtocolMessage'> & {
     logger?: Pick<Logger, 'error'>;
   },
   connection: RuntimeConnection,
@@ -113,6 +141,10 @@ export async function cancelStream(
 
   activeStream.closed = true;
 
+  // Fire the stop signal before return() so in-flight awaited work (fetch,
+  // timers wired to ctx.stream.signal) is cancelled, then cleanup runs.
+  abortActiveStream(activeStream, 'cancelled');
+
   try {
     // The generator's cleanup (`finally`) may throw. Contain it so the throw
     // doesn't escape the WS callback as an unhandled adapter error.
@@ -124,6 +156,26 @@ export async function cancelStream(
       error: error instanceof Error ? error.message : String(error),
     });
   } finally {
+    // For a broadcast stream, fan a terminal `__streamEnd__` out to the peers so
+    // their `onStream` runs complete instead of hanging until timeout — the same
+    // terminal a normal completion sends. The creator initiated the cancel, so
+    // it gets none. Peers route by the stream's event name, carried as eventName.
+    if (activeStream.broadcast && activeStream.scope) {
+      const peerEndWskit = {
+        ...buildStreamRouting(activeStream.id, activeStream.scope),
+        eventName: activeStream.event,
+      };
+      await forEachIsolatedAsync(
+        streamBroadcastTargets(runtime.connections, connection.id, activeStream.scope),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            wskit: peerEndWskit,
+          }),
+        { context: `stream broadcast cancel end streamId="${activeStream.id}"` },
+      );
+    }
     runtime.activeStreams.delete(activeStream.id);
   }
 }
@@ -192,16 +244,16 @@ export async function bufferStreamNudge(
   // the generator or run on the wrong scope.
   const storedScope = activeStream.scope ?? {};
   const claimedChannel = wskit?.channel;
-  const claimedScope = wskit?.channelScope ?? null;
+  const claimedScope = wskit?.channelFamily ?? null;
   const sameScope =
     (storedScope.channelName ?? undefined) === (claimedChannel ?? undefined) &&
-    (storedScope.channelScope ?? null) === claimedScope;
+    (storedScope.channelFamily ?? null) === claimedScope;
   const memberOk =
     !storedScope.channelName ||
     ChannelPrimitive.hasChannelMembership(
       connection,
       storedScope.channelName,
-      storedScope.channelScope ?? null,
+      storedScope.channelFamily ?? null,
     );
   if (!sameScope || !memberOk) {
     await runtime.handleRuntimeError(connection, {
@@ -271,7 +323,7 @@ export async function bufferStreamNudge(
 }
 
 export interface RunStreamOptions {
-  scope: ResolvedScope;
+  scope: ResolvedChannel;
 
   event: string;
 
@@ -292,6 +344,7 @@ export async function runStream(
   options: RunStreamOptions,
 ): Promise<void> {
   const { scope, event, stream, payload, wskit } = options;
+
   // One active stream per event per connection, unless `allowConcurrent: true`.
   assertNoConcurrentStream(runtime, connection, {
     event,
@@ -320,6 +373,30 @@ export async function runStream(
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
+  const abortController = new AbortController();
+  installCtxSignal(ctx, abortController);
+
+  // Who a broadcast fans out to: channel members for a channel stream, every
+  // connection otherwise — minus the creator, who gets its own copy.
+  function broadcastTargets(): RuntimeConnection[] {
+    return streamBroadcastTargets(runtime.connections, connection.id, scope);
+  }
+
+  // The drain function needs the active-stream object to know when the stream is
+  // torn down, but the iterator (built from ctx, which carries drain) is created
+  // before the active stream exists. A late-bound holder breaks the cycle.
+  let activeStreamRef: ActiveStream | undefined;
+  const highWaterMark = stream.stream.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
+  installCtxDrain(
+    ctx,
+    buildDrain({
+      // Broadcast paces against the healthiest of every target; a single stream
+      // against just its own connection.
+      targets: () => (stream.stream.broadcast ? [connection, ...broadcastTargets()] : [connection]),
+      highWaterMark,
+      isClosed: () => activeStreamRef?.closed ?? false,
+    }),
+  );
 
   const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
 
@@ -329,31 +406,20 @@ export async function runStream(
     connection,
     generator: iterator,
     scope,
+    abortController,
+    highWaterMark,
+    broadcast: stream.stream.broadcast,
     nudges: stream.stream.nudges.map((declaration) => ({
       event: declaration.event,
       validator: declaration.validator,
     })),
   });
+  activeStreamRef = activeStream;
 
   runtime.activeStreams.set(streamId, activeStream);
   if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
   connection.activeStreamIds.add(streamId);
   runtime.persistAttachment(connection);
-
-  // Who a broadcast fans out to: channel members for a channel stream, every
-  // connection otherwise — minus the creator, who gets its own copy.
-  function broadcastTargets(): RuntimeConnection[] {
-    const all = scope.channelName
-      ? [...runtime.connections.values()].filter((target) =>
-          ChannelPrimitive.hasChannelMembership(
-            target,
-            scope.channelName!,
-            scope.channelScope ?? null,
-          ),
-        )
-      : [...runtime.connections.values()];
-    return all.filter((target) => target.id !== connection.id);
-  }
 
   try {
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
@@ -377,7 +443,7 @@ export async function runStream(
       seq += 1;
       const chunkRouting = {
         channel: scope.channelName,
-        channelScope: scope.channelScope,
+        channelFamily: scope.channelFamily,
         streamId,
         streamKind: 'ephemeral' as const,
         seq,
@@ -434,7 +500,7 @@ export async function runStream(
   } catch (streamError) {
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
-    if (scope.channelScope) routing.channelScope = scope.channelScope;
+    if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
 
     // A terminal error reaches the creator (below) and, for a broadcast, every
     // subscriber — so a peer's onError fires instead of a misleading clean end.

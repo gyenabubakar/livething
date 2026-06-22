@@ -1,10 +1,11 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
-import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type { TagGroupRegistration } from '~/tags/tags.ts';
 import type * as ValidationTypes from '~/types.ts';
@@ -62,12 +63,60 @@ export interface EngineAccess {
   onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /**
+   * Settle a server→client request answer before normal routing.
+   *
+   * Each incoming user-event frame carrying a `correlationId` is offered to the
+   * registered hooks; a hook returns `true` when the id matches a pending
+   * server-initiated request it owns, which stops routing. Used by the
+   * `requests()` capability so the engine never imports its pending map.
+   *
+   * @internal
+   */
+  onAnswerFrame(
+    handler: (
+      connectionId: string,
+      frame: {
+        event: string;
+        payload: unknown;
+        wskit: Protocol.WSKitProtocol | undefined;
+      },
+    ) => boolean,
+  ): void;
+
+  /**
+   * Send a server→client request frame to one live connection.
+   *
+   * Routes through the normal outgoing pipeline with the given `correlationId`
+   * (and optional channel family) so plugin stampers and `onBeforeSend`/
+   * `onAfterSend` hooks still run. Returns `false` when the connection is no
+   * longer live on this instance. Used by the `requests()` capability for
+   * `ctx.request(...)` and friends.
+   *
+   * @internal
+   */
+  sendServerRequest(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      correlationId: string;
+      channel?: string;
+      channelFamily?: string | null;
+    },
+  ): boolean;
+
+  /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
+   * The handler gets the active connection's context (or `undefined` for a
+   * fan-out broadcast) and the `OutgoingFrame` (`event`, `payload`, `owner`).
    * Return a value to replace the payload, or return nothing to keep the
    * original. Same locked-event semantics as `onIncoming`.
    */
-  onOutgoing(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
+  onOutgoing(
+    handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => unknown | void,
+    owner?: InterceptPrimitive.HookOwner,
+  ): void;
 
   /**
    * Contribute `__wskit` metadata to every outgoing user frame.
@@ -299,12 +348,9 @@ export interface EngineAccess {
    * @internal
    */
   getInvocationScope(): {
-    pendingReplaySnapshotRows: Map<
+    pendingSnapshotFlushes: Map<
       string,
-      {
-        row: ReplayPrimitiveTypes.ReplayRow | null;
-        postFlush: (sql: Pick<ContextApi.SQLProvider, 'exec'>) => void;
-      }
+      { flush: (sql: Pick<ContextApi.SQLProvider, 'exec'>) => void }
     >;
   } | null;
 
@@ -317,6 +363,14 @@ export interface EngineAccess {
    * @internal
    */
   setHibernationEnabled(enabled: boolean): void;
+
+  /**
+   * Read whether connection hibernation is enabled. `keepalive()` reads this in
+   * its `ctx.quality` getter, which returns `null` while hibernating (no pings).
+   *
+   * @internal
+   */
+  getHibernationEnabled(): boolean;
 
   /**
    * Tell the engine that automatic replay is enabled for this handler.
@@ -368,18 +422,18 @@ export interface EngineAccess {
   setChannelPersistent(channelKey: string, enabled: boolean): void;
 
   /**
-   * Check whether a durable-row `(channel_name, channel_scope)` pair still
+   * Check whether a durable-row `(channel_name, channel_family)` pair still
    * maps to a registered persistent channel. Used by boot-time reconcile.
    * @internal
    */
-  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean;
+  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean;
 
   /**
    * Read the engine's logger. Used by primitives that emit boot-time or
    * one-off status messages (e.g. persistence cleanup row counts).
    * @internal
    */
-  getLogger?(): { info?(message: string, data?: unknown): void } | undefined;
+  getLogger?(): ContextApi.Logger | undefined;
 
   /**
    * Turn on server-side deduplication of incoming messages.
@@ -400,6 +454,58 @@ export interface EngineAccess {
    * a thrown `WSKitError` was never declared in the contract's `errors: [...]`.
    */
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
+
+  /**
+   * Register a plugin's per-connection API factory under its id. `ctx.plugin(id)`
+   * runs the factory against a plugin-scoped context. Two plugins sharing an id
+   * is a build error.
+   */
+  registerPluginApi(id: string, factory: (ctx: unknown) => unknown): void;
+
+  /**
+   * Look up a registered plugin API factory by id, or `undefined` when no plugin
+   * with that id is listed. Backs the `ctx.plugin(id)` accessor, which the plugin
+   * system installs only when at least one plugin is listed.
+   *
+   * @internal
+   */
+  getPluginApiFactory(id: string): ((ctx: unknown) => unknown) | undefined;
+
+  /**
+   * Register one new-model plugin lifecycle hook. Kept apart from the app's so
+   * the engine can run them in onion order. Hooks land in install order,
+   * which equals host capability (registration) order, so inbound kinds run the
+   * list head-first and outbound kinds run it in reverse (LIFO). The handler is
+   * already wrapped in a plugin-scoped context.
+   *
+   * @internal
+   */
+  registerPluginLifecycle(
+    kind: 'init' | 'connect' | 'disconnect' | 'shutdown' | 'error' | 'validationError',
+    pluginId: string,
+    handler: (ctx: unknown, ...rest: unknown[]) => void | Promise<void>,
+  ): void;
+
+  /**
+   * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
+   * (inbound onion); it may own `identity`, but the single-owner rule is
+   * enforced at runtime.
+   *
+   * @internal
+   */
+  registerPluginUpgrade(
+    pluginId: string,
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | Promise<{
+          identity?: string;
+          meta?: Record<string, unknown>;
+          tags?: readonly ContextApi.TagRef[];
+        }>,
+  ): void;
 
   /**
    * Refresh the idle timeout for one live connection.
@@ -430,6 +536,25 @@ export interface EngineAccess {
   getScheduledDlq(): Map<string, ScheduledPrimitive.ScheduledDeadLetter>;
 
   /**
+   * Queue one future scheduled task run. Backs `ctx.schedule(...)`, registered
+   * by the `scheduled()` capability so a server without it has no such surface.
+   *
+   * @internal
+   */
+  scheduleTask(taskId: string, time: number, data: unknown): void;
+
+  /**
+   * Remove queued runs for one scheduled task id, optionally filtered. Backs
+   * `ctx.cancelScheduled(...)`, registered by the `scheduled()` capability.
+   *
+   * @internal
+   */
+  cancelScheduled(
+    taskId: string,
+    filter?: Record<string, unknown>,
+  ): ScheduledPrimitive.ScheduledCancelResult;
+
+  /**
    * Look up one declared scheduled task by task id.
    */
   getScheduledTask(taskId: string): EngineCompileTypes.AnyScheduled | undefined;
@@ -458,7 +583,7 @@ export interface EngineAccess {
     connectionId: string,
     options: {
       channelName: string | null;
-      channelScope: string | null;
+      channelFamily: string | null;
       event: string;
       payload: unknown;
       wire: { seq: number; messageId: string; channel?: string };
@@ -476,16 +601,8 @@ export interface EngineAccess {
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelScope?: string | null } | undefined,
+    routing: { channel?: string; channelFamily?: string | null } | undefined,
   ): asserts payload is Record<string, unknown>;
-
-  /**
-   * Send an ack frame for the given message id to one live connection.
-   *
-   * `ctx.ack()` uses this — it passes the ack id carried on its own context,
-   * so each handler confirms exactly its own message.
-   */
-  sendAck(connectionId: string, ackId: string | undefined): void;
 
   /**
    * Let a background task continue even after the current callback returns.
@@ -502,7 +619,7 @@ export interface EngineAccess {
   /**
    * Create a framework-generated id.
    *
-   * This is usually used for tasks, acks, streams, or other internal runtime
+   * This is usually used for tasks, streams, or other internal runtime
    * bookkeeping.
    */
   generateId(prefix?: string): string;
@@ -511,9 +628,102 @@ export interface EngineAccess {
    * Send one raw protocol event directly to a live connection by id.
    *
    * This bypasses the normal typed ctx helpers and skips `onOutgoing` /
-   * `onBeforeSend` / `onAfterSend` hooks — used for ack and protocol messages
+   * `onBeforeSend` / `onAfterSend` hooks — used for protocol messages
    * that should not go through the replay pipeline. For replay resends, use
    * `sendReplay` instead.
    */
   rawSend(connectionId: string, event: string, payload: unknown): void;
+
+  /**
+   * Register the plain-stream trigger so the dispatch hub can start a matched
+   * `stream(...)` without importing its runtime. Set by the `stream()`
+   * capability.
+   *
+   * @internal
+   */
+  setStreamTrigger(trigger: FeatureSlots.StreamTrigger): void;
+
+  /**
+   * Register the active-stream nudge buffer and cancel, shared by plain and
+   * durable streams. Either stream kind sets it, so the owner registers it
+   * through `installOnce` to keep it set exactly once.
+   *
+   * @internal
+   */
+  setActiveStreamOps(
+    buffer: FeatureSlots.StreamNudgeBuffer,
+    cancel: FeatureSlots.StreamCancel,
+  ): void;
+
+  /**
+   * Register the durable-stream dispatch surface (trigger, resume, cancel,
+   * schema). Set once when either `resumableStream()` or `recordedStream()` is
+   * listed.
+   *
+   * @internal
+   */
+  setDurableStreamService(service: FeatureSlots.DurableStreamService): void;
+
+  /**
+   * Register the request dispatcher so the hub can run a matched `request(...)`
+   * without importing its runtime. Set by the `requests()` capability.
+   *
+   * @internal
+   */
+  setRequestDispatch(dispatch: FeatureSlots.RequestDispatch): void;
+
+  /**
+   * Register the `ctx.tags` builder so the connection context can expose the tag
+   * surface without importing the tag runtime. Set by the `tags()` capability.
+   *
+   * @internal
+   */
+  setBuildTagsApi(build: FeatureSlots.BuildTagsApi): void;
+
+  /**
+   * Register the durable membership/persistent-tag operations. Set by the
+   * `persistence()` capability so storage code stays out of a bare handler.
+   *
+   * @internal
+   */
+  setPersistenceService(service: FeatureSlots.PersistenceService): void;
+
+  /**
+   * Register the scheduled-task runtime. Set by `scheduled()` and by durable
+   * streams (their retention sweep is a scheduled task) so the scheduler stays
+   * out of a handler that uses neither.
+   *
+   * @internal
+   */
+  setScheduledService(service: FeatureSlots.ScheduledService): void;
+
+  /**
+   * Register the intercept pipeline runner and the `ctx.matches` / `unsafeCast`
+   * frame matchers. Set by the `intercepts()` capability so a handler without it
+   * skips the intercept block and never bundles the pipeline.
+   *
+   * @internal
+   */
+  setInterceptRuntime(
+    runIntercepts: FeatureSlots.RunIntercepts,
+    frameMatch: FeatureSlots.FrameMatch,
+  ): void;
+
+  /**
+   * Register the channel subscribe/leave/kick runtime. Set by the `channels()`
+   * capability so a handler without it never bundles the membership-protocol
+   * engine or the subscribe/unsubscribe frame handlers.
+   *
+   * @internal
+   */
+  setChannelService(service: FeatureSlots.ChannelService): void;
+
+  /**
+   * Register the `ctx.channels` / `ctx.channel` surface builders. Set by the
+   * `channels()` capability so the connection context exposes the channel
+   * accessor without the engine importing the channel-context module.
+   *
+   * @internal
+   */
+  setChannelContext(context: FeatureSlots.ChannelContext): void;
 }

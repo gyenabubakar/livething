@@ -7,17 +7,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "postinstall": "pnpm -r run build",
+    "postinstall": "pnpm -r --filter='!@wskit/website' run build",
     "prepare": "husky",
-    "build": "pnpm -r run build",
-    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r --filter='!@wskit/website' run build",
+    "site": "pnpm --filter @wskit/website run dev",
     "test": "pnpm -r --parallel run test",
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
     "test:e2e:cloudflare": "pnpm -r run test:e2e:cloudflare",
     "bench": "pnpm -r run bench",
-    "typecheck": "pnpm run build && pnpm -r --parallel run typecheck",
+    "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@wskit/website' run typecheck",
     "dup": "jscpd",
+    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src --config .dependency-cruiser.cjs",
+    "bundle-check": "node scripts/bundle-check.mjs",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
     "lint": "oxlint --fix .",
@@ -26,7 +28,7 @@
     "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean",
     "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e",
-    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test"
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm depcruise && pnpm bundle-check"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
@@ -34,6 +36,8 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
     "@types/node": "^24.12.0",
     "@vitest/coverage-v8": "^4.1.4",
+    "dependency-cruiser": "17.4.3",
+    "esbuild": "0.28.0",
     "husky": "^9.1.7",
     "jscpd": "^4.2.3",
     "lint-staged": "^15.4.3",
@@ -44,6 +48,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "better-sqlite3",
       "esbuild",
       "workerd"
     ]

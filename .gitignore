@@ -29,4 +29,5 @@ vite.config.*.timestamp-*.*
 _type_experiments
 
 ideas.md
+AUDIT.md
 .playwright-mcp/

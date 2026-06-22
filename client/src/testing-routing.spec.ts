@@ -48,8 +48,6 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     const channelHandler = vi.fn();
     socket.channel('general').on('message', channelHandler);
 
-    // inject produces a frame with no __wskit.channel tag — channels.onIncoming
-    // passes it through, so it reaches top-level dispatch, not channel handlers.
     inject(socket as Socket<C>, 'message' as keyof C['incoming'], {} as never);
     expect(channelHandler).not.toHaveBeenCalled();
   });

@@ -6,25 +6,25 @@ import type * as EngineRuntimeTypes from './types.ts';
 
 /**
  * Read routing markers from a frame's `__wskit` block and resolve the active
- * scope.
+ * channel.
  */
-export function resolveScope(
+export function resolveChannel(
   compiled: EngineCompileTypes.CompiledServer,
   wskit: Protocol.WSKitProtocol | undefined,
-): EngineRuntimeTypes.ResolvedScope {
+): EngineRuntimeTypes.ResolvedChannel {
   if (!wskit) return {};
 
   if (wskit.channel !== undefined) {
-    if (wskit.channelScope !== null) {
-      const family = compiled.channelFamilies.get(wskit.channelScope);
+    if (wskit.channelFamily !== null) {
+      const family = compiled.channelFamilies.get(wskit.channelFamily);
       if (!family) throw ChannelNotFound();
-      if (!ChannelPrimitive.matchesScopePattern(family.pattern, wskit.channel)) {
+      if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, wskit.channel)) {
         throw ChannelNotFound();
       }
       return {
         channel: family,
         channelName: wskit.channel,
-        channelScope: wskit.channelScope,
+        channelFamily: wskit.channelFamily,
       };
     }
 
@@ -33,7 +33,7 @@ export function resolveScope(
     return {
       channel,
       channelName: wskit.channel,
-      channelScope: null,
+      channelFamily: null,
     };
   }
 
@@ -51,12 +51,16 @@ export function routingFromWSKit(
   if (!wskit) return undefined;
   const routing: Protocol.WSKitRouting = {};
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
-  if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
+  // Echo a client-originated exchange's source so an error reply to a client
+  // request carries `source: 'client'`, matching the success reply. Only
+  // 'client' is echoed: a server-originated frame's error must not come back
+  // looking like a fresh server→client request.
+  if (wskit.source === 'client') routing.source = 'client';
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
   if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
-    routing.channelScope = wskit.channelScope ?? null;
+    routing.channelFamily = wskit.channelFamily ?? null;
   }
   return Object.keys(routing).length > 0 ? routing : undefined;
 }

@@ -48,7 +48,7 @@ async function subscribeFamily(page: Page, scopeKey: string, name: string) {
   await send(page, {
     event: '__subscribe__',
     payload: {},
-    __wskit: { channel: name, channelScope: scopeKey },
+    __wskit: { channel: name, channelFamily: scopeKey },
   });
 }
 
@@ -164,7 +164,7 @@ test.describe('static-vs-family-isolation', () => {
     await send(b, {
       event: 'send-in-room',
       payload: { name: 'room:1', text: 'still-here' },
-      __wskit: { channel: 'room:1', channelScope: 'rooms' },
+      __wskit: { channel: 'room:1', channelFamily: 'rooms' },
     });
     await waitForFrame(
       b,
@@ -231,7 +231,7 @@ test.describe('static-vs-family-isolation', () => {
       (f) =>
         f.event === '__kicked__' &&
         f.__wskit?.channel === 'room:1' &&
-        f.__wskit?.channelScope === 'rooms',
+        f.__wskit?.channelFamily === 'rooms',
     );
 
     // A is untouched.

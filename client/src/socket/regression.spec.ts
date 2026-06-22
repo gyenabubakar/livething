@@ -3,7 +3,6 @@
 // stale-socket inertness.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
@@ -27,8 +26,8 @@ interface LooseContract {
   outgoing: Record<string, unknown>;
 }
 
-interface AckContract {
-  outgoing: { x: { v: number } };
+interface CloseRequestContract {
+  requests: { x: { payload: { v: number }; response: { ok: boolean } } };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
@@ -36,14 +35,10 @@ function build<const P extends readonly Primitive<any, any>[]>(
   descriptor: ConnectDescriptor,
   ...primitives: [...P] & ValidatePrimitives<LooseContract, P>
 ): Socket<LooseContract> & ApplyPrimitives<P, LooseContract> {
-  // The generic wrapper can't carry each primitive's added API through inference,
-  // so we assert it; ApplyPrimitives<P, …> still resolves at each call site.
   const socket = client<LooseContract>()(
     descriptor,
     ...primitives,
   ) as unknown as Socket<LooseContract> & ApplyPrimitives<P, LooseContract>;
-  // A couple of tests here deliberately throw inside a close listener; sink the
-  // error so the no-listener out-of-band rethrow doesn't fail the suite.
   socket.onError(() => {});
   return socket;
 }
@@ -68,10 +63,10 @@ describe('idempotent on() unsubscribe', () => {
     try {
       const socket = build(connect('wss://test', { lazy: true, idleTimeout: 1000 }));
       const unsubA = socket.on('a', () => {});
-      socket.on('b', () => {}); // two consumers
+      socket.on('b', () => {});
       MockWebSocket.last().open();
       unsubA();
-      unsubA(); // second call must be a no-op
+      unsubA();
       vi.advanceTimersByTime(1000);
       expect(socket.getState()).toBe('open'); // B is still live → must NOT idle-close
     } finally {
@@ -127,9 +122,9 @@ describe('superseded socket is inert', () => {
     const socket = build(connect('wss://test'));
     const handler = vi.fn();
     socket.on('message', handler);
-    socket.connect(); // ws1 created, state "connecting", this.ws still null
+    socket.connect();
     const ws1 = MockWebSocket.last();
-    socket.disconnect(); // bumps attemptId; ws1 handlers are NOT nulled (this.ws was null)
+    socket.disconnect();
     ws1.emit({ event: 'message', payload: { text: 'late' } });
     expect(handler).not.toHaveBeenCalled();
   });
@@ -153,15 +148,15 @@ describe('manual connect() during reconnecting', () => {
       const socket = build(connect('wss://test'), reconnection());
       socket.connect();
       MockWebSocket.last().open();
-      MockWebSocket.last().serverClose(1006); // → reconnecting, a retry is scheduled
+      MockWebSocket.last().serverClose(1006);
       expect(socket.getState()).toBe('reconnecting');
 
       const before = MockWebSocket.instances.length;
-      socket.connect(); // manual connect during the wait → one new socket
+      socket.connect();
       expect(MockWebSocket.instances.length).toBe(before + 1);
 
-      vi.advanceTimersByTime(60_000); // let the now-stale retry timer fire
-      expect(MockWebSocket.instances.length).toBe(before + 1); // no duplicate
+      vi.advanceTimersByTime(60_000);
+      expect(MockWebSocket.instances.length).toBe(before + 1);
     } finally {
       vi.useRealTimers();
     }
@@ -176,7 +171,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     const onClose = vi.fn();
     socket.onClose(onClose);
     socket.disconnect();
-    socket.disconnect(); // redundant
+    socket.disconnect();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -192,19 +187,19 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     const socket = build(connect('wss://test'));
     const onClose = vi.fn();
     socket.onClose(onClose);
-    socket.connect(); // connecting, this.ws still null
+    socket.connect();
     socket.disconnect();
-    expect(onClose).toHaveBeenCalledTimes(1); // matches native close-during-connecting
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('a deliberate disconnect after a terminal drop still resets the session', () => {
     const onReconnect = vi.fn();
-    const socket = build(connect('wss://test')); // no reconnection → a drop is terminal
+    const socket = build(connect('wss://test'));
     socket.onReconnect(onReconnect);
     socket.connect();
     MockWebSocket.last().open();
-    MockWebSocket.last().serverClose(1006); // terminal drop → closed, but _isFirstConnect still false
-    socket.disconnect(); // already closed, yet must still reset the session
+    MockWebSocket.last().serverClose(1006);
+    socket.disconnect();
     socket.connect();
     MockWebSocket.last().open();
     expect(onReconnect).not.toHaveBeenCalled();
@@ -216,11 +211,11 @@ describe('disconnect() still cleans up primitives when already closed', () => {
     const socket = build(connect('wss://test'), buffering({ enabled: true }));
     socket.connect();
     MockWebSocket.last().open();
-    MockWebSocket.last().serverClose(1006); // drop → closed, buffer kept (no reconnection)
+    MockWebSocket.last().serverClose(1006);
     expect(socket.getState()).toBe('closed');
 
-    socket.send('y', { v: 1 }); // buffered while closed
-    socket.disconnect(); // must discard the buffer
+    socket.send('y', { v: 1 });
+    socket.disconnect();
     socket.connect();
     MockWebSocket.last().open(); // onOpen flush must NOT replay 'y'
 
@@ -231,10 +226,13 @@ describe('disconnect() still cleans up primitives when already closed', () => {
     ).toBe(false);
   });
 
-  it('rejects a pending sendWithAck even if the socket is already closed', async () => {
-    const socket = client<AckContract>()(connect('wss://test'), ack({ timeout: 100 }));
-    const pending = socket.sendWithAck('x', { v: 1 }); // pending created while closed
-    socket.disconnect(); // must reject it with Disconnected, not let it time out
+  it('rejects a pending request even if the socket is already closed', async () => {
+    const socket = client<CloseRequestContract>()(
+      connect('wss://test'),
+      requestResponse({ timeout: 100 }),
+    );
+    const pending = socket.request('x', { v: 1 });
+    socket.disconnect();
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
@@ -247,14 +245,14 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
         connect('wss://test', { lazy: true, idleTimeout: 1000 }),
         reconnection(),
       );
-      const unsub = socket.on('x', () => {}); // lazy connect
+      const unsub = socket.on('x', () => {});
       MockWebSocket.last().open();
-      MockWebSocket.last().serverClose(1006); // → reconnecting
-      unsub(); // last consumer releases mid-reconnect → count 0, no timer armed
-      vi.advanceTimersByTime(2000); // reconnection retry fires → a fresh socket
-      MockWebSocket.last().open(); // reconnect opens with 0 consumers
+      MockWebSocket.last().serverClose(1006);
+      unsub();
+      vi.advanceTimersByTime(2000);
+      MockWebSocket.last().open();
       expect(socket.getState()).toBe('open');
-      vi.advanceTimersByTime(1000); // idle timeout should now elapse
+      vi.advanceTimersByTime(1000);
       expect(socket.getState()).toBe('closed');
     } finally {
       vi.useRealTimers();
@@ -270,8 +268,8 @@ describe('getLatency() after disconnect', () => {
       socket.connect();
       const ws = MockWebSocket.last();
       ws.open();
-      vi.advanceTimersByTime(1000); // sends a ping
-      ws.emit('pong'); // raw pong measures latency
+      vi.advanceTimersByTime(1000);
+      ws.emit('pong');
       expect(socket.getLatency()).not.toBeNull();
       socket.disconnect();
       expect(socket.getLatency()).toBeNull();
@@ -295,11 +293,8 @@ describe('idle timer armed during close must not fire during reconnect', () => {
         requestResponse({ timeout: 60_000 }),
       );
 
-      // Make a request — this is the only lazy consumer (_lazyConsumers = 1).
-      // The promise will reject when the socket drops, releasing the lazy hold.
       const pending = socket.request('echo', null);
 
-      // The lazy connect triggered by request() opens the socket.
       MockWebSocket.last().open();
 
       // Drop the connection. Inside ws.onclose the primitives' onClose fires
@@ -309,10 +304,8 @@ describe('idle timer armed during close must not fire during reconnect', () => {
       // sets the state to 'reconnecting'. The idle timer is never cleared.
       MockWebSocket.last().serverClose(1006);
 
-      // Consume the rejection so the unhandled-rejection detector stays quiet.
       await pending.catch(() => {});
 
-      // At this point we should be reconnecting.
       expect(socket.getState()).toBe('reconnecting');
 
       // Advance past the idle timeout while the reconnect timer is still pending.

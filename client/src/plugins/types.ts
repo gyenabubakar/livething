@@ -4,7 +4,7 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { ConnectionState } from '~/types.ts';
 
 /**
- * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [ack]`.
+ * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [channels]`.
  * The static `tag` is required: dependency resolution reads it without running the
  * factory, so a factory that needs options can't throw or fire side effects here.
  */

@@ -1,13 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
-import { createPluginHooks } from '~/_engine/registry/plugin-hooks.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
-import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-
-type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
+import type { Primitive, ValidationView } from '~/primitive.ts';
 
 /** Throw if the adapter is missing something the handler said it needs. */
 function validateRequires(core: EngineCore): void {
@@ -29,30 +26,40 @@ function validateRequires(core: EngineCore): void {
   }
 }
 
-/** Throw if the adapter is missing engine-internal guarantees the primitives need. */
-function validateEngineRequirements(core: EngineCore): void {
-  if (core.replayEnabled && !core.sequencePersistent) {
-    throw new Error('[wskit] replay requires `sequence: { persist: true }` for durable replay.');
-  }
-}
-
 /**
- * Throw if a channel registered a `.revalidate()` hook but is not persistent.
- * `revalidate` only runs on auto-rejoin, which only happens for persistent
- * channels — so on a non-persistent channel it is dead code, and almost always
- * means the author meant to enable persistence or use `.check()` instead.
+ * Run every primitive's `__validate` against settled engine state, after all
+ * setups. Each capability owns its own runtime-state rule (replay checks a
+ * persistent sequence, revalidate checks a persistent channel) — the engine
+ * just walks the tree and threads each primitive's channel scope, staying
+ * oblivious to what any capability requires.
  */
-function validateRevalidateRequiresPersistence(core: EngineCore): void {
-  for (const channelKey of core.hooks.revalidate.keys()) {
-    if (!core.isChannelPersistent(channelKey)) {
-      throw new Error(
-        `[wskit] Channel "${channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
-          `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-          `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
-          `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
-      );
+function validatePrimitives(core: EngineCore): void {
+  function visit(primitives: readonly Primitive[], channelKey?: string): void {
+    const view: ValidationView = {
+      sequencePersistent: core.sequencePersistent,
+      channelKey,
+      isChannelPersistent(key: string): boolean {
+        return core.isChannelPersistent(key);
+      },
+    };
+    for (const primitive of primitives) {
+      primitive.__validate?.(view);
+      if (primitive.__wskit === 'channel') {
+        const channelPrimitive = primitive as Primitive & {
+          pattern: string | { key: string };
+          primitives: readonly Primitive[];
+        };
+        visit(
+          channelPrimitive.primitives,
+          typeof channelPrimitive.pattern === 'string'
+            ? channelPrimitive.pattern
+            : channelPrimitive.pattern.key,
+        );
+      }
     }
   }
+
+  visit(core.primitives);
 }
 
 /**
@@ -66,48 +73,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   if (core.compiled.scheduled.size > 0) {
     accessDeps.ensureScheduledRuntime();
   }
-  validateEngineRequirements(core);
-  validateRevalidateRequiresPersistence(core);
-
-  for (const pluginInstance of core.compiled.plugins) {
-    // Plugins declare errors in their `errors: { name: error(...) }` map; the
-    // engine namespaced each code to `__<id>:<name>`. Register the prefixed
-    // code so handleRuntimeError recognises it (no "not declared" warning) and
-    // the client sees the namespaced code.
-    const pluginErrors = (pluginInstance as { errors?: Record<string, { code: string }> }).errors;
-    if (pluginErrors) {
-      for (const def of Object.values(pluginErrors)) {
-        core.declaredErrorCodes.add(def.code);
-      }
-    }
-
-    const runtime: PluginRuntime = {
-      instance: pluginInstance,
-      contextFactory: () => ({}),
-    };
-    runtime.contextFactory = pluginInstance.setupPlugin(
-      pluginInstance.args,
-      createPluginHooks(core, runtime, accessDeps.ensureScheduledRuntime),
-    );
-    core.pluginRuntimes.push(runtime);
-
-    // A plugin can declare scheduled tasks in `definitions: [scheduled(...)]`,
-    // which is the type-level source. Runtime registration happens in setup()
-    // via `hooks.scheduled(name, ...)`. If the plugin declared a task but
-    // never wired its handler, the prefixed task id is missing from the
-    // engine's scheduled map — ctx.schedule(...) would throw "not registered"
-    // at the first call, far from the misconfig. Fail fast at boot instead.
-    for (const def of pluginInstance.scheduled) {
-      const prefixed = `__${pluginInstance.id}:${def.name}`;
-      const registered = core.compiled.scheduled.get(prefixed);
-      if (!registered) {
-        throw new Error(
-          `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" in definitions ` +
-            `but its setup() did not call hooks.scheduled("${def.name}", ...) to wire a handler.`,
-        );
-      }
-    }
-  }
+  validatePrimitives(core);
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
   // row says storage is not on the current schema version. On a fresh
@@ -130,7 +96,6 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     }
   }
 
-  // Always-run boot hooks (cleanup, state restore). These never skip.
   for (const hook of core.hooks.boot) {
     await hook();
   }
@@ -141,18 +106,13 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     platform: core.platform,
     requireStorage: () => core.requireStorage(),
   });
+  // Inbound onion: new-model plugin inits run before the app's. Their
+  // handlers are already wrapped in a plugin-scoped context.
+  for (const entry of core.hooks.pluginLifecycle.init) {
+    await entry.handler(initCtx);
+  }
   for (const hook of core.hooks.init) {
     await hook(initCtx);
-  }
-  for (const runtime of core.pluginRuntimes) {
-    if (runtime.onInit) {
-      await runtime.onInit(
-        EngineContexts.createPluginScopedContext(
-          runtime.instance.id,
-          initCtx as unknown as Record<PropertyKey, unknown>,
-        ),
-      );
-    }
   }
   core.initialized = true;
 }

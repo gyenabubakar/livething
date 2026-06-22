@@ -1,16 +1,14 @@
 import type { SQLProvider } from '~/context.ts';
 
-// ── DDL ────────────────────────────────────────────────────────────────────
-
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
     identity      TEXT NOT NULL,
     channel_name  TEXT NOT NULL,
-    channel_scope TEXT NOT NULL DEFAULT '',
+    channel_family TEXT NOT NULL DEFAULT '',
     joined_at     INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata      TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (identity, channel_name, channel_scope)
+    PRIMARY KEY (identity, channel_name, channel_family)
   )
 `;
 
@@ -21,7 +19,7 @@ const CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL = `
 
 const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_channel
-  ON __wskit_channel_memberships (channel_name, channel_scope)
+  ON __wskit_channel_memberships (channel_name, channel_family)
 `;
 
 const CREATE_TAGS_TABLE_SQL = `
@@ -46,27 +44,23 @@ const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
   ON __wskit_tags (group_name, key)
 `;
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 /**
  * A single durable channel membership row, returned with the engine-native
- * `null` scope for static channels. Storage stores `''` and the read path
+ * `null` family for static channels. Storage stores `''` and the read path
  * maps it back to `null` here.
  */
 export interface DurableMembership {
   channelName: string;
-  channelScope: string | null;
+  channelFamily: string | null;
 
   joinedAt: number;
 }
 
 type RawMembershipRow = {
   channel_name: string;
-  channel_scope: string;
+  channel_family: string;
   joined_at: number;
 };
-
-// ── Schema ─────────────────────────────────────────────────────────────────
 
 // All six DDL statements in one multi-statement string. Cloudflare's SQL
 // `exec` accepts semicolon-separated statements, so this is one round trip
@@ -88,13 +82,11 @@ export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(PERSISTENCE_SCHEMA_SQL);
 }
 
-// ── Memberships ────────────────────────────────────────────────────────────
-
 export interface MembershipKey {
   identity: string;
 
   channelName: string;
-  channelScope: string | null;
+  channelFamily: string | null;
 }
 
 /**
@@ -109,12 +101,12 @@ export function insertMembership(
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_channel_memberships
-        (identity, channel_name, channel_scope, joined_at)
+        (identity, channel_name, channel_family, joined_at)
       VALUES (?, ?, ?, ?)
     `,
     key.identity,
     key.channelName,
-    scopeToDb(key.channelScope),
+    familyToDb(key.channelFamily),
     joinedAt,
   );
 }
@@ -127,11 +119,11 @@ export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: Membership
   sql.exec(
     `
       DELETE FROM __wskit_channel_memberships
-      WHERE identity = ? AND channel_name = ? AND channel_scope = ?
+      WHERE identity = ? AND channel_name = ? AND channel_family = ?
     `,
     key.identity,
     key.channelName,
-    scopeToDb(key.channelScope),
+    familyToDb(key.channelFamily),
   );
 }
 
@@ -146,7 +138,7 @@ export function listMembershipsByIdentity(
   const rows = sql
     .exec<RawMembershipRow>(
       `
-        SELECT channel_name, channel_scope, joined_at
+        SELECT channel_name, channel_family, joined_at
         FROM __wskit_channel_memberships
         WHERE identity = ?
       `,
@@ -155,24 +147,24 @@ export function listMembershipsByIdentity(
     .toArray();
   return rows.map((row) => ({
     channelName: row.channel_name,
-    channelScope: scopeFromDb(row.channel_scope),
+    channelFamily: familyFromDb(row.channel_family),
     joinedAt: row.joined_at,
   }));
 }
 
-/** True when a durable membership row exists for this identity and channel scope. */
+/** True when a durable membership row exists for this identity and channel. */
 export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): boolean {
   return (
     sql
       .exec(
         `
           SELECT 1 FROM __wskit_channel_memberships
-          WHERE identity = ? AND channel_name = ? AND channel_scope = ?
+          WHERE identity = ? AND channel_name = ? AND channel_family = ?
           LIMIT 1
         `,
         key.identity,
         key.channelName,
-        scopeToDb(key.channelScope),
+        familyToDb(key.channelFamily),
       )
       .toArray().length > 0
   );
@@ -192,19 +184,17 @@ export function purgeMembershipsByIdentity(sql: Pick<SQLProvider, 'exec'>, ident
 export function deleteMembershipsByChannel(
   sql: Pick<SQLProvider, 'exec'>,
   channelName: string,
-  channelScope: string | null,
+  channelFamily: string | null,
 ): void {
   sql.exec(
     `
       DELETE FROM __wskit_channel_memberships
-      WHERE channel_name = ? AND channel_scope = ?
+      WHERE channel_name = ? AND channel_family = ?
     `,
     channelName,
-    scopeToDb(channelScope),
+    familyToDb(channelFamily),
   );
 }
-
-// ── Tags ───────────────────────────────────────────────────────────────────
 
 /**
  * Delete every persistent tag row for one identity. Used by `purgeIdentity`.
@@ -214,23 +204,21 @@ export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: st
   sql.exec('DELETE FROM __wskit_tags WHERE identity = ?', identity);
 }
 
-// ── Scope mapping ──────────────────────────────────────────────────────────
-
 /**
- * Maps in-code `null` scope (static channel) to the empty string `''` on the
+ * Maps in-code `null` family (static channel) to the empty string `''` on the
  * DB side. SQLite treats NULLs as distinct in UNIQUE/PK, so `null` would
- * break the `(identity, channel_name, channel_scope)` primary key for static
- * channels. `''` is the canonical "no scope" marker on disk; in-engine code
+ * break the `(identity, channel_name, channel_family)` primary key for static
+ * channels. `''` is the canonical "no family" marker on disk; in-engine code
  * never sees it.
  */
-function scopeToDb(scope: string | null): string {
+function familyToDb(scope: string | null): string {
   return scope ?? '';
 }
 
 /**
  * Maps DB `''` back to `null` for in-engine consumers. Any non-empty string
- * is a real family scope and passes through.
+ * is a real family and passes through.
  */
-function scopeFromDb(scope: string): string | null {
+function familyFromDb(scope: string): string | null {
   return scope === '' ? null : scope;
 }

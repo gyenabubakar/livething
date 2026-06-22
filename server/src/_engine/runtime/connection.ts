@@ -1,8 +1,8 @@
 import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
-import * as TagPrimitive from '~/tags/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -68,7 +68,7 @@ interface ConnectionRuntime {
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   runConnectionLifecycle(
@@ -139,42 +139,40 @@ export async function runConnectionLifecycle(
   runtime: {
     connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
     disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    pluginRuntimes: readonly {
-      instance: { id: string };
-      onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-      onDisconnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+    /**
+     * New-model plugin connect/disconnect hooks, in registration order. Inbound
+     * (`connect`) runs these head-first before the app; outbound (`disconnect`)
+     * runs the app first, then these in reverse (LIFO) — the onion. The
+     * handlers are already wrapped in a plugin-scoped context.
+     */
+    pluginConnectHooks?: readonly {
+      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+    }[];
+    pluginDisconnectHooks?: readonly {
+      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
     }[];
     asyncContext: EngineAsyncContext;
-    createPluginScopedContext(
-      pluginId: string,
-      ctx: Record<PropertyKey, unknown>,
-    ): Record<PropertyKey, unknown>;
   },
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
   return withConnectionContext(runtime.asyncContext, String(ctx.id), async () => {
     if (kind === 'connect') {
+      // Inbound onion: new-model plugins see the connection before the app.
+      for (const entry of runtime.pluginConnectHooks ?? []) {
+        await entry.handler(ctx);
+      }
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
-      }
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (pluginRuntime.onConnect) {
-          await pluginRuntime.onConnect(
-            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
-          );
-        }
       }
     } else {
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
       }
-      for (const pluginRuntime of runtime.pluginRuntimes) {
-        if (pluginRuntime.onDisconnect) {
-          await pluginRuntime.onDisconnect(
-            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
-          );
-        }
+      // Outbound onion: the app tears down first, then plugins unwind LIFO.
+      const disconnects = runtime.pluginDisconnectHooks ?? [];
+      for (let i = disconnects.length - 1; i >= 0; i -= 1) {
+        await disconnects[i]!.handler(ctx);
       }
     }
   });
@@ -198,6 +196,7 @@ export async function cancelActiveStreamsForConnection(
         closed: boolean;
         onDisconnect?: EngineRuntimeTypes.OnDisconnect;
         detached?: boolean;
+        abortController?: AbortController;
       }
     >;
     logger?: Pick<PublicApi.Logger, 'error'>;
@@ -211,6 +210,11 @@ export async function cancelActiveStreamsForConnection(
       continue;
     }
     activeStream.closed = true;
+    // Fire the stop signal before return() so slow awaited work tied to
+    // ctx.stream.signal stops first; the generator's finally still runs.
+    if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
+      activeStream.abortController.abort('aborted');
+    }
     try {
       // A user-supplied generator may throw from its `finally` block. Log
       // and move on — the rest of connection-close cleanup (running
@@ -250,7 +254,7 @@ export async function handleConnectionClose(
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
       connection: EngineRuntimeTypes.RuntimeConnection,
-      scope?: EngineRuntimeTypes.ResolvedScope,
+      scope?: EngineRuntimeTypes.ResolvedChannel,
     ): Record<PropertyKey, unknown>;
     runConnectionLifecycle(
       kind: 'connect' | 'disconnect',
@@ -306,7 +310,7 @@ export async function handleConnectionClose(
     const resolved = ChannelPrimitive.resolveCompiledChannel(
       runtime.compiled,
       membership.channelName,
-      membership.channelScope,
+      membership.channelFamily,
     );
     // leaveChannel already contains user-hook throws. This outer guard is
     // defense-in-depth: any unexpected throw from broadcast or persist on
@@ -316,7 +320,7 @@ export async function handleConnectionClose(
       await runtime.leaveChannel(connection, {
         channel: resolved,
         channelName: membership.channelName,
-        channelScope: membership.channelScope,
+        channelFamily: membership.channelFamily,
         kickedReason: undefined,
         // disconnect: socket-close path. Persistent channels keep their
         // durable rows so the user is auto-rejoined on next connect.
@@ -326,13 +330,13 @@ export async function handleConnectionClose(
       runtime.logger?.error('[wskit] leaveChannel threw during close', {
         connectionId: connection.id,
         channel: membership.channelName,
-        channelScope: membership.channelScope,
+        channelFamily: membership.channelFamily,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  TagPrimitive.removeConnectionFromTagIndex(runtime.tagMembers, connection);
+  removeConnectionFromTagIndex(runtime.tagMembers, connection);
 
   if (connection.keepaliveTimer !== undefined) {
     clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
@@ -381,7 +385,7 @@ export function acceptConnection(
 
   for (const ref of descriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+    addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: ref.group,
       key: ref.key,
@@ -402,13 +406,10 @@ export function acceptConnection(
   }
 
   const ctx = runtime.buildConnectionContext(connection);
-  // lifecycleReady swallows handler errors into handleRuntimeError; if handleRuntimeError itself throws, the rejection is unhandled — acceptable because that path is fatal anyway.
-  //
-  // Auto-rejoin runs before onConnect so handlers see the connection
-  // already back in its persistent channels. The branch keeps the
-  // original synchronous start of `runConnectionLifecycle` for engines
-  // without persistence — adding a `.then()` chain unconditionally would
-  // shift onConnect's timing by a microtask and break existing tests.
+  // Auto-rejoin runs before onConnect so handlers see the connection already
+  // back in its persistent channels. The branch keeps the synchronous start of
+  // `runConnectionLifecycle` for engines without persistence — an unconditional
+  // `.then()` chain would shift onConnect's timing by a microtask.
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)
@@ -481,7 +482,7 @@ export function wakeHibernatedConnection(
   // repopulate the engine-wide channel and tag member indexes.
   const channelMemberships = new Map<
     string,
-    { channelName: string; channelScope: string | null }
+    { channelName: string; channelFamily: string | null }
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
@@ -523,7 +524,7 @@ export function wakeHibernatedConnection(
   runtime.wsToConnectionId.set(wsKey, connection.id);
 
   for (const t of row?.ephemeral_tags ?? []) {
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+    addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: t.group,
       key: t.key,
@@ -533,7 +534,7 @@ export function wakeHibernatedConnection(
   for (const membership of row?.ephemeral_memberships ?? []) {
     ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
       channelName: membership.channelName,
-      channelScope: membership.channelScope,
+      channelFamily: membership.channelFamily,
     });
   }
 
@@ -572,6 +573,24 @@ export async function handleUpgrade(
           meta?: Record<string, unknown>;
           tags?: readonly PublicApi.TagRef[];
         }>)[];
+    /**
+     * New-model plugin `upgrade` hooks, in registration order. Run before the
+     * app's builder hook (inbound onion). Each may own `identity`, but the
+     * single-owner rule below allows at most one identity source overall.
+     */
+    pluginUpgradeHooks?: readonly {
+      pluginId: string;
+      handler: (
+        request: Request,
+        helpers: LifecycleTypes.UpgradeHelpers,
+      ) =>
+        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+        | Promise<{
+            identity?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }>;
+    }[];
     builderUpgradeHook?:
       | ((
           request: Request,
@@ -594,26 +613,50 @@ export async function handleUpgrade(
      * empty object.
      */
     upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+    /**
+     * Whether a tag group of the given kind was declared. Guards tag refs an
+     * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
+     * which builds refs without going through the declaration-checked helper.
+     */
+    isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
-  if (runtime.upgradeHooks.length === 0 && !runtime.builderUpgradeHook) {
+  const pluginUpgradeHooks = runtime.pluginUpgradeHooks ?? [];
+  if (
+    pluginUpgradeHooks.length === 0 &&
+    runtime.upgradeHooks.length === 0 &&
+    !runtime.builderUpgradeHook
+  ) {
     return {};
   }
 
   try {
-    // Run internal-primitive hooks first, then the user-facing builder
-    // hook last. Each result's meta is shallow-merged into the running
-    // total; tags are concatenated (TagRef equality is by identity).
+    // Onion order: plugin upgrades first (registration order), then internal
+    // primitive hooks, then the app's builder hook last. Each result's meta is
+    // shallow-merged into the running total — since the app applies last it
+    // wins on key conflict; tags are concatenated (TagRef equality is by
+    // identity). At most one hook may own `identity`.
     let mergedMeta: Record<string, unknown> | undefined;
     let builderIdentity: string | undefined;
+    let identityOwner: string | undefined;
     const mergedTags: PublicApi.TagRef[] = [];
-    function apply(result: {
-      identity?: string;
-      meta?: Record<string, unknown>;
-      tags?: readonly PublicApi.TagRef[];
-    }): void {
+    function apply(
+      result: {
+        identity?: string;
+        meta?: Record<string, unknown>;
+        tags?: readonly PublicApi.TagRef[];
+      },
+      owner: string,
+    ): void {
       if (result.identity !== undefined) {
+        if (identityOwner !== undefined) {
+          throw new Error(
+            `[wskit] Two upgrade hooks returned 'identity' (${identityOwner} and ${owner}). ` +
+              'identity has exactly one owner per connection — the app or one plugin, never both.',
+          );
+        }
+        identityOwner = owner;
         builderIdentity = result.identity;
       }
       if (result.meta) {
@@ -626,15 +669,26 @@ export async function handleUpgrade(
               `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
             );
           }
+          if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
+            throw new Error(
+              `[wskit] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
+            );
+          }
           mergedTags.push(ref);
         }
       }
     }
+    for (const entry of pluginUpgradeHooks) {
+      apply(
+        (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
+        `plugin '${entry.pluginId}'`,
+      );
+    }
     for (const hook of runtime.upgradeHooks) {
-      apply((await hook(request, runtime.upgradeHelpers)) ?? {});
+      apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
     if (runtime.builderUpgradeHook) {
-      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {});
+      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
     return {
       identity: builderIdentity,
@@ -667,8 +721,13 @@ export async function handleUpgrade(
  */
 export async function handleShutdown(
   runtime: Pick<ConnectionRuntime, 'connections'> & {
+    activeStreams?: ReadonlyMap<string, { abortController?: AbortController }>;
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
-    pluginRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
+    /**
+     * New-model plugin shutdown hooks, in registration order. Run after the
+     * app's, in reverse (LIFO) — the outbound onion. Already scoped.
+     */
+    pluginShutdownHooks?: readonly { handler: (ctx: unknown) => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
@@ -676,6 +735,18 @@ export async function handleShutdown(
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
 ): Promise<void> {
+  // Fire every active stream's stop signal up front — including detached
+  // keep-running streams that the per-connection close below leaves alone — so
+  // in-flight awaited work tied to ctx.stream.signal stops as the server goes
+  // away. Idempotent: the per-connection close re-checks before aborting.
+  if (runtime.activeStreams) {
+    for (const activeStream of runtime.activeStreams.values()) {
+      if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
+        activeStream.abortController.abort('shutdown');
+      }
+    }
+  }
+
   // Shutdown is a best-effort drain: a throwing hook must not block
   // stream cancellation, socket close, or alarm clear. Each hook runs
   // inside its own try/catch with logging; cleanup below always runs.
@@ -689,10 +760,11 @@ export async function handleShutdown(
     }
   }
 
-  for (const pluginRuntime of runtime.pluginRuntimes) {
-    if (!pluginRuntime.onShutdown) continue;
+  // Outbound onion: new-model plugins unwind after the app, LIFO.
+  const pluginShutdowns = runtime.pluginShutdownHooks ?? [];
+  for (let i = pluginShutdowns.length - 1; i >= 0; i -= 1) {
     try {
-      await pluginRuntime.onShutdown();
+      await pluginShutdowns[i]!.handler(runtime.createShutdownContext());
     } catch (error) {
       runtime.logger?.error('[wskit] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),

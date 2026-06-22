@@ -1,69 +1,87 @@
-import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-export const ctxChannelsContract = contract('ctx-channels', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  tags: (ephemeral) => [ephemeral('user', t<string>())],
-  definitions: [
-    incoming('get-members', v.object({ channel: v.string() })),
-    incoming('get-member-id', v.object({ channel: v.string() })),
-    incoming(
-      'kick-in-channel',
-      v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
-    ),
-    incoming('kick-nonmember', v.object({})),
-    incoming('kick-self-by-ref', v.object({})),
-
-    outgoing('members-result', v.object({ channel: v.string(), count: v.number() })),
-    outgoing('member-id-result', v.object({ id: v.string() })),
-
-    channel('room', {
-      definitions: [
-        incoming('send-room-message', v.object({ text: v.string() })),
-        outgoing('room-message', v.object({ text: v.string(), from: v.string() })),
-      ],
+  upgrade: (request) => requireUsernameWithUserTag(request),
+  capabilities: [
+    emits({
+      'members-result': t<{ channel: string; count: number }>(),
+      'member-id-result': t<{ id: string }>(),
     }),
+    tags((ephemeral) => [ephemeral('user', t<string>())]),
+    channels(),
   ],
 });
 
-export const ctxChannelsHandler = implement(ctxChannelsContract)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers))
-  .on('get-members', (ctx, payload) => {
-    void payload;
+const room = base.channel('room', {
+  outgoing: {
+    emits: {
+      'room-message': t<{ text: string; from: string }>(),
+    },
+  },
+});
+
+const handleGetMembers = base.on('get-members', {
+  input: v.object({ channel: v.string() }),
+  run(ctx) {
     ctx.send('members-result', {
       channel: 'room',
       count: ctx.channels.get('room').members().length,
     });
-  })
-  .on('get-member-id', (ctx, payload) => {
-    void payload;
+  },
+});
+
+const handleGetMemberId = base.on('get-member-id', {
+  input: v.object({ channel: v.string() }),
+  run(ctx) {
     const members = ctx.channels.get('room').members();
     const first = members[0];
     ctx.send('member-id-result', { id: first ? first.id : '' });
-  })
-  .on('kick-in-channel', async (ctx, payload) => {
-    void payload.channel;
-    await ctx.channels
-      .get('room')
-      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
-  })
-  .on('kick-nonmember', async (ctx) => {
+  },
+});
+
+const handleKickInChannel = base.on('kick-in-channel', {
+  input: v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
+  async run(ctx, input) {
+    await ctx.channels.get('room').kick(ctx.tags.ephemeral('user').ref(input.tag), input.reason);
+  },
+});
+
+const handleKickNonmember = base.on('kick-nonmember', {
+  input: v.object({}),
+  async run(ctx) {
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral('user').ref('user3'), 'Non-existent user');
-  })
-  // Kick by a ConnectionRef (the caller's own socket) rather than a tag.
-  .on('kick-self-by-ref', async (ctx) => {
+  },
+});
+
+const handleKickSelfByRef = base.on('kick-self-by-ref', {
+  input: v.object({}),
+  async run(ctx) {
     await ctx.channels.get('room').kick(ctx.self, 'self kick by ref');
-  })
-  .channel('room', (ch) =>
-    ch.on('send-room-message', (ctx, payload) => {
-      ctx.channel.broadcast('room-message', { text: payload.text, from: ctx.meta.username });
-    }),
-  )
-  .build();
+  },
+});
+
+const handleSendRoomMessage = room.on('send-room-message', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
+    ctx.channel.broadcast('room-message', { text: input.text, from: ctx.meta.username });
+  },
+});
+
+export const ctxChannelsHandler = base.assemble(
+  handleGetMembers,
+  handleGetMemberId,
+  handleKickInChannel,
+  handleKickNonmember,
+  handleKickSelfByRef,
+  handleSendRoomMessage,
+);
 
 export type CtxChannelsClient = InferClient<typeof ctxChannelsHandler>;

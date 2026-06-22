@@ -14,23 +14,23 @@ type ChannelHandleDeps = Pick<
 >;
 
 /**
- * Build a `ChannelHandle` bound to the given resolved scope. Used both by
+ * Build a `ChannelHandle` bound to the given resolved channel. Used both by
  * `ctx.channel` (in-channel handlers) and `ctx.channels.get(...)` (anywhere).
  *
  * @internal
  */
 export function buildChannelHandle(
   connection: EngineContextTypes.RuntimeConnection,
-  scope: { channelName: string; channelScope: string | null; params?: Record<string, string> },
+  scope: { channelName: string; channelFamily: string | null; params?: Record<string, string> },
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
   return {
     name: scope.channelName,
-    scope: scope.channelScope,
+    family: scope.channelFamily,
     params: scope.params ?? {},
     send: (event: string, payload: unknown) =>
       deps.sendThroughPipeline(connection, {
-        routing: { channel: scope.channelName, channelScope: scope.channelScope },
+        routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
         payload,
       }),
@@ -40,15 +40,15 @@ export function buildChannelHandle(
         event,
         payload,
         excludeConnectionId: connection.id,
-        channelScope: scope.channelScope,
+        channelFamily: scope.channelFamily,
         excludeSelf: options?.excludeSelf,
       });
     },
-    members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
+    members: () => deps.getChannelMembers(scope.channelName, scope.channelFamily),
     subscribe: (ref, payload) =>
       deps.subscribeConnectionAsServer(ref, {
         channelName: scope.channelName,
-        channelScope: scope.channelScope,
+        channelFamily: scope.channelFamily,
         payload,
       }),
     kick: (target, reason: string) =>
@@ -56,15 +56,33 @@ export function buildChannelHandle(
         channelName: scope.channelName,
         target,
         reason,
-        channelScope: scope.channelScope,
+        channelFamily: scope.channelFamily,
       }),
     removeMember: (identity: string) =>
-      deps.removeChannelMember(scope.channelName, scope.channelScope, identity),
+      deps.removeChannelMember(scope.channelName, scope.channelFamily, identity),
   };
 }
 
 type ChannelsApiDeps = ChannelHandleDeps &
   Pick<EngineContextTypes.BuildConnectionContextDeps, 'resolveChannel'>;
+
+/**
+ * Normalize the arguments of `ctx.channels.get(...)` to a resolve target. Accepts
+ * a static channel declaration, a family declaration's `.at(params)` ref, a raw channel name,
+ * or a `(family, name)` pair.
+ */
+function toChannelTarget(args: unknown[]): string | { family: string; name: string } {
+  if (args.length >= 2) return { family: args[0] as string, name: args[1] as string };
+  const arg = args[0];
+  if (arg && typeof arg === 'object') {
+    if ('__wskitChannelRef' in arg) {
+      const ref = arg as unknown as { family: string; name: string };
+      return { family: ref.family, name: ref.name };
+    }
+    if ('__wskitChannel' in arg) return (arg as unknown as { __key: string }).__key;
+  }
+  return arg as string;
+}
 
 /** Build the `ctx.channels` helper surface — only `get(...)`. */
 export function buildChannelsApi(
@@ -73,26 +91,20 @@ export function buildChannelsApi(
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {
-      const target =
-        args.length >= 2
-          ? { family: args[0] as string, name: args[1] as string }
-          : (args[0] as string);
-      const resolved = deps.resolveChannel(target);
+      const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
       return buildChannelHandle(connection, resolved, deps);
     },
   };
 }
 
-// When a handler runs inside a channel scope, ctx.channel gives it a handle
-// bound to that channel. Returns {} when scope has no active channel.
-export function buildChannelScopeExtra(
+export function buildChannelFamilyExtra(
   connection: EngineContextTypes.RuntimeConnection,
   scope:
     | {
         channel?: EngineContextTypes.CompiledChannel;
         channelName?: string;
-        channelScope?: string | null;
+        channelFamily?: string | null;
       }
     | undefined,
   deps: ChannelHandleDeps,
@@ -101,7 +113,7 @@ export function buildChannelScopeExtra(
   const channel = scope.channel;
   const channelName =
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
-  const channelScope = scope.channelScope ?? null;
+  const channelFamily = scope.channelFamily ?? null;
   const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
-  return { channel: buildChannelHandle(connection, { channelName, channelScope, params }, deps) };
+  return { channel: buildChannelHandle(connection, { channelName, channelFamily, params }, deps) };
 }

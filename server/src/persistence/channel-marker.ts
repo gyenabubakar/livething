@@ -2,7 +2,7 @@ import type { Primitive } from '~/primitive.ts';
 
 /** The TypeScript type returned by `persistentMarker(enabled)`. */
 export interface PersistentMarkerPrimitive extends Primitive<'persistent-marker'> {
-  /** Whether the channel scope opts into persistence. `false` is the only useful value today. */
+  /** Whether the channel opts into persistence. `false` is the only useful value today. */
   readonly enabled: boolean;
 }
 

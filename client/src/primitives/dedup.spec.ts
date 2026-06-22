@@ -52,7 +52,6 @@ describe('dedup — keeps every id within the window', () => {
     }
     expect(handler).toHaveBeenCalledTimes(5);
 
-    // A is still within the window — replaying it MUST be blocked as a duplicate.
     ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
     expect(handler).toHaveBeenCalledTimes(5);
   });
@@ -68,14 +67,11 @@ describe('dedup — window eviction', () => {
     ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // Second arrival within the window — must be dropped.
     ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // Advance past the window so the id is evicted.
     vi.advanceTimersByTime(501);
 
-    // Same id now — must be delivered again because it was forgotten.
     ws.emit({ event: 'trade', payload: { id: 'x' }, __wskit: { messageId: 'id-1' } });
     expect(handler).toHaveBeenCalledTimes(2);
   });
@@ -86,22 +82,16 @@ describe('dedup — window eviction', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    // Emit id-old, then advance almost to the boundary, then emit id-new.
     ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'id-old' } });
     vi.advanceTimersByTime(600);
     ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'id-new' } });
     expect(handler).toHaveBeenCalledTimes(2);
 
-    // Advance 500 ms more (total 1100 ms): id-old is now outside the window but
-    // id-new is still inside (only 500 ms old). The early-break means eviction
-    // stops at id-old and removes it, but does NOT touch id-new.
     vi.advanceTimersByTime(500);
 
-    // id-old is evicted — re-delivery must go through.
     ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'id-old' } });
     expect(handler).toHaveBeenCalledTimes(3);
 
-    // id-new is still inside the window — must be treated as a duplicate.
     ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'id-new' } });
     expect(handler).toHaveBeenCalledTimes(3);
   });
@@ -112,20 +102,16 @@ describe('dedup — window eviction', () => {
     const handler = vi.fn();
     socket.on('trade', handler);
 
-    // Seed three ids that will become stale.
     ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'stale-1' } });
     ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'stale-2' } });
     ws.emit({ event: 'trade', payload: { id: '3' }, __wskit: { messageId: 'stale-3' } });
     expect(handler).toHaveBeenCalledTimes(3);
 
-    // Advance past the window — all three become stale.
     vi.advanceTimersByTime(301);
 
-    // Emit a brand-new id to trigger the eviction pass.
     ws.emit({ event: 'trade', payload: { id: '4' }, __wskit: { messageId: 'fresh-1' } });
     expect(handler).toHaveBeenCalledTimes(4);
 
-    // All three stale ids must have been evicted — re-delivering them must go through.
     ws.emit({ event: 'trade', payload: { id: '1' }, __wskit: { messageId: 'stale-1' } });
     ws.emit({ event: 'trade', payload: { id: '2' }, __wskit: { messageId: 'stale-2' } });
     ws.emit({ event: 'trade', payload: { id: '3' }, __wskit: { messageId: 'stale-3' } });
@@ -141,16 +127,14 @@ describe('dedup — sliding window', () => {
     socket.on('trade', handler);
 
     ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
-    expect(handler).toHaveBeenCalledTimes(1); // delivered, last-seen = t0
+    expect(handler).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(600);
     ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
-    expect(handler).toHaveBeenCalledTimes(1); // dropped; refreshes last-seen to t600
+    expect(handler).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(600); // t1200 — but only 600ms since the last sighting
+    vi.advanceTimersByTime(600);
     ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
-    // Sliding window: still within 1000ms of the last sighting → still dropped.
-    // (A fixed-from-first-sight window would have evicted it at t1000 and let this through.)
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });

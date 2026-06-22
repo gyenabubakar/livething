@@ -1,46 +1,18 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
-import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import { collectUnique } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
+import { DURABLE_STREAM_DEFAULTS, validateDurableStreamConfig } from '~/stream/durable-config.ts';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
+import type { CommonDurableStreamConfig } from '~/stream/durable-config.ts';
 import type { Validator } from '~/types.ts';
 
 export type { OnDisconnect };
 
-interface CommonResumableConfig {
-  onDisconnect?: OnDisconnect;
-  /** How long a suspended stream is kept after the owning connection drops. Default: 5 minutes. */
-  maxAgeMs?: number;
-  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still resume. Default: 30 seconds. */
-  retentionAfterEndMs?: number;
-  /**
-   * One generator, many subscribers. The creator runs the cursor-driven
-   * generator once; every chunk is buffered, fanned out to scope members,
-   * and the cursor is saved for crash recovery. Subscribers catch up from
-   * the buffer on resume — they do not re-invoke the generator.
-   *
-   * Scope is decided by where you declare the stream:
-   * - Top-level — fans out to every connection on the handler.
-   * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
-   *
-   * A non-creator that sends `__streamCancel__` is unsubscribed from future
-   * chunks for that stream id (its later resume returns `StreamAborted` with
-   * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
-   * else. A cancel from the creator identity tears the whole stream down.
-   *
-   * Default: false.
-   */
-  broadcast?: boolean;
-  /**
-   * Hard cap on chunks kept in the broadcast buffer. Only meaningful when
-   * `broadcast: true`. Default: 500.
-   */
-  maxChunks?: number;
-}
-
 /**
- * Contract-side declaration produced by `resumableStream()`. Pass it into
- * a contract's `definitions: [...]` array.
+ * Contract-side declaration produced internally when you register a stream with
+ * `base.resumableStream(...)`.
  */
 export interface ResumableStreamDef<
   TName extends string = string,
@@ -48,16 +20,15 @@ export interface ResumableStreamDef<
   TChunk = unknown,
   TCursor = unknown,
   TNudges extends readonly NudgeDef<string, any>[] = readonly NudgeDef<string, any>[],
-> extends CommonResumableConfig {
+> extends CommonDurableStreamConfig {
   readonly _: 'resumable-stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly cursor?: Validator<TCursor>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
-  readonly maxChunks: number;
 }
 
 interface ResumableStreamConfig<
@@ -65,9 +36,9 @@ interface ResumableStreamConfig<
   TChunk,
   TCursor,
   TNudges extends readonly NudgeDef<string, any>[],
-> extends CommonResumableConfig {
+> extends CommonDurableStreamConfig {
   payload?: Validator<TPayload>;
-  chunk?: Validator<TChunk>;
+  chunk?: TypeMarker<TChunk>;
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /**
@@ -97,7 +68,7 @@ interface ResumableStreamConfig<
  * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
  * a resume so a paused durable stream stays paused after reconnect.
  *
- * Requires `persistence: true` on the contract. Build throws otherwise.
+ * Requires the `persistence()` capability. Build throws otherwise.
  *
  * Pass a `cursor` validator to pin the cursor type and have the framework
  * runtime-check every cursor it restores from storage. A stored cursor that
@@ -106,32 +77,32 @@ interface ResumableStreamConfig<
  *
  * @example
  * ```ts
- * import { contract, resumableStream } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
+ * import { resumableStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
  * const PaginatePayload = v.object({});
- * const RowChunk = v.object({ row: v.number() });
+ * const RowChunk = t<{ row: number }>();
  * const PaginateCursor = v.object({ idx: v.number() });
  *
- * const myContract = contract('files', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     resumableStream('paginate', {
- *       payload: PaginatePayload,
- *       chunk: RowChunk,
- *       cursor: PaginateCursor,
- *       maxAgeMs: 60_000,
- *       retentionAfterEndMs: 30_000,
- *     }),
- *   ],
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), resumableStream()],
  * });
  *
- * // In the handler:
- * implement(myContract).resumableStream('paginate', async function* (ctx) {
- *   const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
- *   for (let i = startAt + 1; i <= 10; i += 1) {
- *     yield ctx.stream.withCursor({ row: i }, { idx: i });
- *   }
+ * const handlePaginate = base.resumableStream('paginate', {
+ *   input: PaginatePayload,
+ *   chunk: RowChunk,
+ *   cursor: PaginateCursor,
+ *   maxAgeMs: 60_000,
+ *   retentionAfterEndMs: 30_000,
+ *   async *run(ctx) {
+ *     const startAt = ctx.stream.cursor?.idx ?? 0;
+ *     for (let i = startAt + 1; i <= 10; i += 1) {
+ *       yield ctx.stream.withCursor({ row: i }, { idx: i });
+ *     }
+ *   },
  * });
  * ```
  */
@@ -147,17 +118,11 @@ export function resumableStream<
 ): ResumableStreamDef<TName, TPayload, TChunk, TCursor, TNudges> {
   assertNonReservedEventName(name, 'resumableStream');
   const context = `resumableStream("${name}")`;
-  assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
-  assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
-  assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
-  if (config?.onDisconnect !== undefined) {
-    assertOneOf(config.onDisconnect, ['cancel-but-buffer', 'keep-running'] as const, {
-      field: 'onDisconnect',
-      context,
-    });
-  }
+  validateDurableStreamConfig(config, context);
+
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
+
   return {
     _: 'resumable-stream',
     name,
@@ -167,9 +132,9 @@ export function resumableStream<
     nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,
-    onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
-    maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
-    retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
-    maxChunks: config?.maxChunks ?? 500,
+    onDisconnect: config?.onDisconnect ?? DURABLE_STREAM_DEFAULTS.onDisconnect,
+    maxAgeMs: config?.maxAgeMs ?? DURABLE_STREAM_DEFAULTS.maxAgeMs,
+    retentionAfterEndMs: config?.retentionAfterEndMs ?? DURABLE_STREAM_DEFAULTS.retentionAfterEndMs,
+    highWaterMark: config?.highWaterMark,
   };
 }

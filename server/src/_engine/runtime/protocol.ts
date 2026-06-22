@@ -13,8 +13,6 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import * as v from 'valibot';
 
-// ───── Section: reusable pieces ─────
-
 /**
  * A non-negative safe integer — sequence numbers and replay/resume cursors.
  * Bounded by `Number.MAX_SAFE_INTEGER` so a client-controlled cursor cannot
@@ -42,6 +40,9 @@ const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMIT
  */
 const StreamKind = v.picklist(['ephemeral', 'persistent']);
 
+/** The side that originated a two-way exchange, carried on `__wskit.source`. */
+const Source = v.picklist(['server', 'client']);
+
 /**
  * A bounded channel name. Channel names can be composite
  * (e.g. `org:123:room:abc`), so they get more headroom than the other
@@ -52,12 +53,12 @@ const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.c
 
 /**
  * A bounded family key for dynamic channels. These are short identifiers that
- * must match a declared scope, so 128 is never legitimately exceeded.
+ * must match a declared family, so 128 is never legitimately exceeded.
  */
-const ScopeKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelScope));
+const ChannelFamilyKey = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channelFamily));
 
 /**
- * A bounded correlation / ack / message id. The client SDK stamps these as
+ * A bounded correlation / message id. The client SDK stamps these as
  * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
  * Capping stops a client bloating logs, the dedup ring, and storage rows.
  */
@@ -67,22 +68,22 @@ const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.wireId
 const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.event));
 
 /**
- * Scope markers for a frame that must target a channel. `channelScope` is the
+ * Scope markers for a frame that must target a channel. `channelFamily` is the
  * family key for dynamic channels; wire-missing or wire-null both resolve to
  * `null`, matching the engine's "static channel = null" convention.
  */
 const RequiredChannelScope = {
   channel: ChannelName,
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /**
  * Scope markers for a frame that may be top-level or channel-scoped. Every
- * field is optional; `channelScope` still resolves to `null` when absent.
+ * field is optional; `channelFamily` still resolves to `null` when absent.
  */
 const OptionalScope = {
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /**
@@ -92,13 +93,11 @@ const OptionalScope = {
  */
 const ReplayScope = {
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
 };
 
 /** An empty payload — protocol events that carry no app data. */
 const NoPayload = v.strictObject({});
-
-// ───── Section: incoming protocol frames (client → server) ─────
 
 export const SubscribeFrame = v.object({
   event: v.literal('__subscribe__'),
@@ -135,6 +134,12 @@ export const ResumeStreamFrame = v.object({
   __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
+export const MemberSyncRequestFrame = v.object({
+  event: v.literal('__memberSync__'),
+  payload: v.optional(NoPayload),
+  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
+});
+
 /** All frames the client may send into the engine, discriminated on `event`. */
 export const IncomingProtocolFrame = v.variant('event', [
   SubscribeFrame,
@@ -142,17 +147,20 @@ export const IncomingProtocolFrame = v.variant('event', [
   ReplayFrame,
   StreamCancelFrame,
   ResumeStreamFrame,
+  MemberSyncRequestFrame,
 ]);
-
-// ───── Section: outgoing protocol frames (server → client) ─────
 
 export const SubscribeOkFrame = v.object({
   event: v.literal('__subscribeOk__'),
-  payload: v.strictObject({ source: v.picklist(['client', 'server']) }),
-  // `channelPersistent` tells the client whether this channel auto-rejoins on
-  // reconnect (server-driven) so it knows not to re-subscribe it itself.
+  payload: NoPayload,
+  // `source` is who initiated the subscribe: 'client' (the client's own
+  // subscribe call, so it resolves that pending promise) or 'server' (the server
+  // subscribed it, so there is no client promise to settle). `channelPersistent`
+  // tells the client whether this channel auto-rejoins on reconnect (server
+  // -driven) so it knows not to re-subscribe it itself.
   __wskit: v.strictObject({
     ...RequiredChannelScope,
+    source: Source,
     channelPersistent: v.optional(v.boolean()),
   }),
 });
@@ -191,12 +199,6 @@ export const StreamEndFrame = v.object({
   }),
 });
 
-export const AckFrame = v.object({
-  event: v.literal('__ack__'),
-  payload: NoPayload,
-  __wskit: v.strictObject({ ackId: v.string() }),
-});
-
 export const ErrorFrame = v.object({
   event: v.literal('__error__'),
   payload: v.strictObject({
@@ -206,7 +208,7 @@ export const ErrorFrame = v.object({
   __wskit: v.strictObject({
     ...OptionalScope,
     correlationId: v.optional(v.string()),
-    ackId: v.optional(v.string()),
+    source: v.optional(Source),
     streamId: v.optional(v.string()),
     streamNudgeId: v.optional(v.string()),
     // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
@@ -268,7 +270,7 @@ export const MemberSyncFrame = v.object({
       }),
     ),
   }),
-  __wskit: v.strictObject(RequiredChannelScope),
+  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
 /** All frames the engine sends to clients, discriminated on `event`. */
@@ -278,7 +280,6 @@ export const OutgoingProtocolFrame = v.variant('event', [
   StreamOkFrame,
   NudgeOkFrame,
   StreamEndFrame,
-  AckFrame,
   ErrorFrame,
   KickedFrame,
   MemberJoinFrame,
@@ -288,18 +289,20 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberSyncFrame,
 ]);
 
-// ───── Section: user-event frames ─────
-
 /**
- * The loose `__wskit` block on a user-event frame. Carries the correlation and
- * ack ids for request-response and delivery-confirmation flows, the routing
- * markers for scoped sends, and the dedup/sequence ids the engine stamps.
+ * The loose `__wskit` block on a user-event frame. Carries the correlation id
+ * for request-response flows, the routing markers for scoped sends, and the
+ * dedup/sequence ids the engine stamps.
  */
 export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
+  // The side that originated this exchange: 'server' or 'client'. One field
+  // shared by every two-way flow (requests, replies, acks, subscribe). It lets
+  // the receiver tell a request it must answer (the other side originated it)
+  // from a reply to its own request (it originated it).
+  source: v.optional(Source),
   channel: v.optional(ChannelName),
-  channelScope: v.nullish(ScopeKey, null),
-  ackId: v.optional(WireId),
+  channelFamily: v.nullish(ChannelFamilyKey, null),
   streamId: v.optional(StreamIdString),
   streamKind: v.optional(StreamKind),
   streamNudgeId: v.optional(WireId),
@@ -316,8 +319,6 @@ export const UserEventFrameSchema = v.strictObject({
   __wskit: v.optional(WSKitProtocolSchema),
 });
 
-// ───── Section: types ─────
-
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
 export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;
@@ -331,13 +332,13 @@ export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;
 export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
+export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
 export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
-export type AckFrame = v.InferOutput<typeof AckFrame>;
 export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
 export type KickedFrame = v.InferOutput<typeof KickedFrame>;
 export type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
@@ -351,15 +352,8 @@ export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
 /** Names of the protocol events the engine sends to clients. */
 export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
 
-// ───── Section: dispatch helper ─────
-
 /**
- * True when `name` has the protocol-event shape `__x__`. The engine uses this
- * to split protocol frames (parsed against the protocol variant) from
- * user-event frames (parsed against the user-event schema) before validation.
- *
- * Plugin-owned events use the `__pluginId:event` form — they start with `__`
- * but do not end with it, so this check leaves them on the user-event path.
+ * True when `name` has the protocol-event shape `__x__`.
  */
 export function isProtocolEventName(name: unknown): name is `__${string}__` {
   return (

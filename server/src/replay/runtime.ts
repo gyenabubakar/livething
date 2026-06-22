@@ -1,7 +1,7 @@
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META } from '~/_engine/contexts/types.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
+import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type {
@@ -20,7 +20,7 @@ const CREATE_REPLAY_TABLE_SQL = `
     event TEXT NOT NULL,
     payload TEXT NOT NULL,
     channel TEXT,
-    channelScope TEXT,
+    channelFamily TEXT,
     snapshotKey TEXT,
     createdAt INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
@@ -35,7 +35,7 @@ const CREATE_REPLAY_SEQ_INDEX_SQL = `
 
 const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS __wskit_idx_replay_scope_seq
-  ON __wskit_replay (channel, channelScope, seq)
+  ON __wskit_replay (channel, channelFamily, seq)
 `;
 
 const REPLAY_SCHEMA_SQL = [
@@ -57,7 +57,7 @@ export function ensureReplaySchema(sql: {
 const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
 
 /**
- * The shared rule deciding whether a (channelScope, channelName) pair belongs
+ * The shared rule deciding whether a (channelFamily, channelName) pair belongs
  * to a replay instance. A channel-scoped instance (`channelKey` set) takes only
  * its own scope; a server-level instance cascades, taking every scope except
  * the channels another instance has claimed. Both `matchesReplayScope` (context
@@ -66,14 +66,14 @@ const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
  */
 function scopeMatchesReplayInstance(
   channelKey: string | undefined,
-  scope: { channelScope?: string | null; channelName?: string | null },
+  scope: { channelFamily?: string | null; channelName?: string | null },
   claimedChannelKeys: ReadonlySet<string>,
 ): boolean {
-  const { channelScope, channelName } = scope;
+  const { channelFamily, channelName } = scope;
   if (channelKey) {
-    return channelScope === channelKey || channelName === channelKey;
+    return channelFamily === channelKey || channelName === channelKey;
   }
-  if (channelScope && claimedChannelKeys.has(channelScope)) return false;
+  if (channelFamily && claimedChannelKeys.has(channelFamily)) return false;
   if (channelName && claimedChannelKeys.has(channelName)) return false;
   return true;
 }
@@ -96,7 +96,7 @@ function scopeMatchesReplayInstance(
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
-  scope: { channelName?: string; channelScope?: string | null },
+  scope: { channelName?: string; channelFamily?: string | null },
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   return scopeMatchesReplayInstance(channelKey, scope, claimedChannelKeys);
@@ -105,27 +105,27 @@ export function matchesReplayScope(
 /**
  * Check whether a connection may receive replay rows for a channel-scoped
  * request. Non-channel requests pass through. Channel requests require live
- * membership in the same (channelName, channelScope) the request asks for.
+ * membership in the same (channelName, channelFamily) the request asks for.
  */
 export function isChannelReplayAuthorized(
   connection: RuntimeConnection | undefined,
   scope: { channelName?: string },
-  wskit: { channelScope?: string | null } | undefined,
+  wskit: { channelFamily?: string | null } | undefined,
 ): boolean {
   if (!scope.channelName) return true;
   if (!connection) return false;
   return ChannelPrimitive.hasChannelMembership(
     connection,
     scope.channelName,
-    wskit?.channelScope ?? null,
+    wskit?.channelFamily ?? null,
   );
 }
 
 /**
  * Read the hidden scope markers attached to one live connection ctx.
  */
-export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): EngineScopeMeta {
-  return (ctx[ENGINE_SCOPE_META] as EngineScopeMeta | undefined) ?? {};
+export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): EngineChannelMeta {
+  return (ctx[ENGINE_CHANNEL_META] as EngineChannelMeta | undefined) ?? {};
 }
 
 /**
@@ -134,7 +134,7 @@ export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): Engin
 export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadScope {
   return {
     channel: typeof wskit.channel === 'string' ? wskit.channel : null,
-    channelScope: typeof wskit.channelScope === 'string' ? wskit.channelScope : null,
+    channelFamily: typeof wskit.channelFamily === 'string' ? wskit.channelFamily : null,
   };
 }
 
@@ -175,7 +175,7 @@ export function shouldStoreReplayMessage(
   const scope = readReplayScope(wskit);
   return scopeMatchesReplayInstance(
     channelKey,
-    { channelScope: scope.channelScope, channelName: scope.channel },
+    { channelFamily: scope.channelFamily, channelName: scope.channel },
     claimedChannelKeys,
   );
 }
@@ -215,7 +215,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
     event,
     payload: JSON.stringify(payload),
     channel: scope.channel,
-    channelScope: scope.channelScope,
+    channelFamily: scope.channelFamily,
     snapshotKey,
     createdAt: now,
   };
@@ -240,7 +240,7 @@ export function getReplayRowByKey(
           event,
           payload,
           channel,
-          channelScope,
+          channelFamily,
           snapshotKey,
           createdAt
         FROM __wskit_replay
@@ -259,7 +259,7 @@ export function getReplayRowByKey(
     event: String(row.event),
     payload: String(row.payload),
     channel: (row.channel as string | null) ?? null,
-    channelScope: (row.channelScope as string | null) ?? null,
+    channelFamily: (row.channelFamily as string | null) ?? null,
     snapshotKey: (row.snapshotKey as string | null) ?? null,
     createdAt: Number(row.createdAt),
   };
@@ -293,6 +293,17 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   };
 }
 
+/**
+ * One queued snapshot write held in the invocation scope. `row` is the value a
+ * later write in the same handler merges against; `flush` writes (or deletes)
+ * the row and runs the retention prune. The engine drains the queue by calling
+ * `flush`, so it never imports the replay storage helpers.
+ */
+export interface ReplaySnapshotEntry {
+  row: ReplayRow | null;
+  flush: (sql: Pick<SQLProvider, 'exec'>) => void;
+}
+
 export interface PersistReplayMessageOptions {
   options: ReplayOptions;
 
@@ -308,7 +319,7 @@ export interface PersistReplayMessageOptions {
    * The engine's open invocation scope, if a handler is currently running.
    * When this is set AND the replay mode is `snapshot`, this function does
    * NOT write to SQL. Instead, it adds the row to
-   * `scope.pendingReplaySnapshotRows` under the row key the snapshot maps
+   * `scope.pendingSnapshotFlushes` under the row key the snapshot maps
    * to. A later write in the same handler that targets the same key will
    * find the queued row and either replace it with the new value, or run
    * the reducer to merge the two — all in memory. When the handler
@@ -318,13 +329,7 @@ export interface PersistReplayMessageOptions {
    * writes to SQL right away.
    */
   scope?: {
-    pendingReplaySnapshotRows: Map<
-      string,
-      {
-        row: ReplayRow | null;
-        postFlush: (sql: Pick<SQLProvider, 'exec'>) => void;
-      }
-    >;
+    pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
   } | null;
 
   /**
@@ -388,7 +393,7 @@ export function persistReplayMessage(
   // delete the key when the reducer returned `null`).
   if (scope) {
     const nextValue: ReplaySnapshotValue = { event, payload };
-    const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
+    const queued = scope.pendingSnapshotFlushes.get(row.rowKey);
 
     let previousValue: ReplaySnapshotValue | null;
     if (queued !== undefined) {
@@ -399,11 +404,15 @@ export function persistReplayMessage(
     }
 
     const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
+    const prune = postFlush ?? noopPostFlush;
 
     if (!reduced) {
-      scope.pendingReplaySnapshotRows.set(row.rowKey, {
+      scope.pendingSnapshotFlushes.set(row.rowKey, {
         row: null,
-        postFlush: postFlush ?? noopPostFlush,
+        flush: (sqlForFlush) => {
+          deleteReplayRow(sqlForFlush, row.rowKey);
+          prune(sqlForFlush);
+        },
       });
       return null;
     }
@@ -416,9 +425,12 @@ export function persistReplayMessage(
       payload: JSON.stringify(reduced.payload),
     };
 
-    scope.pendingReplaySnapshotRows.set(row.rowKey, {
+    scope.pendingSnapshotFlushes.set(row.rowKey, {
       row: snapshotRow,
-      postFlush: postFlush ?? noopPostFlush,
+      flush: (sqlForFlush) => {
+        storeReplayRow(sqlForFlush, snapshotRow);
+        prune(sqlForFlush);
+      },
     });
 
     return snapshotRow;
@@ -461,7 +473,7 @@ function buildReplayRowKey(
   return JSON.stringify([
     'snapshot',
     scope.channel ?? '',
-    scope.channelScope ?? '',
+    scope.channelFamily ?? '',
     snapshotKey ?? messageId,
   ]);
 }
@@ -484,7 +496,7 @@ export function storeReplayRow(
         event,
         payload,
         channel,
-        channelScope,
+        channelFamily,
         snapshotKey,
         createdAt
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -495,7 +507,7 @@ export function storeReplayRow(
     row.event,
     row.payload,
     row.channel,
-    row.channelScope,
+    row.channelFamily,
     row.snapshotKey,
     row.createdAt,
   );
@@ -526,13 +538,13 @@ export function pruneExpiredReplayRows(
  * Trim one replay store down to the configured maximum row count.
  *
  * Replay has exactly two replay stores: the top-level one and one per channel.
- * The limit is matched to the read by keying on `channel`/`channelScope`:
+ * The limit is matched to the read by keying on `channel`/`channelFamily`:
  *
  * - Top-level store (`channel` is null): keep the newest N across every
  *   non-channel row.
- * - Channel store: keep the newest N for that one `(channel, channelScope)`.
+ * - Channel store: keep the newest N for that one `(channel, channelFamily)`.
  *
- * Both cases fall out of the same query: a null `channel`/`channelScope` binds
+ * Both cases fall out of the same query: a null `channel`/`channelFamily` binds
  * to the top-level rows, a real channel binds to that channel's rows. Ordering
  * by `seq` is well-defined because the sequence counter is global (one counter
  * for the whole server).
@@ -553,13 +565,13 @@ export function pruneReplayScopeRows(
         SELECT rowKey
         FROM __wskit_replay
         WHERE channel IS ?
-          AND channelScope IS ?
+          AND channelFamily IS ?
         ORDER BY seq DESC
         LIMIT -1 OFFSET ?
       )
     `,
     scope.channel,
-    scope.channelScope,
+    scope.channelFamily,
     retention.maxMessages,
   );
 }
@@ -569,11 +581,10 @@ export function pruneReplayScopeRows(
  */
 export function buildLoadReplayQuery(
   since: number,
-  scope: { channelName?: string; channelScope: string | null },
+  scope: { channelName?: string; channelFamily: string | null },
 ): { sql: string; params: unknown[] } {
   if (scope.channelName) {
-    if (scope.channelScope === null) {
-      // Static channel: scope marker is always an explicit null.
+    if (scope.channelFamily === null) {
       return {
         sql: `
           SELECT
@@ -583,12 +594,12 @@ export function buildLoadReplayQuery(
             event,
             payload,
             channel,
-            channelScope,
+            channelFamily,
             snapshotKey,
             createdAt
           FROM __wskit_replay
           WHERE channel IS ?
-            AND channelScope IS NULL
+            AND channelFamily IS NULL
             AND seq > ?
           ORDER BY seq ASC
         `,
@@ -604,16 +615,16 @@ export function buildLoadReplayQuery(
           event,
           payload,
           channel,
-          channelScope,
+          channelFamily,
           snapshotKey,
           createdAt
         FROM __wskit_replay
         WHERE channel IS ?
-          AND channelScope IS ?
+          AND channelFamily IS ?
           AND seq > ?
         ORDER BY seq ASC
       `,
-      params: [scope.channelName, scope.channelScope, since],
+      params: [scope.channelName, scope.channelFamily, since],
     };
   }
 
@@ -630,12 +641,12 @@ export function buildLoadReplayQuery(
         event,
         payload,
         channel,
-        channelScope,
+        channelFamily,
         snapshotKey,
         createdAt
       FROM __wskit_replay
       WHERE channel IS NULL
-        AND channelScope IS NULL
+        AND channelFamily IS NULL
         AND seq > ?
       ORDER BY seq ASC
     `,
@@ -651,7 +662,7 @@ export function loadReplayRows(
     exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
   },
   since: number,
-  scope: { channelName?: string; channelScope: string | null },
+  scope: { channelName?: string; channelFamily: string | null },
 ): ReplayRow[] {
   const query = buildLoadReplayQuery(since, scope);
   const rows = sql.exec<ReplayRow>(query.sql, ...query.params);
@@ -663,7 +674,7 @@ export function loadReplayRows(
     event: String(row.event),
     payload: String(row.payload),
     channel: (row.channel as string | null) ?? null,
-    channelScope: (row.channelScope as string | null) ?? null,
+    channelFamily: (row.channelFamily as string | null) ?? null,
     snapshotKey: (row.snapshotKey as string | null) ?? null,
     createdAt: Number(row.createdAt),
   }));

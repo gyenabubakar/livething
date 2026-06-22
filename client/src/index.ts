@@ -31,13 +31,13 @@ export type {
   ChannelsOptions,
   ChannelMessaging,
   ChannelMember,
-  ScopeHandle,
+  FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/index.ts';
 export { requestResponse } from '~/primitives/request-response/index.ts';
 export type { RequestResponseOptions } from '~/primitives/request-response/index.ts';
-export { ack } from '~/primitives/ack/index.ts';
-export type { AckOptions } from '~/primitives/ack/index.ts';
+export { serverRequest } from '~/primitives/server-request/index.ts';
+export type { ServerRequestOptions } from '~/primitives/server-request/index.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
@@ -74,7 +74,6 @@ export type {
   NudgesOf,
 } from '~/types.ts';
 
-// For people writing their own primitives.
 export type {
   TypeFn,
   EmptyTypeFn,

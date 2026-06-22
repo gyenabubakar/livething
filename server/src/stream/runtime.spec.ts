@@ -9,6 +9,7 @@ import type {
   SendThroughPipelineOptions,
 } from '~/outgoing/runtime.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
+import { wrapStreamGenerator } from './shared.ts';
 import type { RunStreamOptions } from './runtime.ts';
 
 type AsyncContextStore = {
@@ -125,7 +126,7 @@ describe('stream/runtime', () => {
     };
 
     await runStream(runtime as Parameters<typeof runStream>[0], connection, {
-      scope: { channelName: 'chat', channelScope: 'rooms' },
+      scope: { channelName: 'chat', channelFamily: 'rooms' },
       event: 'chat-stream',
       stream: stream as never,
       payload: {},
@@ -134,7 +135,7 @@ describe('stream/runtime', () => {
     const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
     expect(streamEnd!.wskit.channel).toBe('chat');
-    expect(streamEnd!.wskit.channelScope).toBe('rooms');
+    expect(streamEnd!.wskit.channelFamily).toBe('rooms');
   });
 
   it('broadcast stream sends chunks to every connection in scope', async () => {
@@ -171,18 +172,17 @@ describe('stream/runtime', () => {
     }
   });
 
-  it('broadcast stream forwards channelScope to peer sends (dynamic channel families)', async () => {
+  it('broadcast stream forwards channelFamily to peer sends (dynamic channel families)', async () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
-    // Both are members of the channel family scope.
     trigger.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     peer.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(peer.id, peer);
@@ -195,25 +195,25 @@ describe('stream/runtime', () => {
     };
 
     // Stream declared inside `channel(scope('rooms', /^room:.+$/))`. The
-    // active scope carries channelName: 'room:123' and channelScope: 'rooms'.
-    // Peer broadcasts must forward channelScope so the outgoing pipeline
+    // active scope carries channelName: 'room:123' and channelFamily: 'rooms'.
+    // Peer broadcasts must forward channelFamily so the outgoing pipeline
     // resolves the channel family rather than failing the declaration check
     // against a non-existent static channel called 'room:123'.
     await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
-      scope: { channelName: 'room:123', channelScope: 'rooms' },
+      scope: { channelName: 'room:123', channelFamily: 'rooms' },
       event: 'broadcast-stream',
       stream: stream as never,
       payload: {},
     });
 
-    // Every send (peer and the creator's own) carries channelScope so the
+    // Every send (peer and the creator's own) carries channelFamily so the
     // outgoing pipeline resolves the channel family rather than failing the
     // declaration check against a non-existent static channel 'room:123'.
     expect(pipelineSends.map((s) => s.connId).sort()).toEqual(['peer', 'trigger']);
     for (const send of pipelineSends) {
       expect(send.routing).toMatchObject({
         channel: 'room:123',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         streamKind: 'ephemeral',
         seq: 1,
       });
@@ -228,13 +228,12 @@ describe('stream/runtime', () => {
 
     trigger.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     member.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
-    // nonMember is connected but never subscribed.
 
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(member.id, member);
@@ -248,7 +247,7 @@ describe('stream/runtime', () => {
     };
 
     await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
       event: 'broadcast-stream',
       stream: stream as never,
       payload: {},
@@ -343,10 +342,15 @@ describe('stream/runtime', () => {
       generator,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     });
 
-    await cancelStream({ activeStreams }, stranger, streamId);
+    await cancelStream(
+      { activeStreams, connections: new Map(), sendProtocolMessage: vi.fn() },
+      stranger,
+      streamId,
+    );
 
     expect(generator.return as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(activeStreams.has(streamId)).toBe(true);
@@ -376,12 +380,17 @@ describe('stream/runtime', () => {
       generator: generator as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     });
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
 
     await expect(
-      cancelStream({ activeStreams, logger }, owner, 'stream_1'),
+      cancelStream(
+        { activeStreams, logger, connections: new Map(), sendProtocolMessage: vi.fn() },
+        owner,
+        'stream_1',
+      ),
     ).resolves.toBeUndefined();
 
     expect(activeStreams.has('stream_1')).toBe(false);
@@ -389,6 +398,85 @@ describe('stream/runtime', () => {
     const [message, fields] = logger.error.mock.calls[0]!;
     expect(message).toMatch(/stream cleanup threw on __streamCancel__/);
     expect((fields as { streamId?: string }).streamId).toBe('stream_1');
+  });
+
+  it('cancelStream fans a terminal __streamEnd__ out to broadcast peers (Minor 2)', async () => {
+    const owner = createConnection('owner');
+    const bob = createConnection('bob');
+    const generator = (async function* () {
+      yield 1;
+    })();
+    await generator.next();
+
+    const activeStreams = new Map<string, ActiveStream>();
+    const streamId = 'bstream';
+    activeStreams.set(streamId, {
+      id: streamId,
+      connectionId: owner.id,
+      event: 'feed',
+      generator: generator as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      abortController: new AbortController(),
+      closed: false,
+      scope: {},
+      broadcast: true,
+    });
+    const connections = new Map([
+      [owner.id, owner],
+      [bob.id, bob],
+    ]);
+    const sendProtocolMessage = vi.fn();
+
+    await cancelStream({ activeStreams, connections, sendProtocolMessage }, owner, streamId);
+
+    expect(activeStreams.has(streamId)).toBe(false);
+    // Only the peer gets the terminal; the creator initiated the cancel.
+    expect(sendProtocolMessage).toHaveBeenCalledTimes(1);
+    const [target, opts] = sendProtocolMessage.mock.calls[0]!;
+    expect((target as RuntimeConnection).id).toBe('bob');
+    expect((opts as { event: string }).event).toBe('__streamEnd__');
+    const wskit = (opts as { wskit: Record<string, unknown> }).wskit;
+    expect(wskit.streamId).toBe(streamId);
+    expect(wskit.eventName).toBe('feed');
+  });
+
+  it('cancelStream does not fan out for a non-broadcast stream', async () => {
+    const owner = createConnection('owner');
+    const bob = createConnection('bob');
+    const generator = (async function* () {
+      yield 1;
+    })();
+    await generator.next();
+
+    const activeStreams = new Map<string, ActiveStream>();
+    activeStreams.set('s', {
+      id: 's',
+      connectionId: owner.id,
+      event: 'feed',
+      generator: generator as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      abortController: new AbortController(),
+      closed: false,
+      scope: {},
+    });
+    const sendProtocolMessage = vi.fn();
+
+    await cancelStream(
+      {
+        activeStreams,
+        connections: new Map([
+          [owner.id, owner],
+          [bob.id, bob],
+        ]),
+        sendProtocolMessage,
+      },
+      owner,
+      's',
+    );
+
+    expect(sendProtocolMessage).not.toHaveBeenCalled();
   });
 
   it('a cancel while the generator next() is pending emits no chunk and no __streamEnd__', async () => {
@@ -505,7 +593,7 @@ describe('stream/runtime', () => {
       {
         event: 'nudge-event',
         payload: {},
-        wskit: { streamId: 'does-not-exist', channelScope: null },
+        wskit: { streamId: 'does-not-exist', channelFamily: null },
       },
     );
 
@@ -531,6 +619,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: true,
     };
     runtime.activeStreams.set('stream_1', closed);
@@ -538,7 +627,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -558,13 +647,14 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     });
 
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       intruder,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -586,8 +676,9 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -597,7 +688,7 @@ describe('stream/runtime', () => {
       {
         event: 'known-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelFamily: 'rooms' },
       },
     );
 
@@ -614,7 +705,7 @@ describe('stream/runtime', () => {
     const connection = createConnection();
     connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     const handleRuntimeError = vi.fn();
     runtime.handleRuntimeError = handleRuntimeError;
@@ -626,8 +717,9 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -636,7 +728,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -649,7 +741,7 @@ describe('stream/runtime', () => {
     const connection = createConnection();
     connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     const handleRuntimeError = vi.fn();
     runtime.handleRuntimeError = handleRuntimeError;
@@ -661,8 +753,9 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
-      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
     runtime.activeStreams.set('stream_1', active);
 
@@ -672,7 +765,7 @@ describe('stream/runtime', () => {
       {
         event: 'known-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelFamily: 'rooms' },
       },
     );
 
@@ -692,6 +785,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: new Array(255).fill({ event: 'n', payload: {} }),
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -699,7 +793,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -719,6 +813,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -729,7 +824,7 @@ describe('stream/runtime', () => {
       {
         event: 'n',
         payload: { k: 1 },
-        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge-7', channelScope: null },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge-7', channelFamily: null },
       },
     );
 
@@ -751,6 +846,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -758,7 +854,7 @@ describe('stream/runtime', () => {
     await bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
       event: 'n',
       payload: {},
-      wskit: { streamId: 'stream_1', channelScope: null },
+      wskit: { streamId: 'stream_1', channelFamily: null },
     });
 
     expect(protocolMessages.find((m) => m.event === '__nudgeOk__')).toBeUndefined();
@@ -773,9 +869,9 @@ describe('stream/runtime', () => {
       connectionId: connection.id,
       event: 'nudgey',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
-      // Already at the 256 cap.
       nudges: new Array(256).fill({ event: 'n', payload: {} }),
       nudgeValidators: new Map([['n', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', active);
@@ -786,15 +882,13 @@ describe('stream/runtime', () => {
       {
         event: 'n',
         payload: { k: 1 },
-        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelFamily: null },
       },
     );
 
     expect(result).toBe(true);
-    // The stream keeps running — overflow is backpressure, not a teardown.
     expect(active.closed).toBe(false);
     expect(runtime.activeStreams.has('stream_1')).toBe(true);
-    // Client told only this nudge was rejected, non-terminally.
     const rejected = protocolMessages.find((m) => m.event === '__error__');
     expect(rejected).toBeDefined();
     expect(rejected!.payload).toMatchObject({
@@ -821,6 +915,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -828,7 +923,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'unknown-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+      { event: 'unknown-nudge', payload: {}, wskit: { streamId: 'stream_1', channelFamily: null } },
     );
 
     expect(result).toBe(true);
@@ -870,6 +965,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['async-nudge', v.objectAsync({})]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -878,7 +974,7 @@ describe('stream/runtime', () => {
       bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
         event: 'async-nudge',
         payload: {},
-        wskit: { streamId: 'stream_1', channelScope: null },
+        wskit: { streamId: 'stream_1', channelFamily: null },
       }),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -906,6 +1002,7 @@ describe('stream/runtime', () => {
       nudges: [],
       // Schema rejects any payload where `bad` is not literally false.
       nudgeValidators: new Map([['pause', v.object({ bad: v.literal(false) })]]),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -919,7 +1016,7 @@ describe('stream/runtime', () => {
       {
         event: 'pause',
         payload: { bad: true },
-        wskit: { streamId: 'stream_1', channelScope: null },
+        wskit: { streamId: 'stream_1', channelFamily: null },
       },
     );
 
@@ -997,7 +1094,6 @@ describe('stream/runtime', () => {
     });
 
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
-    // Outside the stream advance, the context is auto-scoped.
     expect(runtime.asyncContext.getStore()).toBeUndefined();
   });
 
@@ -1015,6 +1111,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1039,8 +1136,6 @@ describe('stream/runtime', () => {
       detail: { event: 'start-tokens', streamId: 'existing_1' },
     });
 
-    // Existing stream is untouched, no second stream registered, and no
-    // `__streamOk__` for a stream that never started.
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
     expect(runtime.activeStreams.size).toBe(1);
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
@@ -1064,14 +1159,14 @@ describe('stream/runtime', () => {
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's1', channelScope: null },
+        wskit: { streamId: 's1', channelFamily: null },
       }),
       runStream(runtime as Parameters<typeof runStream>[0], connection, {
         scope: {},
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's2', channelScope: null },
+        wskit: { streamId: 's2', channelFamily: null },
       }),
     ]);
 
@@ -1099,14 +1194,14 @@ describe('stream/runtime', () => {
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's1', channelScope: null },
+        wskit: { streamId: 's1', channelFamily: null },
       }),
       runStream(runtime as Parameters<typeof runStream>[0], connection, {
         scope: {},
         event: 'tok',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 's2', channelScope: null },
+        wskit: { streamId: 's2', channelFamily: null },
       }),
     ]);
 
@@ -1124,6 +1219,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1158,6 +1254,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1193,6 +1290,7 @@ describe('stream/runtime', () => {
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
+      abortController: new AbortController(),
       closed: false,
     };
     runtime.activeStreams.set(existing.id, existing);
@@ -1275,7 +1373,7 @@ describe('stream/runtime', () => {
       event: 'feed',
       stream: stream as never,
       payload: {},
-      wskit: { streamId: 'conv-42', channelScope: null },
+      wskit: { streamId: 'conv-42', channelFamily: null },
     });
 
     const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
@@ -1300,7 +1398,7 @@ describe('stream/runtime', () => {
     // wire schema (`v.optional(StreamIdString)`) rejects a wrong type or an
     // empty string before this runs, so those never reach here. A missing
     // `__wskit` and a present-but-streamId-less one both generate an id.
-    const noIdWSKits: RunStreamOptions['wskit'][] = [undefined, { channelScope: null }];
+    const noIdWSKits: RunStreamOptions['wskit'][] = [undefined, { channelFamily: null }];
     for (const wskit of noIdWSKits) {
       protocolMessages.length = 0;
       runtime.activeStreams.clear();
@@ -1338,8 +1436,90 @@ describe('stream/runtime', () => {
         event: 'feed',
         stream: stream as never,
         payload: {},
-        wskit: { streamId: 'conv-42', channelScope: null },
+        wskit: { streamId: 'conv-42', channelFamily: null },
       }),
     ).rejects.toMatchObject({ code: 'stream-id-collision' });
+  });
+
+  // Phase 6 — outbound backpressure. ctx.stream.drain() is wired onto the run
+  // ctx and paces the generator against the connection's buffer.
+  describe('ctx.stream.drain', () => {
+    it('exposes drain() on the run ctx and the stream completes when the buffer drains', async () => {
+      const { runtime, protocolMessages } = createStreamRuntime();
+      // A connection whose buffer starts over the mark, then drops on the third read.
+      let reads = 0;
+      const connection = createConnection();
+      connection.descriptor = {
+        send: vi.fn(),
+        close() {},
+        bufferedAmount() {
+          reads += 1;
+          return reads >= 3 ? 0 : 1_000_000;
+        },
+        backpressureSupported: true,
+        identity: connection.id,
+      };
+      // The run ctx is the object buildConnectionContext returns; drain is
+      // installed on it before the generator runs. Capture it from the ctx.
+      let sawDrain: unknown;
+      const stream = {
+        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        generator: wrapStreamGenerator(async function* (ctx: {
+          stream: { drain: () => Promise<void> };
+        }) {
+          sawDrain = ctx.stream.drain;
+          yield { token: 'a' };
+          await ctx.stream.drain();
+          yield { token: 'b' };
+        }),
+      };
+
+      await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+      });
+
+      expect(typeof sawDrain).toBe('function');
+      expect(protocolMessages.some((m) => m.event === '__streamEnd__')).toBe(true);
+      expect(reads).toBeGreaterThanOrEqual(3);
+    });
+
+    it('drain() is a no-op when the connection reports no backpressure support', async () => {
+      const { runtime, protocolMessages } = createStreamRuntime();
+      let reads = 0;
+      const connection = createConnection();
+      connection.descriptor = {
+        send: vi.fn(),
+        close() {},
+        bufferedAmount() {
+          reads += 1;
+          // Always "full" — if drain honored it the stream would hang.
+          return 1_000_000;
+        },
+        backpressureSupported: false,
+        identity: connection.id,
+      };
+      const stream = {
+        stream: { nudges: [], broadcast: false, highWaterMark: 1000 },
+        generator: wrapStreamGenerator(async function* (ctx: {
+          stream: { drain: () => Promise<void> };
+        }) {
+          yield { token: 'a' };
+          await ctx.stream.drain();
+          yield { token: 'b' };
+        }),
+      };
+
+      await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+      });
+
+      expect(protocolMessages.some((m) => m.event === '__streamEnd__')).toBe(true);
+    });
   });
 });

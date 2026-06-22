@@ -1,109 +1,88 @@
-import {
-  contract,
-  implement,
-  incoming,
-  nudge,
-  recordedStream,
-  resumableStream,
-  t,
-} from '@wskit/server';
+import { define, t } from '@wskit/server';
 import { Disconnect, StreamAborted } from '@wskit/server/errors';
+import { persistence } from '@wskit/server/persistence';
+import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const CountTokensPayload = v.object({});
-const TokenChunk = v.object({ idx: v.number() });
+const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
-const RowChunk = v.object({ row: v.number() });
+const RowChunk = t<{ row: number }>();
 const AttemptPayload = v.object({});
-const AttemptChunk = v.object({ attempt: v.number() });
+const AttemptChunk = t<{ attempt: number }>();
 const BufferFullPayload = v.object({});
-const BufferChunk = v.object({ n: v.number() });
+const BufferChunk = t<{ n: number }>();
+const NumberChunk = t<number>();
 const StopPayload = v.object({});
 
-export const streamDurableContract = contract('stream-durable', {
+const base = define({
   env: t<Env>(),
-  persistence: true,
-  meta: t<{ username: string }>(),
-  definitions: [
-    recordedStream('count-tokens', {
-      payload: CountTokensPayload,
-      chunk: TokenChunk,
-      maxChunks: 100,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    resumableStream('paginate', {
-      payload: PaginatePayload,
-      chunk: RowChunk,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    resumableStream('attempt-stream', {
-      payload: AttemptPayload,
-      chunk: AttemptChunk,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    recordedStream('buffer-full-demo', {
-      payload: BufferFullPayload,
-      chunk: BufferChunk,
-      maxChunks: 2,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    recordedStream('count-tokens-nudged', {
-      payload: CountTokensPayload,
-      chunk: TokenChunk,
-      nudges: [nudge('stop', StopPayload)],
-      maxChunks: 100,
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    resumableStream('paginate-nudged', {
-      payload: PaginatePayload,
-      chunk: RowChunk,
-      nudges: [nudge('stop', StopPayload)],
-      maxAgeMs: 60_000,
-      retentionAfterEndMs: 30_000,
-    }),
-
-    // Test support: a client triggers a server-initiated close with a retryable
-    // code so it reconnects in-session and a durable stream auto-resumes.
-    incoming('server-drop', v.object({})),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [persistence(), recordedStream(), resumableStream()],
 });
 
-export const streamDurableHandler = implement(streamDurableContract)
-  .onUpgrade((request) => requireUsername(request))
-
-  .recordedStream('count-tokens', async function* () {
+const handleCountTokens = base.recordedStream('count-tokens', {
+  input: CountTokensPayload,
+  chunk: TokenChunk,
+  maxChunks: 100,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run() {
     for (let i = 1; i <= 5; i += 1) {
       yield { idx: i };
       await new Promise((r) => setTimeout(r, 400));
     }
-  })
+  },
+});
 
-  .resumableStream('paginate', async function* (ctx) {
+const handlePaginate = base.resumableStream('paginate', {
+  input: PaginatePayload,
+  chunk: RowChunk,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
     const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
     for (let i = startAt + 1; i <= 10; i += 1) {
       yield ctx.stream.withCursor({ row: i }, { idx: i });
       await new Promise((r) => setTimeout(r, 400));
     }
-  })
+  },
+});
 
-  .resumableStream('attempt-stream', async function* (ctx) {
+const handlePaginateBare = base.resumableStream('paginate-bare', {
+  input: PaginatePayload,
+  chunk: RowChunk,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
+    const offset = ctx.stream.cursor === null ? 0 : 100;
+    for (let i = 1; i <= 4; i += 1) {
+      yield { row: offset + i };
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  },
+});
+
+const handleAttemptStream = base.resumableStream('attempt-stream', {
+  input: AttemptPayload,
+  chunk: AttemptChunk,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
     yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
     await new Promise((r) => setTimeout(r, 60_000));
-  })
+  },
+});
 
-  .recordedStream('buffer-full-demo', async function* () {
+const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
+  input: BufferFullPayload,
+  chunk: BufferChunk,
+  maxChunks: 2,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run() {
     for (let n = 1; n <= 5; n += 1) {
       try {
         yield { n };
@@ -114,29 +93,72 @@ export const streamDurableHandler = implement(streamDurableContract)
         throw err;
       }
     }
-  })
+  },
+});
 
-  .recordedStream('count-tokens-nudged', async function* (ctx) {
+const handlePrimitiveRecorded = base.recordedStream('primitive-recorded', {
+  input: v.object({}),
+  chunk: NumberChunk,
+  maxChunks: 10,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run() {
+    yield 1;
+    yield 2;
+  },
+});
+
+const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
+  input: CountTokensPayload,
+  chunk: TokenChunk,
+  nudges: { stop: StopPayload },
+  maxChunks: 100,
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
     for (let i = 1; i <= 20; i += 1) {
-      const nudges = ctx.nudges(yield { idx: i });
-      if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
+      const nudges = ctx.stream.nudges(yield { idx: i });
+      if (nudges.some((n) => n.event === 'stop')) return;
       await new Promise((r) => setTimeout(r, 100));
     }
-  })
+  },
+});
 
-  .resumableStream('paginate-nudged', async function* (ctx) {
+const handlePaginateNudged = base.resumableStream('paginate-nudged', {
+  input: PaginatePayload,
+  chunk: RowChunk,
+  nudges: { stop: StopPayload },
+  maxAgeMs: 60_000,
+  retentionAfterEndMs: 30_000,
+  async *run(ctx) {
     const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
     for (let i = startAt + 1; i <= 20; i += 1) {
-      const nudges = ctx.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
-      if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
+      const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
+      if (nudges.some((n) => n.event === 'stop')) return;
       await new Promise((r) => setTimeout(r, 100));
     }
-  })
+  },
+});
 
-  .on('server-drop', () => {
+// Test support: a client triggers a server-initiated close with a retryable
+// code so it reconnects in-session and a durable stream auto-resumes.
+const handleServerDrop = base.on('server-drop', {
+  input: v.object({}),
+  run() {
     throw Disconnect(4500, 'test drop');
-  })
+  },
+});
 
-  .build();
+export const streamDurableHandler = base.assemble(
+  handleCountTokens,
+  handlePaginate,
+  handlePaginateBare,
+  handleAttemptStream,
+  handleBufferFullDemo,
+  handlePrimitiveRecorded,
+  handleCountTokensNudged,
+  handlePaginateNudged,
+  handleServerDrop,
+);
 
 export type StreamDurableClient = InferClient<typeof streamDurableHandler>;

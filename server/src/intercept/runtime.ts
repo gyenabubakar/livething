@@ -1,10 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { parsePluginWireName } from '~/plugin-scope.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { InterceptFrame, InterceptPrimitive } from './intercept.ts';
+import { APP_HOOK_OWNER, hookRunsForFrame } from './intercept.ts';
+import type { HookOwner, InterceptFrame, InterceptPrimitive } from './intercept.ts';
 
-export type { InterceptFrame, InterceptRouting } from './intercept.ts';
+export type { FrameOwner, InterceptFrame, InterceptRouting, OutgoingFrame } from './intercept.ts';
 
 interface InterceptRuntime {
   asyncContext: EngineAsyncContext;
@@ -12,27 +14,6 @@ interface InterceptRuntime {
 
 /** Returns the dispatch-shared connection context, building it on first call. */
 type GetContext = () => Record<PropertyKey, unknown>;
-
-export interface RunWithScopedContextOptions<T> {
-  ctx: Record<PropertyKey, unknown>;
-
-  handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>;
-}
-
-/**
- * Run a handler inside the engine's async context for this connection.
- *
- * Context-aware helpers a plugin calls (like `getState()`) resolve to this
- * connection even while handlers for other connections interleave.
- */
-export async function runWithScopedContext<T>(
-  runtime: InterceptRuntime,
-  connection: RuntimeConnection,
-  options: RunWithScopedContextOptions<T>,
-): Promise<T> {
-  const { ctx, handler } = options;
-  return withConnectionContext(runtime.asyncContext, connection.id, () => handler(ctx));
-}
 
 export interface RunInterceptsOptions {
   intercepts: readonly InterceptPrimitive[];
@@ -62,10 +43,20 @@ export async function runIntercepts(
 
   const ctx = getCtx();
   let nextFrame = frame;
+  // A plugin's own-frame intercept sees the short name it declared.
+  const parsed = parsePluginWireName(frame.event);
 
   for (const intercept of intercepts) {
+    const hookOwner: HookOwner = intercept.__owner
+      ? { owner: intercept.__owner, observesHost: intercept.__observesHost ?? false }
+      : APP_HOOK_OWNER;
+    if (!hookRunsForFrame(hookOwner, nextFrame.owner)) continue;
+
+    const ownFrame = hookOwner.owner.kind === 'plugin' && nextFrame.owner.kind === 'plugin';
+    const presented = ownFrame && parsed ? { ...nextFrame, event: parsed.name } : nextFrame;
+
     const next = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-      intercept.handler(ctx, nextFrame),
+      intercept.handler(ctx, presented),
     );
 
     if (next !== undefined) {
@@ -74,6 +65,7 @@ export async function runIntercepts(
         payload: next,
         kind: nextFrame.kind,
         routing: nextFrame.routing,
+        owner: nextFrame.owner,
       };
     }
   }

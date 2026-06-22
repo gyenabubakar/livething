@@ -23,14 +23,14 @@ test.describe('stream-cancel matrix', () => {
     await send(page, a, {
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: channelKey, channelScope: 'rooms' },
+      __wskit: { channel: channelKey, channelFamily: 'rooms' },
     });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'start-room-stream',
       payload: { count: 20 },
-      __wskit: { channel: channelKey, channelScope: 'rooms' },
+      __wskit: { channel: channelKey, channelFamily: 'rooms' },
     });
     const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     const streamId = ok.__wskit?.streamId as string;

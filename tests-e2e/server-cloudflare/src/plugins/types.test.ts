@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { Ctx } from '@wskit/server';
-import type { PluginsClient, pluginsContract } from './handler.ts';
+import type { PluginsClient } from './handler.ts';
 
 describe('PluginsClient — no-any guard', () => {
   it('no slot is any', () => {
@@ -11,9 +10,13 @@ describe('PluginsClient — no-any guard', () => {
     expectTypeOf<PluginsClient['channels']>().not.toBeAny();
     expectTypeOf<PluginsClient['errors']>().not.toBeAny();
   });
+
+  it('the client carries no plugins key', () => {
+    expectTypeOf<PluginsClient>().not.toHaveProperty('plugins');
+  });
 });
 
-describe('PluginsClient — incoming (server outgoing)', () => {
+describe('PluginsClient — host incoming (server outgoing)', () => {
   it('has record-inserted', () => {
     expectTypeOf<PluginsClient['incoming']['record-inserted']>().toEqualTypeOf<{ id: number }>();
   });
@@ -38,42 +41,9 @@ describe('PluginsClient — incoming (server outgoing)', () => {
       rewritten?: boolean | undefined;
     }>();
   });
-
-  it('has plugin-every-tick', () => {
-    expectTypeOf<PluginsClient['incoming']['plugin-every-tick']>().toEqualTypeOf<{
-      count: number;
-    }>();
-  });
-
-  it('has plugin-flaky-result', () => {
-    expectTypeOf<PluginsClient['incoming']['plugin-flaky-result']>().toEqualTypeOf<{
-      attempts: number;
-    }>();
-  });
-
-  it('has plugin-dlq-result', () => {
-    expectTypeOf<PluginsClient['incoming']['plugin-dlq-result']>().toEqualTypeOf<{
-      taskId: string;
-      attempts: number;
-      error: string;
-    }>();
-  });
-
-  it('has error-result', () => {
-    expectTypeOf<PluginsClient['incoming']['error-result']>().toEqualTypeOf<{
-      code: string;
-      message: string;
-    }>();
-  });
-
-  it('has plugin-task-data-result', () => {
-    expectTypeOf<PluginsClient['incoming']['plugin-task-data-result']>().toEqualTypeOf<{
-      result: string;
-    }>();
-  });
 });
 
-describe('PluginsClient — outgoing (server incoming)', () => {
+describe('PluginsClient — host outgoing (server incoming)', () => {
   it('has insert-record', () => {
     expectTypeOf<PluginsClient['outgoing']['insert-record']>().toEqualTypeOf<{
       name: string;
@@ -94,7 +64,7 @@ describe('PluginsClient — outgoing (server incoming)', () => {
   });
 });
 
-describe('PluginsClient — streams', () => {
+describe('PluginsClient — host streams', () => {
   it('has stream-connection-id', () => {
     expectTypeOf<PluginsClient['streams']>().toHaveProperty('stream-connection-id');
   });
@@ -141,52 +111,90 @@ describe('PluginsClient — stream kind', () => {
   });
 });
 
-describe('PluginsClient — empty slots', () => {
-  it('channels is empty', () => {
-    expectTypeOf<keyof PluginsClient['channels']>().toBeNever();
+describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () => {
+  it('exposes the plugin channel and its event under prefixed names', () => {
+    expectTypeOf<
+      PluginsClient['channels']['__e2e:feed::room']['incoming']['joined']
+    >().toEqualTypeOf<{ who: string }>();
   });
-  it('requests is empty', () => {
-    expectTypeOf<keyof PluginsClient['requests']>().toBeNever();
+  it('exposes the plugin request under its prefixed name', () => {
+    expectTypeOf<PluginsClient['requests']['__e2e:feed::echo']>().toEqualTypeOf<{
+      payload: { text: string };
+      response: { echoed: string };
+    }>();
+  });
+  it('exposes the plugin emit under its prefixed name', () => {
+    expectTypeOf<PluginsClient['incoming']['__e2e:feed::pong']>().toEqualTypeOf<{ note: string }>();
+  });
+  it('exposes all three plugin stream kinds under prefixed names', () => {
+    // Both durable kinds surface as 'persistent' on the client; plain is 'ephemeral'.
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed']['kind']
+    >().toEqualTypeOf<'persistent'>();
+    expectTypeOf<PluginsClient['streams']['__e2e:feed::feed']['chunk']>().toEqualTypeOf<{
+      row: number;
+    }>();
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed-plain']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::feed-recorded']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 });
 
-describe('PluginsClient — plugin-prefixed surface (Drizzle plugin)', () => {
-  it('plugin outgoing event lands on the client under the literal prefixed key with its inferred payload', () => {
-    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle:drizzle-ready']>().toEqualTypeOf<{
+describe('PluginsClient — Drizzle plugin (prefixed __id:: names, top-level)', () => {
+  it('plugin emit lands on the top-level incoming under its prefixed name', () => {
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle::drizzle-ready']>().toEqualTypeOf<{
       tables: string[];
     }>();
   });
 
-  it('plugin error code lands on the client under its namespaced code', () => {
-    expectTypeOf<PluginsClient['errors']['__e2e:drizzle:denied']>().not.toBeAny();
-    expectTypeOf<PluginsClient['errors']['__e2e:drizzle:denied']>().toEqualTypeOf<{
+  it('plugin scheduled-broadcast emits are on the top-level incoming, prefixed', () => {
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle::plugin-every-tick']>().toEqualTypeOf<{
+      count: number;
+    }>();
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle::plugin-flaky-result']>().toEqualTypeOf<{
+      attempts: number;
+    }>();
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle::plugin-dlq-result']>().toEqualTypeOf<{
+      taskId: string;
+      attempts: number;
+      error: string;
+    }>();
+    expectTypeOf<
+      PluginsClient['incoming']['__e2e:drizzle::plugin-task-data-result']
+    >().toEqualTypeOf<{
+      result: string;
+    }>();
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle::error-result']>().toEqualTypeOf<{
+      code: string;
+      message: string;
+    }>();
+  });
+
+  it('plugin trigger handlers are on the top-level outgoing, prefixed (client sends)', () => {
+    expectTypeOf<PluginsClient['outgoing']>().toHaveProperty(
+      '__e2e:drizzle::trigger-plugin-denied',
+    );
+    expectTypeOf<PluginsClient['outgoing']>().toHaveProperty('__e2e:drizzle::trigger-vacuum');
+    expectTypeOf<PluginsClient['outgoing']>().toHaveProperty(
+      '__e2e:drizzle::trigger-plugin-task-with-data',
+    );
+  });
+
+  it('plugin error code lands on the top-level errors under its prefixed code', () => {
+    expectTypeOf<PluginsClient['errors']['__e2e:drizzle::denied']>().not.toBeAny();
+    expectTypeOf<PluginsClient['errors']['__e2e:drizzle::denied']>().toEqualTypeOf<{
       reason: string;
       op: string;
     }>();
   });
 
-  it('server-side ctx.schedule accepts the literal plugin task ids and rejects typos', () => {
-    type Handler = Ctx<typeof pluginsContract>;
-    type ScheduleArg = Parameters<Handler['schedule']>[0];
-
-    // Every declared plugin task id is a valid argument.
-    expectTypeOf<
-      '__e2e:drizzle:drizzle-vacuum' extends ScheduleArg ? true : false
-    >().toEqualTypeOf<true>();
-    expectTypeOf<
-      '__e2e:drizzle:drizzle-every-tick' extends ScheduleArg ? true : false
-    >().toEqualTypeOf<true>();
-
-    // A typo in the suffix is rejected — full literal narrowing.
-    expectTypeOf<
-      '__e2e:drizzle:drizzle-vacuumX' extends ScheduleArg ? true : false
-    >().toEqualTypeOf<false>();
-
-    // A typo in the prefix is also rejected — plugin id is locked to the
-    // literal, not widened to `${string}`.
-    expectTypeOf<
-      '__NOT-the-drizzle-plugin:drizzle-vacuum' extends ScheduleArg ? true : false
-    >().toEqualTypeOf<false>();
+  it('short (un-prefixed) plugin names never appear on the client', () => {
+    expectTypeOf<PluginsClient['incoming']>().not.toHaveProperty('drizzle-ready');
+    expectTypeOf<PluginsClient['outgoing']>().not.toHaveProperty('trigger-vacuum');
+    expectTypeOf<PluginsClient['errors']>().not.toHaveProperty('denied');
   });
 });
 

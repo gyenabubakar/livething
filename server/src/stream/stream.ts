@@ -157,6 +157,11 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
    * `stream-already-active`.
    */
   readonly allowConcurrent?: boolean;
+  /**
+   * Outbound backpressure limit in bytes. `ctx.stream.drain()` resolves once the
+   * connection's buffered amount is below this mark. Defaults to 256 KB.
+   */
+  readonly highWaterMark?: number;
 }
 
 /**
@@ -188,6 +193,11 @@ export interface StreamPrimitive<
    * rejected with `stream-already-active`.
    */
   readonly allowConcurrent: boolean;
+  /**
+   * Outbound backpressure limit in bytes used by `ctx.stream.drain()`. Undefined
+   * means the runtime default (256 KB) applies.
+   */
+  readonly highWaterMark?: number;
 }
 
 /** Extracts the payload type from a `StreamPrimitive`. */
@@ -237,7 +247,7 @@ const GENERATE_KEY = Symbol('generate');
  * compile step (`compileStreamDef`) calls it from a contract-side `stream(...)`
  * declaration, then pairs it with `generate()` and the registered handler.
  *
- * @param startDecl Trigger event name, optional validator, and broadcast flag.
+ * @param startDeclaration Trigger event name, optional validator, and broadcast flag.
  * @param nudges    Zero or more nudge declarations from `nudge()`.
  */
 export function stream<
@@ -246,19 +256,20 @@ export function stream<
   TChunks,
   const TNudges extends readonly NudgeDeclaration[],
 >(
-  startDecl: StreamStartDeclaration<TEvent, TPayload>,
+  startDeclaration: StreamStartDeclaration<TEvent, TPayload>,
   ...nudges: TNudges
 ): StreamPrimitive<TEvent, TPayload, TChunks, TNudges> {
   return {
     __wskit: 'stream',
     __kind: 'handler',
-    __identity: [STREAM_KEY, startDecl.event],
+    __identity: [STREAM_KEY, startDeclaration.event],
     __requires: {},
-    event: startDecl.event,
-    validator: startDecl.validator,
+    event: startDeclaration.event,
+    validator: startDeclaration.validator,
     nudges,
-    broadcast: startDecl.broadcast ?? false,
-    allowConcurrent: startDecl.allowConcurrent ?? false,
+    broadcast: startDeclaration.broadcast ?? false,
+    allowConcurrent: startDeclaration.allowConcurrent ?? false,
+    highWaterMark: startDeclaration.highWaterMark,
   };
 }
 
@@ -268,13 +279,13 @@ export function stream<
  *
  * You never call `generate()` directly. The implementer's compile step
  * (`compileStreamDef`) calls it, pairing the stream declaration with the
- * generator registered via `implement(c).stream(name, ...)`.
+ * generator registered via `base.stream(name, ...)`.
  *
- * @param streamDecl The stream declaration to attach the generator to.
+ * @param streamDeclaration The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.
  */
 export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>(
-  streamDecl: TStream,
+  streamDeclaration: TStream,
   generator: GeneratorFn<
     StreamHandlerContext<TBaseCtx, StreamNudges<TStream>>,
     StreamPayload<TStream>,
@@ -285,10 +296,10 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
   return {
     __wskit: 'stream-generate',
     __kind: 'handler',
-    __identity: [GENERATE_KEY, streamDecl.event],
+    __identity: [GENERATE_KEY, streamDeclaration.event],
     __requires: {},
-    stream: streamDecl,
-    event: streamDecl.event,
+    stream: streamDeclaration,
+    event: streamDeclaration.event,
     generator,
   };
 }
@@ -304,7 +315,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
 export function start<TEvent extends string>(
   name: TEvent,
   validator?: undefined,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration<TEvent, unknown>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -317,7 +328,7 @@ export function start<TEvent extends string>(
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
   validator: TSchema,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration<TEvent, StandardSchemaV1.InferOutput<TSchema>>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -330,13 +341,14 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
 export function start(
   name: string,
   validator?: Validator,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
 ): StreamStartDeclaration {
   return {
     event: name,
     validator,
     broadcast: options?.broadcast,
     allowConcurrent: options?.allowConcurrent,
+    highWaterMark: options?.highWaterMark,
   };
 }
 

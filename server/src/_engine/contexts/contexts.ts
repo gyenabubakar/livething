@@ -1,19 +1,17 @@
-import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
-import * as TagsRuntime from '~/tags/runtime.ts';
+import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
+import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
 import type * as PublicApi from '~/context.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
 export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-export { createTaskContext } from '~/scheduled/context.ts';
-export { buildChannelHandle } from '~/channel/context.ts';
-export { attachPluginApis, createPluginScopedContext } from '~/plugins/context.ts';
 export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToConnections' | 'connections' | 'logger' | 'sendThroughPipeline'
+  'broadcastToConnections' | 'connections' | 'instanceId' | 'logger' | 'sendThroughPipeline'
 >;
 
 /** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
@@ -22,7 +20,7 @@ function buildMessagingApi(
   deps: MessagingDeps,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'close' | 'send' | 'sendToConnection'
+  'broadcast' | 'close' | 'connection' | 'send'
 > {
   return {
     send: (event, payload) =>
@@ -37,18 +35,7 @@ function buildMessagingApi(
       });
     },
 
-    sendToConnection: (connectionId, event, payload) => {
-      const target = deps.connections.get(connectionId);
-      if (!target) {
-        deps.logger.error('[wskit] sendToConnection target not found', {
-          connectionId,
-          event,
-        });
-        return false;
-      }
-      deps.sendThroughPipeline(target, { routing: undefined, event, payload });
-      return true;
-    },
+    ...buildConnectionHandle(deps),
 
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
@@ -66,7 +53,7 @@ export function buildConnectionContext(
   scope?: {
     channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
-    channelScope?: string | null;
+    channelFamily?: string | null;
   },
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
@@ -74,29 +61,15 @@ export function buildConnectionContext(
 
   const locals = new Map<LocalKey<unknown>, unknown>();
 
-  let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
-
-  function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
-    const result = deps.cancelScheduled(taskId, filter);
-    if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
-        taskId,
-        filter,
-        taskExists: result.taskExists,
-      });
-    }
-  }
-
-  const base: EngineContextTypes.ConnectionContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
+  const base: Omit<
+    EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+    'channels' | 'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
-    [EngineContextTypes.ENGINE_SCOPE_META]: {
+    [EngineContextTypes.ENGINE_CHANNEL_META]: {
       channelName: scope?.channelName,
-      channelScope: scope?.channelScope,
-    } satisfies EngineContextTypes.EngineScopeMeta,
+      channelFamily: scope?.channelFamily,
+    } satisfies EngineContextTypes.EngineChannelMeta,
 
     [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
 
@@ -124,33 +97,11 @@ export function buildConnectionContext(
       return connection.descriptor.bufferedAmount();
     },
 
-    get latency() {
-      return connection.latency;
-    },
-
-    get quality() {
-      // Quality has no meaning until the first ping/pong lands; mirror `latency`,
-      // which stays null until measured. Also null in hibernation (no pings sent).
-      if (deps.hibernationEnabled || connection.latency === null) return null;
-      return connection.quality;
-    },
-
-    // Built on first access — most handlers never touch `ctx.channels`.
-    get channels() {
-      return (channelsApi ??= buildChannelsApi(connection, deps));
-    },
-
-    schedule: (taskId, options) => {
-      deps.scheduleTask(taskId, options.time, options.data);
-    },
-
-    cancelScheduled,
-
     setAlarm: (time) => {
       void deps.getTimers()?.setAlarm?.(time);
     },
 
-    ...buildChannelScopeExtra(connection, scope, deps),
+    ...(deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps) ?? {}),
 
     sql,
     kv,
@@ -166,24 +117,58 @@ export function buildConnectionContext(
     inject<T>(key: LocalKey<T>): T | undefined {
       return locals.get(key) as T | undefined;
     },
+
+    matches(key: string, frame: InterceptFrame) {
+      if (!deps.frameMatch) {
+        throw new Error('[wskit] ctx.matches(...) requires the intercepts() capability.');
+      }
+      return deps.frameMatch.matches(deps.compiled, key, frame);
+    },
+
+    unsafeCast(key: string, frame: InterceptFrame) {
+      if (!deps.frameMatch) {
+        throw new Error('[wskit] ctx.unsafeCast(...) requires the intercepts() capability.');
+      }
+      return deps.frameMatch.unsafeCast(deps.compiled, key, frame);
+    },
   };
+
+  // `ctx.channels` exists only when the `channels()` capability is listed, and
+  // is built on first access. Defined conditionally (not a throwing getter) so a
+  // channel-less handler simply has no `channels` property — enumerating the
+  // context never trips it.
+  const channelContext = deps.channelContext;
+  if (channelContext) {
+    let channelsApi: ReturnType<typeof channelContext.buildChannelsApi> | undefined;
+    Object.defineProperty(base, 'channels', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return (channelsApi ??= channelContext.buildChannelsApi(connection, deps));
+      },
+    });
+  }
 
   // `ctx.tags` exists only on tag-enabled servers, and is built on first
   // access — most handlers never touch it.
-  if (deps.usesTags) {
-    let tagsApi: ReturnType<typeof TagsRuntime.buildTagsApi> | undefined;
+  const buildTags = deps.buildTagsApi;
+  if (deps.usesTags && buildTags) {
+    let tagsApi: ReturnType<typeof buildTags> | undefined;
     Object.defineProperty(base, 'tags', {
       configurable: true,
       enumerable: true,
       get() {
-        return (tagsApi ??= TagsRuntime.buildTagsApi(
+        return (tagsApi ??= buildTags(
           {
             tagMembers: deps.tagMembers,
             isTagGroupDeclared: deps.isTagGroupDeclared,
             getTagGroupSchema: deps.getTagGroupSchema,
             toConnectionInfo: deps.toConnectionInfo,
-            sendThroughPipeline: (target, event, payload) =>
-              deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
+            sendThroughPipeline: (
+              target: EngineContextTypes.RuntimeConnection,
+              event: string,
+              payload: unknown,
+            ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
             persistAttachment: deps.persistAttachment,
             persistenceEnabled: deps.persistenceEnabled,
             requireStorage: deps.requireStorage,
@@ -194,16 +179,16 @@ export function buildConnectionContext(
     });
   }
 
-  // User extension hook — extenders see the assembled ctx and return a
-  // partial that gets merged in.
   for (const extend of deps.contextExtenders ?? []) {
-    Object.assign(base, extend(base));
+    Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));
   }
 
-  // Adds a hidden non-enumerable plugin API map via defineProperty. Runs
-  // last because spread can't preserve non-enumerable properties.
-  deps.attachPluginApis(base, connection);
-  return base;
+  return base as EngineContextTypes.ConnectionContext<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    unknown
+  > &
+    Record<PropertyKey, unknown>;
 }
 
 /**
@@ -218,7 +203,7 @@ export function toConnectionInfo(
     id: connection.id,
     identity: connection.identity,
     meta: connection.meta,
-    tags: TagsRuntime.buildConnectionTagRefs(connection),
+    tags: connectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: hibernationEnabled || connection.latency === null ? null : connection.quality,

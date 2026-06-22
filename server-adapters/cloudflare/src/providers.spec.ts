@@ -77,8 +77,6 @@ describe('createKv', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     const message = (logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(message).toContain('ttl: 0');
-    // Keys often encode user/session ids — they must NOT appear in the
-    // warning message, which can be piped into log aggregators.
     expect(message).not.toContain('session:abc');
   });
 
@@ -185,8 +183,6 @@ describe('createSql.exec — one-shot result contract', () => {
     const sql = createSql(state);
 
     sql.exec('SELECT id FROM things').one();
-    // A second exec() builds a fresh cursor wrapper — its methods are
-    // independent of the previous result's consumed state.
     expect(() => sql.exec('SELECT id FROM things').toArray()).not.toThrow();
   });
 
@@ -214,7 +210,6 @@ describe('createSql.transaction', () => {
       storage: {
         sql: {
           exec: vi.fn(() => fakeCursor()),
-          // No transactionSync.
         },
       },
     } as unknown as DurableObjectState;

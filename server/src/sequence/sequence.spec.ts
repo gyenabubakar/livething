@@ -75,8 +75,6 @@ function installSequence(
   sql: FakeSqlProvider;
 } {
   const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
-  // Sequence registers its schema-init on onBootSchema (split from onBoot
-  // so warm boots can skip it).
   const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>> = [];
   const installs = new Set<symbol>();
 

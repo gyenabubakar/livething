@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RateLimited } from '@wskit/core';
+import { registerInterceptRuntime } from '~/intercept/capability.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { Primitive } from '~/primitive.ts';
 import { RateLimitRuntime } from './runtime.ts';
@@ -44,12 +45,13 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * so a rejected frame never reaches user code.
  *
  * On rejection it throws `RateLimited({ retryAfter })` which the engine
- * routes to an `__error__` frame, preserving `__wskit.correlationId` / `__wskit.ackId` if the
- * original frame carried them.
+ * routes to an `__error__` frame, preserving `__wskit.correlationId` if the
+ * original frame carried it.
  *
- * Use through the `rateLimit:` config on `contract({...})` or `channel({...})`
- * — or `.rateLimit(event, config)` on the implementer / channel sub-builder.
- * The `implement(...)` build step calls this factory; you should not normally
+ * Use the `rateLimit({...})` capability for the server-wide rule, plus the
+ * optional `rateLimit` field on a `base.on(...)` / `base.request(...)` config or
+ * a `base.channel(...)` config to tighten, loosen, or disable it per handler or
+ * channel. The `assemble(...)` step calls this factory; you should not normally
  * call it directly.
  */
 export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
@@ -57,8 +59,8 @@ export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {
   const primitive = intercept((ctx, message) => {
     const verdict = runtime.check(ctx, message.event);
     if (verdict) throw RateLimited({ retryAfter: verdict.retryAfter });
-  }) as unknown as RateLimitPrimitive;
-  return primitive;
+  });
+  return { ...primitive, __setup: registerInterceptRuntime } as unknown as RateLimitPrimitive;
 }
 
 rateLimit.__key = RATE_LIMIT_KEY;

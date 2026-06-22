@@ -1,64 +1,95 @@
-import { contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-export const ctxSendContract = contract('ctx-send', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
-  definitions: [
-    incoming('do-broadcast', v.object({ text: v.string() })),
-    incoming('do-broadcast-exclude-self', v.object({ text: v.string() })),
-    incoming('do-send-to', v.object({ tag: v.string(), text: v.string() })),
-    incoming('do-send-to-empty', v.object({ text: v.string() })),
-    incoming('do-send-to-connection', v.object({ connectionId: v.string(), text: v.string() })),
-    incoming('who-am-i', v.object({})),
-    incoming('do-server-close', v.object({})),
-
-    outgoing('message', v.object({ text: v.string(), from: v.string() })),
-    outgoing('who-am-i-result', v.object({ connectionId: v.string() })),
-    outgoing('delivery-status', v.object({ delivered: v.boolean() })),
+  upgrade: (request) => requireUsernameWithUserTag(request),
+  capabilities: [
+    tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
+    emits({
+      message: t<{ text: string; from: string }>(),
+      'who-am-i-result': t<{ connectionId: string }>(),
+      'delivery-status': t<{ delivered: boolean }>(),
+    }),
   ],
 });
 
-export const ctxSendHandler = implement(ctxSendContract)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers))
-  .on('do-broadcast', (ctx, payload) => {
-    ctx.broadcast('message', { text: payload.text, from: ctx.meta.username });
-  })
-  .on('do-broadcast-exclude-self', (ctx, payload) => {
-    ctx.broadcast(
-      'message',
-      { text: payload.text, from: ctx.meta.username },
-      { excludeSelf: false },
-    );
-  })
-  .on('do-send-to', (ctx, payload) => {
+const handleDoBroadcast = base.on('do-broadcast', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
+    ctx.broadcast('message', { text: input.text, from: ctx.meta.username });
+  },
+});
+
+const handleDoBroadcastExcludeSelf = base.on('do-broadcast-exclude-self', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
+    ctx.broadcast('message', { text: input.text, from: ctx.meta.username }, { excludeSelf: false });
+  },
+});
+
+const handleDoSendTo = base.on('do-send-to', {
+  input: v.object({ tag: v.string(), text: v.string() }),
+  run(ctx, input) {
     ctx.tags
       .ephemeral('user')
-      .ref(payload.tag)
-      .send('message', { text: payload.text, from: ctx.meta.username });
-  })
-  .on('do-send-to-empty', (ctx, payload) => {
+      .ref(input.tag)
+      .send('message', { text: input.text, from: ctx.meta.username });
+  },
+});
+
+const handleDoSendToEmpty = base.on('do-send-to-empty', {
+  input: v.object({ text: v.string() }),
+  run(ctx, input) {
     ctx.tags
       .ephemeral('user')
       .ref('')
-      .send('message', { text: payload.text, from: ctx.meta.username });
-  })
-  .on('do-send-to-connection', (ctx, payload) => {
-    const delivered = ctx.sendToConnection(payload.connectionId, 'message', {
-      text: payload.text,
+      .send('message', { text: input.text, from: ctx.meta.username });
+  },
+});
+
+const handleDoSendToConnection = base.on('do-send-to-connection', {
+  input: v.object({ connectionId: v.string(), text: v.string() }),
+  run(ctx, input) {
+    const ref = {
+      __wskit: 'connection-ref' as const,
+      id: input.connectionId,
+      instance: undefined,
+      identity: input.connectionId,
+    };
+    const delivered = ctx.connection(ref).send('message', {
+      text: input.text,
       from: ctx.meta.username,
     });
     ctx.send('delivery-status', { delivered });
-  })
-  .on('who-am-i', (ctx) => {
+  },
+});
+
+const handleWhoAmI = base.on('who-am-i', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('who-am-i-result', { connectionId: ctx.id });
-  })
-  .on('do-server-close', (ctx) => {
+  },
+});
+
+const handleDoServerClose = base.on('do-server-close', {
+  input: v.object({}),
+  run(ctx) {
     ctx.close(4010, 'server-close');
-  })
-  .build();
+  },
+});
+
+export const ctxSendHandler = base.assemble(
+  handleDoBroadcast,
+  handleDoBroadcastExcludeSelf,
+  handleDoSendTo,
+  handleDoSendToEmpty,
+  handleDoSendToConnection,
+  handleWhoAmI,
+  handleDoServerClose,
+);
 
 export type CtxSendClient = InferClient<typeof ctxSendHandler>;

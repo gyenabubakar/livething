@@ -39,7 +39,7 @@ describe('requestResponse — buffered frame ownership', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
-    ws.serverClose(1006); // offline — the request frame is buffered
+    ws.serverClose(1006);
 
     const settled = vi.fn();
     socket.request('get-balance', { user: 'a' }).then(
@@ -47,7 +47,6 @@ describe('requestResponse — buffered frame ownership', () => {
       (e: { code?: string }) => settled(e?.code),
     );
 
-    // The request times out while still buffered.
     vi.advanceTimersByTime(5000);
     await Promise.resolve();
     expect(settled).toHaveBeenCalledWith('timeout');
@@ -62,17 +61,16 @@ describe('requestResponse — buffered frame ownership', () => {
 
   it('rejects the exact request whose held frame cannot serialize on flush, later requests still flush', async () => {
     const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
-    socket.onError(() => undefined); // absorb the reported serialization failure
+    socket.onError(() => undefined);
     const circular: Record<string, unknown> = {};
     circular.self = circular;
 
-    // Both requests are held in the outbox while the lazy socket connects.
     const bad = socket.request('get-balance', circular as unknown as { user: string });
     const good = socket.request('get-balance', { user: 'b' });
     void bad.catch(() => undefined);
 
     const ws = MockWebSocket.last();
-    ws.open(); // onOpen flushes the outbox: the bad frame rejects, the good one flushes
+    ws.open();
 
     await expect(bad).rejects.toBeInstanceOf(TypeError);
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
@@ -92,8 +90,6 @@ describe('requestResponse', () => {
       socket.request('get-balance', circular as { user: string }),
     ).rejects.toBeInstanceOf(TypeError);
 
-    // No leaked timer or pending entry: advancing past the timeout fires nothing,
-    // and a fresh request still resolves on its own correlationId.
     vi.advanceTimersByTime(60_000);
     const promise = socket.request('get-balance', { user: 'b' });
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
@@ -172,12 +168,12 @@ describe('requestResponse', () => {
   it('sends a request made before open once the socket opens, instead of dropping it', async () => {
     const socket = client<C>()(connect('wss://test'), requestResponse());
     socket.connect();
-    const ws = MockWebSocket.last(); // connecting, NOT open yet
+    const ws = MockWebSocket.last();
 
     const promise = socket.request('get-balance', { user: 'a' });
-    expect(ws.sentFrames()).toHaveLength(0); // nothing on the wire while connecting
+    expect(ws.sentFrames()).toHaveLength(0);
 
-    ws.open(); // now the queued request flushes
+    ws.open();
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
     expect(typeof cid).toBe('string');
 
@@ -210,10 +206,8 @@ describe('requestResponse', () => {
       const correlationId = sent?.__wskit?.correlationId as string;
       expect(typeof correlationId).toBe('string');
 
-      vi.advanceTimersByTime(1000); // the request times out — its waiter is removed
+      vi.advanceTimersByTime(1000);
 
-      // A late error reply carrying the now-stale correlationId must be dropped,
-      // not forwarded to the unclaimed-__error__ path (which fires onError).
       ws.emit({ event: '__error__', payload: { code: 'forbidden' }, __wskit: { correlationId } });
       expect(onError).not.toHaveBeenCalled();
     } finally {

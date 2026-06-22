@@ -5,6 +5,7 @@ import {
   createChannelMembershipKey,
   leaveChannel,
   matchScopeParams,
+  resyncChannelMembers,
   subscribeConnection,
   subscribeConnectionAsServer,
   unsubscribeConnection,
@@ -51,7 +52,7 @@ function createRuntime(
     event: string;
     payload: unknown;
     excludeConnectionId?: string;
-    channelScope?: string;
+    channelFamily?: string;
   }[] = [];
 
   const rooms = {
@@ -125,14 +126,14 @@ function createRuntime(
         event,
         payload,
         excludeConnectionId,
-        channelScope,
+        channelFamily,
       }: BroadcastToChannelOptions) {
         broadcasts.push({
           channelName,
           event,
           payload,
           excludeConnectionId,
-          channelScope: channelScope ?? undefined,
+          channelFamily: channelFamily ?? undefined,
         });
       },
       async handleValidationError() {},
@@ -146,7 +147,7 @@ function createRuntime(
 }
 
 describe('createChannelMembershipKey', () => {
-  it('produces distinct keys for previously colliding (scope, name) pairs', () => {
+  it('produces distinct keys for previously colliding (family, name) pairs', () => {
     // Family 'rooms' + name 'private::lobby' would have collided with family
     // 'rooms::private' + name 'lobby' under the old `${scope}::${name}` join.
     const a = createChannelMembershipKey('private::lobby', 'rooms');
@@ -166,7 +167,7 @@ describe('channel runtime', () => {
     const first = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, first, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const second = createConnection('conn_2', { userId: 'b' });
@@ -176,7 +177,7 @@ describe('channel runtime', () => {
 
     await subscribeConnection(runtime, second, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
@@ -186,19 +187,23 @@ describe('channel runtime', () => {
     // Subscribing must not auto-tag the connection. Tags are scope-blind by
     // design (a tag is just a string in a Set), so an auto `channel:<name>`
     // tag would collapse static-vs-family and family-vs-family distinctions.
-    // subscribe must not auto-tag
     expect(protocol).toEqual([
       {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
+        payload: {},
+        wskit: {
+          channel: 'room:general',
+          channelFamily: 'rooms',
+          source: 'client',
+          channelPersistent: false,
+        },
       },
       {
         connectionId: 'conn_2',
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'client' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -210,7 +215,7 @@ describe('channel runtime', () => {
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
@@ -220,7 +225,7 @@ describe('channel runtime', () => {
           meta: { userId: 'b' },
         },
         excludeConnectionId: 'conn_2',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     ]);
   });
@@ -230,7 +235,7 @@ describe('channel runtime', () => {
     const connection = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, connections, broadcasts } = createRuntime(channelMembers);
@@ -243,27 +248,26 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, opts),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms' },
+      { channelName: 'room:general', channelFamily: 'rooms' },
     );
 
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
-    // unsubscribe must not touch tags
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
         event: '__memberLeave__',
         payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     ]);
   });
@@ -273,7 +277,7 @@ describe('channel runtime', () => {
     const connection = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, connections, protocol } = createRuntime(channelMembers);
@@ -286,14 +290,14 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, opts),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      { channelName: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     );
 
     expect(protocol).toContainEqual({
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -311,7 +315,7 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, opts),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      { channelName: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     );
 
     expect(broadcasts).toEqual([]);
@@ -320,7 +324,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_1',
         event: '__unsubscribeOk__',
         payload: {},
-        wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+        wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
       },
     ]);
   });
@@ -333,7 +337,7 @@ describe('channel runtime', () => {
     const connection = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, connections, protocol } = createRuntime(channelMembers);
@@ -358,7 +362,7 @@ describe('channel runtime', () => {
             leaveChannel(runtime, nextConnection, opts),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+        { channelName: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
       ),
     ).rejects.toBe(boom);
 
@@ -369,7 +373,7 @@ describe('channel runtime', () => {
       connectionId: 'conn_1',
       event: '__unsubscribeOk__',
       payload: {},
-      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      wskit: { channel: 'room:general', channelFamily: 'rooms', unsubscribeId: 'unsub-1' },
     });
   });
 
@@ -386,7 +390,7 @@ describe('channel runtime', () => {
             leaveChannel(runtime, nextConnection, opts),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms' },
+        { channelName: 'room:general', channelFamily: 'rooms' },
       ),
     ).rejects.toMatchObject({ code: 'channel-not-subscribed' });
   });
@@ -396,7 +400,7 @@ describe('channel runtime', () => {
     const connection = createConnection('conn_1', { userId: 'a' });
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, connections, protocol } = createRuntime(channelMembers);
@@ -409,7 +413,7 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, opts),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms' },
+      { channelName: 'room:general', channelFamily: 'rooms' },
     );
 
     expect(protocol.some((p) => p.event === '__unsubscribeOk__')).toBe(false);
@@ -421,11 +425,11 @@ describe('channel runtime', () => {
 
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const { runtime, connections, broadcasts } = createRuntime(channelMembers);
@@ -443,7 +447,7 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, opts),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms' },
+      { channelName: 'room:general', channelFamily: 'rooms' },
     );
 
     expect(
@@ -459,32 +463,32 @@ describe('channel runtime', () => {
         event: '__memberLeave__',
         payload: { connectionId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     ]);
   });
 
-  it('subscribeConnection only syncs members from the same scope (cross-scope isolation)', async () => {
+  it('subscribeConnection only syncs members from the same family (cross-family isolation)', async () => {
     // Two channel families that share the concrete channel name 'room:general'.
-    // A connection joining one scope should only see the other scope's members
-    // when subscribing — not connections from a sibling scope.
+    // A connection joining one family should only see the other family's members
+    // when subscribing — not connections from a sibling family.
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const roomsMember = createConnection('rooms-member', { userId: 'a' });
     const lobbiesMember = createConnection('lobbies-member', { userId: 'b' });
     addChannelMembership(channelMembers, roomsMember, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     addChannelMembership(channelMembers, lobbiesMember, {
       channelName: 'room:general',
-      channelScope: 'lobbies',
+      channelFamily: 'lobbies',
     });
 
     const newSubscriber = createConnection('new-sub');
@@ -500,12 +504,12 @@ describe('channel runtime', () => {
 
     await subscribeConnection(runtime, newSubscriber, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
     // __memberSync__ to the new subscriber must include only the 'rooms'
-    // scope member, not the 'lobbies' scope member.
+    // family member, not the 'lobbies' family member.
     const sync = protocol.find((m) => m.connectionId === 'new-sub' && m.event === '__memberSync__');
     const members = (sync?.payload.members ?? []) as { connectionId: string }[];
     expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
@@ -527,7 +531,7 @@ describe('channel runtime', () => {
           checkHooks: new Map([['rooms', [{ handler: hook, validator: v.objectAsync({}) }]]]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -553,13 +557,11 @@ describe('channel runtime', () => {
         checkHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // The connection must NOT be a member yet when check runs.
     expect(wasMemberDuringCheck).toBe(false);
-    // After subscribe completes the connection IS a member.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
@@ -589,7 +591,7 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toThrow('capacity full');
 
@@ -614,7 +616,7 @@ describe('channel runtime', () => {
           },
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toThrow('storage down');
 
@@ -638,7 +640,7 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toThrow(/commit\(\) must be synchronous/);
   });
@@ -660,7 +662,7 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toBeInstanceOf(WSKitConfigError);
 
@@ -686,7 +688,7 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toBeInstanceOf(WSKitConfigError);
 
@@ -707,7 +709,7 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).rejects.toBeInstanceOf(WSKitConfigError);
 
@@ -725,7 +727,7 @@ describe('channel runtime', () => {
         commitHooks: new Map([['rooms', [{ handler: () => undefined }]]]),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
     expect(
@@ -761,7 +763,7 @@ describe('channel runtime', () => {
         ]),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
     expect(receivedInCommit).toBe(checkResult);
@@ -792,12 +794,12 @@ describe('channel runtime', () => {
 
     const subA = subscribeConnection(runtimeWithHook, connA, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
     const subB = subscribeConnection(runtimeWithHook, connB, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
@@ -828,7 +830,6 @@ describe('channel runtime', () => {
       .map((b) => (b.payload as { connectionId: string }).connectionId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
-    // Self-filter: neither connection's own id appears in its initial sync.
     expect(aSyncIds).not.toContain('conn_A');
     expect(bSyncIds).not.toContain('conn_B');
   });
@@ -849,11 +850,10 @@ describe('channel runtime', () => {
         subscribeHooks: new Map([['rooms', [hook]]]),
       },
       connection,
-      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // __subscribeOk__ had already been sent before the side-effect hook ran.
     expect(protocol[0]?.event).toBe('__subscribeOk__');
     expect(protocolCountDuringHook).toBeGreaterThanOrEqual(1);
   });
@@ -884,15 +884,13 @@ describe('channel runtime', () => {
           },
         },
         connection,
-        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
       ),
     ).resolves.toBeUndefined();
 
-    // Subscription was committed — the throw is observational, not a gate.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
-    // The client received __subscribeOk__ before the throw fired.
     expect(protocol.find((p) => p.event === '__subscribeOk__')).toBeDefined();
     // The runtime-error path was invoked with the channel routing markers
     // so the client receives an __error__ frame addressed to this channel.
@@ -900,7 +898,7 @@ describe('channel runtime', () => {
     expect(seenRuntimeErrors[0]!.event).toBe('__subscribe__');
     expect(seenRuntimeErrors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
   });
 
@@ -914,7 +912,7 @@ describe('channel runtime', () => {
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, broadcasts } = createRuntime(channelMembers);
@@ -942,11 +940,10 @@ describe('channel runtime', () => {
       leaveChannel(runtimeWithHook as never, connection, {
         channel: { key: 'rooms' } as never,
         channelName: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       }),
     ).rejects.toThrow(/hook boom/);
 
-    // Tail ran despite the hook throwing.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
@@ -957,14 +954,14 @@ describe('channel runtime', () => {
         event: '__memberLeave__',
         payload: { connectionId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     ]);
     expect(logger.error).toHaveBeenCalledTimes(1);
@@ -979,7 +976,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: { invitedBy: 'mod-1' },
     });
 
@@ -990,14 +987,19 @@ describe('subscribeConnectionAsServer', () => {
       {
         connectionId: 'target',
         event: '__subscribeOk__',
-        payload: { source: 'server' },
-        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
+        payload: {},
+        wskit: {
+          channel: 'room:general',
+          channelFamily: 'rooms',
+          source: 'server',
+          channelPersistent: false,
+        },
       },
       {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
       },
     ]);
     expect(broadcasts).toEqual([
@@ -1006,14 +1008,14 @@ describe('subscribeConnectionAsServer', () => {
         event: '__memberJoin__',
         payload: { connectionId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       {
         channelName: 'room:general',
         event: '__memberOnline__',
         payload: { connectionId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     ]);
   });
@@ -1032,7 +1034,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(rejoinRuntime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
       rejoining: true,
     });
@@ -1052,14 +1054,15 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(persistentRuntime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
     });
 
     const ok = protocol.find((p) => p.event === '__subscribeOk__');
     expect(ok?.wskit).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
+      source: 'server',
       channelPersistent: true,
     });
   });
@@ -1081,7 +1084,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(rejoinRuntime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
       rejoining: true,
     });
@@ -1110,7 +1113,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(rejoinRuntime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
       rejoining: true,
     });
@@ -1144,7 +1147,7 @@ describe('subscribeConnectionAsServer', () => {
     try {
       await subscribeConnectionAsServer(rejoinRuntime, target, {
         channelName: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         payload: undefined,
         rejoining: true,
       });
@@ -1184,7 +1187,7 @@ describe('subscribeConnectionAsServer', () => {
     try {
       await subscribeConnectionAsServer(rejoinRuntime, target, {
         channelName: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         payload: undefined,
         rejoining: true,
       });
@@ -1216,7 +1219,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: { gate: 'pass' },
     });
 
@@ -1246,7 +1249,7 @@ describe('subscribeConnectionAsServer', () => {
     await expect(
       subscribeConnectionAsServer(runtime, target, {
         channelName: 'room:general',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         payload: undefined,
       }),
     ).rejects.toThrow(/gate refused/);
@@ -1260,13 +1263,13 @@ describe('subscribeConnectionAsServer', () => {
     const target = createConnection('target', {});
     addChannelMembership(channelMembers, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     connections.set(target.id, target);
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
     });
 
@@ -1282,13 +1285,13 @@ describe('subscribeConnectionAsServer', () => {
     await expect(
       subscribeConnectionAsServer(runtime, target, {
         channelName: 'mystery',
-        channelScope: 'no-such-family',
+        channelFamily: 'no-such-family',
         payload: undefined,
       }),
     ).rejects.toThrow();
   });
 
-  it('works for a static channel (channelScope null)', async () => {
+  it('works for a static channel (channelFamily null)', async () => {
     const { protocol, connections, runtime } = createRuntime();
     // Register a static channel — the runtime fixture only carries a family
     // by default. Static and family channels resolve through different
@@ -1310,7 +1313,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'lobby',
-      channelScope: null,
+      channelFamily: null,
       payload: undefined,
     });
 
@@ -1319,28 +1322,26 @@ describe('subscribeConnectionAsServer', () => {
       {
         connectionId: 'target',
         event: '__subscribeOk__',
-        payload: { source: 'server' },
-        wskit: { channel: 'lobby', channelPersistent: false },
+        payload: {},
+        wskit: { channel: 'lobby', source: 'server', channelPersistent: false },
       },
       {
         connectionId: 'target',
         event: '__memberSync__',
         payload: { members: [] },
-        wskit: { channel: 'lobby' },
+        wskit: { channel: 'lobby', source: 'server' },
       },
     ]);
   });
 
   it('works on a channel with no check/commit hooks', async () => {
-    // Both hooks are optional. A channel without them should
-    // accept the subscribe without complaint and commit the membership.
     const { protocol, connections, runtime } = createRuntime();
     const target = createConnection('target', {});
     connections.set(target.id, target);
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
     });
 
@@ -1359,11 +1360,11 @@ describe('subscribeConnectionAsServer', () => {
     const existingB = createConnection('existing-b', { who: 'b' });
     addChannelMembership(channelMembers, existingA, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     addChannelMembership(channelMembers, existingB, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     connections.set(existingA.id, existingA);
     connections.set(existingB.id, existingB);
@@ -1373,7 +1374,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
     });
 
@@ -1406,7 +1407,7 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       payload: undefined,
     });
 
@@ -1414,7 +1415,7 @@ describe('subscribeConnectionAsServer', () => {
     expect(order[0]).toBe('wire:__subscribeOk__');
     expect(order[order.length - 1]).toBe('onSubscribe');
     expect(
-      protocol.some((p) => p.event === '__subscribeOk__' && p.payload.source === 'server'),
+      protocol.some((p) => p.event === '__subscribeOk__' && p.wskit?.source === 'server'),
     ).toBe(true);
   });
 });
@@ -1449,12 +1450,12 @@ describe('channel runtime bug tests', () => {
 
     const subA = subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
     const subB = subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
@@ -1478,7 +1479,7 @@ describe('channel runtime bug tests', () => {
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
 
     const { runtime, broadcasts } = createRuntime(channelMembers);
@@ -1493,7 +1494,7 @@ describe('channel runtime bug tests', () => {
     await leaveChannel(persistentRuntime as never, connection, {
       channel: undefined,
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       disconnect: true,
     });
 
@@ -1508,18 +1509,18 @@ describe('matchScopeParams', () => {
   });
 
   it('captures a single param from a family template', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(matchScopeParams(decl, 'room:alpha-42')).toEqual({ id: 'alpha-42' });
+    const declaration = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(declaration, 'room:alpha-42')).toEqual({ id: 'alpha-42' });
   });
 
   it('captures multiple params separated by literals', () => {
-    const decl = scope('threads', 'org:{org}/thread:{tid}');
-    expect(matchScopeParams(decl, 'org:acme/thread:42')).toEqual({ org: 'acme', tid: '42' });
+    const declaration = scope('threads', 'org:{org}/thread:{tid}');
+    expect(matchScopeParams(declaration, 'org:acme/thread:42')).toEqual({ org: 'acme', tid: '42' });
   });
 
   it('returns an empty object when the name does not match the family', () => {
-    const decl = scope('rooms', 'room:{id}');
-    expect(matchScopeParams(decl, 'lobby:1')).toEqual({});
+    const declaration = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(declaration, 'lobby:1')).toEqual({});
   });
 });
 
@@ -1537,10 +1538,9 @@ describe('server self-defense against untrusted client frames', () => {
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
     };
 
-    // First subscribe — the connection becomes a member.
     await subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
@@ -1549,7 +1549,7 @@ describe('server self-defense against untrusted client frames', () => {
     // no extra onSubscribe — exactly like subscribeConnectionAsServer already does.
     await subscribeConnection(runtimeWithHook, connection, {
       channelName: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
       data: undefined,
     });
 
@@ -1559,5 +1559,141 @@ describe('server self-defense against untrusted client frames', () => {
     expect(subscribeOkCount).toBe(1);
     expect(memberJoinCount).toBe(1);
     expect(onSubscribeHook).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate __subscribe__ does not re-run the check gate (bug #17)', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const checkHandler = vi.fn(() => undefined);
+    const validatorRan = vi.fn();
+    const validator = v.pipe(
+      v.unknown(),
+      v.check((data) => {
+        validatorRan(data);
+        return true;
+      }),
+    );
+    const runtimeWithCheck = {
+      ...runtime,
+      checkHooks: new Map([['rooms', [{ handler: checkHandler, validator }]]]),
+    };
+
+    await subscribeConnection(runtimeWithCheck, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: { token: 't' },
+    });
+    await subscribeConnection(runtimeWithCheck, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: { token: 't' },
+    });
+
+    expect(checkHandler).toHaveBeenCalledTimes(1);
+    expect(validatorRan).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => {
+  it('re-sends the member snapshot with source: server to a member', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const first = createConnection('conn_1', { userId: 'a' });
+    const second = createConnection('conn_2', { userId: 'b' });
+    addChannelMembership(channelMembers, first, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+    addChannelMembership(channelMembers, second, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(first.id, first);
+    connections.set(second.id, second);
+
+    resyncChannelMembers(runtime, second, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(protocol).toEqual([
+      {
+        connectionId: 'conn_2',
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
+        wskit: { channel: 'room:general', channelFamily: 'rooms', source: 'server' },
+      },
+    ]);
+  });
+
+  it('is a silent no-op when the requester is not a member', () => {
+    const stranger = createConnection('conn_x');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(stranger.id, stranger);
+
+    resyncChannelMembers(runtime, stranger, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(protocol).toEqual([]);
+  });
+
+  it('is a silent no-op for an unknown channel', () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(connection.id, connection);
+
+    resyncChannelMembers(runtime, connection, {
+      channelName: 'missing',
+      channelFamily: null,
+    });
+
+    expect(protocol).toEqual([]);
+  });
+});
+
+describe('subscribe schema validation without a check handler (bug #5)', () => {
+  it('validates the subscribe payload even when the channel has no check handler', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const handleValidationError = vi.fn(async () => {});
+    const runtimeWithValidator = {
+      ...runtime,
+      handleValidationError,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: () => undefined,
+              validator: v.object({ token: v.string() }),
+            },
+          ],
+        ],
+      ]),
+    };
+
+    await expect(
+      subscribeConnection(runtimeWithValidator, connection, {
+        channelName: 'room:general',
+        channelFamily: 'rooms',
+        data: { token: 123 },
+      }),
+    ).rejects.toBeDefined();
+    expect(handleValidationError).toHaveBeenCalledOnce();
+
+    await subscribeConnection(runtimeWithValidator, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: { token: 't' },
+    });
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
   });
 });

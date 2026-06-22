@@ -5,6 +5,7 @@ import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 /** Callbacks engine-access can't build itself. Supplied by the facade. */
 export interface EngineAccessDeps {
@@ -12,8 +13,32 @@ export interface EngineAccessDeps {
   ensureScheduledRuntime(): void;
   /** Build a fresh task context for scheduled task handlers. */
   createTaskContext(): unknown;
+  /** Queue one future scheduled task run. */
+  scheduleTask(opts: { taskId: string; time: number; data: unknown }): void;
+  /** Remove queued runs for one scheduled task id. */
+  cancelScheduled(opts: {
+    taskId: string;
+    filter?: Record<string, unknown>;
+  }): ScheduledCancelResult;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
+  /**
+   * Build the context object for the connection whose dispatch is running right
+   * now, or `undefined` when no connection is active (e.g. a fan-out broadcast
+   * prepared once for many peers).
+   */
+  buildCurrentContext(): unknown;
+  /** Send a server→client request frame through the outgoing pipeline. */
+  sendServerRequest(
+    connectionId: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      correlationId: string;
+      channel?: string;
+      channelFamily?: string | null;
+    },
+  ): boolean;
 }
 
 /**
@@ -43,8 +68,21 @@ export function createEngineAccess(
     onIncoming: (handler) => {
       core.hooks.incoming.push(handler);
     },
-    onOutgoing: (handler) => {
-      core.hooks.outgoing.push(handler);
+    onAnswerFrame: (handler) => {
+      core.hooks.answerFrame.push(handler);
+    },
+    sendServerRequest: (connectionId, opts) => deps.sendServerRequest(connectionId, opts),
+    onOutgoing: (handler, owner) => {
+      // The pipeline supplies the frame; ctx is resolved per-send from the
+      // active connection, or undefined when none is in scope (broadcasts).
+      // Note: this ctx is built fresh per send (new locals map) — it carries
+      // stable identity/meta/routing but NOT per-dispatch `locals`/`inject` set
+      // earlier in the same inbound dispatch. Outgoing hooks must not rely on
+      // per-dispatch locals.
+      core.hooks.outgoing.push({
+        handler: (frame) => handler(deps.buildCurrentContext(), frame),
+        owner: owner ?? OutgoingRuntime.APP_HOOK_OWNER,
+      });
     },
     onWSKitStamp: (handler) => {
       core.hooks.wskitStamp.push(handler);
@@ -150,6 +188,7 @@ export function createEngineAccess(
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;
     },
+    getHibernationEnabled: () => core.hibernationEnabled,
     setReplayEnabled: (enabled) => {
       core.replayEnabled = enabled;
     },
@@ -162,10 +201,23 @@ export function createEngineAccess(
     setChannelPersistent: (channelKey, enabled) => {
       core.channelPersistenceOverrides.set(channelKey, enabled);
     },
-    registerTagGroups: (kind, groups) => {
-      if (core.tagGroupsRegistered[kind]) {
-        throw new Error(`[wskit] tagGroups.${kind} declared more than once in this contract.`);
+    registerPluginApi: (id, factory) => {
+      if (core.pluginApiFactories.has(id)) {
+        throw new Error(
+          `[wskit] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
+        );
       }
+      core.pluginApiFactories.set(id, factory);
+    },
+    getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
+    registerPluginLifecycle: (kind, pluginId, handler) => {
+      const list = core.hooks.pluginLifecycle[kind];
+      list.push({ pluginId, order: list.length, handler });
+    },
+    registerPluginUpgrade: (pluginId, handler) => {
+      core.hooks.pluginUpgrade.push({ pluginId, handler });
+    },
+    registerTagGroups: (kind, groups) => {
       core.tagGroupsRegistered[kind] = true;
       if (kind === 'persistent' && !core.persistenceEnabled) {
         const sample = groups[0]?.name;
@@ -174,12 +226,17 @@ export function createEngineAccess(
         );
       }
       for (const group of groups) {
+        if (core.declaredTagGroups[kind].has(group.name)) {
+          throw new Error(
+            `[wskit] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
+          );
+        }
         core.declaredTagGroups[kind].add(group.name);
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
     },
-    isDurableMembershipPairPersistent: (channelName, channelScope) =>
-      core.isDurableMembershipPairPersistent(channelName, channelScope),
+    isDurableMembershipPairPersistent: (channelName, channelFamily) =>
+      core.isDurableMembershipPairPersistent(channelName, channelFamily),
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;
@@ -201,6 +258,8 @@ export function createEngineAccess(
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
+    scheduleTask: (taskId, time, data) => deps.scheduleTask({ taskId, time, data }),
+    cancelScheduled: (taskId, filter) => deps.cancelScheduled({ taskId, filter }),
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext: () => deps.createTaskContext(),
@@ -215,12 +274,6 @@ export function createEngineAccess(
         throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
       }
     },
-    sendAck: (connectionId, ackId) => {
-      if (!ackId) return;
-      const connection = core.connections.get(connectionId);
-      if (!connection) return;
-      sendProtocolMessage(core, connection, { event: '__ack__', payload: {}, wskit: { ackId } });
-    },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
     waitUntil: (promise) => {
@@ -234,6 +287,38 @@ export function createEngineAccess(
         payload: payload as Record<string, unknown>,
         wskit: {},
       });
+    },
+    setStreamTrigger: (trigger) => {
+      core.streamTrigger = trigger;
+    },
+    setActiveStreamOps: (buffer, cancel) => {
+      core.streamNudgeBuffer = buffer;
+      core.streamCancel = cancel;
+    },
+    setDurableStreamService: (service) => {
+      core.durableStream = service;
+    },
+    setRequestDispatch: (dispatch) => {
+      core.requestDispatch = dispatch;
+    },
+    setBuildTagsApi: (build) => {
+      core.buildTagsApi = build;
+    },
+    setPersistenceService: (service) => {
+      core.persistenceService = service;
+    },
+    setScheduledService: (service) => {
+      core.scheduledService = service;
+    },
+    setInterceptRuntime: (runIntercepts, frameMatch) => {
+      core.runIntercepts = runIntercepts;
+      core.frameMatch = frameMatch;
+    },
+    setChannelService: (service) => {
+      core.channelService = service;
+    },
+    setChannelContext: (context) => {
+      core.channelContext = context;
     },
   };
 }

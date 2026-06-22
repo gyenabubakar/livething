@@ -4,13 +4,18 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type * as PublicApi from '~/context.ts';
+import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 /**
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
 interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
-  hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
+  hasDurableMembership(
+    identity: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): boolean;
 
   checkHooks: ReadonlyMap<
     string,
@@ -33,7 +38,7 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
@@ -47,7 +52,7 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
+    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
   ): Promise<void>;
 
   handleRuntimeError(
@@ -57,25 +62,29 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
 
   isChannelPersistent(channelKey: string): boolean;
 
-  persistMembership(identity: string, channelName: string, channelScope: string | null): void;
-  deleteDurableMembership(identity: string, channelName: string, channelScope: string | null): void;
+  persistMembership(identity: string, channelName: string, channelFamily: string | null): void;
+  deleteDurableMembership(
+    identity: string,
+    channelName: string,
+    channelFamily: string | null,
+  ): void;
 }
 
 /**
  * Return the current public member snapshot for a channel.
  *
- * The lookup is always exact-match on the (`channelName`, `channelScope`)
+ * The lookup is always exact-match on the (`channelName`, `channelFamily`)
  * pair. Pass `null` for static channels and the family key for dynamic
- * channel families. Two scopes that happen to share a concrete channel name
- * stay strictly isolated — no membership ever crosses into the wrong scope.
+ * channel families. Two families that happen to share a concrete channel name
+ * stay strictly isolated — no membership ever crosses into the wrong family.
  */
 export function getChannelMembers(
   runtime: EngineRuntimeTypes.ConnectionMembersRuntime,
   channelName: string,
-  channelScope: string | null,
+  channelFamily: string | null,
 ): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
   const members = runtime.channelMembers.get(
-    ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members) return [];
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
@@ -96,7 +105,6 @@ export function kickChannelMembers(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
@@ -123,7 +131,6 @@ export async function handleSubscribe(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
@@ -140,7 +147,7 @@ export async function handleSubscribe(
     connection,
     {
       channelName: frame.__wskit.channel,
-      channelScope: frame.__wskit.channelScope,
+      channelFamily: frame.__wskit.channelFamily,
       data: frame.payload,
     },
   );
@@ -153,7 +160,7 @@ export async function handleSubscribe(
  */
 export interface SubscribeFromServerOptions {
   channelName: string;
-  channelScope: string | null;
+  channelFamily: string | null;
   payload: unknown;
   rejoining?: boolean;
 }
@@ -167,7 +174,6 @@ export async function subscribeFromServer(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
@@ -175,12 +181,8 @@ export async function subscribeFromServer(
   ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string },
   opts: SubscribeFromServerOptions,
 ): Promise<void> {
-  const { channelName, channelScope, payload, rejoining = false } = opts;
-  if (ref.instance !== runtime.instanceId) {
-    throw new Error(
-      `[wskit] channelHandle.subscribe(ref) targets instance "${ref.instance ?? 'undefined'}" but this engine is "${runtime.instanceId ?? 'undefined'}" — cross-instance routing requires a broker, which is not configured yet.`,
-    );
-  }
+  const { channelName, channelFamily, payload, rejoining = false } = opts;
+  assertLocalRef(ref, runtime.instanceId, 'channelHandle.subscribe(ref)');
 
   const target = runtime.connections.get(ref.id);
   if (!target) {
@@ -196,8 +198,24 @@ export async function subscribeFromServer(
       toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
     },
     target,
-    { channelName, channelScope, payload, rejoining },
+    { channelName, channelFamily, payload, rejoining },
   );
+}
+
+/**
+ * Handle a client `__memberSync__` request — a best-effort "please resend the
+ * roster". Re-sends the current member snapshot to the requesting connection.
+ * Fire-and-forget: a non-member or unknown channel is a silent no-op.
+ */
+export function handleMemberSync(
+  runtime: Pick<ChannelRuntime, 'compiled' | 'channelMembers' | 'sendProtocolMessage'>,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  frame: Protocol.MemberSyncRequestFrame,
+): void {
+  ChannelPrimitive.resyncChannelMembers(runtime, connection, {
+    channelName: frame.__wskit.channel,
+    channelFamily: frame.__wskit.channelFamily,
+  });
 }
 
 /**
@@ -212,7 +230,6 @@ export async function handleUnsubscribe(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
@@ -227,7 +244,7 @@ export async function handleUnsubscribe(
 ): Promise<void> {
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
     channelName: frame.__wskit.channel,
-    channelScope: frame.__wskit.channelScope,
+    channelFamily: frame.__wskit.channelFamily,
     unsubscribeId: frame.__wskit.unsubscribeId,
   });
 }

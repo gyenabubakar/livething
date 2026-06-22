@@ -1,10 +1,37 @@
-import { implement } from '@wskit/server';
 import type { InferClient } from '@wskit/server';
-import { groupFullSurfaceContract } from './contract.ts';
-import { fullSurfaceGroup } from './group.ts';
+import { base } from './contract.ts';
+import {
+  handleBadPayload,
+  handleBang,
+  handleChat,
+  handleCheckDisconnectLog,
+  handleCheckInit,
+  handleCheckScheduled,
+  handleEmitReplayMarker,
+  handleFeed,
+  handleLookup,
+  handlePaginate,
+  handleRoomSendMsg,
+  handleStartTick,
+  handleTick,
+  handleTokens,
+} from './group.ts';
 
-export const groupFullSurfaceHandler = implement(groupFullSurfaceContract)
-  .use(fullSurfaceGroup)
-  .build();
+export const groupFullSurfaceHandler = base.assemble(
+  handleChat,
+  handleBang,
+  handleBadPayload,
+  handleCheckInit,
+  handleCheckDisconnectLog,
+  handleCheckScheduled,
+  handleStartTick,
+  handleEmitReplayMarker,
+  handleLookup,
+  handleFeed,
+  handlePaginate,
+  handleTokens,
+  handleTick,
+  handleRoomSendMsg,
+);
 
 export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceHandler>;

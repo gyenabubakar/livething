@@ -165,11 +165,8 @@ describe('errors runtime', () => {
       { error: new Error('boom'), event: 'echo' },
     );
 
-    // Second hook still ran despite the first throwing.
     expect(observed).toEqual(['second']);
-    // Logger received the isolation message.
     expect(errors).toEqual(['[wskit] onError hook threw; sending __error__ to client anyway']);
-    // __error__ frame was sent exactly once with the normalized payload.
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
@@ -217,11 +214,11 @@ describe('errors runtime', () => {
           return { id: 'c1' };
         },
         resolveScopeFromRouting(routing) {
-          if (typeof routing.channel === 'string' && typeof routing.channelScope === 'string') {
+          if (typeof routing.channel === 'string' && typeof routing.channelFamily === 'string') {
             return {
               channel: fakeChannel as never,
               channelName: routing.channel,
-              channelScope: routing.channelScope,
+              channelFamily: routing.channelFamily,
             };
           }
           return undefined;
@@ -235,13 +232,13 @@ describe('errors runtime', () => {
       {
         error: new Error('boom'),
         event: 'post',
-        routing: { channel: 'room-7', channelScope: 'rooms' },
+        routing: { channel: 'room-7', channelFamily: 'rooms' },
       },
     );
 
     expect(builtScopes).toEqual([
-      { channel: fakeChannel, channelName: 'room-7', channelScope: 'rooms' },
-      { channel: fakeChannel, channelName: 'room-7', channelScope: 'rooms' },
+      { channel: fakeChannel, channelName: 'room-7', channelFamily: 'rooms' },
+      { channel: fakeChannel, channelName: 'room-7', channelFamily: 'rooms' },
     ]);
   });
 

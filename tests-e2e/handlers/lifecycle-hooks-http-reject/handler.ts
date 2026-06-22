@@ -1,13 +1,15 @@
-import { contract, implement, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 
-export const rejectHttpContract = contract('reject-http-test', { env: t<Env>(), definitions: [] });
-
-export const rejectHttpHandler = implement(rejectHttpContract)
-  .onUpgrade(() => {
+const base = define({
+  env: t<Env>(),
+  upgrade: () => {
     throw RejectUpgrade(403, 'Forbidden HTTP upgrade');
-  })
-  .build();
+  },
+  capabilities: [],
+});
+
+export const rejectHttpHandler = base.assemble();
 
 export type LifecycleHooksHttpRejectClient = InferClient<typeof rejectHttpHandler>;

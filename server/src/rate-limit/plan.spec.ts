@@ -35,7 +35,6 @@ describe('resolvePlan — cascade', () => {
       definitions: [channel('ai', { definitions: [] })],
       overrides: emptyOverrides,
     });
-    // Inheritance shares the parent rule (same id, same bucket).
     expect(plan!.scopeRules.get('channel:ai')?.id).toBe(plan!.scopeRules.get('top')?.id);
   });
 
@@ -48,7 +47,6 @@ describe('resolvePlan — cascade', () => {
     const chRule = plan!.scopeRules.get('channel:ai');
     expect(chRule?.max).toBe(100);
     expect(chRule?.windowMs).toBe(30_000);
-    // New rule id — different bucket than top.
     expect(chRule?.id).not.toBe(plan!.scopeRules.get('top')?.id);
   });
 
@@ -106,7 +104,6 @@ describe('resolvePlan — cascade', () => {
     const override = plan!.eventOverrides.get('top')?.get('expensive');
     expect(override?.max).toBe(5);
     expect(override?.windowMs).toBe(30_000);
-    // Separate id → separate bucket from scope rule.
     expect(override?.id).not.toBe(plan!.scopeRules.get('top')?.id);
   });
 
@@ -150,7 +147,6 @@ describe('resolvePlan — cascade', () => {
     });
     const override = plan!.eventOverrides.get('channel:rooms')?.get('expensive');
     expect(override?.max).toBe(5);
-    // windowMs falls back to the channel's resolved rule (= top's via cascade).
     expect(override?.windowMs).toBe(60_000);
     expect(override?.id).not.toBe(plan!.scopeRules.get('channel:rooms')?.id);
   });
@@ -164,7 +160,6 @@ describe('resolvePlan — cascade', () => {
       definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
       overrides: emptyOverrides,
     });
-    // channel inherited `per` from contract.
     expect(plan!.scopeRules.get('channel:ai')?.per).toBe(perByIdentity);
   });
 

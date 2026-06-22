@@ -1,149 +1,149 @@
-import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
+import { stream } from '@wskit/server/streams';
 import type { InferClient } from '@wskit/server';
+import type * as v from 'valibot';
+import { requireUsername } from '../_shared/upgrade.ts';
 import {
   AddNote,
   AddRoomNote,
-  BadReplayLog,
-  ConfirmedCount,
   GetConfirmedCount,
   GetRoomConfirmedCount,
-  Note,
   QueryBadReplayLog,
   QueryRoomReplayEvents,
-  RoomConfirmedCount,
-  RoomNote,
-  RoomReplayEvents,
   RoomStreamChunk,
   RoomStreamPayload,
 } from './events.ts';
+import type {
+  BadReplayLog,
+  ConfirmedCount,
+  Note,
+  RoomConfirmedCount,
+  RoomNote,
+  RoomReplayEvents,
+} from './events.ts';
 
-export const replayCustomContract = contract('replay-custom-test', {
+const base = define({
   env: t<Env>(),
-  sequence: { persist: true },
-  dedup: true,
-  meta: t<{ username: string }>(),
-  definitions: [
-    incoming('add-note', AddNote),
-    incoming('query-bad-replay-log', QueryBadReplayLog),
-    incoming('get-confirmed-count', GetConfirmedCount),
-
-    outgoing('note', Note),
-    outgoing('confirmed-count', ConfirmedCount),
-    outgoing('bad-replay-log', BadReplayLog),
-
-    channel('custom-room', {
-      definitions: [
-        outgoing('room-note', RoomNote),
-        outgoing('room-confirmed-count', RoomConfirmedCount),
-        outgoing('room-replay-events', RoomReplayEvents),
-        incoming('add-room-note', AddRoomNote),
-        incoming('get-room-confirmed-count', GetRoomConfirmedCount),
-        incoming('query-room-replay-events', QueryRoomReplayEvents),
-        stream('room-stream', { payload: RoomStreamPayload, chunk: RoomStreamChunk }),
-      ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    emits({
+      note: t<v.InferOutput<typeof Note>>(),
+      'confirmed-count': t<v.InferOutput<typeof ConfirmedCount>>(),
+      'bad-replay-log': t<v.InferOutput<typeof BadReplayLog>>(),
     }),
+    dedup(),
+    sequence({ persist: true }),
+    replay.custom(),
+    channels(),
+    stream(),
   ],
 });
 
-export const replayCustomHandler = implement(replayCustomContract)
-  .customReplay({
-    onBeforeSend: (ctx, msg) => {
-      ctx.sql.exec(
-        'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
-        msg.event,
-        JSON.stringify(msg.payload),
-        msg.wire.seq,
-        msg.wire.messageId,
-      );
-    },
-    onAfterSend: (ctx, msg) => {
-      ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
-    },
-    onReplay: async (ctx, since) => {
-      if (since === 2_147_483_647) {
-        let undeclared = '';
-        try {
-          ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
-        } catch (err) {
-          undeclared = err instanceof Error ? err.message : String(err);
-        }
-        ctx.sql.exec(
-          'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared) VALUES (1, ?)',
-          undeclared,
-        );
-        return;
+base.replay({
+  beforeSend(ctx, msg) {
+    ctx.sql.exec(
+      'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+      msg.event,
+      JSON.stringify(msg.payload),
+      msg.wire.seq,
+      msg.wire.messageId,
+    );
+  },
+  afterSend(ctx, msg) {
+    ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+  },
+  async replay(ctx, since) {
+    if (since === 2_147_483_647) {
+      let undeclared = '';
+      try {
+        ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
+      } catch (err) {
+        undeclared = err instanceof Error ? err.message : String(err);
       }
 
-      const rows = (
-        ctx.sql.exec(
-          'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
-          since,
-        ) as {
-          toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }>;
-        }
-      ).toArray();
-
-      for (const row of rows) {
-        ctx.sendReplay(row.event, JSON.parse(row.payload), {
-          seq: row.seq,
-          messageId: row.message_id,
-        });
-      }
-    },
-  })
-  .onUpgrade((request) => {
-    const url = new URL(request.url);
-    const username = url.searchParams.get('username');
-    if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { identity: username, meta: { username } };
-  })
-  .onInit((ctx) => {
-    ctx.sql.exec(`
-      CREATE TABLE IF NOT EXISTS _custom_replay (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        message_id TEXT NOT NULL,
-        confirmed INTEGER NOT NULL DEFAULT 0
-      )
-    `);
-    ctx.sql.exec(`
-      CREATE TABLE IF NOT EXISTS _bad_replay_log (
-        id INTEGER PRIMARY KEY,
-        undeclared TEXT NOT NULL DEFAULT ''
-      )
-    `);
-    ctx.sql.exec(`
-      CREATE TABLE IF NOT EXISTS _custom_room_replay (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        message_id TEXT NOT NULL,
-        channel TEXT,
-        confirmed INTEGER NOT NULL DEFAULT 0
-      )
-    `);
-    try {
-      ctx.sql.exec('ALTER TABLE _custom_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
-    } catch {
-      // column already exists
-    }
-    try {
       ctx.sql.exec(
-        'ALTER TABLE _custom_room_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
+        'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared) VALUES (1, ?)',
+        undeclared,
       );
-    } catch {
-      // column already exists
+
+      return;
     }
-  })
-  .on('add-note', (ctx, payload) => {
-    ctx.send('note', { text: payload.text, author: ctx.meta.username });
-    ctx.broadcast('note', { text: payload.text, author: ctx.meta.username });
-  })
-  .on('query-bad-replay-log', (ctx) => {
+
+    const rows = (
+      ctx.sql.exec(
+        'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
+        since,
+      ) as {
+        toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }>;
+      }
+    ).toArray();
+
+    for (const row of rows) {
+      ctx.sendReplay(row.event, JSON.parse(row.payload), {
+        seq: row.seq,
+        messageId: row.message_id,
+      });
+    }
+  },
+});
+
+base.init((ctx) => {
+  ctx.sql.exec(`
+    CREATE TABLE IF NOT EXISTS _custom_replay (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      message_id TEXT NOT NULL,
+      confirmed INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  ctx.sql.exec(`
+    CREATE TABLE IF NOT EXISTS _bad_replay_log (
+      id INTEGER PRIMARY KEY,
+      undeclared TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  ctx.sql.exec(`
+    CREATE TABLE IF NOT EXISTS _custom_room_replay (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      message_id TEXT NOT NULL,
+      channel TEXT,
+      confirmed INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  try {
+    ctx.sql.exec('ALTER TABLE _custom_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // column already exists
+  }
+
+  try {
+    ctx.sql.exec('ALTER TABLE _custom_room_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // column already exists
+  }
+});
+
+const handleAddNote = base.on('add-note', {
+  input: AddNote,
+  run(ctx, input) {
+    ctx.send('note', { text: input.text, author: ctx.meta.username });
+    ctx.broadcast('note', { text: input.text, author: ctx.meta.username });
+  },
+});
+
+const handleQueryBadReplayLog = base.on('query-bad-replay-log', {
+  input: QueryBadReplayLog,
+  run(ctx) {
     const rows = ctx.sql
       .exec<{
         undeclared: string;
@@ -153,8 +153,12 @@ export const replayCustomHandler = implement(replayCustomContract)
     ctx.send('bad-replay-log', {
       undeclared: row?.undeclared ?? '',
     });
-  })
-  .on('get-confirmed-count', (ctx) => {
+  },
+});
+
+const handleGetConfirmedCount = base.on('get-confirmed-count', {
+  input: GetConfirmedCount,
+  run(ctx) {
     const rows = ctx.sql
       .exec<{
         total: number;
@@ -163,73 +167,108 @@ export const replayCustomHandler = implement(replayCustomContract)
       .toArray();
     const row = rows[0];
     ctx.send('confirmed-count', { total: row?.total ?? 0, confirmed: row?.confirmed ?? 0 });
-  })
-  .channel('custom-room', (ch) =>
-    ch
-      .customReplay({
-        onBeforeSend: (ctx, msg) => {
-          ctx.sql.exec(
-            'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
-            msg.event,
-            JSON.stringify(msg.payload),
-            msg.wire.seq,
-            msg.wire.messageId,
-          );
-        },
-        onAfterSend: (ctx, msg) => {
-          ctx.sql.exec('UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
-        },
-        onReplay: async (ctx, since) => {
-          const rows = (
-            ctx.sql.exec(
-              'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
-              since,
-            ) as {
-              toArray(): Array<{
-                event: string;
-                payload: string;
-                seq: number;
-                message_id: string;
-              }>;
-            }
-          ).toArray();
-          for (const row of rows) {
-            ctx.sendReplay(row.event, JSON.parse(row.payload), {
-              seq: row.seq,
-              messageId: row.message_id,
-            });
-          }
-        },
-      })
-      .on('add-room-note', (ctx, payload) => {
-        ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
-        ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });
-      })
-      .on('query-room-replay-events', (ctx) => {
-        const rows = ctx.sql
-          .exec<{ event: string }>('SELECT DISTINCT event FROM _custom_room_replay')
-          .toArray();
-        ctx.channel.send('room-replay-events', { events: rows.map((r) => r.event) });
-      })
-      .stream('room-stream', async function* (_ctx, payload) {
-        for (let i = 0; i < payload.count; i += 1) {
-          yield { token: `tok-${i}` };
-        }
-      })
-      .on('get-room-confirmed-count', (ctx) => {
-        const rows = ctx.sql
-          .exec<{
-            total: number;
-            confirmed: number;
-          }>('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_room_replay')
-          .toArray();
-        const row = rows[0];
-        ctx.channel.send('room-confirmed-count', {
-          total: row?.total ?? 0,
-          confirmed: row?.confirmed ?? 0,
-        });
-      }),
-  )
-  .build();
+  },
+});
+
+const customRoom = base.channel('custom-room', {
+  outgoing: {
+    emits: {
+      'room-note': t<v.InferOutput<typeof RoomNote>>(),
+      'room-confirmed-count': t<v.InferOutput<typeof RoomConfirmedCount>>(),
+      'room-replay-events': t<v.InferOutput<typeof RoomReplayEvents>>(),
+    },
+  },
+});
+
+customRoom.replay({
+  beforeSend(ctx, msg) {
+    ctx.sql.exec(
+      'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+      msg.event,
+      JSON.stringify(msg.payload),
+      msg.wire.seq,
+      msg.wire.messageId,
+    );
+  },
+  afterSend(ctx, msg) {
+    ctx.sql.exec('UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+  },
+  async replay(ctx, since) {
+    const rows = (
+      ctx.sql.exec(
+        'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
+        since,
+      ) as {
+        toArray(): Array<{
+          event: string;
+          payload: string;
+          seq: number;
+          message_id: string;
+        }>;
+      }
+    ).toArray();
+    for (const row of rows) {
+      ctx.sendReplay(row.event, JSON.parse(row.payload), {
+        seq: row.seq,
+        messageId: row.message_id,
+      });
+    }
+  },
+});
+
+const handleAddRoomNote = customRoom.on('add-room-note', {
+  input: AddRoomNote,
+  run(ctx, input) {
+    ctx.channel.send('room-note', { text: input.text, author: ctx.meta.username });
+    ctx.channel.broadcast('room-note', { text: input.text, author: ctx.meta.username });
+  },
+});
+
+const handleQueryRoomReplayEvents = customRoom.on('query-room-replay-events', {
+  input: QueryRoomReplayEvents,
+  run(ctx) {
+    const rows = ctx.sql
+      .exec<{ event: string }>('SELECT DISTINCT event FROM _custom_room_replay')
+      .toArray();
+    ctx.channel.send('room-replay-events', { events: rows.map((r) => r.event) });
+  },
+});
+
+const handleRoomStream = customRoom.stream('room-stream', {
+  input: RoomStreamPayload,
+  chunk: RoomStreamChunk,
+  async *run(_ctx, input) {
+    for (let i = 0; i < input.count; i += 1) {
+      yield { token: `tok-${i}` };
+    }
+  },
+});
+
+const handleGetRoomConfirmedCount = customRoom.on('get-room-confirmed-count', {
+  input: GetRoomConfirmedCount,
+  run(ctx) {
+    const rows = ctx.sql
+      .exec<{
+        total: number;
+        confirmed: number;
+      }>('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_room_replay')
+      .toArray();
+    const row = rows[0];
+    ctx.channel.send('room-confirmed-count', {
+      total: row?.total ?? 0,
+      confirmed: row?.confirmed ?? 0,
+    });
+  },
+});
+
+export const replayCustomHandler = base.assemble(
+  handleAddNote,
+  handleQueryBadReplayLog,
+  handleGetConfirmedCount,
+  handleAddRoomNote,
+  handleQueryRoomReplayEvents,
+  handleRoomStream,
+  handleGetRoomConfirmedCount,
+);
 
 export type ReplayCustomClient = InferClient<typeof replayCustomHandler>;

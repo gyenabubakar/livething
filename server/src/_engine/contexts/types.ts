@@ -1,4 +1,5 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as WireRuntime from '~/_engine/runtime/wire.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
@@ -8,25 +9,25 @@ import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
 /**
- * Hidden scope markers attached to live connection contexts for engine-owned
+ * Hidden channel markers attached to live connection contexts for engine-owned
  * helpers and primitive context extenders.
  */
-export interface EngineScopeMeta {
+export interface EngineChannelMeta {
   channelName?: string;
   /**
-   * Scope marker for the active channel: `null` for static channels, the
+   * Family marker for the active channel: `null` for static channels, the
    * family key for dynamic channel families, `undefined` when no channel is
    * active.
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 /**
- * Symbol key used to attach scope metadata (channel name) to a handler context.
+ * Symbol key used to attach channel metadata (channel name) to a handler context.
  *
  * @internal
  */
-export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
+export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
 
 /**
  * Symbol key under which engine internals stash the runtime connection on a
@@ -38,15 +39,6 @@ export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
  * @internal
  */
 export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
-
-/**
- * Symbol key under which the engine stashes the current message's ack id on a
- * handler context. `ctx.ack()` reads it so a handler always confirms its own
- * message — never a later message that interleaved on the same connection.
- *
- * @internal
- */
-export const ENGINE_ACK_ID = Symbol('wskit-engine-ack-id');
 
 /**
  * Shared capabilities needed to build init, task, shutdown, and connection
@@ -89,19 +81,19 @@ export interface ContextCommonDeps {
 
   getChannelMembers(
     channelName: string,
-    channelScope: string | null,
+    channelFamily: string | null,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
   kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
 
   /**
    * Remove every live connection of the given identity from one channel
-   * scope AND drop the durable membership row. True-leave semantics —
+   * AND drop the durable membership row. True-leave semantics —
    * `onUnsubscribe` fires, `__memberLeave__`/`__memberOffline__` broadcast.
    */
   removeChannelMember(
     channelName: string,
-    channelScope: string | null,
+    channelFamily: string | null,
     identity: string,
   ): Promise<void>;
 
@@ -117,7 +109,7 @@ export interface ContextCommonDeps {
   resolveChannel(
     target: string | { family: string; name: string },
   ):
-    | { channelName: string; channelScope: string | null; params: Record<string, string> }
+    | { channelName: string; channelFamily: string | null; params: Record<string, string> }
     | undefined;
 
   sendReplay(
@@ -135,11 +127,6 @@ export interface ContextCommonDeps {
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
-
-  attachPluginApis(
-    ctx: Record<PropertyKey, unknown>,
-    connection?: EngineRuntimeTypes.RuntimeConnection,
-  ): void;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
   /**
@@ -162,6 +149,26 @@ export interface ContextCommonDeps {
 
   /** The runtime validator for a tag group, or `undefined` when it has none. */
   getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): Validator | undefined;
+
+  /**
+   * Builder for the `ctx.tags` surface, registered by the `tags()` capability.
+   * Absent when no tag groups are declared, so the tag runtime stays out of the
+   * bundle.
+   */
+  buildTagsApi?: FeatureSlots.BuildTagsApi;
+
+  /**
+   * Frame matchers behind `ctx.matches` / `ctx.unsafeCast`, registered by the
+   * `intercepts()` capability. Absent otherwise; the ctx methods then throw.
+   */
+  frameMatch?: FeatureSlots.FrameMatch;
+
+  /**
+   * Builders for the `ctx.channels` / `ctx.channel` surface, registered by the
+   * `channels()` capability. Absent otherwise, so the channel-context module
+   * stays out of a handler that lists no channels.
+   */
+  channelContext?: FeatureSlots.ChannelContext;
 }
 
 /**
@@ -171,7 +178,6 @@ export interface BuildConnectionContextDeps extends ContextCommonDeps {
   compiled: EngineCompileTypes.CompiledServer;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
-  hibernationEnabled: boolean;
 }
 
 /**
@@ -192,4 +198,4 @@ export type {
 
 export type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 
-export type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
+export type { RuntimeConnection } from '~/_engine/runtime/types.ts';

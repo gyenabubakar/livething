@@ -1,4 +1,5 @@
 import { reconcilePersistenceOnBoot } from '~/persistence/cleanup.ts';
+import { persistenceService } from '~/persistence/service.ts';
 import { ensurePersistenceSchema } from '~/persistence/storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -14,17 +15,20 @@ const PERSISTENCE_KEY = Symbol('persistence');
  * reconnects. Channels persist by default; set `persistent: false` in a
  * channel's definition config to opt out per channel.
  *
- * Enable this via `persistence: true` on the contract config instead of
- * calling this primitive directly.
+ * Enable this by listing the `persistence()` capability instead of calling this
+ * primitive directly.
  *
  * @example
  * ```ts
- * const chat = contract('chat', { env: t<Env>(),
- *   persistence: true,
- *   definitions: [
- *     channel('team-eng', { definitions: [...] }),
- *   ],
+ * import { define, t } from '@wskit/server';
+ * import { persistence } from '@wskit/server/persistence';
+ * import { channels } from '@wskit/server/channels';
+ *
+ * const base = define({
+ *   env: t<Env>(),
+ *   capabilities: [persistence(), channels()],
  * });
+ * const teamEng = base.channel('team-eng');
  * ```
  */
 export function persistence(): PersistencePrimitive {
@@ -35,6 +39,7 @@ export function persistence(): PersistencePrimitive {
     __requires: { storage: true },
     __setup(engine) {
       engine.setPersistenceEnabled(true);
+      engine.setPersistenceService(persistenceService);
       engine.onBootSchema(() => {
         ensurePersistenceSchema(engine.requireStorage().sql);
       });

@@ -1,9 +1,9 @@
 import {
   addConnectionTag,
-  buildGroupHandle,
   removeConnectionFromTagIndex,
   removeConnectionTag,
-} from '~/tags/runtime.ts';
+} from '~/_engine/runtime/tag-index.ts';
+import { buildGroupHandle } from '~/tags/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -142,8 +142,6 @@ describe('group handle reflection methods', () => {
     const sent: string[] = [];
     const a = createConnection('a');
     const b = createConnection('b');
-    // a holds two keys under the group; b holds one. count is the distinct
-    // connection count, not the key count.
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
@@ -169,7 +167,6 @@ describe('group handle reflection methods', () => {
 
     const runtime = createRuntime(tagMembers, []);
     const keys = buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' }).keys();
-    // 'eng' is shared but only listed once; order is not guaranteed.
     expect([...keys].sort()).toEqual(['eng', 'lead']);
   });
 
@@ -191,7 +188,6 @@ describe('group handle reflection methods', () => {
 
     const runtime = createRuntime(tagMembers, []);
     const aHandle = buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' });
-    // 'eng' is a's key, 'sales' belongs to b — has is per-connection.
     expect(aHandle.has('eng')).toBe(true);
     expect(aHandle.has('sales')).toBe(false);
     expect(aHandle.has('missing')).toBe(false);

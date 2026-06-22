@@ -98,7 +98,7 @@ describe('triggering and iterating', () => {
     const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
-    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } }); // dup
+    ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
@@ -180,7 +180,6 @@ describe('nudge and cancel', () => {
       __wskit: { streamId: sid, streamNudgeId, streamTerminated: false },
     });
     await expect(pending).rejects.toMatchObject({ code: 'validation-failed' });
-    // The stream is still running: a chunk after the rejected nudge still arrives.
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
     expect(await collect(handle)).toEqual([{ text: 'a' }]);
@@ -298,20 +297,20 @@ describe('durable resume', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
     const handle = room.resumeStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
-      __wskit: { channel: 'r1', channelScope: 'rooms', streamId: 'feed-2' },
+      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2' },
     });
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'x' },
-      __wskit: { channel: 'r1', channelScope: 'rooms', streamId: 'feed-2', seq: 1 },
+      __wskit: { channel: 'r1', channelFamily: 'rooms', streamId: 'feed-2', seq: 1 },
     });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-2' } });
     expect(await collect(handle)).toEqual([{ text: 'x' }]);
@@ -325,14 +324,14 @@ describe('scoped streams', () => {
     const sub = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'r1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
     void room.stream('ask-ai', { prompt: 'hi' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('ask-ai');
-    expect(frame.__wskit).toMatchObject({ channel: 'r1', channelScope: 'rooms' });
+    expect(frame.__wskit).toMatchObject({ channel: 'r1', channelFamily: 'rooms' });
     expect(typeof frame.__wskit.streamId).toBe('string');
   });
 });
@@ -344,7 +343,6 @@ describe('lazy consumer leak on failed send', () => {
     const ws = MockWebSocket.last();
     ws.open();
 
-    // Make the underlying ws.send throw on the very next call (the trigger frame).
     const original = ws.send.bind(ws);
     let calls = 0;
     ws.send = (data: unknown) => {
@@ -378,7 +376,6 @@ describe('stream() never throws synchronously on a bad payload', () => {
     }).not.toThrow();
     await expect(promise!).rejects.toBeInstanceOf(TypeError);
 
-    // No leaked trigger, timer, or lazy hold.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
   });
 });
@@ -402,7 +399,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
     await expect(
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
     ).rejects.toMatchObject({ code: 'validation-failed' });
-    expect(ws.sentFrames().length).toBe(before); // nothing sent
+    expect(ws.sentFrames().length).toBe(before);
   });
 
   it('nudge returns a rejected Promise when its payload will not serialize', async () => {
@@ -426,8 +423,6 @@ describe('stream wire-limit validation', () => {
       socket.stream('ask-ai', { prompt: 'hi' }, { streamId: tooLong }),
     ).rejects.toMatchObject({ code: 'validation-failed' });
 
-    // No hold acquired, no frame sent — the over-limit id is caught before any
-    // state or socket work, so nothing is left to clean up.
     expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(before);
   });
 
@@ -456,8 +451,6 @@ describe('stream id uniqueness across clients (#1)', () => {
 describe('one reconnect decision per close (#19)', () => {
   it('evaluates a primitive shouldReconnect hook once per close even with an active durable stream', async () => {
     let calls = 0;
-    // A stateful hook that flips on the second call: a double evaluation would
-    // let the stream cleanup and the reconnection module disagree.
     const flaky = {
       _tag: 'flaky',
       setup: () => ({
@@ -485,8 +478,6 @@ describe('one reconnect decision per close (#19)', () => {
     ws.serverClose(1006);
 
     expect(calls).toBe(1);
-    // The single decision (true) governs both paths: the socket reconnects and
-    // the durable stream is kept alive rather than finished.
     expect(socket.getState()).toBe('reconnecting');
     expect(handle.active).toBe(true);
   });
@@ -494,9 +485,6 @@ describe('one reconnect decision per close (#19)', () => {
 
 describe('stream control frames while not open (#24)', () => {
   it('nudge rejects with Disconnected immediately while reconnecting, not after the timeout', async () => {
-    // A persistent stream stays active across a drop, so the handle reaches the
-    // nudge send path while the socket is reconnecting (an ephemeral stream would
-    // just finish on disconnect and no-op the nudge).
     const socket = client<C>()(connect('wss://test'), stream(), reconnection());
     socket.connect();
     const ws = MockWebSocket.last();
@@ -510,12 +498,10 @@ describe('stream control frames while not open (#24)', () => {
     });
     const handle = await promise;
 
-    ws.serverClose(1006); // → reconnecting; the persistent stream stays active
+    ws.serverClose(1006);
     expect(socket.getState()).toBe('reconnecting');
     expect(handle.active).toBe(true);
 
-    // With real timers and no advance, a fast Disconnected reject proves it does
-    // not sit on the nudge timeout before failing.
     await expect(handle.nudge('add-context', { context: 'x' })).rejects.toMatchObject({
       code: 'disconnected',
     });

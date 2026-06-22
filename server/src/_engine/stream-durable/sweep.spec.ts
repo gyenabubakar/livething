@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { sweepDurableStreams } from './runtime.ts';
 import * as Storage from './storage.ts';
 
-// Minimal in-memory SQL that just tracks streams + chunks enough for sweep.
 function makeSql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
@@ -26,7 +25,7 @@ function makeSql() {
           payload,
           kind,
           channelKey,
-          channelScope,
+          channelFamily,
           broadcast,
           creatorIdentity,
           startedAt,
@@ -45,7 +44,7 @@ function makeSql() {
           cursor: null,
           last_seq: 0,
           channel_key: channelKey,
-          channel_scope: channelScope,
+          channel_family: channelFamily,
           broadcast,
           creator_identity: creatorIdentity,
           started_at: startedAt,

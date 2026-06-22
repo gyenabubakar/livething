@@ -1,7 +1,6 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
@@ -57,8 +56,8 @@ describe('subscribe / unsubscribe', () => {
     });
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await expect(promise).resolves.toBeUndefined();
   });
@@ -82,8 +81,8 @@ describe('subscribe / unsubscribe', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     room.send('send-message', { text: 'hi' });
@@ -100,8 +99,8 @@ describe('subscribe / unsubscribe', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     const onUnsub = vi.fn();
@@ -115,7 +114,6 @@ describe('subscribe / unsubscribe', () => {
     });
     const unsubscribeId = frame.__wskit.unsubscribeId;
     expect(typeof unsubscribeId).toBe('string');
-    // The channel goes inactive at once, but the promise resolves only on confirm.
     expect(onUnsub).toHaveBeenCalled();
     ws.emit({
       event: '__unsubscribeOk__',
@@ -140,8 +138,8 @@ describe('subscribe / unsubscribe', () => {
     const first = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await first;
 
@@ -163,8 +161,8 @@ describe('subscribe / unsubscribe', () => {
     });
     reopened.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await expect(second).resolves.toBeUndefined();
   });
@@ -174,20 +172,18 @@ describe('subscribe / unsubscribe', () => {
     const room = socket.channel('general');
 
     const first = room.subscribe();
-    const second = room.subscribe(); // before __subscribeOk__
+    const second = room.subscribe();
 
     // Same in-flight promise — not a second, orphaned one.
     expect(second).toBe(first);
-    // Only one __subscribe__ frame went out.
     expect(ws.sentFrames().filter((f) => f.event === '__subscribe__')).toHaveLength(1);
 
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
-    // Both awaiters settle.
     await expect(first).resolves.toBeUndefined();
     await expect(second).resolves.toBeUndefined();
   });
@@ -196,8 +192,8 @@ describe('subscribe / unsubscribe', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
 
-    room.subscribe(); // in flight — no __subscribeOk__ yet
-    room.unsubscribe(); // tears the channel down before confirmation
+    room.subscribe();
+    room.unsubscribe();
 
     function countSubscribeFrames() {
       return ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
@@ -219,13 +215,12 @@ describe('subscribe / unsubscribe', () => {
       payload: {},
       __wskit: { channel: 'general', unsubscribeId },
     });
-    // Confirmed leave releases the queued subscribe: exactly one fresh frame.
     expect(countSubscribeFrames()).toBe(before + 1);
 
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await expect(retry).resolves.toBeUndefined();
   });
@@ -240,8 +235,8 @@ describe('routing', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { channel: 'general' } });
@@ -252,12 +247,12 @@ describe('routing', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
     const handler = vi.fn();
-    room.on('message', handler); // before subscribe
+    room.on('message', handler);
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({ event: 'message', payload: { text: 'late' }, __wskit: { channel: 'general' } });
@@ -272,8 +267,8 @@ describe('routing', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({
@@ -296,8 +291,8 @@ describe('membership and presence', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({
@@ -318,8 +313,8 @@ describe('membership and presence', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({
@@ -345,8 +340,8 @@ describe('membership and presence', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });
@@ -356,69 +351,69 @@ describe('membership and presence', () => {
 });
 
 describe('dynamic families and scope handles', () => {
-  it('tags dynamic channels with channel + channelScope', async () => {
+  it('tags dynamic channels with channel + channelFamily', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('rooms', 'room-1');
     const p = room.subscribe();
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__subscribe__',
       payload: {},
-      __wskit: { channel: 'room-1', channelScope: 'rooms' },
+      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
     });
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'room-1', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
     });
     await p;
     room.send('send-message', { text: 'hi' });
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelScope: 'rooms' });
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelFamily: 'rooms' });
   });
 
   it('resolves the same handle via channel(scope,name) and scope(key)(name)', () => {
     const { socket } = build(channels());
-    expect(socket.channel('rooms', 'room-1')).toBe(socket.channel.scope('rooms')('room-1'));
+    expect(socket.channel('rooms', 'room-1')).toBe(socket.channel.family('rooms')('room-1'));
   });
 
-  it('an absent scope subscribes as a static channel (no channelScope marker)', async () => {
+  it('an absent scope subscribes as a static channel (no channelFamily marker)', async () => {
     const { socket, ws } = build(channels());
-    const room = socket.channel('general'); // no scope
+    const room = socket.channel('general');
     void room.subscribe();
     expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'general' });
   });
 
-  it('a supplied family key is carried in the channelScope marker', () => {
+  it('a supplied family key is carried in the channelFamily marker', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('rooms', 'room-9');
     void room.subscribe();
-    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelScope: 'rooms' });
+    expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-9', channelFamily: 'rooms' });
   });
 
   it('rejects an empty family key locally with validation-failed and sends nothing', async () => {
     const { socket, ws } = build(channels());
-    const room = socket.channel('rooms', ''); // empty supplied scope
+    const room = socket.channel('rooms', '');
     const before = ws.sentFrames().length;
     await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
-    expect(ws.sentFrames().length).toBe(before); // no subscribe frame went out
+    expect(ws.sentFrames().length).toBe(before);
   });
 
   it('family-level on() fires with the channel name', async () => {
     const { socket, ws } = build(channels());
-    const family = socket.channel.scope('rooms');
+    const family = socket.channel.family('rooms');
     const familyHandler = vi.fn();
     family.on('message', familyHandler);
     const room = family('room-7');
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'room-7', channelFamily: 'rooms' },
     });
     await p;
     ws.emit({
       event: 'message',
       payload: { text: 'yo' },
-      __wskit: { channel: 'room-7', channelScope: 'rooms' },
+      __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
     expect(familyHandler).toHaveBeenCalledWith({ text: 'yo' }, 'room-7');
     expect(family.list()).toEqual(['room-7']);
@@ -430,10 +425,9 @@ describe('server-initiated subscriptions and reconnection', () => {
     const { socket, ws } = build(channels());
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'server' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'server', channel: 'general' },
     });
-    // A handle created afterwards is backed by the already-active state.
     const room = socket.channel('general');
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
   });
@@ -448,8 +442,8 @@ describe('server-initiated subscriptions and reconnection', () => {
       socket.channel('general').subscribe();
       first.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general' },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general' },
       });
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
@@ -476,15 +470,13 @@ describe('server-initiated subscriptions and reconnection', () => {
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general', channelPersistent: true },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
       });
 
-      // Drop, then leave while reconnecting — the leave is held and resent on open.
       first.serverClose(1006, 'drop');
       room.unsubscribe();
 
-      // Reconnect: onOpen resends the leave; the channel is already inactive.
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
@@ -496,8 +488,8 @@ describe('server-initiated subscriptions and reconnection', () => {
       // must NOT re-activate a channel the user left (the server already removed it).
       second.emit({
         event: '__subscribeOk__',
-        payload: { source: 'server' },
-        __wskit: { channel: 'general', channelPersistent: true },
+        payload: {},
+        __wskit: { source: 'server', channel: 'general', channelPersistent: true },
       });
 
       expect(() => room.send('send-message', { text: 'hi' })).toThrow();
@@ -526,14 +518,13 @@ describe('reliable leave', () => {
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general', channelPersistent: true },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
       });
 
       const leave = room.unsubscribe();
       const id = leaveId(first);
 
-      // Drop before the ack — the leave must resend on reopen with the same id.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
@@ -544,7 +535,6 @@ describe('reliable leave', () => {
           .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
       ).toBe(true);
 
-      // Drop AGAIN before the ack — still resent, same id, and no rejoin for it.
       second.serverClose(1006, 'drop');
       vi.advanceTimersByTime(3000);
       const third = MockWebSocket.last();
@@ -560,7 +550,6 @@ describe('reliable leave', () => {
           .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general'),
       ).toBe(false);
 
-      // The server finally confirms — the promise resolves.
       third.emit({
         event: '__unsubscribeOk__',
         payload: {},
@@ -587,12 +576,11 @@ describe('reliable leave', () => {
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general', channelPersistent: true },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
       });
 
       const leave = room.unsubscribe();
-      // Drop, then exhaust the single retry without a successful open.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(60_000);
       MockWebSocket.last().serverClose(1006, 'still down');
@@ -609,8 +597,8 @@ describe('reliable leave', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
 
@@ -630,7 +618,6 @@ describe('reliable leave', () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    // The matching id settles it; a second (duplicate) confirmation is a no-op.
     ws.emit({
       event: '__unsubscribeOk__',
       payload: {},
@@ -650,13 +637,13 @@ describe('reliable leave', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
 
     const leave1 = room.unsubscribe();
-    const leave2 = room.unsubscribe(); // pending leave → same promise, no second frame
+    const leave2 = room.unsubscribe();
     expect(leave2).toBe(leave1);
     expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
 
@@ -668,7 +655,6 @@ describe('reliable leave', () => {
     });
     await expect(leave1).resolves.toBeUndefined();
 
-    // Already left with nothing pending → resolves without a new frame.
     await expect(room.unsubscribe()).resolves.toBeUndefined();
     expect(ws.sentFrames().filter((f) => f.event === '__unsubscribe__')).toHaveLength(1);
   });
@@ -677,7 +663,6 @@ describe('reliable leave', () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
 
-    // subscribe then unsubscribe before the server's __subscribeOk__ arrives.
     room.subscribe();
     const leave = room.unsubscribe();
 
@@ -685,12 +670,11 @@ describe('reliable leave', () => {
     // leave is still pending. It must NOT re-activate the channel.
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     expect(() => room.send('send-message', { text: 'x' })).toThrow(/channel-not-subscribed/);
 
-    // After the leave confirms, the channel stays inactive — no split-brain.
     const id = leaveId(ws);
     ws.emit({
       event: '__unsubscribeOk__',
@@ -712,25 +696,20 @@ describe('reliable leave', () => {
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general' },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general' },
       });
 
-      // Leave, then immediately ask to rejoin — the rejoin is queued behind the leave.
       const leave = room.unsubscribe();
       const rejoin = room.subscribe();
       void leave.then(undefined, () => undefined);
       void rejoin.then(undefined, () => undefined);
 
-      // The socket drops before the leave is confirmed. The queued rejoin must
-      // survive the retryable drop, not reject.
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
 
-      // On reopen the leave is resent; confirm it — the queued rejoin then sends
-      // a fresh __subscribe__, which the server confirms, resolving the rejoin.
       const id = second
         .sentFrames()
         .filter((f) => f.event === '__unsubscribe__')
@@ -747,8 +726,8 @@ describe('reliable leave', () => {
       ).toBe(true);
       second.emit({
         event: '__subscribeOk__',
-        payload: { source: 'client' },
-        __wskit: { channel: 'general' },
+        payload: {},
+        __wskit: { source: 'client', channel: 'general' },
       });
 
       await expect(leave).resolves.toBeUndefined();
@@ -764,8 +743,8 @@ describe('reliable leave', () => {
     room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
 
     const leave = room.unsubscribe();
@@ -788,8 +767,6 @@ describe('reliable leave', () => {
       __wskit: { channel: 'general', unsubscribeId: id },
     });
 
-    // The deferred rejoin ran the factory exactly once, now. The payload is sent
-    // on a microtask (it flows through Promise.resolve), so settle that first.
     expect(calls).toBe(1);
     await Promise.resolve();
     await Promise.resolve();
@@ -804,12 +781,14 @@ describe('reliable leave', () => {
 describe('scoped request and ack', () => {
   it('channel request tags the channel and resolves', async () => {
     const { socket, ws } = build(channels(), requestResponse());
-    const room = socket.channel('general');
+    const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
+      request(event: string, payload: unknown): Promise<unknown>;
+    };
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
     const reqPromise = room.request('history', { before: 'x' });
@@ -824,19 +803,18 @@ describe('scoped request and ack', () => {
     await expect(reqPromise).resolves.toEqual({ items: ['a'] });
   });
 
-  it('channel sendWithAck is guarded before subscribe', () => {
-    const { socket } = build(channels(), ack());
-    expect(() => socket.channel('general').sendWithAck('send-message', { text: 'x' })).toThrow(
-      /channel-not-subscribed/,
-    );
+  it('channel request is guarded before subscribe', () => {
+    const { socket } = build(channels(), requestResponse());
+    const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
+      request(event: string, payload: unknown): Promise<unknown>;
+    };
+    expect(() => room.request('history', { before: 'x' })).toThrow(/channel-not-subscribed/);
   });
 });
 
 describe('stream-error routing (order-independent)', () => {
   it('routes a channel-scoped stream error to the stream primitive, not to channel subscribe-failure, even when channels is registered first', async () => {
     const { socket, ws } = build(channels(), stream());
-    // stream() augments onStream onto channel messaging objects at runtime; the general channel
-    // has no streams in C, so we union-cast to access the augmented method in the test.
     type RoomWithStream = ReturnType<(typeof socket)['channel']> & {
       onStream(
         event: string,
@@ -851,8 +829,8 @@ describe('stream-error routing (order-independent)', () => {
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
 
@@ -863,13 +841,11 @@ describe('stream-error routing (order-independent)', () => {
     const onError = vi.fn();
     room.onStream('ask-ai', { onChunk, onError, onEnd: vi.fn() });
 
-    // A chunk starts the broadcast run...
     ws.emit({
       event: 'ask-ai',
       payload: { text: 'hi' },
       __wskit: { channel: 'general', streamId: 's1', seq: 0 },
     });
-    // ...then a channel-scoped stream error.
     ws.emit({
       event: '__error__',
       payload: { code: 'internal-error' },
@@ -877,8 +853,8 @@ describe('stream-error routing (order-independent)', () => {
     });
 
     expect(onChunk).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledTimes(1); // the stream primitive received the error
-    expect(onSubFailed).not.toHaveBeenCalled(); // channels did NOT misroute it
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSubFailed).not.toHaveBeenCalled();
   });
 });
 
@@ -890,7 +866,7 @@ describe('lazy hold lifecycle (no leak)', () => {
   it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {
     vi.useFakeTimers();
     const socket = lazySocket();
-    const p = socket.channel('general').subscribe(); // lazy connect
+    const p = socket.channel('general').subscribe();
     MockWebSocket.last().open();
     MockWebSocket.last().emit({
       event: '__error__',
@@ -900,7 +876,7 @@ describe('lazy hold lifecycle (no leak)', () => {
     await expect(p).rejects.toBeDefined();
 
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('closed'); // would stay 'open' if the hold leaked
+    expect(socket.getState()).toBe('closed');
     vi.useRealTimers();
   });
 
@@ -913,8 +889,8 @@ describe('lazy hold lifecycle (no leak)', () => {
     ws.open();
     ws.emit({
       event: '__subscribeOk__',
-      payload: { source: 'client' },
-      __wskit: { channel: 'general' },
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
     });
     await p;
 
@@ -934,7 +910,6 @@ describe('subscribe wire-limit validation', () => {
 
     await expect(room.subscribe()).rejects.toMatchObject({ code: 'validation-failed' });
 
-    // Caught before any state, lazy hold, or __subscribe__ frame.
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
     expect(ws.sentFrames().length).toBe(before);
   });
@@ -976,7 +951,6 @@ describe('subscribe setup failure cleanup (#13)', () => {
       }),
     ).rejects.toThrow('factory boom');
 
-    // Pending state and the lazy hold are torn down, not leaked.
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
   });
 });
@@ -993,8 +967,6 @@ describe('stale payload rejection guard (#14)', () => {
     const first = room.subscribe(() => firstPayload);
     void first.catch(() => undefined);
 
-    // Cancel the first subscribe, then start a fresh one. The new subscribe is
-    // queued behind the leave until it confirms.
     room.unsubscribe();
     const second = room.subscribe({ token: 'fresh' });
 
@@ -1003,7 +975,6 @@ describe('stale payload rejection guard (#14)', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Confirm the leave so the queued subscribe sends, then confirm the subscribe.
     const unsubscribeId = ws
       .sentFrames()
       .filter((f) => f.event === '__unsubscribe__')
@@ -1015,5 +986,67 @@ describe('stale payload rejection guard (#14)', () => {
     });
     ws.emit({ event: '__subscribeOk__', payload: {}, __wskit: { channel: 'general' } });
     await expect(second).resolves.toBeUndefined();
+  });
+});
+
+interface PluginChannelC {
+  channels: {
+    '__e2e:feed::room': {
+      incoming: { joined: { who: string } };
+    };
+  };
+}
+
+describe('plugin-channel namespace delivery (A3)', () => {
+  function buildPlugin() {
+    const socket = client<PluginChannelC>()(connect('wss://test'), channels());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    return { socket, ws };
+  }
+
+  it("delivers a plugin channel's __id::-prefixed event under its bare contract name", async () => {
+    const { socket, ws } = buildPlugin();
+    const room = socket.channel('__e2e:feed::room');
+    const seen: { who: string }[] = [];
+    room.on('joined', (data) => seen.push(data));
+
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+    });
+    await p;
+
+    ws.emit({
+      event: '__e2e:feed::joined',
+      payload: { who: 'alice' },
+      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+    });
+    expect(seen).toEqual([{ who: 'alice' }]);
+  });
+
+  it("only strips the channel's own prefix — a foreign-prefixed event is not delivered as the bare name", async () => {
+    const { socket, ws } = buildPlugin();
+    const room = socket.channel('__e2e:feed::room');
+    const joined = vi.fn();
+    room.on('joined', joined);
+
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__e2e:feed::room' },
+    });
+    await p;
+
+    ws.emit({
+      event: '__other:plugin::joined',
+      payload: { who: 'x' },
+      __wskit: { source: 'server', channel: '__e2e:feed::room' },
+    });
+    expect(joined).not.toHaveBeenCalled();
   });
 });

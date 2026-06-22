@@ -31,6 +31,8 @@ export interface SocketContract {
   streams?: Record<string, StreamContract>;
   /** Request/response pairs. Needs the `requestResponse` primitive. */
   requests?: Record<string, RequestContract>;
+  /** Requests the server asks you (server→client). Needs the `serverRequest` primitive. */
+  serverRequests?: Record<string, RequestContract>;
   /** Typed errors the server can send, so you can match on them. */
   errors?: Record<string, unknown>;
 }
@@ -43,6 +45,7 @@ export interface ScopeContract {
   incoming?: Record<string, unknown>;
   outgoing?: Record<string, unknown>;
   requests?: Record<string, RequestContract>;
+  serverRequests?: Record<string, RequestContract>;
   streams?: Record<string, StreamContract>;
 }
 
@@ -74,6 +77,7 @@ export type OutgoingOf<T> = T extends { outgoing: infer O } ? O : {};
 export type ChannelsOf<T> = T extends { channels: infer C } ? C : {};
 export type StreamsOf<T> = T extends { streams: infer S } ? S : {};
 export type RequestsOf<T> = T extends { requests: infer R } ? R : {};
+export type ServerRequestsOf<T> = T extends { serverRequests: infer R } ? R : {};
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
 
 /**
@@ -182,8 +186,8 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
 
 /**
  * The full messaging type for one scope (a channel): `on`/`send`
- * plus `request()` when the scope has requests, `sendWithAck()` when it has
- * outgoing events, and the stream methods when it has streams.
+ * plus `request()` when the scope has requests, and the stream methods when it
+ * has streams.
  */
 export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
   (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
@@ -195,15 +199,14 @@ export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C>
         ): Promise<R[E]['response']>;
       }
     : {}) &
-  (keyof OutgoingOf<C> extends never
-    ? {}
-    : {
-        sendWithAck<E extends keyof OutgoingOf<C> & string>(
+  (C extends { serverRequests: infer SR extends Record<string, { payload: any; response: any }> }
+    ? {
+        onRequest<E extends keyof SR & string>(
           event: E,
-          payload: OutgoingOf<C>[E],
-          options?: { timeout?: number; ttl?: number },
-        ): Promise<void>;
-      }) &
+          handler: (payload: SR[E]['payload']) => SR[E]['response'] | Promise<SR[E]['response']>,
+        ): () => void;
+      }
+    : {}) &
   (C extends { streams: infer S extends Record<string, { payload: any; chunk: any }> }
     ? {
         stream<E extends keyof S & string>(

@@ -1,6 +1,5 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
@@ -17,14 +16,6 @@ interface C {
 
 function buildDedup() {
   const socket = client<C>()(connect('wss://test'), dedup());
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
-function buildAck() {
-  const socket = client<C>()(connect('wss://test'), ack());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -59,25 +50,6 @@ describe('dedup', () => {
   });
 });
 
-describe('ack', () => {
-  it('resolves when the server acknowledges', async () => {
-    const { socket, ws } = buildAck();
-    const promise = socket.sendWithAck('chat', { text: 'hi' });
-    const ackId = ws.sentFrames().at(-1).__wskit.ackId;
-    expect(typeof ackId).toBe('string');
-    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId } });
-    await expect(promise).resolves.toBeUndefined();
-  });
-
-  it('rejects with a typed error frame', async () => {
-    const { socket, ws } = buildAck();
-    const promise = socket.sendWithAck('chat', { text: 'hi' });
-    const ackId = ws.sentFrames().at(-1).__wskit.ackId;
-    ws.emit({ event: '__error__', payload: { code: 'rate-limited' }, __wskit: { ackId } });
-    await expect(promise).rejects.toMatchObject({ code: 'rate-limited' });
-  });
-});
-
 describe('replay', () => {
   it('requires dedup', () => {
     expect(() => client<C>()(connect('wss://test'), replay())).toThrow(/replay requires dedup/);
@@ -93,7 +65,7 @@ describe('replay', () => {
       first.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
       first.serverClose(1006, 'dropped');
 
-      vi.advanceTimersByTime(1500); // let the backoff fire and reopen
+      vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       expect(second).not.toBe(first);
       second.open();

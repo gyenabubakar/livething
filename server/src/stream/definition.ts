@@ -1,6 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
+import { assertValidHighWaterMark, collectUnique } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName } from '~/event-name.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -16,8 +18,8 @@ export interface NudgeDef<TName extends string = string, TPayload = unknown> {
 
 /**
  * Contract-side declaration of a server-pushed stream. Produced by `stream()`.
- * The matching generator is attached later via
- * `implement(contract).stream(name, async function* (ctx, payload) { ... })`.
+ * The matching generator is registered via
+ * `base.stream(name, { async *run(ctx, input) { ... } })`.
  */
 export interface StreamDef<
   TName extends string = string,
@@ -28,10 +30,11 @@ export interface StreamDef<
   readonly _: 'stream';
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
-  readonly chunk?: Validator<TChunk>;
+  readonly chunk?: TypeMarker<TChunk>;
   readonly nudges: TNudges;
   readonly broadcast: boolean;
   readonly allowConcurrent: boolean;
+  readonly highWaterMark?: number;
 }
 
 /**
@@ -48,8 +51,8 @@ export function nudge(name: string, schema?: Validator): NudgeDef {
 }
 
 /**
- * Declare a server-pushed stream. The generator is attached later via
- * `implement(contract).stream(name, async function* (ctx, payload) { ... })`.
+ * Declare a server-pushed stream. The generator is registered via
+ * `base.stream(name, { async *run(ctx, input) { ... } })`.
  */
 export function stream<
   TName extends string,
@@ -60,13 +63,15 @@ export function stream<
   name: TName,
   config?: {
     payload?: Validator<TPayload>;
-    chunk?: Validator<TChunk>;
+    chunk?: TypeMarker<TChunk>;
     nudges?: TNudges;
     broadcast?: boolean;
     allowConcurrent?: boolean;
+    highWaterMark?: number;
   },
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
+  assertValidHighWaterMark(config?.highWaterMark, `stream("${name}")`);
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
   return {
@@ -77,5 +82,6 @@ export function stream<
     nudges,
     broadcast: config?.broadcast ?? false,
     allowConcurrent: config?.allowConcurrent ?? false,
+    highWaterMark: config?.highWaterMark,
   };
 }

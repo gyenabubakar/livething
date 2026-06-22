@@ -136,3 +136,60 @@ export function compileChannelTemplate(
 
   return { template, regex: new RegExp(regexSource), paramNames };
 }
+
+/**
+ * Fill a channel family template with concrete params to produce a channel
+ * name — the inverse of the matcher. `room:{id}` + `{ id: 'general' }` →
+ * `room:general`. `{{`/`}}` collapse to literal braces. Throws if a declared
+ * param is missing or its value is empty, so a `.at(...)` ref never resolves to
+ * a malformed name.
+ */
+export function fillChannelTemplate(
+  template: string,
+  params: Record<string, string>,
+  source = 'scope()',
+): string {
+  let result = '';
+  let i = 0;
+
+  while (i < template.length) {
+    const char = template[i];
+
+    if (char === '{') {
+      if (template[i + 1] === '{') {
+        result += '{';
+        i += 2;
+        continue;
+      }
+      const end = template.indexOf('}', i + 1);
+      if (end === -1) {
+        throw new WSKitConfigError(
+          `[wskit] ${source} template "${template}" has an unclosed '{' — it must be a ` +
+            'compiled family template.',
+        );
+      }
+      const name = template.slice(i + 1, end);
+      const value = params[name];
+      if (typeof value !== 'string' || value === '') {
+        throw new WSKitConfigError(
+          `[wskit] ${source} template "${template}" needs a non-empty '${name}' to resolve a ` +
+            `channel name — got ${JSON.stringify(value)}.`,
+        );
+      }
+      result += value;
+      i = end + 1;
+      continue;
+    }
+
+    if (char === '}' && template[i + 1] === '}') {
+      result += '}';
+      i += 2;
+      continue;
+    }
+
+    result += char;
+    i += 1;
+  }
+
+  return result;
+}

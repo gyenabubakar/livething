@@ -15,14 +15,21 @@ export interface WSKitEnvelope {
   /** Links a `request()` to its reply. */
   correlationId?: string;
 
-  /** Links a `sendWithAck()` to its `__ack__`. */
-  ackId?: string;
+  /**
+   * The side that originated this exchange: `'server'` or `'client'`. One field
+   * shared by every two-way flow (requests, replies, subscribe). It lets
+   * the client tell a server-initiated request (`'server'`) apart from a reply to
+   * its own request (`'client'`), so it can fast-fail with `request-no-response`
+   * when it has no handler instead of leaving the server's pending promise to
+   * hang to timeout.
+   */
+  source?: 'server' | 'client';
 
   /** Names the channel a message belongs to. */
   channel?: string;
 
   /** The dynamic channel-family key, paired with `channel`. */
-  channelScope?: string;
+  channelFamily?: string;
 
   /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
   unsubscribeId?: string;
@@ -81,7 +88,7 @@ export interface WireMessage {
 export type SendResult = 'sent' | 'buffered' | 'connecting' | 'closed' | 'blocked';
 
 /**
- * The pending operation that owns a buffered or outboxed frame. A request, ack,
+ * The pending operation that owns a buffered or outboxed frame. A request,
  * subscribe, stream trigger, resume, or nudge whose frame is held off-wire keeps
  * an owner so the holding layer can settle it: skip its frame once it has already
  * settled (timed out, disconnected, resolved), and reject it if the frame can

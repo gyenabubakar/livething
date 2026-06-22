@@ -1,4 +1,8 @@
-import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
+import { define, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { dedup } from '@wskit/server/dedup';
+import { replay } from '@wskit/server/replay';
+import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -6,29 +10,26 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
-export const replayFamilyKeyEqualsNameContract = contract('replay-family-key-equals-name', {
+const base = define({
   env: t<Env>(),
-  sequence: { persist: true },
-  dedup: true,
-  replay: true,
-  meta: t<{ username: string }>(),
-  definitions: [
-    channel(scope('rooms', 'rooms'), {
-      replay: true,
-      definitions: [outgoing('room-message', RoomMessage), incoming('send-batch', SendBatch)],
-    }),
-  ],
+  upgrade: (request) => requireUsername(request),
+  capabilities: [channels(), dedup(), sequence({ persist: true }), replay.history()],
 });
 
-export const replayFamilyKeyEqualsNameHandler = implement(replayFamilyKeyEqualsNameContract)
-  .onUpgrade((request) => requireUsername(request))
-  .channel('rooms', (c) =>
-    c.on('send-batch', (ctx, payload) => {
-      for (let i = 0; i < payload.count; i++) {
-        ctx.channel.broadcast('room-message', { text: `msg-${i}` }, { excludeSelf: false });
-      }
-    }),
-  )
-  .build();
+const rooms = base.channel(['rooms', 'rooms'], {
+  replay: true,
+  outgoing: { emits: { 'room-message': t<v.InferOutput<typeof RoomMessage>>() } },
+});
+
+const handleSendBatch = rooms.on('send-batch', {
+  input: SendBatch,
+  run(ctx, payload) {
+    for (let i = 0; i < payload.count; i++) {
+      ctx.channel.broadcast('room-message', { text: `msg-${i}` }, { excludeSelf: false });
+    }
+  },
+});
+
+export const replayFamilyKeyEqualsNameHandler = base.assemble(handleSendBatch);
 
 export type ReplayFamilyKeyEqualsNameClient = InferClient<typeof replayFamilyKeyEqualsNameHandler>;

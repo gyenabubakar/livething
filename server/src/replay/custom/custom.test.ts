@@ -14,17 +14,17 @@ const topLevelReplay = handleReplay({
     const _messageId: string = message.wire.messageId;
     // Top-level custom replay observes channel-scoped messages too via the
     // cascade. `channel` is null for true top-level messages, the concrete
-    // name when the message originated in a channel. `channelScope` is the
+    // name when the message originated in a channel. `channelFamily` is the
     // family key for dynamic families and null for static channels.
     const _channel: string | null = message.wire.channel;
-    const _channelScope: string | null = message.wire.channelScope;
+    const _channelFamily: string | null = message.wire.channelFamily;
     // @ts-expect-error — channel may be null; calling string methods needs a guard
     message.wire.channel.toUpperCase();
     if (message.wire.channel !== null) {
       const _afterGuard: string = message.wire.channel.toUpperCase();
       void _afterGuard;
     }
-    void [_ctx, _message, _seq, _messageId, _channel, _channelScope];
+    void [_ctx, _message, _seq, _messageId, _channel, _channelFamily];
   },
   onReplay(ctx, since) {
     const _since: number = since;
@@ -46,17 +46,17 @@ const channelReplay = handleReplay<'channel'>({
     const _seq: number = message.wire.seq;
     const _messageId: string = message.wire.messageId;
     const _channel: string = message.wire.channel;
-    // channelScope is `string | null` — `null` for static channels, family
+    // channelFamily is `string | null` — `null` for static channels, family
     // key for dynamic families. Assigning a `string` is allowed; reading and
     // calling string methods without a null-guard is a type error.
-    const _channelScope: string | null = message.wire.channelScope;
-    // @ts-expect-error — channelScope may be null; .toUpperCase() needs a guard
-    message.wire.channelScope.toUpperCase();
-    if (message.wire.channelScope !== null) {
-      const _afterGuard: string = message.wire.channelScope.toUpperCase();
+    const _channelFamily: string | null = message.wire.channelFamily;
+    // @ts-expect-error — channelFamily may be null; .toUpperCase() needs a guard
+    message.wire.channelFamily.toUpperCase();
+    if (message.wire.channelFamily !== null) {
+      const _afterGuard: string = message.wire.channelFamily.toUpperCase();
       void _afterGuard;
     }
-    void [_ctx, _message, _seq, _messageId, _channel, _channelScope];
+    void [_ctx, _message, _seq, _messageId, _channel, _channelFamily];
   },
   onReplay(ctx, since) {
     const _channelName: string = ctx.channel.name;

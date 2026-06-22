@@ -1,4 +1,4 @@
-import { ENGINE_INTERNAL_CONNECTION, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { replay } from '~/replay/replay.ts';
 import { persistReplayMessage } from '~/replay/runtime.ts';
@@ -16,7 +16,7 @@ class FakeReplaySql {
 
     if (
       normalizedQuery.startsWith(
-        'SELECT rowKey, messageId, seq, event, payload, channel, channelScope, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
+        'SELECT rowKey, messageId, seq, event, payload, channel, channelFamily, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
       )
     ) {
       const row = this.rows.get(String(params[0]));
@@ -56,7 +56,7 @@ class FakeReplaySql {
         event: String(params[3]),
         payload: String(params[4]),
         channel: (params[5] as string | null) ?? null,
-        channelScope: (params[6] as string | null) ?? null,
+        channelFamily: (params[6] as string | null) ?? null,
         snapshotKey: (params[7] as string | null) ?? null,
         createdAt: Number(params[8]),
       };
@@ -250,7 +250,6 @@ describe('replay', () => {
       validateReduced: (event, payload) => seen.push({ event, payload }),
     });
 
-    // The reducer's output — not the raw frame — is what gets validated.
     expect(seen).toEqual([{ event: 'doc-snapshot', payload: { id: 'doc-1', title: 'Draft' } }]);
   });
 
@@ -332,7 +331,7 @@ describe('replay', () => {
 
     const ctx: Record<PropertyKey, unknown> = {
       id: 'c1',
-      [ENGINE_SCOPE_META]: {},
+      [ENGINE_CHANNEL_META]: {},
     };
 
     extenders[0]!(ctx);
@@ -340,7 +339,7 @@ describe('replay', () => {
     expect(typeof ctx.sendReplay).toBe('function');
   });
 
-  it('top-level sendReplay forwards wire.channelScope into engine.sendReplay', () => {
+  it('top-level sendReplay forwards wire.channelFamily into engine.sendReplay', () => {
     const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
     const sent: Parameters<EngineAccess['sendReplay']>[] = [];
     const engine = {
@@ -379,19 +378,19 @@ describe('replay', () => {
 
     replay().__setup?.(engine);
 
-    const ctx: Record<PropertyKey, unknown> = { id: 'c1', [ENGINE_SCOPE_META]: {} };
+    const ctx: Record<PropertyKey, unknown> = { id: 'c1', [ENGINE_CHANNEL_META]: {} };
     extenders[0]!(ctx);
 
     (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
       'message',
       { text: 'hi' },
-      { seq: 7, messageId: 'm7', channel: 'room-1', channelScope: 'rooms' },
+      { seq: 7, messageId: 'm7', channel: 'room-1', channelFamily: 'rooms' },
     );
 
     expect(sent).toHaveLength(1);
     const [, opts] = sent[0]!;
     expect(opts.channelName).toBe('room-1');
-    expect(opts.channelScope).toBe('rooms');
+    expect(opts.channelFamily).toBe('rooms');
   });
 
   it('adds channel sendReplay only for the matching channel scope', () => {
@@ -431,17 +430,17 @@ describe('replay', () => {
     const matchingCtx: Record<PropertyKey, unknown> = {
       id: 'c1',
       channel: { name: 'room-1' },
-      [ENGINE_SCOPE_META]: {
+      [ENGINE_CHANNEL_META]: {
         channelName: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
     };
     const otherCtx: Record<PropertyKey, unknown> = {
       id: 'c2',
       channel: { name: 'other' },
-      [ENGINE_SCOPE_META]: {
+      [ENGINE_CHANNEL_META]: {
         channelName: 'other',
-        channelScope: 'other-scope',
+        channelFamily: 'other-scope',
       },
     };
 
@@ -464,7 +463,7 @@ describe('replay', () => {
         event: 'message',
         payload: JSON.stringify({ text: 'history' }),
         channel: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
         snapshotKey: null,
         createdAt: 1,
       },
@@ -548,23 +547,23 @@ describe('replay', () => {
       channelMemberships: new Map([
         [
           createChannelMembershipKey('room-1', 'rooms'),
-          { channelName: 'room-1', channelScope: 'rooms' },
+          { channelName: 'room-1', channelFamily: 'rooms' },
         ],
       ]),
     };
     const matchingCtx = {
       id: 'c1',
-      [ENGINE_SCOPE_META]: {
+      [ENGINE_CHANNEL_META]: {
         channelName: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection,
     };
     const nonMemberCtx = {
       id: 'c3',
-      [ENGINE_SCOPE_META]: {
+      [ENGINE_CHANNEL_META]: {
         channelName: 'room-1',
-        channelScope: 'rooms',
+        channelFamily: 'rooms',
       },
       [ENGINE_INTERNAL_CONNECTION]: { channelMemberships: new Map() },
     };
@@ -573,20 +572,20 @@ describe('replay', () => {
       await handler(matchingCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelScope: 'rooms' },
+        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
       }),
     ).toBe(true);
     expect(
       await handler(
-        { id: 'c2', [ENGINE_SCOPE_META]: {} },
-        { event: '__replay__', payload: { lastKnownSeq: 9 }, __wskit: { channelScope: null } },
+        { id: 'c2', [ENGINE_CHANNEL_META]: {} },
+        { event: '__replay__', payload: { lastKnownSeq: 9 }, __wskit: { channelFamily: null } },
       ),
     ).toBe(false);
     expect(
       await handler(nonMemberCtx, {
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
-        __wskit: { channel: 'room-1', channelScope: 'rooms' },
+        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
       }),
     ).toBe(true);
     expect(sent).toEqual([
@@ -594,7 +593,7 @@ describe('replay', () => {
         'c1',
         {
           channelName: 'room-1',
-          channelScope: 'rooms',
+          channelFamily: 'rooms',
           event: 'message',
           payload: { text: 'history' },
           wire: { seq: 5, messageId: 'msg-1', channel: 'room-1' },

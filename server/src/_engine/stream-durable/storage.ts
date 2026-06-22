@@ -18,7 +18,7 @@ const CREATE_STREAMS_TABLE_SQL = `
     cursor                    TEXT,
     last_seq                  INTEGER NOT NULL DEFAULT 0,
     channel_key               TEXT,
-    channel_scope             TEXT,
+    channel_family             TEXT,
     broadcast                 INTEGER NOT NULL DEFAULT 0,
     creator_identity          TEXT,
     started_at                INTEGER NOT NULL,
@@ -69,22 +69,6 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
   )
 `;
 
-// One row per emitted seq of a resumable stream: the cursor saved right after
-// that row. Lets a client that reconnects go back to the exact seq it last
-// got, instead of the server's latest position. It is deleted together with
-// the stream row, so the periodic stream sweep removes it once the stream's
-// retention window passes.
-const CREATE_STREAM_CURSORS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_stream_cursors (
-    identity     TEXT NOT NULL,
-    stream_id    TEXT NOT NULL,
-    seq          INTEGER NOT NULL,
-    cursor       TEXT NOT NULL,
-    PRIMARY KEY (identity, stream_id, seq),
-    FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
-  )
-`;
-
 /** Which durable-stream primitive owns the row. */
 export type DurableStreamKind = 'resumable' | 'recorded';
 
@@ -104,7 +88,7 @@ export interface DurableStreamRow {
   lastSeq: number;
 
   channelKey: string | null;
-  channelScope: string | null;
+  channelFamily: string | null;
 
   broadcast: boolean;
   creatorIdentity: string | null;
@@ -154,7 +138,7 @@ interface SubscriberRef {
   subscriberIdentity: string;
 }
 
-// All five statements (the PRAGMA + four CREATEs) bundled into one round
+// All four statements (the PRAGMA + three CREATEs) bundled into one round
 // trip. The PRAGMA is repeated every boot anyway since SQLite resets it
 // per-connection, so it stays at the front of the bundle.
 const DURABLE_STREAM_SCHEMA_SQL = [
@@ -163,7 +147,6 @@ const DURABLE_STREAM_SCHEMA_SQL = [
   CREATE_STREAMS_STATUS_INDEX_SQL,
   CREATE_STREAM_CHUNKS_TABLE_SQL,
   CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
-  CREATE_STREAM_CURSORS_TABLE_SQL,
 ].join(';\n');
 
 /** Create the durable stream tables and indexes if they do not yet exist. */
@@ -182,7 +165,7 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     cursor: (row.cursor as string | null) ?? null,
     lastSeq: Number(row.last_seq ?? 0),
     channelKey: (row.channel_key as string | null) ?? null,
-    channelScope: (row.channel_scope as string | null) ?? null,
+    channelFamily: (row.channel_family as string | null) ?? null,
     broadcast: Number(row.broadcast ?? 0) === 1,
     creatorIdentity: (row.creator_identity as string | null) ?? null,
     startedAt: Number(row.started_at ?? 0),
@@ -205,7 +188,7 @@ export interface InsertStreamInput {
   now: number;
 
   channelKey?: string | null;
-  channelScope?: string | null;
+  channelFamily?: string | null;
 
   broadcast?: boolean;
   creatorIdentity?: string | null;
@@ -226,7 +209,7 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
       `INSERT INTO __wskit_streams
-       (identity, stream_id, event, payload, kind, status, last_seq, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+       (identity, stream_id, event, payload, kind, status, last_seq, channel_key, channel_family, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
        VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.identity,
       input.streamId,
@@ -234,7 +217,7 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
       input.payload,
       input.kind,
       input.channelKey ?? null,
-      input.channelScope ?? null,
+      input.channelFamily ?? null,
       input.broadcast ? 1 : 0,
       input.creatorIdentity ?? null,
       input.now,
@@ -292,48 +275,6 @@ export function updateCursor(
     identity,
     streamId,
   );
-}
-
-/**
- * Save the cursor right after emitting `seq`. Uses INSERT OR REPLACE, so when a
- * resume re-runs the generator over the same seqs it just overwrites the same
- * rows instead of piling up duplicates.
- */
-export function appendStreamCursor(
-  sql: SqlExec,
-  opts: StreamRef & { seq: number; cursor: string },
-): void {
-  sql.exec(
-    `INSERT OR REPLACE INTO __wskit_stream_cursors (identity, stream_id, seq, cursor)
-     VALUES (?, ?, ?, ?)`,
-    opts.identity,
-    opts.streamId,
-    opts.seq,
-    opts.cursor,
-  );
-}
-
-/**
- * The cursor saved at the highest seq that is `<= seq`, or `null` when there is
- * none (e.g. the client got no rows, so it starts over). Resume uses this to go
- * back to a reconnecting client's `lastKnownSeq`.
- */
-export function readCursorAt(
-  sql: SqlExec,
-  opts: StreamRef & { seq: number },
-): { seq: number; cursor: string } | null {
-  const rows = sql
-    .exec(
-      `SELECT seq, cursor FROM __wskit_stream_cursors
-     WHERE identity = ? AND stream_id = ? AND seq <= ?
-     ORDER BY seq DESC LIMIT 1`,
-      opts.identity,
-      opts.streamId,
-      opts.seq,
-    )
-    .toArray();
-  if (rows.length === 0) return null;
-  return { seq: Number(rows[0]!.seq), cursor: rows[0]!.cursor as string };
 }
 
 /** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */

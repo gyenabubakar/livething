@@ -2,8 +2,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import * as Storage from './storage.ts';
 
-// In-memory SQL stub that satisfies the storage helpers. Just enough to
-// exercise the CRUD paths; not a faithful sqlite implementation.
 function memorySql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
@@ -38,7 +36,7 @@ function memorySql() {
           payload,
           kind,
           channelKey,
-          channelScope,
+          channelFamily,
           broadcast,
           creatorIdentity,
           startedAt,
@@ -57,7 +55,7 @@ function memorySql() {
           cursor: null,
           last_seq: 0,
           channel_key: channelKey,
-          channel_scope: channelScope,
+          channel_family: channelFamily,
           broadcast,
           creator_identity: creatorIdentity,
           started_at: startedAt,
@@ -277,7 +275,6 @@ describe('durable-stream/storage', () => {
     });
     Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 2_000 });
     expect(Storage.readStream(sql, 'u-1', 's-1')!.status).toBe('suspended');
-    // calling again is a no-op (only `active` flips).
     Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 3_000 });
     expect(Storage.readStream(sql, 'u-1', 's-1')!.status).toBe('suspended');
   });
@@ -332,7 +329,6 @@ describe('durable-stream/storage', () => {
       maxAgeMs: 5_000,
     });
     Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 1_000 });
-    // 1_000 + 5_000 = 6_000 → still ok at 6_000.
     expect(Storage.findExpiredSuspended(sql, 6_000)).toEqual([]);
     expect(Storage.findExpiredSuspended(sql, 6_001)).toEqual([
       { identity: 'u-1', streamId: 's-1' },

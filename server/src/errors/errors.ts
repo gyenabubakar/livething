@@ -3,13 +3,6 @@ import { error } from '@wskit/core';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import * as v from 'valibot';
 
-// ---------------------------------------------------------------------------
-// Re-exports from @wskit/core
-// ---------------------------------------------------------------------------
-//
-// Everything the developer needs for the error system is available from one
-// import path: `import { error, Block, ChannelNotFound } from '@wskit/server/errors'`
-
 export {
   error,
   WSKitError,
@@ -22,6 +15,7 @@ export {
   NudgeOverflow,
   RateLimited,
   RejoinRejected,
+  RequestInvalidResponse,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
@@ -30,13 +24,6 @@ export {
   UnsupportedProtocol,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
-
-// ---------------------------------------------------------------------------
-// Server-only control flow errors
-// ---------------------------------------------------------------------------
-//
-// These are signals to the engine — not sent to the client. Throw them from
-// handlers, intercepts, or hooks to control connection and message lifecycle.
 
 /**
  * Close the connection immediately with a close code and reason.
@@ -48,8 +35,11 @@ export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
  * ```ts
  * import { Disconnect, CloseCodes } from '@wskit/server/errors';
  *
- * implement(chat).on('send-message', async (ctx, payload) => {
- *   if (ctx.meta.violations > 10) throw Disconnect(CloseCodes.BANNED, 'Too many violations');
+ * base.on('send-message', {
+ *   input: SendMessage,
+ *   async run(ctx, input) {
+ *     if (ctx.meta.violations > 10) throw Disconnect(CloseCodes.BANNED, 'Too many violations');
+ *   },
  * });
  * ```
  */
@@ -58,16 +48,20 @@ export function Disconnect(code: number, reason: string) {
 }
 
 /**
- * Reject a WebSocket upgrade request. Only valid inside `onUpgrade` —
+ * Reject a WebSocket upgrade request. Only valid inside the `upgrade` hook —
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
+ * import { define, t } from '@wskit/server';
  * import { RejectUpgrade } from '@wskit/server/errors';
  *
- * implement(chat).onUpgrade(async (req) => {
- *   const user = await validateToken(req.headers.get('authorization'));
- *   if (!user) throw RejectUpgrade(4002, 'Invalid token');
- *   return { identity: user.id, meta: { userId: user.id } };
+ * define({
+ *   env: t<Env>(),
+ *   async upgrade(req) {
+ *     const user = await validateToken(req.headers.get('authorization'));
+ *     if (!user) throw RejectUpgrade(4002, 'Invalid token');
+ *     return { identity: user.id, meta: { userId: user.id } };
+ *   },
  * });
  * ```
  */
@@ -85,10 +79,9 @@ export function RejectUpgrade(code: number, reason: string) {
  * `Defer`, the message is dropped and `onError` fires with a `DeferExhausted`
  * error whose `detail.retries` is `3`.
  *
- * **In request handlers:** do not throw `Defer` after calling `ctx.respond()`.
- * When the engine retries, the handler runs again from the top and a second
- * `ctx.respond()` call will throw a runtime error. Throw `Defer` before
- * responding, or not at all.
+ * **In request handlers:** throw `Defer` instead of returning a response, never
+ * after producing one. When the engine retries, the handler runs again from the
+ * top, so throw `Defer` before you `return`, or not at all.
  *
  * **Timeout budget:** each retry adds `delay` milliseconds before the handler
  * runs again. The client's request timeout still counts down during retries —
@@ -98,9 +91,12 @@ export function RejectUpgrade(code: number, reason: string) {
  * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
  * import { Defer } from '@wskit/server/errors';
  *
- * implement(jobs).on('process-job', async (ctx, payload) => {
- *   const lock = await tryAcquireLock(payload.resourceId);
- *   if (!lock) throw Defer(1000); // retry in 1 second
+ * base.on('process-job', {
+ *   input: ProcessJob,
+ *   async run(ctx, input) {
+ *     const lock = await tryAcquireLock(input.resourceId);
+ *     if (!lock) throw Defer(1000); // retry in 1 second
+ *   },
  * });
  * ```
  */
@@ -108,10 +104,6 @@ export function Defer(delay: number) {
   assertPositiveInteger(delay, 'delay', 'Defer()');
   return Object.freeze({ __wskit: 'defer' as const, delay });
 }
-
-// ---------------------------------------------------------------------------
-// Server-only built-in error definitions
-// ---------------------------------------------------------------------------
 
 /**
  * Fired on your `onError` handler when a message deferred with `Defer(...)`

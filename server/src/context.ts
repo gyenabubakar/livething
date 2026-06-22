@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
 
 /**
@@ -297,6 +298,20 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 }
 
 /**
+ * A handle to one specific connection, addressed by its `ConnectionRef`.
+ * Returned by `ctx.connection(ref)`. Use it to send directly to that socket.
+ *
+ * Get a ref from `ConnectionInfo.ref()`, `ctx.self`, or any connection snapshot.
+ */
+export interface ConnectionHandle {
+  /**
+   * Send an event to this connection only. Returns `false` when the connection
+   * is no longer live on this instance (its socket is gone).
+   */
+  send(event: string, payload: unknown): boolean;
+}
+
+/**
  * Options for `ctx.broadcast(...)`.
  *
  * `ctx.broadcast` always fans out to every connection on the server. To
@@ -350,7 +365,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
   sendReplay?(
     event: string,
     payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
+    wire: { seq: number; messageId: string; channel?: string; channelFamily?: string | null },
   ): void;
 }
 
@@ -358,11 +373,11 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  * A handle to one resolved channel, returned by `ctx.channel` (in-channel) and
  * by `ctx.channels.get(...)` (anywhere). Use it to send to the caller, broadcast
  * to subscribers, list members, or kick tagged connections out of this exact
- * channel scope.
+ * channel family.
  *
  * `TOutgoing` is typed to the events declared inside the channel's
  * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
- * the per-connection metadata shape from your `.onUpgrade()`.
+ * the per-connection metadata shape returned by your `upgrade(...)` hook.
  */
 export interface ChannelHandle<
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
@@ -377,7 +392,7 @@ export interface ChannelHandle<
    * family registered with `scope(key, template)`, or `null` when the handle
    * targets a static channel registered with a string name.
    */
-  readonly scope: string | null;
+  readonly family: string | null;
 
   /**
    * The `{name}` captures from the matched channel name, typed from the
@@ -391,7 +406,7 @@ export interface ChannelHandle<
   send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
 
   /**
-   * Broadcast a channel-scoped event to subscribers of this exact channel scope.
+   * Broadcast a channel-scoped event to subscribers of this exact channel family.
    *
    * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
    * to also deliver the event to the sender.
@@ -402,7 +417,7 @@ export interface ChannelHandle<
     options?: { excludeSelf?: boolean },
   ): void;
 
-  /** List the connections currently subscribed to this exact channel scope. */
+  /** List the connections currently subscribed to this exact channel family. */
   members(): ConnectionInfo<Meta>[];
 
   /**
@@ -419,7 +434,7 @@ export interface ChannelHandle<
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
 
   /**
-   * Remove connections from this exact channel scope. The `target` decides
+   * Remove connections from this exact channel family. The `target` decides
    * which connections leave:
    *
    * - `ConnectionRef` — kick that one socket.
@@ -469,7 +484,7 @@ export interface ChannelHandle<
  * Look up a channel handle from any handler. Use the single-argument overload
  * for static channel names, and the two-argument overload for dynamic channel
  * families declared with `scope(key, pattern)`. The returned handle is bound to
- * the resolved scope so members and kicks never cross into a different family.
+ * the resolved channel so members and kicks never cross into a different family.
  *
  * Available as `ctx.channels` when at least one `channel()` is registered at
  * the top level. Inside a channel handler, prefer `ctx.channel` instead.
@@ -495,14 +510,14 @@ export interface ChannelsManager<
  * `ctx` argument in a connection-scoped handler.
  *
  * Most users do not need to reference this type directly. What you actually get
- * as `ctx` inside an `incoming(...)` handler is a narrowed view that only
+ * as `ctx` inside a `base.on(...)` handler is a narrowed view that only
  * exposes the fields relevant to what you registered on the builder. This
  * interface lists **everything the engine might provide**; your handler type
  * trims it down.
  *
- * `ConnectionContext` is passed to handlers registered with: `incoming`,
- * `request`, `stream`, `onConnect`, `onDisconnect`, `onError`,
- * and `onValidationError`.
+ * `ConnectionContext` is passed to handlers registered with: `base.on`,
+ * `base.request`, `base.stream`, `base.connect`, `base.disconnect`,
+ * `base.error`, and `base.validationError`.
  *
  * @template Env      Environment variables exposed by the adapter.
  * @template Meta     Per-connection metadata set in the upgrade step.
@@ -510,16 +525,19 @@ export interface ChannelsManager<
  *
  * @example
  * ```ts
- * implement(chat).on('send', (ctx, payload) => {
- *   const delivered: boolean = ctx.send('message', { text: payload.text });
- *   ctx.broadcast('message', { text: payload.text });
- *   if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ * base.on('send', {
+ *   input: v.object({ text: v.string() }),
+ *   run(ctx, input) {
+ *     const delivered: boolean = ctx.send('message', { text: input.text });
+ *     ctx.broadcast('message', { text: input.text });
+ *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ *   },
  * });
  * ```
  *
  * Mental model, grouped by purpose:
- * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
- * - **messaging** — `send`, `broadcast`, `sendToConnection`
+ * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when the `tags()` capability is listed)
+ * - **messaging** — `send`, `broadcast`, `connection(ref).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
@@ -529,7 +547,6 @@ export interface ConnectionContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  // Connection identity
   /** The unique ID for the current WebSocket connection. */
   id: string;
 
@@ -550,7 +567,6 @@ export interface ConnectionContext<
   /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
 
-  // Message delivery
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
 
@@ -565,13 +581,16 @@ export interface ConnectionContext<
    */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 
-  /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket. Get a ref from `ctx.self`, a connection
+   * snapshot's `ref()`, or any `ConnectionRef` you hold.
+   */
+  connection(ref: ConnectionRef): ConnectionHandle;
 
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
 
-  // Connection snapshots
   /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
 
@@ -603,14 +622,12 @@ export interface ConnectionContext<
    */
   closeReason?: string;
 
-  // Scope-aware routing helpers
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
   /** Resolve a channel handle from any handler. Only present when channels are registered. */
   channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
-  // Durable scheduling
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
@@ -620,7 +637,6 @@ export interface ConnectionContext<
   /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
   setAlarm(time: number): void;
 
-  // Storage and platform services
   /** SQL storage access. */
   sql: SQLProvider;
 
@@ -639,7 +655,6 @@ export interface ConnectionContext<
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
 
-  // Dispatch-local storage
   /**
    * Store a typed value under a key for the current message dispatch.
    *
@@ -661,6 +676,21 @@ export interface ConnectionContext<
    * @see provide
    */
   inject<T>(key: LocalKey<T>): T | undefined;
+
+  /**
+   * Type guard narrowing an intercept `frame` to a declared event's payload.
+   * Returns `true` when the frame's event, scope, and payload all match the
+   * key; the payload is run through the declared validator. Throws when the key
+   * names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  matches(key: string, frame: InterceptFrame): boolean;
+
+  /**
+   * Narrow an intercept `frame` without a runtime check — a type-only assertion
+   * for when your own logic already established the payload's shape. Throws when
+   * the key names no declared event. Channel-scoped keys use `@family::event`.
+   */
+  unsafeCast(key: string, frame: InterceptFrame): InterceptFrame;
 }
 
 /**
@@ -691,6 +721,16 @@ export interface InitContext<Env = Record<string, unknown>, Platform = unknown> 
 }
 
 /**
+ * The server→client (`emits`) events read off the merged contract slots, used
+ * to type `ShutdownContext.broadcast`. Falls back to a permissive map when the
+ * slots type is `unknown` (the broad runtime type), so the precise app-facing
+ * builder narrows it while the bare interface stays usable.
+ */
+type ShutdownOutgoing<TSlots> = 'outgoing' extends keyof TSlots
+  ? TSlots['outgoing']
+  : Record<string, unknown>;
+
+/**
  * The context passed to `onShutdown` handlers.
  *
  * `onShutdown` runs when the server is shutting down. Connections that were
@@ -708,19 +748,23 @@ export interface ShutdownContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
+  TSlots = unknown,
 > {
-  // Connection management
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
 
   /**
-   * Broadcast an event to every live connection. To target only members of
-   * a specific channel, resolve the channel through your handler's typed
-   * channel surface — the shutdown context does not filter by channel.
+   * Broadcast an event to every live connection. Typed against the server's
+   * `emits(...)` events, so a typo or wrong payload is a compile error. To
+   * target only members of a specific channel, resolve the channel through
+   * your handler's typed channel surface — the shutdown context does not
+   * filter by channel.
    */
-  broadcast(event: string, payload: unknown): void;
+  broadcast<E extends keyof ShutdownOutgoing<TSlots> & string>(
+    event: E,
+    payload: ShutdownOutgoing<TSlots>[E],
+  ): void;
 
-  // Storage and durable work
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -733,14 +777,12 @@ export interface ShutdownContext<
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  // Connection snapshots
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
-  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 
@@ -769,14 +811,12 @@ export interface TaskContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  // Storage
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
 
-  // Message delivery
   /**
    * Broadcast an event to every live connection. The task context has no
    * channel filter — for channel-scoped broadcasts, resolve a channel
@@ -784,24 +824,24 @@ export interface TaskContext<
    */
   broadcast(event: string, payload: unknown): void;
 
-  /** Send an event to one specific connection by ID. Returns false if the connection doesn't exist. */
-  sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket.
+   */
+  connection(ref: ConnectionRef): ConnectionHandle;
 
-  // Connection snapshots
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
-  // Durable scheduling
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 

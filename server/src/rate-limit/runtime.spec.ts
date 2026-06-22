@@ -45,13 +45,13 @@ describe('resolveScopeKey', () => {
   });
 
   it('uses channel family key when present', () => {
-    expect(resolveScopeKey({ id: 'c1', channel: { name: 'room-1', scope: 'rooms' } })).toBe(
+    expect(resolveScopeKey({ id: 'c1', channel: { name: 'room-1', family: 'rooms' } })).toBe(
       'channel:rooms',
     );
   });
 
   it('falls back to channel name for static channels (scope null)', () => {
-    expect(resolveScopeKey({ id: 'c1', channel: { name: 'lobby', scope: null } })).toBe(
+    expect(resolveScopeKey({ id: 'c1', channel: { name: 'lobby', family: null } })).toBe(
       'channel:lobby',
     );
   });
@@ -89,7 +89,6 @@ describe('RateLimitRuntime — token bucket math', () => {
     rt.check({ id: 'c1' }, 'e');
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
 
-    // windowMs/max = 20_000 ms per token. Advance one slot.
     c.advance(20_000);
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
   });
@@ -102,7 +101,6 @@ describe('RateLimitRuntime — token bucket math', () => {
     );
     expect(rt.check({ id: 'a' }, 'e')).toBeNull();
     expect(rt.check({ id: 'a' }, 'e')).not.toBeNull();
-    // Different connection id → fresh bucket.
     expect(rt.check({ id: 'b' }, 'e')).toBeNull();
   });
 
@@ -126,16 +124,13 @@ describe('RateLimitRuntime — token bucket math', () => {
       ),
       c.read.bind(c),
     );
-    // 'expensive' uses its own bucket (max: 1).
     expect(rt.check({ id: 'c1' }, 'expensive')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'expensive')).not.toBeNull();
-    // 'cheap' uses the scope bucket (max: 5) — still has tokens left.
     expect(rt.check({ id: 'c1' }, 'cheap')).toBeNull();
   });
 
   it('retryAfter reflects the configured refill rate', () => {
     const c = clock();
-    // windowMs=10_000, max=10 → 1 token per second.
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 10_000, max: 10, per: (ctx: any) => ctx.id }]]),
       c.read.bind(c),
@@ -153,7 +148,6 @@ describe('RateLimitRuntime — token bucket math', () => {
       plan([['top', { id: 1, windowMs: 60_000, max: 3, per: (ctx: any) => ctx.id }]]),
       c.read.bind(c),
     );
-    // Drain.
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
@@ -173,12 +167,9 @@ describe('RateLimitRuntime — token bucket math', () => {
       plan([['top', { id: 1, windowMs: 60_000, max: 2, per: (ctx: any) => ctx.identity }]]),
       c.read.bind(c),
     );
-    // Two different connection ids but same identity → share the bucket.
     expect(rt.check({ id: 'c1', identity: 'u-42' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c2', identity: 'u-42' }, 'e')).toBeNull();
-    // Third call from yet another socket of u-42 hits the cap.
     expect(rt.check({ id: 'c3', identity: 'u-42' }, 'e')).not.toBeNull();
-    // A different identity still has its own bucket.
     expect(rt.check({ id: 'c4', identity: 'u-99' }, 'e')).toBeNull();
   });
 
@@ -191,12 +182,12 @@ describe('RateLimitRuntime — token bucket math', () => {
       ]),
       c.read.bind(c),
     );
-    // Top-level bucket: 1 hit.
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
-    // Channel bucket is separate — still has a token.
-    expect(rt.check({ id: 'c1', channel: { name: 'room-a', scope: 'rooms' } }, 'e')).toBeNull();
-    expect(rt.check({ id: 'c1', channel: { name: 'room-a', scope: 'rooms' } }, 'e')).not.toBeNull();
+    expect(rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e')).toBeNull();
+    expect(
+      rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e'),
+    ).not.toBeNull();
   });
 
   it('per-event override with null rule disables for that event', () => {
@@ -208,11 +199,9 @@ describe('RateLimitRuntime — token bucket math', () => {
       ),
       c.read.bind(c),
     );
-    // Exempt event always passes.
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
-    // Other events still gated.
     expect(rt.check({ id: 'c1' }, 'other')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'other')).not.toBeNull();
   });

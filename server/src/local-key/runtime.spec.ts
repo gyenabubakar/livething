@@ -160,7 +160,6 @@ describe('ctx.provide / ctx.inject', () => {
     const key = localKey<{ role: string }>('auth');
     const ctx = buildConnectionContext(baseDeps(), createConnection());
 
-    // Simulates: top-level intercept provides, handler injects
     ctx.provide(key, { role: 'admin' });
     const seen = ctx.inject(key);
     expect(seen).toEqual({ role: 'admin' });
@@ -177,7 +176,7 @@ describe('ctx.provide / ctx.inject', () => {
 
     await runIntercepts(makeRuntime(), connection, {
       intercepts: [topIntercept],
-      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
+      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {}, owner: { kind: 'app' } },
       getCtx: () => ctx,
     });
 
@@ -201,7 +200,7 @@ describe('ctx.provide / ctx.inject', () => {
 
     await runIntercepts(makeRuntime(), connection, {
       intercepts: [first, second],
-      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
+      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {}, owner: { kind: 'app' } },
       getCtx: () => ctx,
     });
 

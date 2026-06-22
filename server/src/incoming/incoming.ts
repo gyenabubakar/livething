@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -9,7 +10,7 @@ export type IncomingHandler<TCtx = any, TPayload = unknown> = (
 ) => void | Promise<void>;
 
 /**
- * Primitive produced by `incoming()`. Carries the event name, handler, and
+ * Primitive behind `base.on(...)`. Carries the event name, handler, and
  * optional validator so the engine can dispatch and validate messages.
  */
 export interface IncomingPrimitive<
@@ -33,16 +34,16 @@ export interface IncomingPrimitive<
 const INCOMING_KEY = Symbol('incoming');
 
 /**
- * Internal primitive factory. The user-facing `incoming()` for declaring a
- * client→server event in a contract lives at `~/incoming/definition.ts`.
- * This factory is called by the implementer's compile step to bind a
- * registered handler to an `IncomingDef`.
+ * Internal primitive factory. The user-facing surface for declaring a
+ * client→server event is `base.on(...)`. This factory is called by the compile
+ * step to bind a registered handler to an `IncomingDef`.
  */
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,
   handler: IncomingHandler<TCtx, TPayload>,
   options?: { validator?: Validator<TPayload> },
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
+  assertValidWSKitIdentifier(event, 'incoming() event name');
   return {
     __wskit: 'incoming',
     __kind: 'handler',

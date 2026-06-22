@@ -41,7 +41,7 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === '__subscribeOk__') {
-				if (data.__wskit?.channelScope === 'rooms') dynamicSubscribed = true;
+				if (data.__wskit?.channelFamily === 'rooms') dynamicSubscribed = true;
 				else subscribed = true;
 			}
 			if (data.event === 'echoed') echoed = [...echoed, data.payload?.text ?? ''];
@@ -87,7 +87,7 @@
 							JSON.stringify({
 								event: 'ch-hint',
 								payload: { text: 'hello' },
-								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelScope: null },
+								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelFamily: null },
 							}),
 						);
 					}
@@ -97,7 +97,7 @@
 							JSON.stringify({
 								event: 'ch-hint',
 								payload: { text: 'ch-hint-block' },
-								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelScope: null },
+								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelFamily: null },
 							}),
 						);
 					}
@@ -115,7 +115,7 @@
 		const payload: Record<string, unknown> = { text };
 		let wskit: Record<string, unknown> | undefined;
 		if (scope === 'room') wskit = { channel: 'room' };
-		if (scope === 'dyn-room') wskit = { channel: 'room:dyn', channelScope: 'rooms' };
+		if (scope === 'dyn-room') wskit = { channel: 'room:dyn', channelFamily: 'rooms' };
 		ws?.send(
 			JSON.stringify(wskit ? { event: 'echo', payload, __wskit: wskit } : { event: 'echo', payload }),
 		);
@@ -128,7 +128,7 @@
 			JSON.stringify({
 				event: '__subscribe__',
 				payload: {},
-				__wskit: { channel: 'room:dyn', channelScope: 'rooms' },
+				__wskit: { channel: 'room:dyn', channelFamily: 'rooms' },
 			}),
 		);
 	}
@@ -155,7 +155,7 @@
 			JSON.stringify({
 				event: 'ch-nudge-stream',
 				payload: {},
-				__wskit: { channel: 'room', channelScope: null },
+				__wskit: { channel: 'room', channelFamily: null },
 			}),
 		);
 	}
@@ -168,7 +168,7 @@
 			JSON.stringify({
 				event: 'ch-nudge-stream',
 				payload: {},
-				__wskit: { channel: 'room', channelScope: null },
+				__wskit: { channel: 'room', channelFamily: null },
 			}),
 		);
 	}

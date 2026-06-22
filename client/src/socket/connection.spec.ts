@@ -22,7 +22,6 @@ describe('url-as-function / async url resolution', () => {
     const urlFn = vi.fn().mockResolvedValue('wss://resolved-host/ws');
     const socket = c(connect(urlFn));
     socket.connect();
-    // The async resolution must complete before the ws is created.
     await Promise.resolve();
     expect(urlFn).toHaveBeenCalledTimes(1);
     expect(MockWebSocket.last().url).toBe('wss://resolved-host/ws');
@@ -46,38 +45,31 @@ describe('url-as-function / async url resolution', () => {
 
     const socket = c(connect(urlFn));
     socket.connect();
-    socket.disconnect(); // bumps attemptId before url resolves
+    socket.disconnect();
 
     resolveUrl('wss://too-late/ws');
     await Promise.resolve();
 
-    expect(MockWebSocket.instances).toHaveLength(0); // attempt was cancelled
+    expect(MockWebSocket.instances).toHaveLength(0);
     expect(socket.getState()).toBe('closed');
   });
 });
 
 describe('stale-attempt onopen closes the superseded socket', () => {
-  // This scenario works with a synchronous url:
-  // 1. connect() creates a WebSocket (synchronous, no await needed for url)
-  // 2. disconnect() bumps _connectAttemptId BEFORE onopen fires
-  //    (this.ws is still null so disconnect() does NOT null ws handlers)
-  // 3. ws.open() fires → onopen sees stale attemptId → calls ws.close()
   it('calls close() on the stale ws when disconnect() bumps attemptId before onopen fires', () => {
     const socket = c(connect('wss://host/ws'));
     const onOpen = vi.fn();
     socket.onOpen(onOpen);
 
-    socket.connect(); // creates ws (attemptId=1)
+    socket.connect();
     const ws = MockWebSocket.last();
 
-    // Bump attemptId before onopen fires.
-    socket.disconnect(); // _connectAttemptId → 2; this.ws is null so handlers stay
-    expect(ws.onopen).not.toBeNull(); // handler is still attached
+    socket.disconnect();
+    expect(ws.onopen).not.toBeNull();
 
-    // Simulate the network opening the stale socket.
     ws.open();
 
-    expect(ws.readyState).toBe(3); // kernel called ws.close()
+    expect(ws.readyState).toBe(3);
     expect(onOpen).not.toHaveBeenCalled();
     // The stale ws must not be stored as this.ws.
     expect(socket['ws']).toBeNull();
@@ -90,21 +82,17 @@ describe('stale-attempt onopen closes the superseded socket', () => {
     const onOpen = vi.fn();
     socket.onOpen(onOpen);
 
-    // Attempt 1: connect, disconnect before open fires.
     socket.connect();
     const ws1 = MockWebSocket.last();
-    socket.disconnect(); // attempt 1 is stale (attemptId=1 < _connectAttemptId=2)
+    socket.disconnect();
 
-    // Attempt 2: fresh connect.
     socket.connect();
     const ws2 = MockWebSocket.last();
 
-    // Fire stale open first.
     ws1.open();
     expect(onOpen).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('connecting'); // still waiting for attempt 2
+    expect(socket.getState()).toBe('connecting');
 
-    // Now the live attempt opens.
     ws2.open();
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(socket.getState()).toBe('open');
@@ -125,26 +113,20 @@ describe('stale-attempt onclose is a no-op', () => {
     const onClose = vi.fn();
     socket.onClose(onClose);
 
-    // Attempt 1: connect and open.
     socket.connect();
     const ws1 = MockWebSocket.instances[0]!;
-    expect(ws1.onclose).not.toBeNull(); // handler attached
+    expect(ws1.onclose).not.toBeNull();
     ws1.open();
     expect(socket.getState()).toBe('open');
 
-    // An unexpected server drop triggers reconnection. ws1.onclose handler is
-    // still attached (no disconnect() was called) — attemptId will be bumped by
-    // the next _openConnection() call scheduled via the reconnection timer.
     ws1.serverClose(1006, 'server restart');
-    // reconnection sets state to reconnecting and schedules a timer
     expect(socket.getState()).toBe('reconnecting');
 
     const closeCallsBefore = onClose.mock.calls.length;
 
-    // Fire the reconnection timer → _openConnection bumps attemptId → ws2 created.
     vi.runAllTimers();
     const ws2 = MockWebSocket.instances[1]!;
-    ws2.open(); // attempt 2 is now the live socket
+    ws2.open();
     expect(socket.getState()).toBe('open');
     expect(socket['ws']).toBe(ws2);
 
@@ -165,18 +147,15 @@ describe('stale-attempt onclose is a no-op', () => {
 
     const socket = c(connect('wss://host/ws'), reconnection());
 
-    // Attempt 1: connect and open.
     socket.connect();
     const ws1 = MockWebSocket.instances[0]!;
     ws1.open();
     expect(socket.getState()).toBe('open');
     expect(socket['ws']).toBe(ws1);
 
-    // Unexpected drop → reconnection timer scheduled; ws1 handlers stay attached.
     ws1.serverClose(1001, 'going away');
     expect(socket.getState()).toBe('reconnecting');
 
-    // Advance timer → attempt 2 starts → ws2 opens.
     vi.runAllTimers();
     const ws2 = MockWebSocket.instances[1]!;
     ws2.open();
@@ -215,13 +194,12 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
-    // The rejection should have been caught and handed to the unexpected-close handler.
     expect(socket.getState()).toBe('reconnecting');
   });
 
   it('goes to closed (no reconnection) when url function throws', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
-    const socket = c(connect(urlFn)); // no reconnection
+    const socket = c(connect(urlFn));
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
@@ -261,12 +239,11 @@ describe('connect-failed catch — reconnection handoff', () => {
 
     const socket = c(connect(urlFn));
     socket.connect();
-    socket.disconnect(); // cancels the attempt (bumps attemptId)
+    socket.disconnect();
 
     rejectUrl(new Error('never'));
     await Promise.resolve();
 
-    // Stale catch must be a no-op: socket stays closed (set by disconnect, not re-set).
     expect(socket.getState()).toBe('closed');
     expect(MockWebSocket.instances).toHaveLength(0);
   });
@@ -283,7 +260,6 @@ describe('url-function rejection fires close event (no reconnection)', () => {
     socket.connect();
     await Promise.resolve();
 
-    // State goes to 'closed' (existing behaviour) — that part is fine.
     expect(socket.getState()).toBe('closed');
     // BUG: the catch path calls _setState('closed') but never emits 'close'.
     // Correct behaviour: onClose must fire so callers know the attempt ended.
@@ -305,8 +281,6 @@ describe('failed first connection runs primitive close cleanup (#2)', () => {
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Reconnection took over (state → reconnecting), but primitive close cleanup
-    // still ran first — so channel/request/ack state isn't left pending.
     expect(socket.getState()).toBe('reconnecting');
     expect(onClose).toHaveBeenCalledWith(1006, 'connection failed', false, false);
   });
@@ -322,7 +296,6 @@ describe('url-function rejection surfaces error event (with reconnection)', () =
     socket.connect();
     await Promise.resolve();
 
-    // State goes to 'reconnecting' (existing behaviour) — the reconnection handoff works.
     expect(socket.getState()).toBe('reconnecting');
     // BUG: the catch path forwards (1006, 'connection failed') to the unexpectedCloseHandler
     // and retries silently — the real Error is never surfaced via an 'error' event.
@@ -375,23 +348,17 @@ describe('disconnect() mid-first-hook skips second onBeforeReopen', () => {
       primitive2 as unknown as Primitive,
     );
 
-    // First connect + open to make _isFirstConnect = false.
     socket.connect();
     MockWebSocket.last().open();
     expect(socket.getState()).toBe('open');
 
-    // Trigger an unexpected drop so reconnection schedules a reopen.
     MockWebSocket.last().serverClose(1006, 'drop');
     expect(socket.getState()).toBe('reconnecting');
 
-    // Fire the reconnection timer so _openConnection is called (starts onBeforeReopen loop).
     vi.runAllTimers();
 
-    // At this point the first primitive's onBeforeReopen is pending (resolveFirst not called yet).
-    // Disconnect now — this bumps _connectAttemptId so the reopen is stale.
     socket.disconnect();
 
-    // Now resolve the first hook — the loop continues past it.
     resolveFirst();
     await Promise.resolve();
     await Promise.resolve();
@@ -477,7 +444,7 @@ describe('searchParams URL separator', () => {
     );
     socket.connect();
     await Promise.resolve();
-    await Promise.resolve(); // one tick for urlFn, one for searchParams
+    await Promise.resolve();
     expect(MockWebSocket.last().url).toBe('wss://host/ws?env=prod&token=xyz');
   });
 });
@@ -493,17 +460,14 @@ describe('query() re-resolves on reconnect (auth token refresh)', () => {
     );
 
     socket.connect();
-    await vi.advanceTimersByTimeAsync(0); // flush async url + searchParams resolution
+    await vi.advanceTimersByTimeAsync(0);
     expect(MockWebSocket.last().url).toBe('wss://host/ws?token=first');
     MockWebSocket.last().open();
 
-    // Rotate the token, then force an unexpected drop so reconnection retries.
     token = 'second';
     MockWebSocket.last().serverClose(1006);
-    await vi.advanceTimersByTimeAsync(2000); // fire the retry + re-resolve query()
+    await vi.advanceTimersByTimeAsync(2000);
 
-    // The reconnect picked up the new token — proving query() runs on every
-    // open, not just the first connect.
     expect(MockWebSocket.last().url).toBe('wss://host/ws?token=second');
   });
 });

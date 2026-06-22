@@ -3,17 +3,20 @@ export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
-export { AckServer } from './ack.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
+export { ServerRequestServer } from './server-request.ts';
+export { BroadcastRequestServer } from './broadcast-request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
+export { StreamSignalServer } from './stream-signal.ts';
+export { StreamBackpressureServer } from './stream-backpressure.ts';
 export { StreamNudgesServer } from './stream-nudges.ts';
 export { StreamBroadcastServer } from './stream-broadcast.ts';
 export { ChannelStaticServer } from './channel-static.ts';
 export { ChannelDynamicServer } from './channel-dynamic.ts';
 export { PersistenceServer } from './persistence.ts';
 export { TypedTagsServer } from './typed-tags.ts';
-export { ChannelScopeIsolationServer } from './channel-scope-isolation.ts';
+export { ChannelFamilyIsolationServer } from './channel-family-isolation.ts';
 export { ChannelKeyCollisionServer } from './channel-key-collision.ts';
 export { ErrorHookIsolationServer } from './error-hook-isolation.ts';
 export { ReplayMembershipGateServer } from './replay-membership-gate.ts';
@@ -51,14 +54,18 @@ export { DurableConfigServer } from './durable-config.ts';
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
+  '/ws/server-request': 'SERVER_REQUEST_SERVER',
+  '/ws/broadcast-request': 'BROADCAST_REQUEST_SERVER',
   '/ws/stream-basic': 'STREAM_BASIC_SERVER',
+  '/ws/stream-signal': 'STREAM_SIGNAL_SERVER',
+  '/ws/stream-backpressure': 'STREAM_BACKPRESSURE_SERVER',
   '/ws/stream-nudges': 'STREAM_NUDGES_SERVER',
   '/ws/stream-broadcast': 'STREAM_BROADCAST_SERVER',
   '/ws/channel-static': 'CHANNEL_STATIC_SERVER',
   '/ws/channel-dynamic': 'CHANNEL_DYNAMIC_SERVER',
   '/ws/persistence': 'PERSISTENCE_SERVER',
   '/ws/typed-tags': 'TYPED_TAGS_SERVER',
-  '/ws/channel-scope-isolation': 'CHANNEL_SCOPE_ISOLATION_SERVER',
+  '/ws/channel-family-isolation': 'CHANNEL_FAMILY_ISOLATION_SERVER',
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',
   '/ws/replay-membership-gate': 'REPLAY_MEMBERSHIP_GATE_SERVER',
@@ -128,11 +135,6 @@ export default {
     if (url.pathname === '/ws/reject-http') {
       const id = env.HTTP_REJECT_SERVER.idFromName(room);
       return env.HTTP_REJECT_SERVER.get(id).fetch(request);
-    }
-
-    if (url.pathname === '/ws/ack') {
-      const id = env.ACK_SERVER.idFromName(room);
-      return env.ACK_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/lifecycle-hooks/shutdown') {

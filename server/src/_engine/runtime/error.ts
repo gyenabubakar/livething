@@ -6,12 +6,12 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
+type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 
 /** Builds the ctx passed to `onError`. Supplied by the caller. */
 type BuildConnectionContextFn = (
   connection: RuntimeConnection,
-  scope?: ResolvedScope,
+  scope?: ResolvedChannel,
 ) => Record<PropertyKey, unknown>;
 
 interface ErrorHandlerDeps {
@@ -20,7 +20,7 @@ interface ErrorHandlerDeps {
 }
 
 /**
- * Pull a `ResolvedScope` out of the `__wskit` routing markers on a runtime
+ * Pull a `ResolvedChannel` out of the `__wskit` routing markers on a runtime
  * error so `onError` sees `ctx.channel` matching the throwing handler. Returns
  * `undefined` for unknown or malformed routing — hooks still observe the error
  * at top level.
@@ -28,21 +28,21 @@ interface ErrorHandlerDeps {
 export function resolveScopeFromRouting(
   core: EngineCore,
   routing: Protocol.WSKitRouting,
-): ResolvedScope | undefined {
+): ResolvedChannel | undefined {
   if (routing.channel !== undefined) {
-    if (routing.channelScope != null) {
-      const family = core.compiled.channelFamilies.get(routing.channelScope);
-      if (family && ChannelPrimitive.matchesScopePattern(family.pattern, routing.channel)) {
+    if (routing.channelFamily != null) {
+      const family = core.compiled.channelFamilies.get(routing.channelFamily);
+      if (family && ChannelPrimitive.matchesFamilyPattern(family.pattern, routing.channel)) {
         return {
           channel: family,
           channelName: routing.channel,
-          channelScope: routing.channelScope,
+          channelFamily: routing.channelFamily,
         };
       }
     } else {
       const channel = core.compiled.channels.get(routing.channel);
       if (channel) {
-        return { channel, channelName: routing.channel, channelScope: null };
+        return { channel, channelName: routing.channel, channelFamily: null };
       }
     }
   }
@@ -61,7 +61,11 @@ export async function handleRuntimeError(
       buildConnectionContext,
       resolveScopeFromRouting: (errorRouting) => resolveScopeFromRouting(core, errorRouting),
       declaredErrorCodes: core.declaredErrorCodes,
-      errorHooks: core.hooks.error,
+      // Inbound onion: new-model plugin error hooks observe before the app's.
+      errorHooks: [
+        ...core.hooks.pluginLifecycle.error.map((entry) => entry.handler),
+        ...core.hooks.error,
+      ],
       logger: core.logger,
       sendProtocolMessage: (targetConnection, msgOpts) => {
         sendProtocolMessage(core, targetConnection, msgOpts);
@@ -82,7 +86,10 @@ export async function handleValidationError(
   return ErrorsPrimitive.notifyValidationError(
     {
       buildConnectionContext,
-      validationErrorHooks: core.hooks.validationError,
+      validationErrorHooks: [
+        ...core.hooks.pluginLifecycle.validationError.map((entry) => entry.handler),
+        ...core.hooks.validationError,
+      ],
     },
     connection,
     opts,

@@ -34,8 +34,8 @@ async function buildActiveAndDrop(channelsOpts: ChannelsOptions, bufferingOpts: 
   const subscribePromise = room.subscribe();
   ws.emit({
     event: '__subscribeOk__',
-    payload: { source: 'client' },
-    __wskit: { channel: 'general' },
+    payload: {},
+    __wskit: { source: 'client', channel: 'general' },
   });
   await subscribePromise;
 
@@ -61,7 +61,6 @@ describe('channels resolveTtl', () => {
 
       room.send('chat', { text: 'hello' });
 
-      // Advance past the TTL before reconnecting.
       vi.advanceTimersByTime(600);
 
       socket.connect();
@@ -79,7 +78,6 @@ describe('channels resolveTtl', () => {
 
       room.send('chat', { text: 'fresh' });
 
-      // Advance less than the TTL.
       vi.advanceTimersByTime(100);
 
       socket.connect();
@@ -109,7 +107,6 @@ describe('channels resolveTtl', () => {
       const ws = MockWebSocket.last();
       ws.open();
 
-      // Expired — should not appear.
       const typingFrames = ws.sentFrames().filter((f) => f.event === 'typing');
       expect(typingFrames).toHaveLength(0);
     });
@@ -124,7 +121,6 @@ describe('channels resolveTtl', () => {
         { enabled: true },
       );
 
-      // 'chat' is not in the map — resolveTtl returns undefined — buffer keeps forever.
       room.send('chat', { text: 'important' });
 
       vi.advanceTimersByTime(10_000);
@@ -143,11 +139,7 @@ describe('channels resolveTtl', () => {
     it('per-call ttl option beats the global channels ttl', async () => {
       vi.useFakeTimers();
 
-      const { socket, room } = await buildActiveAndDrop(
-        // Global channels ttl is very long — per-call override should win.
-        { ttl: 10_000 },
-        { enabled: true },
-      );
+      const { socket, room } = await buildActiveAndDrop({ ttl: 10_000 }, { enabled: true });
 
       room.send('chat', { text: 'override' }, { ttl: 100 });
 
@@ -157,7 +149,6 @@ describe('channels resolveTtl', () => {
       const ws = MockWebSocket.last();
       ws.open();
 
-      // Per-call ttl of 100ms expired — message should be gone.
       const chatFrames = ws.sentFrames().filter((f) => f.event === 'chat');
       expect(chatFrames).toHaveLength(0);
     });

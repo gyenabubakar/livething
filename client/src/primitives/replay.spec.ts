@@ -46,13 +46,11 @@ describe('replay — per-channel scope catch-up', () => {
     it('tracks seq under the channel name, not the top-level key', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      // A channel-scoped message — should be tracked under 'room-a', not ''
       ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
 
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
 
-      // Must contain a channel-scoped replay for 'room-a'
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 3 },
@@ -68,7 +66,6 @@ describe('replay — per-channel scope catch-up', () => {
       const second = reconnectAfterDrop(ws);
       const frames = second.sentFrames();
 
-      // No __replay__ without a __wskit block (top-level)
       const topLevelReplay = frames.find(
         (f: { event: string; __wskit?: unknown }) =>
           f.event === '__replay__' && f.__wskit === undefined,
@@ -79,16 +76,15 @@ describe('replay — per-channel scope catch-up', () => {
     it('tracks two channels that share a name in different scopes separately', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      // Same channel name 'lobby' in two different families (scopes).
       ws.emit({
         event: 'msg',
         payload: { text: 'a' },
-        __wskit: { channel: 'lobby', channelScope: 'rooms', seq: 5 },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms', seq: 5 },
       });
       ws.emit({
         event: 'msg',
         payload: { text: 'b' },
-        __wskit: { channel: 'lobby', channelScope: 'tenants', seq: 9 },
+        __wskit: { channel: 'lobby', channelFamily: 'tenants', seq: 9 },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -99,24 +95,24 @@ describe('replay — per-channel scope catch-up', () => {
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 5 },
-        __wskit: { channel: 'lobby', channelScope: 'rooms' },
+        __wskit: { channel: 'lobby', channelFamily: 'rooms' },
       });
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 9 },
-        __wskit: { channel: 'lobby', channelScope: 'tenants' },
+        __wskit: { channel: 'lobby', channelFamily: 'tenants' },
       });
     });
   });
 
-  describe('channelScope included in catch-up request', () => {
-    it('attaches channelScope to the __replay__ frame when the message had one', () => {
+  describe('channelFamily included in catch-up request', () => {
+    it('attaches channelFamily to the __replay__ frame when the message had one', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
       ws.emit({
         event: 'msg',
         payload: { text: 'scoped' },
-        __wskit: { channel: 'room-b', channelScope: 'tenant-1', seq: 10 },
+        __wskit: { channel: 'room-b', channelFamily: 'tenant-1', seq: 10 },
       });
 
       const second = reconnectAfterDrop(ws);
@@ -125,11 +121,11 @@ describe('replay — per-channel scope catch-up', () => {
       expect(frames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 10 },
-        __wskit: { channel: 'room-b', channelScope: 'tenant-1' },
+        __wskit: { channel: 'room-b', channelFamily: 'tenant-1' },
       });
     });
 
-    it('omits channelScope from the frame when the original message had none', () => {
+    it('omits channelFamily from the frame when the original message had none', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
       ws.emit({ event: 'msg', payload: { text: 'plain' }, __wskit: { channel: 'room-c', seq: 2 } });
@@ -140,7 +136,7 @@ describe('replay — per-channel scope catch-up', () => {
         .find((f: { event: string }) => f.event === '__replay__');
 
       expect(replayFrame).toBeDefined();
-      expect(replayFrame.__wskit).not.toHaveProperty('channelScope');
+      expect(replayFrame.__wskit).not.toHaveProperty('channelFamily');
     });
   });
 
@@ -173,9 +169,7 @@ describe('replay — per-channel scope catch-up', () => {
     it('tracks top-level and channel-scoped seqs independently', () => {
       const { ws } = build(dedup(), replay(), reconnection());
 
-      // Top-level (no channel)
       ws.emit({ event: 'msg', payload: { text: 'top' }, __wskit: { seq: 4 } });
-      // Channel-scoped
       ws.emit({ event: 'msg', payload: { text: 'ch' }, __wskit: { channel: 'gamma', seq: 6 } });
 
       const second = reconnectAfterDrop(ws);
@@ -185,14 +179,11 @@ describe('replay — per-channel scope catch-up', () => {
 
       expect(replayFrames).toHaveLength(2);
 
-      // Top-level replay carries an empty __wskit block (the server's replay
-      // frame requires the envelope, even with no scope markers).
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
         __wskit: {},
       });
-      // Channel replay
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 6 },
@@ -222,8 +213,6 @@ describe('replay — per-channel scope catch-up', () => {
         String(args[1] ?? '').includes('replay()'),
       );
       expect(replayWarns).toHaveLength(2);
-      // The error still surfaces to onError — the primitive only warns, it does
-      // not swallow the frame.
       expect(onError).toHaveBeenCalledTimes(2);
       expect((onError.mock.calls[0]![0] as { code?: string }).code).toBe('unsupported-protocol');
 
@@ -289,9 +278,7 @@ describe('replay — per-channel scope catch-up', () => {
   describe('stream chunks do not corrupt channel catch-up', () => {
     it('tracks the channel seq, not a stream chunk seq, as the high-water mark', () => {
       const { ws } = build(dedup(), replay(), reconnection());
-      // A real channel message at seq 3.
       ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
-      // A stream chunk on the SAME channel carries its own per-stream seq (50).
       ws.emit({
         event: 'tokens',
         payload: { text: 'x' },
@@ -302,8 +289,6 @@ describe('replay — per-channel scope catch-up', () => {
       const frame = second
         .sentFrames()
         .find((f: { event: string; __wskit?: { channel?: string } }) => f.event === '__replay__');
-      // Must replay from the channel's real seq (3), not the stream's (50) — else
-      // channel messages 4..50 are silently skipped on reconnect.
       expect(frame.payload).toEqual({ lastKnownSeq: 3 });
     });
 

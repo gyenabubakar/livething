@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
  * Boot round-trip budget. Counts the number of `sql.exec` calls
- * `engine.initialize()` issues for tiny/medium/heavy contracts, on cold
+ * `engine.initialize()` issues for tiny/medium/heavy servers, on cold
  * and warm boots. Locks the budget so an accidental regression (someone
  * adds another `CREATE TABLE IF NOT EXISTS` to a boot hook) fails the
  * test instead of silently shipping.
@@ -15,26 +15,23 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
-import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
-import { implement } from '~/_api/implement.ts';
-import { scope } from '~/channel/channel.ts';
-import { channel } from '~/channel/definition.ts';
-import { incoming } from '~/incoming/definition.ts';
-import { outgoing } from '~/outgoing/definition.ts';
-import { request } from '~/request/definition.ts';
-import { recordedStream } from '~/stream-recorded/definition.ts';
-import { resumableStream } from '~/stream-resumable/definition.ts';
-import { stream } from '~/stream/definition.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { persistence } from '~/persistence/capability.ts';
+import { replay } from '~/replay/capability.ts';
+import { requests } from '~/request/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
+import { recordedStream } from '~/stream-recorded/capability.ts';
+import { resumableStream } from '~/stream-resumable/capability.ts';
+import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
-// ── Fake SQL provider ──────────────────────────────────────────────────────
-//
-// Records every `exec` call and simulates the `__wskit_meta` sentinel for
-// warm-boot tests.
 function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
   const calls: string[] = [];
   let schemaVersion: string | null = opts?.warmedSchemaVersion ?? null;
@@ -44,10 +41,8 @@ function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
       calls.push(query);
       const trimmed = query.trim();
 
-      // Simulate the meta-table SELECT for the sentinel check.
       if (trimmed.startsWith('SELECT') && trimmed.includes('__wskit_meta')) {
         if (schemaVersion === null) {
-          // Table doesn't exist on a fresh DO — same shape as Cloudflare.
           throw new Error('no such table: __wskit_meta');
         }
         return {
@@ -57,7 +52,6 @@ function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
         };
       }
 
-      // Mark schema initialized — the engine's bundled CREATE + INSERT.
       if (trimmed.includes('__wskit_meta') && trimmed.includes('INSERT')) {
         schemaVersion = (params[0] as string) ?? null;
       }
@@ -100,8 +94,6 @@ function makeNoopTimers() {
   };
 }
 
-// Build an Engine via the same path the CF adapter uses, but capture the
-// instance instead of returning a DO class.
 function buildEngine(handler: ServerDefinition): Engine {
   let captured: Engine | undefined;
   const server = adapter({
@@ -137,130 +129,139 @@ async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
   return { execCount: calls.length, calls };
 }
 
-// ── Fixtures ────────────────────────────────────────────────────────────────
-
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
-const NumChunk = v.object({ n: v.number() });
+const NumChunk = t<{ n: number }>();
 
-const tinyHandler = implement(
-  contract('rt-tiny', {
-    env: t<Record<string, unknown>>(),
-    definitions: [incoming('noop', Empty), outgoing('ack', Empty)],
+const EmptyOut = t<Record<string, never>>();
+const TextOut = t<{ text: string }>();
+
+const tinyBase = define({
+  env: t<Record<string, unknown>>(),
+  capabilities: [emits({ notify: EmptyOut })],
+});
+const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
+
+const mediumBase = define({
+  env: t<Record<string, unknown>>(),
+  hibernation: { enabled: true },
+  capabilities: [
+    persistence(),
+    requests(),
+    stream(),
+    channels(),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
+  ],
+});
+const mediumLobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
+mediumLobby.on('say', { input: Text, run() {} });
+const mediumRooms = mediumBase.channel(['rooms', 'room:{id}'], {
+  outgoing: { emits: { posted: TextOut } },
+});
+mediumRooms.on('post', { input: Text, run() {} });
+const mediumHandler = mediumBase.assemble(
+  mediumBase.on('join', { input: Empty, run() {} }),
+  mediumBase.on('leave', { input: Empty, run() {} }),
+  mediumBase.on('noop', { input: Empty, run() {} }),
+  mediumBase.request('whoami', {
+    input: Empty,
+    run(ctx) {
+      return { id: ctx.identity };
+    },
   }),
-)
-  .on('noop', () => {})
-  .build();
-
-const mediumHandler = implement(
-  contract('rt-medium', {
-    env: t<Record<string, unknown>>(),
-    persistence: true,
-    hibernation: true,
-    definitions: [
-      incoming('join', Empty),
-      incoming('leave', Empty),
-      incoming('noop', Empty),
-      outgoing('ack', Empty),
-      outgoing('joined', Empty),
-      request('whoami', { payload: Empty, response: v.object({ id: v.string() }) }),
-      stream('tail', { payload: Empty, chunk: NumChunk }),
-      channel('lobby', { definitions: [incoming('say', Text), outgoing('said', Text)] }),
-      channel(scope('rooms', 'room:{id}'), {
-        definitions: [incoming('post', Text), outgoing('posted', Text)],
-      }),
-    ],
+  mediumBase.stream('tail', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
   }),
-)
-  .on('noop', () => {})
-  .on('join', () => {})
-  .on('leave', () => {})
-  .request('whoami', (ctx) => {
-    ctx.respond({ id: ctx.identity });
-  })
-  .stream('tail', async function* () {
-    yield { n: 1 };
-  })
-  .channel('lobby', (ch) => ch.on('say', () => {}))
-  .channel('rooms', (ch) => ch.on('post', () => {}))
-  .build();
+  mediumLobby,
+  mediumRooms,
+);
 
-function channelDefs(prefix: string) {
-  return [
-    incoming(`${prefix}-send`, Text),
-    incoming(`${prefix}-edit`, Text),
-    outgoing(`${prefix}-message`, Text),
-    outgoing(`${prefix}-edited`, Text),
-  ] as const;
+function channelEmits(prefix: string) {
+  return {
+    [`${prefix}-message`]: TextOut,
+    [`${prefix}-edited`]: TextOut,
+  };
 }
 
-const heavyContract = contract('rt-heavy', {
+const heavyBase = define({
   env: t<Record<string, unknown>>(),
-  persistence: true,
-  hibernation: true,
-  replay: true,
-  sequence: { persist: true },
-  dedup: true,
-  definitions: [
-    incoming('a', Empty),
-    incoming('b', Empty),
-    incoming('c', Empty),
-    incoming('d', Empty),
-    incoming('e', Empty),
-    outgoing('o-a', Empty),
-    outgoing('o-b', Empty),
-    outgoing('o-c', Empty),
-    outgoing('o-d', Empty),
-    outgoing('o-e', Empty),
-    request('r-a', { payload: Empty, response: Empty }),
-    request('r-b', { payload: Empty, response: Empty }),
-    request('r-c', { payload: Empty, response: Empty }),
-    stream('s-a', { payload: Empty, chunk: NumChunk }),
-    stream('s-b', { payload: Empty, chunk: NumChunk }),
-    resumableStream('rs-a', { payload: Empty, chunk: NumChunk }),
-    recordedStream('rec-a', { payload: Empty, chunk: NumChunk }),
-    channel('chan-1', { definitions: channelDefs('c1') }),
-    channel('chan-2', { definitions: channelDefs('c2') }),
-    channel('chan-3', { definitions: channelDefs('c3') }),
-    channel('chan-4', { definitions: channelDefs('c4') }),
-    channel('chan-5', { definitions: channelDefs('c5') }),
-    channel(scope('rooms-1', 'r1:{id}'), { definitions: channelDefs('r1') }),
-    channel(scope('rooms-2', 'r2:{id}'), { definitions: channelDefs('r2') }),
-    channel(scope('rooms-3', 'r3:{id}'), { definitions: channelDefs('r3') }),
-    channel(scope('rooms-4', 'r4:{id}'), { definitions: channelDefs('r4') }),
-    channel(scope('rooms-5', 'r5:{id}'), { definitions: channelDefs('r5') }),
+  hibernation: { enabled: true },
+  capabilities: [
+    persistence(),
+    dedup(),
+    sequence({ persist: true }),
+    replay.history(),
+    requests(),
+    stream(),
+    resumableStream(),
+    recordedStream(),
+    channels(),
+    emits({ 'o-a': EmptyOut, 'o-b': EmptyOut, 'o-c': EmptyOut, 'o-d': EmptyOut, 'o-e': EmptyOut }),
   ],
 });
 
-const heavyImpl: any = implement(heavyContract as any);
-for (const def of heavyContract.definitions as readonly any[]) {
-  if (def._ === 'incoming') heavyImpl.on(def.name, () => {});
-  if (def._ === 'request') heavyImpl.request(def.name, (ctx: any) => ctx.respond({}));
-  if (def._ === 'stream')
-    heavyImpl.stream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'resumable-stream')
-    heavyImpl.resumableStream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'recorded-stream')
-    heavyImpl.recordedStream(def.name, async function* () {
-      yield { n: 1 };
-    });
-  if (def._ === 'channel') {
-    const key = typeof def.pattern === 'string' ? def.pattern : def.pattern.key;
-    heavyImpl.channel(key, (ch: any) => {
-      for (const child of def.definitions as readonly any[]) {
-        if (child._ === 'incoming') ch.on(child.name, () => {});
-      }
-      return ch;
-    });
-  }
+const heavyHandlers: any[] = [];
+for (const name of ['a', 'b', 'c', 'd', 'e']) {
+  heavyHandlers.push(heavyBase.on(name, { input: Empty, run() {} }));
 }
-const heavyHandler = heavyImpl.build();
-
-// ── Tests ──────────────────────────────────────────────────────────────────
+for (const name of ['r-a', 'r-b', 'r-c']) {
+  heavyHandlers.push(
+    heavyBase.request(name, {
+      input: Empty,
+      run() {
+        return {};
+      },
+    }),
+  );
+}
+for (const name of ['s-a', 's-b']) {
+  heavyHandlers.push(
+    heavyBase.stream(name, {
+      input: Empty,
+      chunk: NumChunk,
+      async *run() {
+        yield { n: 1 };
+      },
+    }),
+  );
+}
+heavyHandlers.push(
+  heavyBase.resumableStream('rs-a', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
+  }),
+);
+heavyHandlers.push(
+  heavyBase.recordedStream('rec-a', {
+    input: Empty,
+    chunk: NumChunk,
+    async *run() {
+      yield { n: 1 };
+    },
+  }),
+);
+for (const n of [1, 2, 3, 4, 5]) {
+  const ch = heavyBase.channel(`chan-${n}`, { outgoing: { emits: channelEmits(`c${n}`) } });
+  ch.on(`c${n}-send`, { input: Text, run() {} });
+  ch.on(`c${n}-edit`, { input: Text, run() {} });
+  heavyHandlers.push(ch);
+}
+for (const n of [1, 2, 3, 4, 5]) {
+  const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
+    outgoing: { emits: channelEmits(`r${n}`) },
+  });
+  ch.on(`r${n}-send`, { input: Text, run() {} });
+  ch.on(`r${n}-edit`, { input: Text, run() {} });
+  heavyHandlers.push(ch);
+}
+const heavyHandler = heavyBase.assemble(...heavyHandlers);
 
 describe('engine.initialize — sql.exec round-trip budget', () => {
   it('tiny (no schema features): cold boot issues 0 exec calls', async () => {
@@ -315,6 +316,16 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //       run added by ensureRecurringRuns. The diff-based persist no longer
     //       emits DELETE-all / reinsert-all per call, so the empty-load case
     //       costs zero extra writes; only genuine new rows are written.
+    //
+    // FLAGGED REGRESSION (define/assemble migration): under the new API this
+    // boots only 7 round trips, not 11. The v1 implement().build() injected an
+    // internal recurring scheduled task ('__wskit:stream-durable-sweep') for any
+    // server that declared a durable (resumable/recorded) stream, which booted
+    // the whole scheduled engine — schema hook #5, bootstrap loads #9-10, and the
+    // persist-after-restore #11. The new resumableStream()/recordedStream()
+    // capabilities do NOT install that sweep, so expired durable-stream rows are
+    // never reclaimed. Budget left at the v1 value on purpose so this stays RED
+    // until the sweep is wired into the durable-stream capabilities (or persistence).
     expect(execCount).toBe(11);
   });
 
@@ -329,6 +340,11 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Compared to cold (11): saves 5 schema hooks + 1 mark = 6 round trips
     // skipped. Remaining: 1 sentinel SELECT + 4 cleanup/state-restore.
+    //
+    // FLAGGED REGRESSION: same missing stream-durable-sweep scheduled task as the
+    // cold-boot case above. Under the new API this warm-boots only 2 round trips
+    // (sentinel SELECT + persistence reconcile), not 5 — the 3 scheduled
+    // state-restore round trips are gone. Budget left at v1 value on purpose.
     expect(execCount).toBe(5);
   });
 });
@@ -361,17 +377,12 @@ describe('engine declaredErrorCodes', () => {
 });
 
 describe('revalidate requires a persistent channel', () => {
-  const channelDefs = { definitions: [outgoing('said', Text)] };
+  const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
 
   it('throws at boot when a non-persistent channel has a .revalidate() hook', async () => {
-    const handler = implement(
-      contract('rt-revalidate-no-persist', {
-        env: t<Record<string, unknown>>(),
-        definitions: [channel('room', channelDefs)],
-      }),
-    )
-      .channel('room', (ch) => ch.revalidate(() => {}))
-      .build();
+    const base = define({ env: t<Record<string, unknown>>(), capabilities: [channels()] });
+    const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
+    const handler = base.assemble(room);
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(
       /Channel "room" has a \.revalidate\(\) hook but is not persistent/,
@@ -379,29 +390,23 @@ describe('revalidate requires a persistent channel', () => {
   });
 
   it('throws when a `persistent: false` channel has a .revalidate() hook', async () => {
-    const handler = implement(
-      contract('rt-revalidate-optout', {
-        env: t<Record<string, unknown>>(),
-        persistence: true,
-        definitions: [channel('room', { persistent: false, ...channelDefs })],
-      }),
-    )
-      .channel('room', (ch) => ch.revalidate(() => {}))
-      .build();
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [persistence(), channels()],
+    });
+    const room = base.channel('room', { ...channelOutgoing, persistent: false, revalidate() {} });
+    const handler = base.assemble(room);
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(/is not persistent/);
   });
 
   it('boots fine when a persistent channel has a .revalidate() hook', async () => {
-    const handler = implement(
-      contract('rt-revalidate-persist', {
-        env: t<Record<string, unknown>>(),
-        persistence: true,
-        definitions: [channel('room', channelDefs)],
-      }),
-    )
-      .channel('room', (ch) => ch.revalidate(() => {}))
-      .build();
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [persistence(), channels()],
+    });
+    const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
+    const handler = base.assemble(room);
 
     await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
   });

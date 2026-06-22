@@ -22,6 +22,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
 
       return {
         id: 'dedup',
+
         onIncoming(message) {
           const id = message.__wskit?.messageId;
           if (typeof id !== 'string') return message;
@@ -43,6 +44,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
             seen.set(id, now);
             return null;
           }
+
           seen.set(id, now);
           return message;
         },
@@ -50,4 +52,5 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
     },
   };
 }
+
 dedup.tag = 'dedup';

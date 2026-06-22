@@ -4,6 +4,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ValidationTypes from '~/types.ts';
 
@@ -54,22 +55,83 @@ export interface WireOutgoingMessage {
 export type { IncomingProtocolEvent } from './protocol.ts';
 
 /**
+ * One new-model plugin lifecycle handler, tagged with its plugin id and the
+ * global registration index so the engine can order hooks deterministically.
+ * The handler already receives a plugin-scoped context (sends are prefixed).
+ */
+export interface PluginLifecycleEntry {
+  readonly pluginId: string;
+  readonly order: number;
+  readonly handler: (ctx: any, ...rest: any[]) => void | Promise<void>;
+}
+
+/** New-model plugin lifecycle hooks, one ordered list per kind. */
+export interface PluginLifecycleHooks {
+  init: PluginLifecycleEntry[];
+  connect: PluginLifecycleEntry[];
+  disconnect: PluginLifecycleEntry[];
+  shutdown: PluginLifecycleEntry[];
+  error: PluginLifecycleEntry[];
+  validationError: PluginLifecycleEntry[];
+}
+
+/**
+ * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
+ * inbound onion. It may own `identity` — but only one upgrade hook (a
+ * plugin's or the app's) may, enforced at runtime.
+ */
+export interface PluginUpgradeEntry {
+  readonly pluginId: string;
+  readonly handler: (
+    request: Request,
+    helpers: LifecycleTypes.UpgradeHelpers,
+  ) =>
+    | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+    | Promise<{ identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
+}
+
+/**
+ * One registered outgoing hook plus its owner, so the pipeline can scope it to
+ * the frames its owner is allowed to see.
+ */
+export interface OutgoingHookEntry {
+  handler: (frame: InterceptPrimitive.OutgoingFrame) => unknown | void;
+  owner: InterceptPrimitive.HookOwner;
+}
+
+/**
  * All hook registries the engine fills during primitive setup.
  *
  * These are the runtime lists and maps the engine dispatches later while
  * processing messages, connections, shutdown, and alarms.
  */
 export interface RegisteredEngineHooks {
-  // -- Message pipeline hooks -------------------------------------------------
-
   /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
   incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
 
-  /** Runs before wire serialization — can observe or rewrite the payload (event is locked). */
-  outgoing: ((message: { event: string; payload: unknown }) => unknown | void)[];
+  /**
+   * Settle a server→client request answer. A user-event frame carrying a
+   * `correlationId` is offered to each hook before normal routing; a hook
+   * returns `true` when the id matches a pending server-initiated request it
+   * owns (validating the answer and resolving/rejecting the server promise),
+   * which stops routing. Owned by the `requests()` capability so the core never
+   * imports the pending-request map.
+   */
+  answerFrame: ((
+    connectionId: string,
+    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
+  ) => boolean)[];
+
+  /**
+   * Runs before wire serialization — can observe or rewrite the payload (event
+   * is locked). Each entry carries its owner so the pipeline runs it only for
+   * the frames that owner is allowed to see (the app sees all; a plugin sees its
+   * own frames, plus the app's when granted host observation).
+   */
+  outgoing: OutgoingHookEntry[];
 
   /**
    * Contributors of `__wskit` metadata on outgoing user frames — the sequence
@@ -93,12 +155,8 @@ export interface RegisteredEngineHooks {
     ) => boolean | void | Promise<boolean | void>)[]
   >;
 
-  // -- Context extension ------------------------------------------------------
-
   /** Factories that add extra fields/methods to every connection context. */
   contextExtenders: ((ctx: any) => Record<string, unknown>)[];
-
-  // -- Lifecycle hooks --------------------------------------------------------
 
   /** Runs during primitive setup, before `init` hooks — for internal bootstrap. */
   boot: (() => void | Promise<void>)[];
@@ -162,12 +220,25 @@ export interface RegisteredEngineHooks {
   /** Observes incoming payloads that fail schema validation. */
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
 
-  // -- Scheduled work ---------------------------------------------------------
+  /**
+   * New-model plugin lifecycle hooks, kept apart from the app's so they run in
+   * the onion order: inbound (`init`/`connect`) runs plugins → app, and
+   * outbound (`disconnect`/`shutdown`) runs app → plugins (LIFO). Each entry
+   * carries its plugin id and a global registration index so the engine can sort
+   * deterministically. Handlers are already wrapped in a plugin-scoped ctx.
+   */
+  pluginLifecycle: PluginLifecycleHooks;
+
+  /**
+   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * app's builder upgrade hook; meta is shallow-merged (the app wins on key
+   * conflict), tags concatenated, and at most one hook (these or the app's) may
+   * return `identity`.
+   */
+  pluginUpgrade: PluginUpgradeEntry[];
 
   /** Runs when the adapter fires a scheduled callback. */
   alarm: (() => void | Promise<void>)[];
-
-  // -- Channel membership -----------------------------------------------------
 
   /** Async check phase per channel key — runs before a subscription is confirmed. */
   check: Map<string, ChannelCheckHook[]>;
@@ -196,8 +267,6 @@ export interface RegisteredEngineHooks {
  * active.
  */
 export interface RuntimeConnection {
-  // -- Identity --
-
   /** Unique connection ID assigned by the engine. */
   id: string;
 
@@ -220,8 +289,6 @@ export interface RuntimeConnection {
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
 
-  // -- Channel state --
-
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
    * keys held under that group. The `(kind, group)` split is enforced at
@@ -233,17 +300,15 @@ export interface RuntimeConnection {
   tags: { ephemeral: Map<string, Set<string>>; persistent: Map<string, Set<string>> };
 
   /**
-   * Map of membership keys to channel details, with an explicit scope marker.
+   * Map of membership keys to channel details, with an explicit family marker.
    *
-   * `channelScope` is `null` for static channels and the family key for
+   * `channelFamily` is `null` for static channels and the family key for
    * dynamic channel families. Encoding the marker as a tuple key keeps the
    * same concrete channel name in two families (or a static channel and a
    * family that share a name) isolated. Scope-aware lookups (membership
    * checks, member listings, kick filters, broadcasts) all read this map.
    */
-  channelMemberships: Map<string, { channelName: string; channelScope: string | null }>;
-
-  // -- Ephemeral runtime state --
+  channelMemberships: Map<string, { channelName: string; channelFamily: string | null }>;
 
   /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
   latency: number | null;
@@ -377,31 +442,30 @@ export interface ActiveStream {
    * scope and the connection must still hold its membership — a nudge that
    * claims a different (or no) scope is rejected, not silently accepted.
    */
-  scope?: ResolvedScope;
-}
+  scope?: ResolvedChannel;
 
-/**
- * Runtime hooks and context factory for one installed plugin.
- *
- * Each installed plugin gets one of these records so the engine can call the
- * plugin's hooks and build its scoped helper API when needed.
- */
-export interface PluginRuntime {
-  instance: EngineCompileTypes.AnyPlugin;
+  /**
+   * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
+   * generator code can pass it into slow awaited work (`fetch`, timers, …). The
+   * runtime aborts it on client cancel, owning-connection disconnect, and server
+   * shutdown — always before `generator.return()` so in-flight work stops first.
+   */
+  abortController: AbortController;
 
-  onInit?: (ctx: any) => void | Promise<void>;
+  /**
+   * Outbound backpressure limit in bytes for this stream. `ctx.stream.drain()`
+   * resolves once the buffered amount falls below this mark. Resolved from the
+   * stream config's `highWaterMark`, defaulting to 256 KB. The drain closure
+   * captures the resolved value directly; this field records it for diagnostics.
+   */
+  highWaterMark?: number;
 
-  onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;
-
-  onOutgoing?: (message: { event: string; payload: unknown }) => unknown | void;
-
-  onConnect?: (ctx: any) => void | Promise<void>;
-
-  onDisconnect?: (ctx: any) => void | Promise<void>;
-
-  onShutdown?: () => void | Promise<void>;
-
-  contextFactory: (ctx: any) => unknown;
+  /**
+   * True for a plain broadcast stream (`broadcast: true`). Cancel uses it to fan
+   * a terminal `__streamEnd__` out to the fan-out peers, so a creator cancel
+   * doesn't leave their `onStream` runs open until timeout.
+   */
+  broadcast?: boolean;
 }
 
 /**
@@ -414,13 +478,23 @@ export interface RoutingTarget {
   channel?: string;
 
   /**
-   * Channel scope marker. `null` for static channels (no scope), a non-empty
+   * Channel family marker. `null` for static channels (no family), a non-empty
    * family key for dynamic channel families, `undefined` when the route does
    * not target a channel at all (e.g. a top-level send).
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 
   correlationId?: string;
+
+  /**
+   * The side that originated the exchange this outgoing frame belongs to,
+   * stamped as `__wskit.source`. A server→client request sets `'server'`; the
+   * server's reply to a client's request sets `'client'`. It lets the client
+   * tell a server-initiated request apart from a reply to its own request, so it
+   * can fast-fail (`__error__` `request-no-response`) when it has no handler for
+   * the event instead of leaving the server's pending promise to hang to timeout.
+   */
+  source?: 'server' | 'client';
 
   streamId?: string;
 
@@ -440,22 +514,22 @@ export interface RoutingTarget {
 }
 
 /**
- * The resolved scope for one incoming message.
+ * The resolved channel for one incoming message.
  *
  * This is the engine's parsed view of `__wskit.channel` and
- * `__wskit.channelScope` markers from the incoming frame.
+ * `__wskit.channelFamily` markers from the incoming frame.
  */
-export interface ResolvedScope {
+export interface ResolvedChannel {
   channel?: EngineCompileTypes.CompiledChannel;
 
   channelName?: string;
 
   /**
-   * Scope marker for channel-scoped frames: `null` when the frame targets a
+   * Family marker for channel-scoped frames: `null` when the frame targets a
    * static channel, the family key when it targets a dynamic family, and
    * `undefined` when no channel is in scope at all.
    */
-  channelScope?: string | null;
+  channelFamily?: string | null;
 }
 
 /**

@@ -32,8 +32,6 @@ function createAsyncContext<TStore>() {
 
 const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
   id: 'cloudflare',
-  // Persist per-socket snapshots through Cloudflare's attachment slot so the
-  // engine never reaches into platform-specific WebSocket APIs directly.
   hibernation: {
     persist(wsKey, snapshot) {
       (wsKey as WebSocket).serializeAttachment(snapshot);
@@ -42,8 +40,6 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
       return (wsKey as WebSocket).deserializeAttachment();
     },
   },
-  // Static capability, declared once next to hibernation — it needs no
-  // per-instance state, so it does not belong in the per-DO createEngine call.
   asyncContextFactory: createAsyncContext,
 
   setup(createEngine) {
@@ -80,19 +76,13 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
 
         this.ready = ctx.blockConcurrencyWhile(async () => {
           await this.engine.initialize();
-          // Boot-time reconcile. With hibernation on, Cloudflare may hand
-          // back sockets that survived the eviction — collect their ids
-          // from each socket's tiny attachment so the engine keeps those
-          // rows and drops any orphans. Hibernation off: the engine
-          // short-circuits and the empty set is a no-op.
+          // With hibernation on, Cloudflare may hand back sockets that survived
+          // eviction; collect their ids so the engine keeps those rows and drops
+          // orphans. Hibernation off: the empty set is a no-op.
           const surviving = new Set<string>();
           if (this.engine.usesHibernation()) {
-            // Answer the app-level keepalive ping at the edge so a hibernated
-            // DO is not woken just to reply "pong". WSKit's client sends the
-            // literal text "ping"; the runtime replies "pong" without booting
-            // this object. Server-side latency stats pause while hibernated,
-            // which is expected.
             this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+
             for (const ws of this.ctx.getWebSockets()) {
               const attachment = (ws as WebSocket).deserializeAttachment() as {
                 id?: string;
@@ -102,6 +92,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
               }
             }
           }
+
           this.engine.reconcileConnections(surviving);
         });
       }
@@ -109,11 +100,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
       private handleRejectedUpgrade(
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ): Response {
-        // WebSocket close codes start at 1000 and HTTP statuses cap at 599, so >= 1000 -> treat as a WS close code; otherwise -> HTTP status.
+        // >= 1000 is a WS close code (HTTP statuses cap at 599); below that, an HTTP status.
         if (result.code && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
           pair[1].close(result.code, result.reason ?? 'Upgrade rejected');
+
           return new Response(null, {
             status: 101,
             webSocket: pair[0],
@@ -128,13 +120,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         socket: WebSocket,
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ) {
-        // identity is always present on an accepted upgrade — onUpgrade
-        // requires it on the return type. The fallback to '' keeps this
-        // path defensive against an adapter that forgot to forward it.
         return {
           send: (data: string) => socket.send(data),
           close: (code?: number, reason?: string) => socket.close(code, reason),
           bufferedAmount: () => 0,
+          // Cloudflare does not expose outbound buffer fullness, so drain() is a no-op.
+          backpressureSupported: false,
           identity: result.identity ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
@@ -146,11 +137,9 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            // TODO: binary support is planned. A throw here is swallowed by the
-            // WebSocket event dispatch (the frame would be silently dropped and the
-            // socket left open), so reject it loudly by closing the connection —
-            // matching the hibernation path, where a thrown webSocketMessage resets
-            // the socket. 1003 = "unsupported data". The close listener runs cleanup.
+            // Binary unsupported. A throw here is swallowed by event dispatch
+            // (frame dropped, socket left open), so close loudly instead.
+            // 1003 = "unsupported data"; the close listener runs cleanup.
             socket.close(1003, '[wskit] binary frames are not supported yet');
           }
         });
@@ -178,16 +167,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         const pair = new WebSocketPair();
         const client = pair[0];
         const server = pair[1];
+
         const descriptor = this.createConnectionDescriptor(server, result);
 
-        // Hibernation is opt-in via `hibernation: true` on the contract.
-        // Tags are intentionally NOT forwarded into Cloudflare's per-socket
-        // tag store. WSKit already persists tags inside its hibernation
-        // attachment, so the runtime is the source of truth on wake. The
-        // tag store also caps each tag at 256 characters and the total at
-        // 10 tags, which does not match the WSKit API contract — passing
-        // app tags through would crash the upgrade for any handler that
-        // returns more or longer tags from onUpgrade.
+        // Tags are NOT forwarded into Cloudflare's per-socket tag store: WSKit
+        // persists them in its hibernation attachment, and the store's caps (10
+        // tags, 256 chars each) would crash the upgrade for larger WSKit tags.
         const hibernating = this.engine.usesHibernation();
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
@@ -228,12 +213,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         await this.ready;
 
         const connection = this.getConnection(ws);
+
         if (typeof message === 'string') {
           await connection.handleMessage(message);
           return;
         }
 
-        // TODO: binary support is planned; reject binary frames loudly until then
         throw new Error('[wskit] binary frames are not supported yet');
       }
 
@@ -271,15 +256,14 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
        * so this is the intended way to trigger a clean close from your
        * Worker — call it from an admin RPC before a deploy or maintenance
        * window so clients can reconnect to a fresh instance.
+       *
+       * Under hibernation Cloudflare keeps sockets open across DO evictions, and
+       * a fresh instance starts with an empty connection map. So each hibernated
+       * socket is woken through the engine first — otherwise the drain would skip
+       * it and leave the client open. Wake is idempotent for already-live sockets.
        */
       async shutdown(): Promise<void> {
         await this.ready;
-        // Under hibernation Cloudflare keeps sockets open across DO evictions.
-        // A new instance starts with an empty in-memory connection map, so a
-        // shutdown() RPC right after wake would skip every hibernated socket.
-        // Wake each one through the engine first so the shutdown path closes
-        // them and runs onDisconnect/cleanup. Wake is idempotent for sockets
-        // that were already live in this instance.
         if (this.engine.usesHibernation()) {
           for (const ws of this.ctx.getWebSockets()) {
             this.engine.handleHibernationWake(ws);
@@ -298,7 +282,10 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. The DO uses the
  * Cloudflare WebSocket Hibernation API when the contract sets
- * `hibernation: true`.
+ * `hibernation: true`. Under hibernation the runtime answers the client's
+ * keepalive "ping" with "pong" at the edge, so a hibernated DO is not woken
+ * just to reply (server-side latency stats pause while hibernated, as
+ * expected).
  *
  * The returned value is a class, not an instance. Export it from your worker
  * module like `export const Room = server(handler);` — Cloudflare instantiates

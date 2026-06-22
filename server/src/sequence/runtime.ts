@@ -83,7 +83,6 @@ export function createPersistentSequenceAllocator(
   assertPositiveInteger(batchSize, 'batchSize', 'sequence()');
 
   // The half-open range [cursor, ceiling) is the seq numbers reserved for this
-  // wake but not yet handed out. Empty when cursor === ceiling — the next
   // `next()` call refills via SQL.
   let cursor = 0;
   let ceiling = 0;

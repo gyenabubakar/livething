@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 interface GoConnectOptions {
   room: string;
@@ -17,6 +18,52 @@ async function goConnect(page: Page, opts: GoConnectOptions) {
 }
 
 test.describe('stream-durable', () => {
+  test('recorded primitive chunks replay with the same payload shape as live chunks', async ({
+    page,
+  }, testInfo) => {
+    const room = `sdb-primitive-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'primitive-1';
+    await page.goto('/stream-durable');
+    await installRig(page);
+    const socket = await connect(page, { path: '/ws/stream-durable', username: 'alice', room });
+
+    await send(page, socket, {
+      event: 'primitive-recorded',
+      payload: {},
+      __wskit: { streamId },
+    });
+    await waitForFrame(page, socket, { match: (f) => f.event === '__streamOk__' });
+    await waitForFrame(page, socket, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+
+    const liveChunks = (await frames(page, socket)).filter(
+      (frame) => frame.event === 'primitive-recorded',
+    );
+    expect(liveChunks.map((frame) => frame.payload)).toEqual([{ value: 1 }, { value: 2 }]);
+
+    await send(page, socket, {
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { streamId },
+    });
+
+    await page.waitForFunction(
+      ([sid]) =>
+        window.__wskitFrames!(sid as string).filter((frame) => frame.event === 'primitive-recorded')
+          .length >= 4,
+      [socket],
+    );
+
+    const allPrimitiveChunks = (await frames(page, socket)).filter(
+      (frame) => frame.event === 'primitive-recorded',
+    );
+    expect(allPrimitiveChunks.slice(2).map((frame) => frame.payload)).toEqual([
+      { value: 1 },
+      { value: 2 },
+    ]);
+  });
+
   test('recorded stream: chunks buffered in storage replay on resume', async ({
     page,
   }, testInfo) => {
@@ -77,6 +124,37 @@ test.describe('stream-durable', () => {
 
     const order = (await page.getByTestId('paginate-rows').textContent())!.split(',').map(Number);
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  test('resumable bare yield (no withCursor): resume restarts from a null cursor', async ({
+    page,
+  }, testInfo) => {
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'bare-1';
+    await goConnect(page, { room: room, streamId: streamId });
+
+    await page.getByTestId('start-paginate-bare').click();
+    await expect
+      .poll(async () => Number(await page.getByTestId('paginate-bare-row-count').textContent()))
+      .toBeGreaterThanOrEqual(1);
+    const seenBeforeDrop = Number(await page.getByTestId('paginate-bare-row-count').textContent());
+    expect(seenBeforeDrop).toBeLessThan(4);
+
+    await page.getByTestId('drop-socket').click();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+
+    await page.getByTestId('since').fill(String(seenBeforeDrop));
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('send-resume').click();
+
+    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
+
+    const rows = (await page.getByTestId('paginate-bare-rows').textContent())!
+      .split(',')
+      .map(Number);
+    expect(Math.max(...rows)).toBeLessThan(100);
+    expect(rows.slice(-4)).toEqual([1, 2, 3, 4]);
   });
 
   test('resume of an unknown stream id surfaces stream-aborted not-found', async ({

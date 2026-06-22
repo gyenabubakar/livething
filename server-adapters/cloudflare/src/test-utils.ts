@@ -1,9 +1,8 @@
 import { vi } from 'vitest';
 import type { ConnectionHandle, Engine, UpgradeDecision } from '@wskit/server/adapters';
 
-// `WebSocketRequestResponsePair` is a Cloudflare Workers runtime global with no
-// import. Node test runs lack it, so provide a minimal stand-in the adapter can
-// construct when it wires setWebSocketAutoResponse under hibernation.
+// `WebSocketRequestResponsePair` is a Workers runtime global; Node test runs
+// lack it, so stand it in for the adapter's setWebSocketAutoResponse wiring.
 const globalScope = globalThis as { WebSocketRequestResponsePair?: unknown };
 globalScope.WebSocketRequestResponsePair ??= class {
   constructor(

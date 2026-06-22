@@ -72,8 +72,10 @@ describe('StreamDurableClient — streams', () => {
     expectTypeOf<keyof StreamDurableClient['streams']>().toEqualTypeOf<
       | 'count-tokens'
       | 'paginate'
+      | 'paginate-bare'
       | 'attempt-stream'
       | 'buffer-full-demo'
+      | 'primitive-recorded'
       | 'count-tokens-nudged'
       | 'paginate-nudged'
     >();

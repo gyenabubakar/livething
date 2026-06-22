@@ -1,7 +1,10 @@
-import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
+import { channels } from '@wskit/server/channels';
+import { persistence } from '@wskit/server/persistence';
+import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const TagPayload = v.object({
   kind: v.picklist(['ephemeral', 'persistent']),
@@ -14,86 +17,84 @@ const CountByPayload = v.object({ group: v.string(), key: v.string() });
 const KickByPayload = v.object({ group: v.string(), key: v.string(), reason: v.string() });
 const GroupStatsPayload = v.object({ key: v.string() });
 
-const TagsListPayload = v.object({
-  tags: v.array(v.object({ kind: v.string(), group: v.string(), key: v.string() })),
-});
-const FanOutEchoPayload = v.object({ text: v.string(), from: v.string() });
-const CountResultPayload = v.object({ count: v.number() });
-const GroupStatsResultPayload = v.object({
-  has: v.boolean(),
-  keys: v.array(v.string()),
-  connections: v.number(),
-  count: v.number(),
-});
-const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
-const SendInRoomPayload = v.object({ text: v.string() });
-
-export const typedTagsContract = contract('typed-tags', {
+const base = define({
   env: t<Env>(),
-  persistence: true,
-  meta: t<{ username: string }>(),
-  tags: (ephemeral, persistent) => [
-    ephemeral('user', t<string>()),
-    ephemeral('role', t<string>()),
-    // Schema-backed group: values are validated on add against this picklist.
-    ephemeral('color', v.picklist(['red', 'blue', 'green'])),
-    persistent('favorite', t<string>()),
-  ],
-  definitions: [
-    incoming('add-tag', TagPayload),
-    incoming('remove-tag', TagPayload),
-    incoming('list-my-tags', v.object({})),
-    incoming('fan-out-to-tag', FanOutPayload),
-    incoming('count-by-tag', CountByPayload),
-    incoming('kick-by-tag', KickByPayload),
-    incoming('group-stats', GroupStatsPayload),
-
-    outgoing('tags-list', TagsListPayload),
-    outgoing('fan-out-echo', FanOutEchoPayload),
-    outgoing('count-result', CountResultPayload),
-    outgoing('group-stats-result', GroupStatsResultPayload),
-
-    channel('room', {
-      definitions: [
-        incoming('send-in-room', SendInRoomPayload),
-        outgoing('room-message', RoomMessagePayload),
-      ],
+  upgrade: (request) => requireUsernameWithUserTag(request),
+  capabilities: [
+    persistence(),
+    channels(),
+    tags((ephemeral, persistent) => [
+      ephemeral('user', t<string>()),
+      ephemeral('role', t<string>()),
+      // Schema-backed group: values are validated on add against this picklist.
+      ephemeral('color', v.picklist(['red', 'blue', 'green'])),
+      persistent('favorite', t<string>()),
+    ]),
+    emits({
+      'tags-list': t<{ tags: Array<{ kind: string; group: string; key: string }> }>(),
+      'fan-out-echo': t<{ text: string; from: string }>(),
+      'count-result': t<{ count: number }>(),
+      'group-stats-result': t<{
+        has: boolean;
+        keys: string[];
+        connections: number;
+        count: number;
+      }>(),
     }),
   ],
 });
 
-export const typedTagsHandler = implement(typedTagsContract)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers))
-
-  .on('add-tag', (ctx, payload) => {
+const handleAddTag = base.on('add-tag', {
+  input: TagPayload,
+  run(ctx, payload) {
     if (payload.kind === 'ephemeral')
       ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').add(payload.key);
     else ctx.tags.persistent(payload.group as 'favorite').add(payload.key);
-  })
-  .on('remove-tag', (ctx, payload) => {
+  },
+});
+
+const handleRemoveTag = base.on('remove-tag', {
+  input: TagPayload,
+  run(ctx, payload) {
     if (payload.kind === 'ephemeral')
       ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').remove(payload.key);
     else ctx.tags.persistent(payload.group as 'favorite').remove(payload.key);
-  })
-  .on('list-my-tags', (ctx) => {
+  },
+});
+
+const handleListMyTags = base.on('list-my-tags', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('tags-list', {
       tags: ctx.tags.list().map((t) => ({ kind: t.kind, group: t.group, key: t.key })),
     });
-  })
-  .on('fan-out-to-tag', (ctx, payload) => {
+  },
+});
+
+const handleFanOutToTag = base.on('fan-out-to-tag', {
+  input: FanOutPayload,
+  run(ctx, payload) {
     ctx.tags
       .ephemeral(payload.group as 'user' | 'role')
       .ref(payload.key)
       .send('fan-out-echo', { text: payload.text, from: ctx.meta.username });
-  })
-  .on('count-by-tag', (ctx, payload) => {
+  },
+});
+
+const handleCountByTag = base.on('count-by-tag', {
+  input: CountByPayload,
+  run(ctx, payload) {
     const count = ctx.tags
       .ephemeral(payload.group as 'user' | 'role')
       .ref(payload.key)
       .count();
     ctx.send('count-result', { count });
-  })
-  .on('group-stats', (ctx, payload) => {
+  },
+});
+
+const handleGroupStats = base.on('group-stats', {
+  input: GroupStatsPayload,
+  run(ctx, payload) {
     // Probe the group-level reflection methods on the public GroupHandle.
     // connections() returns objects with methods, so send its length, not the
     // raw snapshots.
@@ -104,22 +105,45 @@ export const typedTagsHandler = implement(typedTagsContract)
       connections: role.connections().length,
       count: role.count(),
     });
-  })
-  .on('kick-by-tag', async (ctx, payload) => {
+  },
+});
+
+const handleKickByTag = base.on('kick-by-tag', {
+  input: KickByPayload,
+  async run(ctx, payload) {
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), payload.reason);
-  })
+  },
+});
 
-  .channel('room', (ch) =>
-    ch.on('send-in-room', (ctx, payload) => {
-      ctx.channel.broadcast('room-message', {
-        text: payload.text,
-        from: ctx.meta.username,
-      });
-    }),
-  )
+const room = base.channel('room', {
+  outgoing: {
+    emits: {
+      'room-message': t<{ text: string; from: string }>(),
+    },
+  },
+});
 
-  .build();
+const handleSendInRoom = room.on('send-in-room', {
+  input: v.object({ text: v.string() }),
+  run(ctx, payload) {
+    ctx.channel.broadcast('room-message', {
+      text: payload.text,
+      from: ctx.meta.username,
+    });
+  },
+});
+
+export const typedTagsHandler = base.assemble(
+  handleAddTag,
+  handleRemoveTag,
+  handleListMyTags,
+  handleFanOutToTag,
+  handleCountByTag,
+  handleGroupStats,
+  handleKickByTag,
+  handleSendInRoom,
+);
 
 export type TypedTagsClient = InferClient<typeof typedTagsHandler>;

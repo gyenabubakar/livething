@@ -162,7 +162,6 @@ describe('keepalive/runtime', () => {
       recentLatencies: [10, 20, 30, 40, 50],
     };
 
-    // 6th sample: 60ms. The oldest sample (10) should be evicted, leaving [20,30,40,50,60].
     recordConnectionLatency(connection, 60);
 
     expect(connection.recentLatencies).toEqual([20, 30, 40, 50, 60]);

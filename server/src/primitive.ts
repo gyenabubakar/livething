@@ -1,10 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { EngineAccess } from './_engine/access.ts';
 
-// ---------------------------------------------------------------------------
-// Primitive kind
-// ---------------------------------------------------------------------------
-
 /**
  * The category tag every primitive carries. Set automatically by each
  * primitive factory — you never assign it yourself.
@@ -16,10 +12,6 @@ export type PrimitiveKind =
   | 'lifecycle'
   | 'scope'
   | 'plugin';
-
-// ---------------------------------------------------------------------------
-// Platform requirements
-// ---------------------------------------------------------------------------
 
 /**
  * Declares which platform capabilities a primitive needs at runtime. When any
@@ -38,6 +30,21 @@ export interface RequiresManifest {
 }
 
 /**
+ * Read-only view of settled engine state, passed to a primitive's `__validate`
+ * hook. It exposes only derived facts a primitive needs to check its own
+ * runtime requirements — not the engine internals — so validation stays
+ * encapsulated in the capability that owns the rule.
+ */
+export interface ValidationView {
+  /** Whether a persistent `sequence` is configured. */
+  readonly sequencePersistent: boolean;
+  /** The channel key this primitive is scoped to, if any. */
+  readonly channelKey?: string;
+  /** Whether the named channel persists its membership. */
+  isChannelPersistent(channelKey: string): boolean;
+}
+
+/**
  * Lightweight marker used by factories that need a stable symbol-typed
  * identity. Kept as a separate type for plugin() factory typing.
  *
@@ -47,10 +54,6 @@ export interface PrimitiveRef {
   readonly __key: symbol;
 }
 
-// ---------------------------------------------------------------------------
-// Identity — singleton enforcement
-// ---------------------------------------------------------------------------
-
 /**
  * The identity descriptor for a primitive. Set automatically by each primitive
  * factory — you do not interact with this directly.
@@ -59,13 +62,10 @@ export type PrimitiveIdentity =
   | readonly [key: symbol]
   | readonly [key: symbol, registrationId: string];
 
-// ---------------------------------------------------------------------------
-// Primitive instance — what factory functions return
-// ---------------------------------------------------------------------------
-
 /**
- * Base type for every primitive. Every factory function (`ack()`,
- * `incoming()`, `channel()`, etc.) returns an object that extends `Primitive`.
+ * Base type for every primitive. Every primitive factory (a capability like
+ * `requests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
+ * returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
  * variable or function parameter that must accept any WSKit primitive.
@@ -75,14 +75,25 @@ export interface Primitive<Tag extends string = string> {
   readonly __kind: PrimitiveKind;
   readonly __identity: PrimitiveIdentity;
   readonly __requires: RequiresManifest;
+  /**
+   * Capability identity tokens (see `CAPABILITY_KIND`) this primitive needs
+   * listed in the same `define({ capabilities })`. Resolved at `assemble()`:
+   * a missing one is a build error on an app, and on a plugin a host-owned
+   * requirement is auto-recorded as a host dependency. Empty by default.
+   * @internal
+   */
+  readonly __requiresCapabilities?: readonly string[];
 
   /** @internal */
   readonly __setup?: (engine: EngineAccess) => void;
+  /**
+   * Assert this primitive's runtime-state requirements against settled engine
+   * state. Runs once at startup, after every primitive's `__setup`, so it reads
+   * facts other primitives wrote (e.g. replay checks a persistent sequence).
+   * Throw to fail startup with a clear message. @internal
+   */
+  readonly __validate?: (view: ValidationView) => void;
 }
-
-// ---------------------------------------------------------------------------
-// definePrimitive — create a built-in primitive factory
-// ---------------------------------------------------------------------------
 
 /**
  * Configuration passed to `definePrimitive`.
@@ -117,6 +128,17 @@ export interface PrimitiveConfig<
    */
   readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
 
+  /**
+   * Capability identity tokens this primitive needs co-listed. Either a static
+   * list or a function computing it from the factory's arguments (use the
+   * function form when the requirement is conditional, e.g. persistent tag
+   * groups need persistence but ephemeral ones do not).
+   */
+  readonly requiresCapabilities?: readonly string[] | ((...args: TArgs) => readonly string[]);
+
+  /** Assert runtime-state requirements at startup. See `Primitive.__validate`. */
+  readonly validate?: (view: ValidationView) => void;
+
   /** Transform the factory's arguments into the data stored on the primitive instance. */
   create(...args: TArgs): TData;
 
@@ -148,9 +170,9 @@ export interface PrimitiveFactory<
 /**
  * Create a built-in primitive factory.
  *
- * This is an internal WSKit API — product developers use `definePlugin`
- * for custom primitives. `definePrimitive` is for the primitives that
- * ship with WSKit itself (ack, incoming, channel, etc.).
+ * This is an internal WSKit API — product developers use `plugin()` to ship
+ * custom behavior. `definePrimitive` is for the primitives that ship with
+ * WSKit itself (incoming, channel, etc.).
  *
  * The returned factory function:
  * 1. When **called** — produces a `Primitive` instance with base fields
@@ -159,17 +181,17 @@ export interface PrimitiveFactory<
  *    can declare it as a dependency.
  *
  * ```ts
- * const ACK_KEY = Symbol('ack');
+ * const PING_KEY = Symbol('ping');
  *
- * const ack = definePrimitive({
- *   tag: 'ack',
- *   key: ACK_KEY,
+ * const ping = definePrimitive({
+ *   tag: 'ping',
+ *   key: PING_KEY,
  *   kind: 'infrastructure',
  *   create() { return {}; },
  *   setup(engine) {
  *     engine.onIncoming((msg) => { ... });
  *     engine.extendContext((ctx) => ({
- *       ack() { engine.rawSend(ctx.id, '__ack__', {}); }
+ *       ping() { engine.rawSend(ctx.id, '__ping__', {}); }
  *     }));
  *   },
  * });
@@ -188,13 +210,19 @@ export function definePrimitive<
     const data = config.create(...args);
     const requires =
       typeof config.requires === 'function' ? config.requires(...args) : (config.requires ?? {});
+    const requiresCapabilities =
+      typeof config.requiresCapabilities === 'function'
+        ? config.requiresCapabilities(...args)
+        : (config.requiresCapabilities ?? []);
 
     return {
       __wskit: config.tag,
       __kind: config.kind,
       __identity: identity,
       __requires: requires,
+      __requiresCapabilities: requiresCapabilities,
       __setup: config.setup ? (engine: EngineAccess) => config.setup!(engine, data) : undefined,
+      __validate: config.validate,
       ...data,
     } as Primitive<TTag> & TData;
   }

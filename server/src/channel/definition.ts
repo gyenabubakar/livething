@@ -62,25 +62,28 @@ export function channel<
   config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
 ): ChannelDef<TPattern, TDefinitions, TCheckPayload>;
 export function channel<
-  TDecl extends ScopeDeclaration<string, any>,
+  TDeclaration extends ScopeDeclaration<string, any>,
   const TDefinitions extends readonly Definition[],
->(pattern: TDecl, config: ChannelConfig<TDefinitions>): ChannelDef<TDecl, TDefinitions, unknown>;
+>(
+  pattern: TDeclaration,
+  config: ChannelConfig<TDefinitions>,
+): ChannelDef<TDeclaration, TDefinitions, unknown>;
 export function channel<
-  TDecl extends ScopeDeclaration<string, any>,
+  TDeclaration extends ScopeDeclaration<string, any>,
   const TDefinitions extends readonly Definition[],
   TSchema extends StandardSchemaV1,
 >(
-  pattern: TDecl,
+  pattern: TDeclaration,
   config: ChannelConfig<TDefinitions> & { check: TSchema },
-): ChannelDef<TDecl, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
+): ChannelDef<TDeclaration, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
 export function channel<
-  TDecl extends ScopeDeclaration<string, any>,
+  TDeclaration extends ScopeDeclaration<string, any>,
   const TDefinitions extends readonly Definition[],
   TCheckPayload,
 >(
-  pattern: TDecl,
+  pattern: TDeclaration,
   config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
-): ChannelDef<TDecl, TDefinitions, TCheckPayload>;
+): ChannelDef<TDeclaration, TDefinitions, TCheckPayload>;
 export function channel(
   pattern: string | ScopeDeclaration<string>,
   config: ChannelConfig<readonly Definition[]> & { check?: Validator },

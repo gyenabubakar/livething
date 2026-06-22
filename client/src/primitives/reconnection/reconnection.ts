@@ -109,12 +109,14 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
 
       return {
         id: 'reconnection',
+
         onOpen() {
           // A good connection resets the wait back to the start.
           attempt = 0;
           clearTimer();
           return null;
         },
+
         onClose() {
           clearTimer();
         },
@@ -122,6 +124,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
     },
   };
 }
+
 reconnection.tag = 'reconnection';
 
 /**

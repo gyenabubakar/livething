@@ -111,13 +111,12 @@ export class ChannelState {
   constructor(
     /** The `__wskit.channel` value. */
     readonly name: string,
-    /** The `__wskit.channelScope` value, for a channel inside a dynamic family. */
-    readonly scopeKey: string | undefined,
+    /** The `__wskit.channelFamily` value, for a channel inside a dynamic family. */
+    readonly familyKey: string | undefined,
     /** Debug-gated logger, used to report a throwing event handler. */
     private readonly log: PrimitiveLogger,
   ) {}
 
-  // ── event listeners (each returns an unsubscribe) ──
   onSubscribed = this.subscribed.add;
   onUnsubscribed = this.unsubscribed.add;
   onKicked = this.kicked.add;
@@ -145,8 +144,6 @@ export class ChannelState {
   dispatch(event: string, payload: unknown): void {
     dispatchToHandlers(this.handlers.get(event), this.log, payload);
   }
-
-  // ── transitions the routing layer drives ──
 
   /** Prevent the socket from going idle for this subscription's lifetime. Only takes effect once. */
   holdLazy(acquire: () => void, release: () => void): void {
@@ -295,7 +292,6 @@ export class ChannelState {
       this.members.clear();
       this.priorMembers = null;
     }
-    // If there's a live subscribe() promise, reject it. Otherwise fire the failure event.
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
@@ -363,7 +359,7 @@ export class ChannelState {
 }
 
 /**
- * Family-level state for a dynamic channel family (`socket.channel.scope(key)`).
+ * Family-level state for a dynamic channel family (`socket.channel.family(key)`).
  * Its listeners fire for every concrete channel in the family, with the channel
  * name passed along so callers can tell which one.
  */

@@ -1,10 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  assertSyncResult,
-  assertValidWSKitIdentifier,
-  ValidationFailed,
-  WSKitConfigError,
-} from '@wskit/core';
+import { assertSyncResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -58,17 +53,18 @@ export function setUniqueOrThrow<V>(
 }
 
 /**
- * Throw at declaration time if an event name clashes with the WSKit wire
- * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
- * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
- * plugin-owned events. Called by every definition factory that takes an event
- * name.
+ * Reject a non-positive or non-finite `highWaterMark`. The drain loop resolves
+ * once the outbound buffer drops below this mark, so `0` (or a negative value)
+ * makes that condition unreachable — `ctx.stream.drain()` would poll to its hard
+ * cap (~50s) and only then resolve, looking like a hang. Omit it for the
+ * default. `context` names the stream for a clear message.
  */
-export function assertNonReservedEventName(name: string, factory: string): void {
-  assertValidWSKitIdentifier(name, `${factory}() event name`);
-  if (name === 'ping' || name === 'pong') {
+export function assertValidHighWaterMark(value: number | undefined, context: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new Error(
-      `[wskit] '${name}' is a reserved keepalive frame name. Pick a different name for ${factory}().`,
+      `[wskit] ${context}: highWaterMark must be a positive number of bytes (got ${value}). ` +
+        'A zero or negative limit makes ctx.stream.drain() never resolve; omit it for the default.',
     );
   }
 }

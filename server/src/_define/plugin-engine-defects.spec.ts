@@ -1,0 +1,188 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { WSKitError } from '@wskit/core';
+import { define } from '~/_define/define.ts';
+import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { emits } from '~/emits/emits.ts';
+import { errors } from '~/errors/capability.ts';
+import { normalizeRuntimeError } from '~/errors/runtime.ts';
+import { error, t } from '~/index.ts';
+import { sendThroughPipeline } from '~/outgoing/runtime.ts';
+import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
+import { plugin } from './plugin.ts';
+
+interface Env {
+  SECRET: string;
+}
+
+/** Minimal outgoing runtime with no hooks/stampers — just the compiled scope. */
+function outgoingRuntime(compiled: any) {
+  return {
+    compiled,
+    outgoingHooks: [],
+    wskitStampHooks: [],
+    beforeSendHooks: [],
+    afterSendHooks: [],
+    waitUntil() {},
+    logger: { warn() {}, error() {} },
+    generateId: () => 'id_1',
+  } as any;
+}
+
+/** Pull a plugin's namespaced primitive out of its capability `__primitives`. */
+function findPrimitive(primitives: readonly any[], wskit: string, event: string) {
+  const found = primitives.find((p) => p.__wskit === wskit && p.event === event);
+  if (!found) throw new Error(`no ${wskit} primitive for ${event}`);
+  return found;
+}
+
+describe('plugin engine defect — a plugin can emit its own declared event', () => {
+  it('sends a scoped emits() event out on the wire as __<id>::<name>', () => {
+    const h = define({
+      scoped: true,
+      capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
+    });
+    const beat = h.on('go', {
+      input: v.object({}),
+      run(ctx) {
+        ctx.send('own-event', { ok: true });
+      },
+    });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [plugin('e2e:drizzle', { handler: h.assemble(beat) })()],
+    });
+    const compiled = compileHandlerDefinition(base.assemble());
+
+    const sent: string[] = [];
+    const connection = {
+      id: 'conn_1',
+      meta: {},
+      descriptor: { send: (frame: string) => sent.push(frame) },
+    } as any;
+
+    expect(() =>
+      sendThroughPipeline(outgoingRuntime(compiled), connection, {
+        routing: undefined,
+        event: '__e2e:drizzle::own-event',
+        payload: { ok: true },
+      }),
+    ).not.toThrow();
+
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!).event).toBe('__e2e:drizzle::own-event');
+  });
+
+  it('still rejects a genuinely undeclared __x__ event', () => {
+    const base = define({ env: t<Env>() });
+    const compiled = compileHandlerDefinition(base.assemble());
+    const connection = { id: 'c', meta: {}, descriptor: { send() {} } } as any;
+
+    expect(() =>
+      sendThroughPipeline(outgoingRuntime(compiled), connection, {
+        routing: undefined,
+        event: '__nope__',
+        payload: {},
+      }),
+    ).toThrow(/not declared in the active scope/);
+  });
+});
+
+describe('plugin engine defect — a plugin can throw its own declared typed error', () => {
+  const Denied = error('denied', v.object({ reason: v.string() }));
+
+  function buildAuthPlugin() {
+    const h = define({
+      scoped: true,
+      capabilities: [emits({ done: t<{}>() }), errors([Denied])],
+    });
+    const sync = h.on('deny-sync', {
+      input: v.object({}),
+      run() {
+        throw Denied({ reason: 'sync-no' });
+      },
+    });
+    const asyncDeny = h.on('deny-async', {
+      input: v.object({}),
+      async run() {
+        await Promise.resolve();
+        throw Denied({ reason: 'async-no' });
+      },
+    });
+    const undeclared = h.on('boom', {
+      input: v.object({}),
+      run() {
+        throw new WSKitError('not-mine', { x: 1 });
+      },
+    });
+    return plugin('acme:auth', { handler: h.assemble(sync, asyncDeny, undeclared) })();
+  }
+
+  const declaredCodes = new Set(['__acme:auth::denied']);
+
+  it('rewrites a sync throw to the namespaced wire code with detail intact', () => {
+    const { __primitives } = buildAuthPlugin();
+    const incoming = findPrimitive(__primitives, 'incoming', '__acme:auth::deny-sync');
+
+    let thrown: unknown;
+    try {
+      incoming.handler({ id: 'c1' }, {});
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeInstanceOf(WSKitError);
+    expect((thrown as WSKitError).code).toBe('__acme:auth::denied');
+    expect((thrown as WSKitError).detail).toEqual({ reason: 'sync-no' });
+    expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
+      payload: { code: '__acme:auth::denied', detail: { reason: 'sync-no' } },
+      wskit: {},
+    });
+  });
+
+  it('rewrites an async (awaited) throw to the namespaced wire code', async () => {
+    const { __primitives } = buildAuthPlugin();
+    const incoming = findPrimitive(__primitives, 'incoming', '__acme:auth::deny-async');
+
+    const thrown = await incoming.handler({ id: 'c1' }, {}).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(thrown).toBeInstanceOf(WSKitError);
+    expect((thrown as WSKitError).code).toBe('__acme:auth::denied');
+    expect((thrown as WSKitError).detail).toEqual({ reason: 'async-no' });
+    expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
+      payload: { code: '__acme:auth::denied', detail: { reason: 'async-no' } },
+      wskit: {},
+    });
+  });
+
+  it('leaves an undeclared throw alone so it still collapses to internal-error', () => {
+    const { __primitives } = buildAuthPlugin();
+    const incoming = findPrimitive(__primitives, 'incoming', '__acme:auth::boom');
+
+    let thrown: unknown;
+    try {
+      incoming.handler({ id: 'c1' }, {});
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect((thrown as WSKitError).code).toBe('not-mine');
+    expect(normalizeRuntimeError(thrown, undefined, declaredCodes)).toEqual({
+      payload: { code: 'internal-error' },
+      wskit: {},
+    });
+  });
+
+  it('does not wrap handlers when the plugin declares no errors', () => {
+    const h = define({ scoped: true, capabilities: [emits({ done: t<{}>() })] });
+    const original = vi.fn();
+    const go = h.on('go', { input: v.object({}), run: original });
+    const { __primitives } = plugin('acme:plain', { handler: h.assemble(go) })();
+    const incoming = findPrimitive(__primitives, 'incoming', '__acme:plain::go');
+    incoming.handler({ id: 'c1' }, {});
+    expect(original).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,35 +1,47 @@
-import { contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const ctxMetaContract = contract('ctx-meta', {
+const base = define({
   env: t<Env>(),
-  meta: t<{ username: string }>(),
-  definitions: [
-    incoming('who-am-i', v.object({})),
-    incoming('list-members', v.object({})),
-    incoming('broadcast-identity', v.object({})),
-
-    outgoing('who-am-i-result', v.object({ username: v.string() })),
-    outgoing('members-list-result', v.object({ members: v.array(v.string()) })),
-    outgoing('broadcast-identity-received', v.object({ from: v.string() })),
+  upgrade: (request) => requireUsername(request),
+  capabilities: [
+    emits({
+      'who-am-i-result': t<{ username: string }>(),
+      'members-list-result': t<{ members: string[] }>(),
+      'broadcast-identity-received': t<{ from: string }>(),
+    }),
   ],
 });
 
-export const ctxMetaHandler = implement(ctxMetaContract)
-  .onUpgrade((request) => requireUsername(request))
-  .on('who-am-i', (ctx) => {
+const handleWhoAmI = base.on('who-am-i', {
+  input: v.object({}),
+  run(ctx) {
     ctx.send('who-am-i-result', { username: ctx.meta.username });
-  })
-  .on('list-members', (ctx) => {
+  },
+});
+
+const handleListMembers = base.on('list-members', {
+  input: v.object({}),
+  run(ctx) {
     const peers = ctx.getConnections();
     const usernames = peers.map((p) => (p.meta.username as string) ?? 'unknown');
     ctx.send('members-list-result', { members: usernames });
-  })
-  .on('broadcast-identity', (ctx) => {
+  },
+});
+
+const handleBroadcastIdentity = base.on('broadcast-identity', {
+  input: v.object({}),
+  run(ctx) {
     ctx.broadcast('broadcast-identity-received', { from: ctx.meta.username });
-  })
-  .build();
+  },
+});
+
+export const ctxMetaHandler = base.assemble(
+  handleWhoAmI,
+  handleListMembers,
+  handleBroadcastIdentity,
+);
 
 export type CtxMetaClient = InferClient<typeof ctxMetaHandler>;

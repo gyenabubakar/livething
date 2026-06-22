@@ -97,7 +97,6 @@ export class KeepaliveLoop {
   }
 
   private tick(): void {
-    // If the previous ping was never answered, count it as missed.
     if (this.pingSentAt !== null) {
       this.missedPongs++;
       this.callbacks.log(`missed pong ${this.missedPongs}/${this.maxMissedPongs}`);

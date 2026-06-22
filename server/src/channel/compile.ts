@@ -1,20 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setUniqueOrThrow } from '~/_engine/compile/utils.ts';
-import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
-import {
-  check as checkFactory,
-  commit as commitFactory,
-  onSessionEnd as onSessionEndFactory,
-  onSubscribe,
-  onUnsubscribe,
-  revalidate as revalidateFactory,
-} from '~/channel/lifecycle.ts';
-import { matchesScopePattern } from '~/channel/runtime.ts';
-import { intercept as interceptFactory } from '~/intercept/intercept.ts';
-import { persistentMarker } from '~/persistence/channel-marker.ts';
-import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
-import { replay as replayFactory } from '~/replay/replay.ts';
-import type { BuildDefinitionsFn, HandlerMaps } from '~/_api/handler-maps.ts';
+import { matchesFamilyPattern } from '~/channel/runtime.ts';
 import type {
   AnyGenerate,
   AnyIncoming,
@@ -27,95 +13,6 @@ import type {
   CompiledChannel,
   CompiledServer,
 } from '~/_engine/compile/types.ts';
-import type { ScopeDeclaration } from '~/channel/channel.ts';
-import type { ChannelDef } from '~/channel/definition.ts';
-import type { ChannelImplement } from '~/channel/implement.ts';
-import type { Primitive } from '~/primitive.ts';
-
-export function compileChannelDef(
-  def: ChannelDef,
-  channelImpls: Map<string, ChannelImplement<any, any>>,
-  buildDefinitions: BuildDefinitionsFn,
-): Primitive {
-  const patternKey =
-    typeof def.pattern === 'string' ? def.pattern : (def.pattern as ScopeDeclaration).key;
-  // A channel can be declaration-only with no handlers attached, so impl
-  // may be undefined.
-  const impl = channelImpls.get(patternKey);
-
-  const childPrimitives: Primitive[] = [];
-
-  if (def.persistent !== undefined) {
-    childPrimitives.push(persistentMarker(def.persistent));
-  }
-
-  // Built-in replay set via the contract. Custom replay goes through
-  // ch.customReplay() and is handled separately below.
-  if (def.replay !== undefined) {
-    if (def.replay === false) {
-      childPrimitives.push(replayFactory(false));
-    } else if (def.replay === true) {
-      childPrimitives.push(replayFactory());
-    } else {
-      childPrimitives.push(replayFactory(def.replay as any));
-    }
-  }
-
-  if (impl?._bag.customReplayHooks) {
-    childPrimitives.push(customReplayFactory(impl._bag.customReplayHooks as any));
-  }
-
-  const childHandlers: HandlerMaps = {
-    incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
-    requestHandlers: impl?._bag.requestHandlers ?? new Map(),
-    streamGenerators: impl?._bag.streamGenerators ?? new Map(),
-    resumableStreamGenerators: impl?._bag.resumableStreamGenerators ?? new Map(),
-    recordedStreamGenerators: impl?._bag.recordedStreamGenerators ?? new Map(),
-    scheduledHandlers: new Map(),
-    channelImpls: new Map(),
-  };
-  childPrimitives.push(...buildDefinitions(def.definitions, childHandlers));
-
-  if (impl?._bag.intercept) {
-    childPrimitives.push(interceptFactory(impl._bag.intercept));
-  }
-
-  if (impl?._bag.checkHandler) {
-    childPrimitives.push(
-      checkFactory(
-        impl._bag.checkHandler,
-        def.checkValidator ? { validator: def.checkValidator as any } : undefined,
-      ),
-    );
-  }
-  if (impl?._bag.revalidateHandler) {
-    childPrimitives.push(revalidateFactory(impl._bag.revalidateHandler));
-  }
-  if (impl?._bag.commitHandler) {
-    childPrimitives.push(commitFactory(impl._bag.commitHandler));
-  }
-  if (impl?._bag.onSubscribeHandler) {
-    childPrimitives.push(onSubscribe(impl._bag.onSubscribeHandler));
-  }
-  if (impl?._bag.onUnsubscribeHandler) {
-    childPrimitives.push(onUnsubscribe(impl._bag.onUnsubscribeHandler));
-  }
-  if (impl?._bag.onSessionEndHandler) {
-    childPrimitives.push(onSessionEndFactory(impl._bag.onSessionEndHandler));
-  }
-
-  // Pattern can be a plain string or a scope() declaration. Rebuild a dynamic
-  // family from its template so the compiled primitive carries a freshly
-  // validated matcher and param names.
-  const pattern =
-    typeof def.pattern === 'string'
-      ? def.pattern
-      : scopeFactory(
-          (def.pattern as ScopeDeclaration).key,
-          (def.pattern as ScopeDeclaration).template,
-        );
-  return channelFactory(pattern as any, ...(childPrimitives as any[]));
-}
 
 // Engine-side: walk a built channel primitive and sort its children into the
 // per-event lookup maps the runtime needs.
@@ -132,6 +29,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
+    __plugin: (primitive as { __plugin?: string }).__plugin,
   };
 
   const scopeLabel = `channel "${key}"`;
@@ -193,7 +91,7 @@ export function validateChannelFamilyPatternsDisjointFromStaticNames(
 ): void {
   for (const [familyKey, family] of compiled.channelFamilies) {
     for (const staticName of compiled.channels.keys()) {
-      if (matchesScopePattern(family.pattern, staticName)) {
+      if (matchesFamilyPattern(family.pattern, staticName)) {
         throw new Error(
           `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
             `channel name '${staticName}'. Static channel names and family patterns must be ` +

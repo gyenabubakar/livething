@@ -4,6 +4,7 @@ import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/conne
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
+import { cancelStream } from '~/stream/runtime.ts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
@@ -41,7 +42,6 @@ function baseCompiled() {
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set(),
   };
@@ -53,7 +53,6 @@ function baseDispatchRuntime(
   return {
     compiled: baseCompiled() as any,
     connections: new Map(),
-    pluginRuntimes: [],
     activeStreams: new Map(),
     protocolHandlers: new Map(),
     incomingHooks: [],
@@ -98,13 +97,11 @@ function baseDispatchRuntime(
     async handleValidationError() {},
     async handleSubscribe() {},
     async handleUnsubscribe() {},
+    streamCancel: cancelStream,
     ...overrides,
   } as any;
 }
 
-// -------------------------------------------------------------------
-// handleUpgrade
-// -------------------------------------------------------------------
 describe('handleUpgrade', () => {
   it('returns reject shape when RejectUpgrade is thrown', async () => {
     const result = await handleUpgrade(
@@ -115,6 +112,7 @@ describe('handleUpgrade', () => {
           },
         ],
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -131,6 +129,7 @@ describe('handleUpgrade', () => {
           },
         ],
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -140,7 +139,7 @@ describe('handleUpgrade', () => {
 
   it('returns empty decision when no hooks are registered', async () => {
     const result = await handleUpgrade(
-      { upgradeHooks: [], upgradeHelpers: {} },
+      { upgradeHooks: [], upgradeHelpers: {}, isTagGroupDeclared: () => true },
       new Request('https://example.com/'),
     );
     expect(result).toEqual({});
@@ -157,6 +156,7 @@ describe('handleUpgrade', () => {
           meta: { region: 'ap', user_id: 'u_42' },
         }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -178,6 +178,7 @@ describe('handleUpgrade', () => {
         ],
         builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -196,6 +197,7 @@ describe('handleUpgrade', () => {
         upgradeHooks: [],
         builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -210,6 +212,7 @@ describe('handleUpgrade', () => {
         upgradeHooks: [async () => ({})],
         builderUpgradeHook: async () => ({}),
         upgradeHelpers: {},
+        isTagGroupDeclared: () => true,
       },
       new Request('https://example.com/'),
     );
@@ -217,11 +220,24 @@ describe('handleUpgrade', () => {
     expect(result.meta).toBeUndefined();
     expect(result.tags).toBeUndefined();
   });
+
+  it('rejects an ephemeral tag whose group is not declared', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [],
+        builderUpgradeHook: async () => ({
+          tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'typo', key: 'x' }],
+        }),
+        upgradeHelpers: {},
+        isTagGroupDeclared: (_kind, group) => group === 'role',
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result).toEqual({ reject: true, code: 500, reason: 'Upgrade failed' });
+  });
 });
 
-// -------------------------------------------------------------------
-// Defer retries + DeferExhausted
-// -------------------------------------------------------------------
 describe('defer retry behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -281,12 +297,10 @@ describe('defer retry behavior', () => {
       payload: { id: 1 },
       wskit: undefined,
     });
-    // Attempts: 1 (first), then retries 2, 3. After attempt 3 Defer triggers exhausted.
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
     }
 
-    // 1 initial call + 3 retries = 4 handler invocations before DeferExhausted fires
     expect(handler).toHaveBeenCalledTimes(4);
     expect(errors).toHaveLength(1);
     const err = errors[0];
@@ -325,9 +339,6 @@ describe('defer retry behavior', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// Disconnect thrown from handler
-// -------------------------------------------------------------------
 describe('Disconnect thrown from handler', () => {
   it('closes the connection with the given code and reason', async () => {
     const connection = createConnection();
@@ -349,9 +360,6 @@ describe('Disconnect thrown from handler', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// Block silently dropped
-// -------------------------------------------------------------------
 describe('Block at dispatch', () => {
   it('silently swallows Block — no onError, no validation error', async () => {
     const connection = createConnection();
@@ -379,9 +387,6 @@ describe('Block at dispatch', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// processTextMessage protocol branches
-// -------------------------------------------------------------------
 describe('processTextMessage protocol branches', () => {
   it('responds to raw "ping" text frames with "pong"', async () => {
     const connection = createConnection();
@@ -516,7 +521,7 @@ describe('processTextMessage protocol branches', () => {
       JSON.stringify({
         event: '__subscribe__',
         payload: {},
-        __wskit: { channel: 'room:general', channelScope: 'rooms' },
+        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
       }),
     );
 
@@ -524,7 +529,7 @@ describe('processTextMessage protocol branches', () => {
     expect(errors[0]!.event).toBe('__subscribe__');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
   });
 
@@ -549,7 +554,7 @@ describe('processTextMessage protocol branches', () => {
       JSON.stringify({
         event: '__unsubscribe__',
         payload: {},
-        __wskit: { channel: 'room:general', channelScope: 'rooms' },
+        __wskit: { channel: 'room:general', channelFamily: 'rooms' },
       }),
     );
 
@@ -557,15 +562,12 @@ describe('processTextMessage protocol branches', () => {
     expect(errors[0]!.event).toBe('__unsubscribe__');
     expect(errors[0]!.routing).toEqual({
       channel: 'room:general',
-      channelScope: 'rooms',
+      channelFamily: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
 });
 
-// -------------------------------------------------------------------
-// wakeHibernatedConnection → restoreChannelMemberships branches
-// -------------------------------------------------------------------
 describe('wakeHibernatedConnection — channel memberships restore', () => {
   function makeRuntime(id: string, row: Record<string, unknown> | null) {
     return {
@@ -596,8 +598,8 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       meta: {},
       ephemeral_tags: [],
       ephemeral_memberships: [
-        { channelName: 'room:a', channelScope: 'rooms' },
-        { channelName: 'room:b', channelScope: null },
+        { channelName: 'room:a', channelFamily: 'rooms' },
+        { channelName: 'room:b', channelFamily: null },
       ],
       active_stream_ids: [],
     });
@@ -631,9 +633,6 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   });
 });
 
-// -------------------------------------------------------------------
-// onAfterSend async rejection logging
-// -------------------------------------------------------------------
 describe('onAfterSend async rejection', () => {
   it('logs errors from an after-send hook that returns a rejecting promise', async () => {
     const { sendThroughPipeline } = await import('~/_engine/runtime/messages.ts');
@@ -648,7 +647,6 @@ describe('onAfterSend async rejection', () => {
           ...baseCompiled(),
           outgoing: new Map([['tick', { event: 'tick' }]]),
         } as any,
-        pluginRuntimes: [],
         outgoingHooks: [],
         beforeSendHooks: [],
         wskitStampHooks: [],

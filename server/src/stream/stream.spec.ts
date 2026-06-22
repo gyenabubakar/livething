@@ -26,22 +26,22 @@ describe('stream primitives', () => {
   });
 
   it('creates paired stream and generate primitives keyed by the trigger event', () => {
-    const streamDecl = stream(
+    const streamDeclaration = stream(
       start('ai', v.object({ prompt: v.string() }), { broadcast: true }),
       nudge('cancel'),
     );
     const generator = vi.fn(async function* () {
       yield { token: 'hi' };
     });
-    const generateDecl = generate(streamDecl, generator);
+    const generateDeclaration = generate(streamDeclaration, generator);
 
-    expect(streamDecl.__wskit).toBe('stream');
-    expect(streamDecl.__identity[1]).toBe('ai');
-    expect(streamDecl.broadcast).toBe(true);
-    expect(streamDecl.nudges).toHaveLength(1);
-    expect(generateDecl.__wskit).toBe('stream-generate');
-    expect(generateDecl.__identity[1]).toBe('ai');
-    expect(generateDecl.stream).toBe(streamDecl);
-    expect(generateDecl.generator).toBe(generator);
+    expect(streamDeclaration.__wskit).toBe('stream');
+    expect(streamDeclaration.__identity[1]).toBe('ai');
+    expect(streamDeclaration.broadcast).toBe(true);
+    expect(streamDeclaration.nudges).toHaveLength(1);
+    expect(generateDeclaration.__wskit).toBe('stream-generate');
+    expect(generateDeclaration.__identity[1]).toBe('ai');
+    expect(generateDeclaration.stream).toBe(streamDeclaration);
+    expect(generateDeclaration.generator).toBe(generator);
   });
 });

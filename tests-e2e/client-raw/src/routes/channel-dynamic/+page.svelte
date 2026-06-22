@@ -46,14 +46,14 @@
 				validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`;
 			}
 			if (data.event === 'scoped-error-observed') {
-				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.scope ?? ''}|${data.payload?.event ?? ''}`;
+				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.family ?? ''}|${data.payload?.event ?? ''}`;
 			}
 			if (data.event === '__subscribeOk__') {
 				subscribeOk = [...subscribeOk, data.__wskit?.channel ?? ''];
 			}
 			if (data.event === '__error__' && data.__wskit?.channel) {
 				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
-				subscribeErrorScope = data.__wskit.channelScope ?? '';
+				subscribeErrorScope = data.__wskit.channelFamily ?? '';
 			}
 			if (data.event === 'name-result') {
 				nameResult = `${data.payload.name}|${data.payload.suffix}`;
@@ -77,20 +77,20 @@
 		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 	function subscribe(channel: string) {
-		send('__subscribe__', {}, { channel, channelScope: 'room' });
+		send('__subscribe__', {}, { channel, channelFamily: 'room' });
 	}
 	function subscribeNoScope(channel: string) {
-		// Missing channelScope — should emit __error__ channel-not-found.
+		// Missing channelFamily — should emit __error__ channel-not-found.
 		send('__subscribe__', {}, { channel });
 	}
 	function subscribeUnknownScope(channel: string, scopeName: string) {
-		send('__subscribe__', {}, { channel, channelScope: scopeName });
+		send('__subscribe__', {}, { channel, channelFamily: scopeName });
 	}
 	function echoName(channel: string) {
-		send('echo-name', {}, { channel, channelScope: 'room' });
+		send('echo-name', {}, { channel, channelFamily: 'room' });
 	}
 	function sendTo(channel: string, text: string) {
-		send('send-message', { text }, { channel, channelScope: 'room' });
+		send('send-message', { text }, { channel, channelFamily: 'room' });
 	}
 </script>
 
