@@ -48,6 +48,9 @@ export default defineAppConfig({
     },
     prose: {
       codeIcon: {
+        'react': 'i-vscode-icons-file-type-reactts',
+        'svelte': 'i-vscode-icons-file-type-svelte',
+        'jsonc': 'i-vscode-icons-file-type-json',
         'nuxt': 'i-vscode-icons-file-type-nuxt',
         'nuxt / nitro': 'i-vscode-icons-file-type-nuxt',
         'next.js': 'i-simple-icons-nextdotjs',
