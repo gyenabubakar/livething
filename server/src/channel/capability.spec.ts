@@ -232,7 +232,9 @@ describe('channels() capability', () => {
 
   it('throws when a channel request is used without the requests() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
-    const room = base.channel('room', {});
+    const room = base.channel('room', {}) as unknown as {
+      request(event: string, config: { input?: unknown; run: () => unknown }): unknown;
+    };
     expect(() => room.request('info', { input: v.object({}), run: () => ({}) })).toThrow(
       /uses request\(\) but the requests\(\) capability is not/,
     );
