@@ -218,9 +218,6 @@ export function createEngineAccess(
       core.hooks.pluginUpgrade.push({ pluginId, handler });
     },
     registerTagGroups: (kind, groups) => {
-      if (core.tagGroupsRegistered[kind]) {
-        throw new Error(`[wskit] tagGroups.${kind} declared more than once in this contract.`);
-      }
       core.tagGroupsRegistered[kind] = true;
       if (kind === 'persistent' && !core.persistenceEnabled) {
         const sample = groups[0]?.name;
@@ -229,6 +226,11 @@ export function createEngineAccess(
         );
       }
       for (const group of groups) {
+        if (core.declaredTagGroups[kind].has(group.name)) {
+          throw new Error(
+            `[wskit] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
+          );
+        }
         core.declaredTagGroups[kind].add(group.name);
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }

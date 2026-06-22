@@ -4,6 +4,7 @@ import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { emits } from '~/emits/emits.ts';
+import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -54,5 +55,21 @@ describe('plugin init — onion order end-to-end', () => {
     await engine.initialize();
 
     expect(trace).toEqual(['plugin', 'app']);
+  });
+
+  it('boots when the host and a plugin both declare tag groups of the same kind', async () => {
+    const ph = define({
+      scoped: true,
+      capabilities: [tags((ephemeral) => [ephemeral('plugin-role', t<string>())])],
+    });
+    const Plug = plugin('acme:tags', { handler: ph.assemble() });
+
+    const base = define({
+      env: t<{}>(),
+      capabilities: [tags((ephemeral) => [ephemeral('host-role', t<string>())]), Plug()],
+    });
+
+    const engine = buildEngine(base.assemble());
+    await expect(engine.initialize()).resolves.toBeUndefined();
   });
 });
