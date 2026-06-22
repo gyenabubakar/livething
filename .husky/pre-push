@@ -1,1 +1,17 @@
+# Skip the test suite for pushes that carry no commits — e.g. branch
+# deletions (`git push -d`). Git passes the ref updates on stdin, one line per
+# ref as "<local ref> <local sha> <remote ref> <remote sha>"; a deletion has an
+# all-zero local sha. Only run tests when at least one ref actually pushes commits.
+run_tests=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in
+    *[!0]*) run_tests=1 ;;
+  esac
+done
+
+if [ "$run_tests" -eq 0 ]; then
+  echo "pre-push: no commits to push (deletion) — skipping tests"
+  exit 0
+fi
+
 pnpm test && pnpm test:e2e
