@@ -42,6 +42,13 @@ export default defineAppConfig({
     ],
   },
   ui: {
+    page: {
+      slots: {
+        // Left sidebar 25%, center 40%, right TOC 35% of the content area: left
+        // columns are 15fr, the center six 8fr, the right two 21fr (of 120).
+        root: 'flex flex-col lg:grid lg:grid-cols-[15fr_15fr_8fr_8fr_8fr_8fr_8fr_8fr_21fr_21fr] lg:gap-10',
+      },
+    },
     colors: {
       primary: 'orange',
       neutral: 'zinc',
