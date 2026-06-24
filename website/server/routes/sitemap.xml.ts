@@ -1,6 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
 import { queryCollection } from '@nuxt/content/server'
-import { withHttps } from 'ufo'
 
 interface SitemapUrl {
   loc: string
@@ -28,9 +27,11 @@ export default defineEventHandler(async (event) => {
     const pages = await queryCollection(event, 'docs').all()
 
     for (const page of pages) {
+      // `sitemap` and `modifiedAt` are optional frontmatter fields, outside the collection schema.
+      const meta = page as typeof page & { sitemap?: boolean, modifiedAt?: string }
       let pagePath = page.path || '/'
 
-      if (page.sitemap === false) continue
+      if (meta.sitemap === false) continue
       if (pagePath.endsWith('.navigation') || pagePath.includes('/.navigation')) continue
 
       if (pagePath === '/landing') pagePath = '/'
@@ -40,8 +41,8 @@ export default defineEventHandler(async (event) => {
 
       const urlEntry: SitemapUrl = { loc: pagePath }
 
-      if (page.modifiedAt && typeof page.modifiedAt === 'string') {
-        const [datePart] = page.modifiedAt.split('T')
+      if (meta.modifiedAt && typeof meta.modifiedAt === 'string') {
+        const [datePart] = meta.modifiedAt.split('T')
         urlEntry.lastmod = datePart
       }
 
@@ -66,7 +67,12 @@ function inferSiteURL() {
       || process.env.CI_PAGES_URL
       || process.env.CF_PAGES_URL
 
-  return url ? withHttps(url) : undefined
+  return url ? ensureHttps(url) : undefined
+}
+
+// Force the https:// protocol, whether the env var is a bare host or already prefixed.
+function ensureHttps(input: string): string {
+  return `https://${input.replace(/^(?:https?:)?\/\//, '')}`
 }
 
 function generateSitemap(urls: SitemapUrl[], siteUrl: string): string {
