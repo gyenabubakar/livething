@@ -4,253 +4,240 @@ const isHome = computed(() => route.path === '/')
 
 const landingItems = [
   {
-    label: 'Docs',
-    to: '/start/introduction',
+    label: 'Start',
+    to: '/start/overview',
     children: [
       {
         label: 'Introduction',
-        icon: 'i-ph-book-open-duotone',
-        description: 'What is evlog and why use it',
+        icon: 'i-ph-hand-waving-duotone',
+        description: 'Two packages, one typed contract',
         to: '/start/introduction'
       },
       {
-        label: 'Why start with evlog',
-        icon: 'i-ph-rocket-launch-duotone',
-        description: 'The case for adopting evlog on day zero',
-        to: '/start/why-evlog'
+        label: 'What is WebSocket?',
+        icon: 'i-ph-plugs-connected-duotone',
+        description: 'A primer on the protocol underneath',
+        to: '/start/what-is-websocket'
+      },
+      {
+        label: 'Why WSKit',
+        icon: 'i-ph-lightbulb-duotone',
+        description: 'What you stop hand-building',
+        to: '/start/why-wskit'
       },
       {
         label: 'Installation',
         icon: 'i-ph-download-simple-duotone',
-        description: 'Install evlog in your project',
+        description: 'Client, server, and an adapter',
         to: '/start/installation'
       },
       {
-        label: 'Quick Start',
+        label: 'Quickstart',
         icon: 'i-ph-lightning-duotone',
-        description: 'Get up and running in minutes',
-        to: '/start/quick-start'
+        description: 'A tiny end-to-end app in minutes',
+        to: '/start/quickstart'
       },
       {
-        label: 'vs Other Loggers',
-        icon: 'i-ph-git-diff-duotone',
-        description: 'How evlog compares to pino, consola, winston',
-        to: '/reference/vs-other-loggers'
-      },
-      {
-        label: 'Agent Skills',
-        icon: 'i-ph-robot-duotone',
-        description: 'Use evlog with AI coding agents',
-        to: '/reference/agent-skills'
+        label: 'Your First App',
+        icon: 'i-ph-blueprint-duotone',
+        description: 'Add auth and a channel',
+        to: '/start/your-first-app'
       }
     ]
   },
   {
-    label: 'Concepts',
+    label: 'Learn',
     to: '/learn/overview',
     children: [
       {
-        label: 'Simple Logging',
-        icon: 'i-ph-terminal-window-duotone',
-        description: 'Fire-and-forget structured logs',
-        to: '/learn/simple-logging'
+        label: 'The Contract',
+        icon: 'i-ph-scroll-duotone',
+        description: 'One inferred type, both sides',
+        to: '/learn/the-contract'
       },
       {
-        label: 'Wide Events',
-        icon: 'i-ph-rows-duotone',
-        description: 'Accumulate context, emit once',
-        to: '/learn/wide-events'
+        label: 'Capabilities & Primitives',
+        icon: 'i-ph-puzzle-piece-duotone',
+        description: 'The matched opt-in pair',
+        to: '/learn/capabilities-and-primitives'
       },
       {
-        label: 'Structured Errors',
-        icon: 'i-ph-shield-warning-duotone',
-        description: 'Errors that explain why and how to fix',
-        to: '/learn/structured-errors'
+        label: 'Messaging',
+        icon: 'i-ph-chat-circle-dots-duotone',
+        description: 'Events, requests, errors, validation',
+        to: '/learn/messaging'
       },
       {
-        label: 'Catalogs',
-        icon: 'i-ph-book-bookmark-duotone',
-        description: 'Refactor-safe typed error and audit catalogs',
-        to: '/learn/catalogs'
+        label: 'Channels',
+        icon: 'i-ph-users-three-duotone',
+        description: 'Server-managed rooms with auth',
+        to: '/learn/channels'
       },
       {
-        label: 'Lifecycle',
-        icon: 'i-ph-arrows-left-right-duotone',
-        description: 'From emit() to drain in detail',
-        to: '/learn/lifecycle'
+        label: 'Streaming',
+        icon: 'i-ph-waveform-duotone',
+        description: 'Progressive, chunked data',
+        to: '/learn/streaming'
       },
       {
-        label: 'Sampling',
-        icon: 'i-ph-funnel-duotone',
-        description: 'Keep all errors, drop healthy noise',
-        to: '/learn/sampling'
+        label: 'Reliability',
+        icon: 'i-ph-pulse-duotone',
+        description: 'Reconnection, keepalive, replay',
+        to: '/learn/reliability'
+      },
+      {
+        label: 'Identity & Access',
+        icon: 'i-ph-key-duotone',
+        description: 'Auth, tags, and rate limiting',
+        to: '/learn/identity-and-access'
       }
     ]
   },
   {
-    label: 'Frameworks',
-    to: '/integrate/frameworks/overview',
+    label: 'Server',
+    to: '/server/overview',
     children: [
       {
-        label: 'Nuxt',
-        icon: 'i-simple-icons-nuxtdotjs',
-        description: 'Nuxt module with auto-imports',
-        to: '/integrate/frameworks/nuxt'
+        label: 'define()',
+        icon: 'i-ph-brackets-curly-duotone',
+        description: 'The builder and assemble',
+        to: '/server/define/overview'
       },
       {
-        label: 'Next.js',
-        icon: 'i-simple-icons-nextdotjs',
-        description: 'App Router and Pages Router',
-        to: '/integrate/frameworks/nextjs'
+        label: 'Capabilities',
+        icon: 'i-ph-puzzle-piece-duotone',
+        description: 'The opt-in feature catalog',
+        to: '/server/capabilities/overview'
       },
       {
-        label: 'SvelteKit',
-        icon: 'i-simple-icons-svelte',
-        description: 'handle hook integration',
-        to: '/integrate/frameworks/sveltekit'
+        label: 'Handlers',
+        icon: 'i-ph-brackets-angle-duotone',
+        description: 'on, request, stream, scheduled',
+        to: '/server/handlers/overview'
       },
       {
-        label: 'Nitro',
-        icon: 'i-custom-nitro',
-        description: 'Nitro v2 and v3 plugin',
-        to: '/integrate/frameworks/nitro'
+        label: 'Channels',
+        icon: 'i-ph-users-three-duotone',
+        description: 'Rooms, the auth gate, families',
+        to: '/server/channels/overview'
       },
       {
-        label: 'Hono',
-        icon: 'i-simple-icons-hono',
-        description: 'Web standards middleware',
-        to: '/integrate/frameworks/hono'
+        label: 'Streams',
+        icon: 'i-ph-waveform-duotone',
+        description: 'Plain, durable, and broadcast',
+        to: '/server/streams/overview'
       },
       {
-        label: 'Express',
-        icon: 'i-simple-icons-express',
-        description: 'Express middleware',
-        to: '/integrate/frameworks/express'
+        label: 'Replay',
+        icon: 'i-ph-clock-counter-clockwise-duotone',
+        description: 'Catch up after a disconnect',
+        to: '/server/replay/overview'
       },
       {
-        label: 'Cloudflare Workers',
-        icon: 'i-simple-icons-cloudflare',
-        description: 'Edge runtime support',
-        to: '/integrate/frameworks/cloudflare-workers'
+        label: 'Plugins',
+        icon: 'i-ph-plug-duotone',
+        description: 'Package a reusable feature',
+        to: '/server/plugins/overview'
       },
       {
-        label: 'Standalone',
-        icon: 'i-ph-code-duotone',
-        description: 'Scripts, jobs, libraries, anything',
-        to: '/integrate/frameworks/standalone'
+        label: 'Adapters',
+        icon: 'i-ph-plugs-duotone',
+        description: 'Run the definition on a platform',
+        to: '/server/adapters/overview'
       },
       {
-        label: 'All frameworks',
-        icon: 'i-ph-stack-duotone',
-        description: 'See all 16 framework integrations',
-        to: '/integrate/frameworks/overview'
+        label: 'Under the hood',
+        icon: 'i-ph-gear-duotone',
+        description: 'The engine and pipeline order',
+        to: '/server/under-the-hood/overview'
       }
     ]
   },
   {
-    label: 'Adapters',
-    to: '/integrate/adapters/overview',
+    label: 'Client',
+    to: '/client/overview',
     children: [
       {
-        label: 'Axiom',
-        icon: 'i-custom-axiom',
-        description: 'Send logs to Axiom',
-        to: '/integrate/adapters/cloud/axiom'
+        label: 'Connecting',
+        icon: 'i-ph-plugs-connected-duotone',
+        description: 'Options, dynamic URLs, auth, SSR',
+        to: '/client/connecting/overview'
       },
       {
-        label: 'OpenTelemetry',
-        icon: 'i-simple-icons-opentelemetry',
-        description: 'Export via OTLP protocol',
-        to: '/integrate/adapters/cloud/otlp'
+        label: 'Primitives',
+        icon: 'i-ph-puzzle-piece-duotone',
+        description: 'Every built-in client primitive',
+        to: '/client/primitives/overview'
       },
       {
-        label: 'HyperDX',
-        icon: 'i-custom-hyperdx',
-        description: 'Send logs to HyperDX via OTLP',
-        to: '/integrate/adapters/cloud/hyperdx'
+        label: 'Channels',
+        icon: 'i-ph-users-three-duotone',
+        description: 'Handles, families, and presence',
+        to: '/client/channels/overview'
       },
       {
-        label: 'PostHog',
-        icon: 'i-simple-icons-posthog',
-        description: 'Send logs to PostHog',
-        to: '/integrate/adapters/cloud/posthog'
+        label: 'Streams',
+        icon: 'i-ph-waveform-duotone',
+        description: 'Consume, nudge, resume, broadcast',
+        to: '/client/streams/overview'
       },
       {
-        label: 'Sentry',
-        icon: 'i-simple-icons-sentry',
-        description: 'Report errors to Sentry',
-        to: '/integrate/adapters/cloud/sentry'
+        label: 'Errors',
+        icon: 'i-ph-warning-duotone',
+        description: 'How errors surface and narrow',
+        to: '/client/errors/overview'
       },
       {
-        label: 'Better Stack',
-        icon: 'i-simple-icons-betterstack',
-        description: 'Stream logs to Better Stack',
-        to: '/integrate/adapters/cloud/better-stack'
-      },
-      {
-        label: 'Datadog',
-        icon: 'i-simple-icons-datadog',
-        description: 'Send logs to Datadog',
-        to: '/integrate/adapters/cloud/datadog'
-      },
-      {
-        label: 'File System',
-        icon: 'i-ph-hard-drive-duotone',
-        description: 'Write NDJSON logs locally',
-        to: '/integrate/adapters/self-hosted/fs'
-      },
-      {
-        label: 'NuxtHub',
-        icon: 'i-simple-icons-nuxtdotjs',
-        description: 'Persist logs in NuxtHub D1',
-        to: '/integrate/adapters/self-hosted/nuxthub'
-      },
-      {
-        label: 'All adapters',
-        icon: 'i-custom-plug',
-        description: 'See every built-in adapter',
-        to: '/integrate/adapters/overview'
+        label: 'Framework Hooks',
+        icon: 'i-simple-icons-react',
+        description: 'React, Vue, Svelte, Solid, RN',
+        to: '/client/framework-hooks/overview'
       }
     ]
   },
   {
-    label: 'Use Cases',
-    to: '/use-cases/overview',
+    label: 'Recipes',
+    to: '/recipes/overview',
     children: [
       {
-        label: 'AI SDK',
-        icon: 'i-simple-icons-vercel',
-        description: 'AI observability with token tracking',
-        to: '/use-cases/ai-sdk/overview'
+        label: 'Chat App',
+        icon: 'i-ph-chat-circle-dots-duotone',
+        description: 'Rooms, presence, and history',
+        to: '/recipes/chat-app'
       },
       {
-        label: 'Better Auth',
-        icon: 'i-simple-icons-betterauth',
-        description: 'Auto-identify users on every request',
-        to: '/use-cases/better-auth/overview'
+        label: 'LLM Streaming',
+        icon: 'i-ph-robot-duotone',
+        description: 'Token streaming with nudges',
+        to: '/recipes/llm-streaming'
       },
       {
-        label: 'Audit Logs',
-        icon: 'i-ph-shield-check-duotone',
-        description: 'Tamper-evident who-did-what trails',
-        to: '/use-cases/audit/overview'
+        label: 'Notifications',
+        icon: 'i-ph-bell-duotone',
+        description: 'A per-user push channel',
+        to: '/recipes/notifications'
       },
       {
-        label: 'Client Logging',
-        icon: 'i-ph-monitor-duotone',
-        description: 'Browser-side logging and transport',
-        to: '/use-cases/client-logging'
+        label: 'Collaborative Editor',
+        icon: 'i-ph-note-pencil-duotone',
+        description: 'Operations, cursors, and replay',
+        to: '/recipes/collaborative-editor'
       },
       {
-        label: 'Enrichers',
-        icon: 'i-ph-sparkle-duotone',
-        description: 'Auto-add User-Agent, geo, trace context',
-        to: '/use-cases/enrichers'
+        label: 'Multiplayer Game',
+        icon: 'i-ph-game-controller-duotone',
+        description: 'Fast state sync and input',
+        to: '/recipes/multiplayer-game'
+      },
+      {
+        label: 'All recipes',
+        icon: 'i-ph-cooking-pot-duotone',
+        description: 'Every worked end-to-end app',
+        to: '/recipes/overview'
       }
     ]
   }
 ]
-
 </script>
 
 <template>

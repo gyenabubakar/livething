@@ -7,7 +7,7 @@ definePageMeta({
 useHead({
   titleTemplate: '',
   link: [
-    { rel: 'canonical', href: 'https://www.evlog.dev/' },
+    { rel: 'canonical', href: 'https://www.wskit.dev/' },
     {
       rel: 'preload',
       href: '/fonts/GeistPixel-Line.woff2',
@@ -18,7 +18,7 @@ useHead({
   ],
 })
 
-const { data: page } = await useAsyncData('evlog-docs-home', () => {
+const { data: page } = await useAsyncData('wskit-docs-home', () => {
   return queryCollection('docs').path('/landing').first()
 }, {
   getCachedData(key, nuxtApp) {
@@ -36,9 +36,9 @@ useSeoMeta({
   ogImage: '/og.png',
   ogImageWidth: 1200,
   ogImageHeight: 630,
-  ogUrl: 'https://www.evlog.dev/',
-  twitterSite: '@hugorcd',
-  twitterCreator: '@hugorcd',
+  ogUrl: 'https://www.wskit.dev/',
+  twitterSite: '@GyenAbubakar',
+  twitterCreator: '@GyenAbubakar',
 })
 </script>
 

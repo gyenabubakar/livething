@@ -1,31 +1,28 @@
-import { redirects } from './config/redirects'
-
 export default defineNuxtConfig({
   extends: ['docus'],
 
+  app: {
+    head: {
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
+        { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/favicon-16x16.png' },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+        { rel: 'manifest', href: '/site.webmanifest' },
+        { rel: 'shortcut icon', href: '/favicon.ico' },
+      ],
+    },
+  },
+
   routeRules: {
     '/': { prerender: true },
-    ...redirects,
   },
 
   modules: [
     '@nuxt/fonts',
     'motion-v/nuxt',
     'nuxt-studio',
-    '@vercel/analytics',
-    '@vercel/speed-insights',
-    '@databuddy/nuxt',
   ],
-
-  databuddy: {
-    clientId: '389b5a41-31cb-4ea4-a5e8-8ec3ac4ffccc',
-    trackWebVitals: true,
-    trackErrors: true,
-    trackHashChanges: true,
-    trackOutgoingLinks: true,
-    trackInteractions: true,
-    trackAttributes: true,
-  },
 
   colorMode: {
     preference: 'dark',
@@ -47,14 +44,14 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   site: {
-    name: 'evlog',
-    url: 'https://www.evlog.dev',
+    name: 'WSKit',
+    url: 'https://www.wskit.dev',
   },
 
   ogImage: {
-    // Custom OgImageDocs.satori.vue has complex shadow/blur effects that slow Satori down.
-    // 15s default makes some pages timeout during prerender, which means Vercel hits the
-    // zero-runtime route at runtime and returns 500 ("Not supported in zeroRuntime mode").
+    // OgImageDocs.satori.vue uses heavy shadow/blur effects, so Satori is slow.
+    // The 15s default can time some pages out during prerender — bump it so every
+    // OG image renders fully at build time instead of failing the prerender.
     security: {
       renderTimeout: 60_000,
     },
@@ -65,14 +62,11 @@ export default defineNuxtConfig({
       sync: false,
     },
     repository: {
-      owner: 'HugoRCD',
-      repo: 'evlog',
-      rootDir: 'apps/docs',
+      provider: 'github',
+      owner: 'plain-software-co',
+      repo: 'wskit',
+      rootDir: 'website',
     },
-  },
-
-  mcp: {
-    name: 'evlog MCP',
   },
 
   content: {
@@ -107,12 +101,6 @@ export default defineNuxtConfig({
         'vue',
         'yaml',
       ],
-    },
-  },
-
-  runtimeConfig: {
-    public: {
-      justUseEvlogUrl: process.env.NUXT_PUBLIC_JUST_USE_EVLOG_URL || '',
     },
   },
 

@@ -146,7 +146,7 @@ function truncate(str: string, max: number) {
             class="flex lowercase font-pixel font-medium text-[40px] leading-none tracking-tight text-[#f5f5f5]"
             :style="wordmarkGlow"
           >
-            evlog
+            wskit
           </div>
           <div
             class="flex shrink-0"
@@ -163,7 +163,7 @@ function truncate(str: string, max: number) {
           class="flex text-[15px] tracking-[0.16em] font-semibold uppercase"
           :style="{ fontFamily: 'DM Mono', color: '#9ea0a8' }"
         >
-          evlog.dev
+          wskit.dev
         </div>
       </div>
 

@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { Motion } from 'motion-v'
 
-const { public: pub } = useRuntimeConfig()
-const justUseEvlogUrl = computed(() =>
-  typeof pub.justUseEvlogUrl === 'string' ? pub.justUseEvlogUrl.trim() : '',
-)
-
 const shipByTime = ref('')
 
 let clockInterval: ReturnType<typeof setInterval> | undefined
@@ -74,18 +69,6 @@ onBeforeUnmount(() => {
               <template #trailing>
                 <UIcon name="i-ph-arrow-right-duotone" class="size-4" />
               </template>
-            </UButton>
-            <UButton
-              v-if="justUseEvlogUrl"
-              :to="justUseEvlogUrl"
-              target="_blank"
-              size="lg"
-              class="bg-white/10 border border-white/40 text-white hover:bg-white/20 backdrop-blur-sm"
-            >
-              <template #leading>
-                <UIcon name="i-ph-megaphone-duotone" class="size-4" />
-              </template>
-              Just fucking use evlog
             </UButton>
             <UButton
               to="https://github.com/hugorcd/evlog"

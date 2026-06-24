@@ -3,10 +3,6 @@ import type { FooterColumn } from '@nuxt/ui'
 
 const route = useRoute()
 const isLanding = computed(() => route.path === '/')
-const { public: pub } = useRuntimeConfig()
-const justUseEvlogUrl = computed(() =>
-  typeof pub.justUseEvlogUrl === 'string' ? pub.justUseEvlogUrl.trim() : '',
-)
 
 const columns = computed<FooterColumn[]>(() => [
   {
@@ -16,18 +12,9 @@ const columns = computed<FooterColumn[]>(() => [
         label: 'Documentation',
         to: '/start/introduction'
       },
-      ...(justUseEvlogUrl.value
-        ? [
-          {
-            label: 'Just fucking use evlog',
-            to: justUseEvlogUrl.value,
-            target: '_blank' as const,
-          }
-        ]
-        : []),
       {
         label: 'Releases',
-        to: 'https://github.com/hugorcd/evlog/releases',
+        to: 'https://github.com/plain-software-co/wskit/releases',
         target: '_blank'
       },
       {
@@ -42,12 +29,12 @@ const columns = computed<FooterColumn[]>(() => [
     children: [
       {
         label: 'GitHub',
-        to: 'https://github.com/hugorcd/evlog',
+        to: 'https://github.com/plain-software-co/wskit',
         target: '_blank'
       },
       {
         label: 'Contributing',
-        to: 'https://github.com/hugorcd/evlog/blob/main/CONTRIBUTING.md',
+        to: 'https://github.com/plain-software-co/wskit/blob/main/CONTRIBUTING.md',
         target: '_blank'
       }
     ]
@@ -66,8 +53,8 @@ const columns = computed<FooterColumn[]>(() => [
     <template #left>
       <div class="text-xs font-mono italic tracking-tight">
         <span class="text-muted">&copy; {{ new Date().getFullYear() }} - Made by </span>
-        <ULink to="https://hrcd.fr/" target="_blank" class="hover:underline">
-          HugoRCD
+        <ULink to="https://gyen.dev/" target="_blank" class="hover:underline">
+          Gyen Abubakar
         </ULink>
       </div>
     </template>
@@ -76,7 +63,7 @@ const columns = computed<FooterColumn[]>(() => [
       <UButton
         color="neutral"
         variant="ghost"
-        to="https://x.com/hugorcd"
+        to="https://x.com/GyenAbubakar"
         target="_blank"
         icon="i-simple-icons-x"
         size="sm"
@@ -85,7 +72,7 @@ const columns = computed<FooterColumn[]>(() => [
       <UButton
         color="neutral"
         variant="ghost"
-        to="https://github.com/hugorcd/evlog"
+        to="https://github.com/plain-software-co/wskit"
         target="_blank"
         icon="i-simple-icons-github"
         size="sm"
