@@ -22,6 +22,7 @@
     "shaders": "^2.5.109"
   },
   "devDependencies": {
+    "@iconify-json/logos": "^1.2.11",
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.86",
     "@iconify-json/vscode-icons": "^1.2.59",
