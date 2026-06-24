@@ -2,7 +2,6 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
   OUTGOING_PROTOCOL_EVENT_NAMES,
-  OutgoingProtocolFrame,
   UserEventFrameSchema,
   WSKitProtocolSchema,
 } from './protocol.ts';
@@ -60,91 +59,26 @@ describe('wire-string length caps', () => {
   });
 });
 
-const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
-  __subscribeOk__: {
-    event: '__subscribeOk__',
-    payload: {},
-    __wskit: { channel: 'room', source: 'client', channelPersistent: false },
-  },
-  __unsubscribeOk__: {
-    event: '__unsubscribeOk__',
-    payload: {},
-    __wskit: { channel: 'room', unsubscribeId: 'unsub_1' },
-  },
-  __streamOk__: {
-    event: '__streamOk__',
-    payload: {},
-    __wskit: { streamId: 's1', streamKind: 'ephemeral' },
-  },
-  __nudgeOk__: {
-    event: '__nudgeOk__',
-    payload: {},
-    __wskit: { streamId: 's1', streamNudgeId: 'n1' },
-  },
-  __streamEnd__: {
-    event: '__streamEnd__',
-    payload: {},
-    __wskit: { streamId: 's1', seq: 3, eventName: 'feed' },
-  },
-  __error__: {
-    event: '__error__',
-    payload: { code: 'forbidden', detail: { reason: 'no' } },
-    __wskit: { channel: 'room', correlationId: 'c1', source: 'client' },
-  },
-  __kicked__: {
-    event: '__kicked__',
-    payload: { reason: 'spam' },
-    __wskit: { channel: 'room' },
-  },
-  __memberJoin__: {
-    event: '__memberJoin__',
-    payload: { connectionId: 'c1', meta: { name: 'Ada' } },
-    __wskit: { channel: 'room' },
-  },
-  __memberLeave__: {
-    event: '__memberLeave__',
-    payload: { connectionId: 'c1' },
-    __wskit: { channel: 'room' },
-  },
-  __memberOnline__: {
-    event: '__memberOnline__',
-    payload: { connectionId: 'c1', meta: {} },
-    __wskit: { channel: 'room' },
-  },
-  __memberOffline__: {
-    event: '__memberOffline__',
-    payload: { connectionId: 'c1' },
-    __wskit: { channel: 'room' },
-  },
-  __memberSync__: {
-    event: '__memberSync__',
-    payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
-    __wskit: { channel: 'room', source: 'server' },
-  },
-};
-
-describe('outgoing protocol-frame conformance', () => {
-  it('has a sample for every event in OutgoingProtocolFrame', () => {
-    expect(new Set(Object.keys(OUTGOING_FRAME_SAMPLES))).toEqual(
-      new Set(OUTGOING_PROTOCOL_EVENT_NAMES),
+describe('outgoing protocol event names', () => {
+  it('pins the exact set of event names the engine emits', () => {
+    // Outgoing frames are not validated, so the engine lists these names by hand
+    // instead of deriving them from schemas. This guards the hardcoded list.
+    expect(OUTGOING_PROTOCOL_EVENT_NAMES).toEqual(
+      new Set([
+        '__subscribeOk__',
+        '__unsubscribeOk__',
+        '__streamOk__',
+        '__nudgeOk__',
+        '__streamEnd__',
+        '__error__',
+        '__kicked__',
+        '__memberJoin__',
+        '__memberLeave__',
+        '__memberOnline__',
+        '__memberOffline__',
+        '__memberSync__',
+      ]),
     );
-  });
-
-  it.each(Object.entries(OUTGOING_FRAME_SAMPLES))(
-    'round-trips %s through its schema',
-    (_event, frame) => {
-      const result = v.safeParse(OutgoingProtocolFrame, frame);
-      expect(result.success).toBe(true);
-    },
-  );
-
-  it('round-trips a member presence frame for a dynamic family (channelFamily set)', () => {
-    const result = v.safeParse(OutgoingProtocolFrame, {
-      event: '__memberJoin__',
-      payload: { connectionId: 'c1', meta: {} },
-      __wskit: { channel: 'room:1', channelFamily: 'rooms' },
-    });
-    expect(result.success).toBe(true);
   });
 
   it('rejects an empty channelFamily marker', () => {
