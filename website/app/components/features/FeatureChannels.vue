@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
             <span class="ml-3 font-mono text-xs text-dimmed">chat.ts</span>
             <span class="ml-auto font-mono text-[10px] text-dimmed">server</span>
           </div>
-          <div class="p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
+          <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> room = base.<span class="text-amber-400">channel</span>(<span class="text-emerald-400">'general'</span>, {
   <span class="text-sky-400">outgoing</span>: { <span class="text-sky-400">emits</span>: { <span class="text-sky-400">message</span>: <span class="text-amber-400">t</span>&lt;<span class="text-sky-400">Msg</span>&gt;() } },
   <span class="text-sky-400">subscribe</span>: v.<span class="text-amber-400">object</span>({ token: v.<span class="text-amber-400">string</span>() }),

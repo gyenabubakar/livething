@@ -110,7 +110,7 @@ function setOutput(type: 'typed' | 'typo') {
             <span class="ml-3 font-mono text-xs text-dimmed">chat.ts</span>
             <span class="ml-auto font-mono text-[10px] text-dimmed">server</span>
           </div>
-          <div class="p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
+          <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> base = <span class="text-amber-400">define</span>({
   <span class="text-sky-400">env</span>: <span class="text-amber-400">t</span>&lt;<span class="text-sky-400">Env</span>&gt;(),
   <span class="text-sky-400">capabilities</span>: [
@@ -172,7 +172,7 @@ function setOutput(type: 'typed' | 'typo') {
           <div class="grid [&>*]:col-start-1 [&>*]:row-start-1">
             <!-- Typed: the contract holds -->
             <div
-              class="p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto transition-opacity duration-300"
+              class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto transition-opacity duration-300"
               :class="activeOutput === 'typed' ? 'opacity-100' : 'opacity-0 pointer-events-none'"
             >
               <pre><code>socket.<span class="text-amber-400">on</span>(<span class="text-emerald-400">'message'</span>, (msg) => {
@@ -192,7 +192,7 @@ socket.<span class="text-amber-400">send</span>(<span class="text-emerald-400">'
 
             <!-- Typo: the compiler catches it -->
             <div
-              class="p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto transition-opacity duration-300"
+              class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto transition-opacity duration-300"
               :class="activeOutput === 'typo' ? 'opacity-100' : 'opacity-0 pointer-events-none'"
             >
               <pre><code>socket.<span class="text-amber-400">on</span>(<span class="text-red-400 underline decoration-wavy decoration-red-500 underline-offset-4">'mesage'</span>, (msg) => {
