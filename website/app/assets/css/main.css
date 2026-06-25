@@ -38,17 +38,17 @@
 }
 
 .section-label {
-  @apply font-pixel text-[10px] uppercase tracking-widest text-muted mb-4 flex items-center;
+  @apply font-pixel text-xs uppercase tracking-wider text-default mb-4 flex items-center;
 }
 
 .section-label::before {
   content: '';
   display: inline-block;
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   background-color: var(--ui-color-primary-500);
-  margin-right: 0.5rem;
-  box-shadow: 0 0 8px var(--ui-color-primary-500);
+  margin-right: 0.6rem;
+  box-shadow: 0 0 10px 1px var(--ui-color-primary-500);
 }
 
 .section-title {
