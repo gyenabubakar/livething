@@ -59,19 +59,24 @@ import { Motion } from 'motion-v'
     </div>
 
     <div class="relative z-10 mt-auto pt-32 md:pt-44 pb-4">
-      <div class="max-w-4xl mx-auto px-6 flex items-center justify-between">
-        <div class="text-xs font-mono italic tracking-tight text-muted">
-          &copy; {{ new Date().getFullYear() }} - Made by
-          <a href="https://gyen.dev/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Gyen Abubakar</a>
+      <div class="max-w-4xl mx-auto px-6">
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-mono italic tracking-tight text-muted">
+            &copy; {{ new Date().getFullYear() }} - Made by
+            <a href="https://gyen.dev/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Gyen Abubakar</a>
+          </div>
+          <div class="flex items-center gap-3">
+            <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-muted hover:text-dimmed transition-colors">
+              <UIcon name="i-simple-icons-x" class="size-4" />
+            </a>
+            <a href="https://github.com/plain-software-co/wskit" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
+              <UIcon name="i-simple-icons-github" class="size-4" />
+            </a>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-muted hover:text-dimmed transition-colors">
-            <UIcon name="i-simple-icons-x" class="size-4" />
-          </a>
-          <a href="https://github.com/plain-software-co/wskit" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
-            <UIcon name="i-simple-icons-github" class="size-4" />
-          </a>
-        </div>
+        <p class="mt-4 border-t border-black/10 pt-4 text-xs font-mono italic tracking-tight text-muted">
+          This website was built from <a href="https://github.com/HugoRCD" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>'s <a href="https://evlog.dev" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">evlog</a> website.
+        </p>
       </div>
     </div>
   </section>
