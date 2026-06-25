@@ -1,6 +1,10 @@
 export default defineNuxtConfig({
   extends: ['docus'],
 
+  devServer: {
+    port: 9000,
+  },
+
   app: {
     head: {
       link: [

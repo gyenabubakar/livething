@@ -47,8 +47,8 @@ const pills = [
             {{ pill.label }}
           </span>
         </div>
-        <NuxtLink v-if="props.link" :to="props.link" class="mt-4 group inline-flex items-center gap-2 border border-primary/40 bg-primary/[0.06] px-4 py-2 font-mono text-xs text-primary hover:bg-primary/15 hover:border-primary/60 transition-colors">
-          {{ props.linkLabel || 'Learn more' }}
+        <NuxtLink v-if="props.link" :to="props.link" class="mt-4 group inline-flex items-center gap-1.5 font-mono text-xs text-primary transition-colors">
+          <span class="border-b border-primary/50 pb-0.5 transition-colors group-hover:border-primary">{{ props.linkLabel || 'Learn more' }}</span>
           <UIcon name="i-ph-arrow-right-duotone" class="size-4 transition-transform group-hover:translate-x-0.5" />
         </NuxtLink>
       </div>

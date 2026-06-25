@@ -179,7 +179,7 @@ const parcelCls: Record<string, string> = {
 <template>
   <section class="py-24 md:py-32">
     <!-- Top: copy on the left, code on the right -->
-    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-start">
+    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
         :initial="false"
         :while-in-view="{ opacity: 1, y: 0 }"
@@ -211,8 +211,8 @@ const parcelCls: Record<string, string> = {
               {{ pill.label }}
             </span>
           </div>
-          <NuxtLink v-if="props.link" :to="props.link" class="mt-5 group inline-flex items-center gap-2 border border-primary/40 bg-primary/[0.06] px-4 py-2 font-mono text-xs text-primary hover:bg-primary/15 hover:border-primary/60 transition-colors">
-            {{ props.linkLabel || 'Learn more' }}
+          <NuxtLink v-if="props.link" :to="props.link" class="mt-5 group inline-flex items-center gap-1.5 font-mono text-xs text-primary transition-colors">
+            <span class="border-b border-primary/50 pb-0.5 transition-colors group-hover:border-primary">{{ props.linkLabel || 'Learn more' }}</span>
             <UIcon name="i-ph-arrow-right-duotone" class="size-4 transition-transform group-hover:translate-x-0.5" />
           </NuxtLink>
         </div>
@@ -223,7 +223,7 @@ const parcelCls: Record<string, string> = {
         :while-in-view="{ opacity: 1, y: 0 }"
         :transition="{ duration: 0.5, delay: 0.15 }"
         :in-view-options="{ once: true }"
-        class="flex flex-col gap-4"
+        class="flex flex-col justify-center gap-4 h-full"
       >
         <div class="overflow-hidden border border-muted bg-default">
           <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
@@ -355,7 +355,7 @@ const parcelCls: Record<string, string> = {
 
         <div class="border-t border-muted/60 px-4 py-3 font-mono text-xs text-toned flex items-center gap-2">
           <UIcon name="i-ph-link-duotone" class="size-4 text-primary shrink-0" />
-          replies can land in any order — WSKit routes each one back to the <span class="text-primary">promise that asked</span>. No manual ids, no bookkeeping.
+          replies can land in any order — WSKit routes each one back to the <span class="text-primary">promise that asked</span>. No manual IDs, no bookkeeping.
         </div>
       </div>
     </Motion>

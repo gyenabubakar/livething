@@ -14,51 +14,66 @@ const pills = [
 ]
 
 /* ----------------------------------------------------------------------------
- * One full drop-and-recover lifecycle, looping:
- * live → drop → offline (buffer + miss) → reconnect → restore (flush + replay)
- * → synced.
+ * Messages flow server → client. The socket drops (flow pauses, the server
+ * holds what it can't send), then reconnects (the held messages replay across),
+ * and a duplicate that slips through on the messy reconnect is dropped by dedup.
  * ------------------------------------------------------------------------- */
 
-type Phase = 'live' | 'drop' | 'offline' | 'reconnect' | 'restore' | 'synced'
-const RANK: Record<Phase, number> = {
-  live: 0, drop: 1, offline: 2, reconnect: 3, restore: 4, synced: 5,
-}
+type Phase = 'live' | 'drop' | 'reconnect' | 'replay' | 'synced'
 const phase = ref<Phase>('live')
 const wireRef = ref<HTMLElement>()
+const prefersReducedMotion = ref(false)
 
-// Sends the user makes while offline — buffered, then flushed on reconnect.
-const outbox = [
-  { event: 'send', detail: '"on my way"' },
-  { event: 'send', detail: '"be there at 6"' },
+type MState = 'idle' | 'held' | 'flying' | 'arrived' | 'dropped'
+interface Msg { seq: number; lane: number; dup?: boolean }
+const messages: Msg[] = [
+  { seq: 41, lane: 0 },
+  { seq: 42, lane: 1 },
+  { seq: 43, lane: 0 },
+  { seq: 44, lane: 1 },
+  { seq: 44, lane: 2, dup: true },
 ]
-// Messages the server emitted while the client was away — replayed on reconnect.
-const missed = [
-  { seq: 41, event: 'order-update', dup: false },
-  { seq: 42, event: 'order-update', dup: false },
-  { seq: 42, event: 'order-update', dup: true },
-]
+const mstate = ref<MState[]>(messages.map(() => 'idle'))
 
+function set(i: number, s: MState) {
+  const next = [...mstate.value]
+  next[i] = s
+  mstate.value = next
+}
 function resetState() {
   phase.value = 'live'
+  mstate.value = messages.map(() => 'idle')
 }
 
 const events: TimedEvent[] = [
-  { at: 1200, run: () => { phase.value = 'drop' } },
-  { at: 1900, run: () => { phase.value = 'offline' } },
-  { at: 4000, run: () => { phase.value = 'reconnect' } },
-  { at: 4700, run: () => { phase.value = 'restore' } },
-  { at: 6200, run: () => { phase.value = 'synced' } },
+  { at: 400, run: () => set(0, 'flying') },
+  { at: 1150, run: () => set(0, 'arrived') },
+  { at: 1500, run: () => set(1, 'flying') },
+  { at: 2250, run: () => set(1, 'arrived') },
+  { at: 2750, run: () => { phase.value = 'drop' } },
+  { at: 3050, run: () => set(2, 'held') },
+  { at: 3450, run: () => set(3, 'held') },
+  { at: 4900, run: () => { phase.value = 'reconnect' } },
+  { at: 5300, run: () => { phase.value = 'replay'; set(2, 'flying') } },
+  { at: 5700, run: () => set(3, 'flying') },
+  { at: 6050, run: () => set(2, 'arrived') },
+  { at: 6200, run: () => set(4, 'flying') },
+  { at: 6450, run: () => set(3, 'arrived') },
+  { at: 6950, run: () => set(4, 'dropped') },
+  { at: 7400, run: () => { phase.value = 'synced' } },
 ]
-const total = 6200 + 2600
+const total = 7400 + 2800
 
 const seq = useTimedSequence({ events, totalDuration: total, loop: true, onReset: resetState })
 
 let observer: IntersectionObserver | undefined
-const prefersReducedMotion = ref(false)
-
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (prefersReducedMotion.value) { phase.value = 'synced'; return }
+  if (prefersReducedMotion.value) {
+    phase.value = 'synced'
+    mstate.value = ['arrived', 'arrived', 'arrived', 'arrived', 'dropped']
+    return
+  }
   if (!wireRef.value) { seq.start(); return }
   observer = new IntersectionObserver(([e]) => {
     if (e?.isIntersecting) { seq.start(); observer?.disconnect() }
@@ -67,20 +82,26 @@ onMounted(() => {
 })
 onBeforeUnmount(() => observer?.disconnect())
 
-const r = computed(() => RANK[phase.value])
-const broken = computed(() => phase.value === 'drop' || phase.value === 'offline')
-const buffered = computed(() => r.value >= RANK.offline)
-const flushed = computed(() => r.value >= RANK.restore)
-const restoring = computed(() => phase.value === 'restore')
-const synced = computed(() => phase.value === 'synced')
+const broken = computed(() => phase.value === 'drop')
+const flowing = computed(() => phase.value === 'live' || phase.value === 'replay')
+const heldMsgs = computed(() => messages.filter((_, i) => mstate.value[i] === 'held'))
+const receivedMsgs = computed(() => messages.filter((_, i) => mstate.value[i] === 'arrived'))
+
+function onWire(i: number): boolean {
+  const s = mstate.value[i]
+  return s === 'flying' || s === 'dropped'
+}
+function chipLeft(i: number): string {
+  const s = mstate.value[i] ?? 'idle'
+  return (s === 'flying' || s === 'arrived' || s === 'dropped') ? '4%' : '86%'
+}
 
 const status = computed(() => {
   switch (phase.value) {
     case 'live': return { label: 'connected', tone: 'ok' }
-    case 'drop': return { label: 'connection lost', tone: 'bad' }
-    case 'offline': return { label: 'reconnecting…', tone: 'warn' }
+    case 'drop': return { label: 'disconnected', tone: 'bad' }
     case 'reconnect': return { label: 'reconnected', tone: 'ok' }
-    case 'restore': return { label: 'catching up…', tone: 'warn' }
+    case 'replay': return { label: 'catching up…', tone: 'warn' }
     case 'synced': return { label: 'in sync', tone: 'ok' }
   }
   return { label: '', tone: 'ok' }
@@ -92,7 +113,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
 <template>
   <section class="pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + the stacked client -->
-    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-start">
+    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
         :initial="false"
         :while-in-view="{ opacity: 1, y: 0 }"
@@ -124,8 +145,8 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
               {{ pill.label }}
             </span>
           </div>
-          <NuxtLink v-if="props.link" :to="props.link" class="group mt-6 inline-flex items-center gap-2 border border-primary/40 bg-primary/[0.06] px-4 py-2 font-mono text-xs text-primary hover:bg-primary/15 hover:border-primary/60 transition-colors">
-            {{ props.linkLabel || 'Learn more' }}
+          <NuxtLink v-if="props.link" :to="props.link" class="group mt-6 inline-flex items-center gap-1.5 font-mono text-xs text-primary transition-colors">
+            <span class="border-b border-primary/50 pb-0.5 transition-colors group-hover:border-primary">{{ props.linkLabel || 'Learn more' }}</span>
             <UIcon name="i-ph-arrow-right-duotone" class="size-4 transition-transform group-hover:translate-x-0.5" />
           </NuxtLink>
         </div>
@@ -136,15 +157,16 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
         :while-in-view="{ opacity: 1, y: 0 }"
         :transition="{ duration: 0.5, delay: 0.15 }"
         :in-view-options="{ once: true }"
+        class="h-full"
       >
-        <div class="overflow-hidden border border-muted bg-default">
+        <div class="h-full flex flex-col overflow-hidden border border-muted bg-default">
           <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
             <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-sky-300">
               <span class="size-1.5 rounded-full bg-sky-400" /> client
             </span>
             <span class="font-mono text-xs text-toned">app.client.ts</span>
           </div>
-          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+          <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> socket = <span class="text-amber-400">client</span>&lt;<span class="text-sky-400">AppSocket</span>&gt;()(
   <span class="text-amber-400">connect</span>(<span class="text-emerald-400">'wss://api.example.com/ws'</span>),
   <span class="text-amber-400">reconnection</span>(),               <span class="text-dimmed">// get back after a drop</span>
@@ -158,7 +180,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
       </Motion>
     </div>
 
-    <!-- Full-width wire: the drop-and-recover lifecycle -->
+    <!-- Full-width wire: messages flow, pause on drop, replay on reconnect, dedup the double -->
     <Motion
       :initial="false"
       :while-in-view="{ opacity: 1, y: 0 }"
@@ -169,8 +191,8 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
       <div ref="wireRef" class="overflow-hidden border border-muted bg-default">
         <div class="flex items-center gap-2.5 border-b border-muted px-4 py-3">
           <UIcon name="i-ph-pulse-duotone" class="size-4 text-primary" />
-          <span class="font-mono text-xs sm:text-sm text-toned">live socket · survives a dropped connection</span>
-          <span class="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="toneText[status.tone]">
+          <span class="font-mono text-xs sm:text-sm text-toned">live socket · messages keep flowing through a drop</span>
+          <span class="ml-auto inline-flex items-center justify-end gap-1.5 min-w-[8.5rem] font-mono text-[11px] transition-colors duration-300" :class="toneText[status.tone]">
             <span class="size-1.5 rounded-full transition-colors duration-300" :class="[toneDot[status.tone], status.tone !== 'ok' ? 'animate-pulse' : '']" />
             {{ status.label }}
           </span>
@@ -196,92 +218,87 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
           </div>
         </div>
 
-        <div class="grid grid-cols-[minmax(0,1fr)_1.5fr_minmax(0,1fr)] items-stretch">
-          <!-- Client: buffers sends made while offline -->
+        <div class="grid grid-cols-[minmax(0,1fr)_1.6fr_minmax(0,1fr)] items-stretch">
+          <!-- Client (left): receives, in order, no doubles -->
           <div class="px-4 py-5 sm:px-5">
             <div class="flex items-center gap-2 mb-3">
               <UIcon name="i-ph-laptop-duotone" class="size-5 text-sky-300" />
               <span class="font-mono text-sm text-toned">client</span>
-              <span class="ml-auto font-mono text-[10px] tracking-wide uppercase transition-colors duration-300" :class="flushed ? 'text-emerald-300' : (buffered ? 'text-amber-300' : 'text-dimmed')">
-                {{ flushed ? 'flushed' : (buffered ? 'buffering' : 'outbox') }}
-              </span>
+              <span class="ml-auto font-mono text-[10px] tracking-wide uppercase text-dimmed">received</span>
             </div>
-            <div class="space-y-2 min-h-[5.5rem]">
+            <div class="space-y-2 h-44 overflow-hidden">
               <div
-                v-for="(m, i) in outbox"
-                :key="m.detail"
-                class="flex items-center gap-2.5 border px-3 py-2 font-mono text-xs sm:text-[13px] leading-4 transition-all duration-300"
-                :class="!buffered ? 'border-muted/30 opacity-0 -translate-x-2'
-                  : (flushed ? 'border-emerald-400/45 bg-emerald-500/[0.08] opacity-100 translate-x-0'
-                  : 'border-amber-400/45 bg-amber-500/[0.07] opacity-100 translate-x-0')"
-                :style="{ transitionDelay: `${i * 120}ms` }"
+                v-for="m in receivedMsgs"
+                :key="`r-${m.seq}-${m.lane}`"
+                class="flex items-center gap-2.5 border border-emerald-400/45 bg-emerald-500/[0.08] px-3 py-2 font-mono text-xs sm:text-[13px] leading-4"
               >
-                <UIcon :name="flushed ? 'i-ph-check-duotone' : 'i-ph-clock-duotone'" class="size-3.5 shrink-0" :class="flushed ? 'text-emerald-300' : 'text-amber-300'" />
-                <span class="text-toned">{{ m.event }}</span>
-                <span class="text-muted truncate">{{ m.detail }}</span>
+                <UIcon name="i-ph-check-duotone" class="size-3.5 text-emerald-300 shrink-0" />
+                <span class="text-violet-300 tabular-nums">#{{ m.seq }}</span>
+                <span class="text-toned truncate">order-update</span>
               </div>
             </div>
           </div>
 
-          <!-- The wire: breaks on drop, rejoins on reconnect -->
-          <div class="relative flex flex-col items-center justify-center px-2 py-5 bg-elevated/20">
-            <div class="relative flex w-full items-center">
-              <div class="h-px flex-1 transition-colors duration-300" :class="broken ? 'bg-red-500/40' : 'bg-emerald-500/40'" />
-              <div
-                class="mx-2 flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] whitespace-nowrap transition-colors duration-300"
-                :class="broken ? 'border-red-500/50 bg-red-500/10 text-red-300'
-                  : (restoring ? 'border-amber-400/50 bg-amber-500/10 text-amber-200'
-                  : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200')"
-              >
-                <UIcon
-                  :name="broken ? 'i-ph-plugs-duotone' : (restoring ? 'i-ph-arrows-clockwise-duotone' : 'i-ph-plug-charging-duotone')"
-                  class="size-3.5"
-                  :class="restoring ? 'animate-spin' : ''"
-                />
-                {{ broken ? 'disconnected' : (restoring ? 'syncing' : 'connected') }}
-              </div>
-              <div class="relative h-px flex-1 overflow-hidden transition-colors duration-300" :class="broken ? 'bg-red-500/40' : 'bg-emerald-500/40'">
-                <div class="reliab-flow absolute inset-0 -top-px h-0.5" :class="restoring ? 'opacity-100' : 'opacity-0'" />
-              </div>
+          <!-- The wire: messages fly right → left; breaks on drop -->
+          <div class="relative px-1 py-5 bg-elevated/20 overflow-hidden">
+            <!-- the rail -->
+            <div class="absolute inset-x-4 top-1/2 -translate-y-1/2 h-px transition-colors duration-300" :class="broken ? 'bg-red-500/30' : 'bg-emerald-500/30'" />
+            <!-- broken marker -->
+            <div
+              class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[10px] whitespace-nowrap transition-all duration-300"
+              :class="broken ? 'opacity-100 border-red-500/50 bg-red-500/10 text-red-300' : 'opacity-0'"
+            >
+              <UIcon name="i-ph-plugs-duotone" class="size-3.5" /> disconnected
             </div>
-            <p class="mt-4 font-mono text-[10px] text-dimmed transition-opacity duration-300" :class="phase === 'offline' ? 'opacity-100' : 'opacity-0'">
-              retry with backoff · 1s → 2s → 4s
-            </p>
+            <!-- the message chips -->
+            <div
+              v-for="(m, i) in messages"
+              :key="`m-${i}`"
+              class="msg absolute z-10 -translate-y-1/2 flex items-center gap-1.5 border px-2.5 py-1 font-mono text-[11px] whitespace-nowrap rounded-sm"
+              :class="[
+                mstate[i] === 'dropped'
+                  ? 'border-red-400/60 bg-red-500/15 text-red-200 shadow-[0_0_14px] shadow-red-500/40'
+                  : 'border-emerald-400/60 bg-emerald-500/15 text-emerald-200 shadow-[0_0_14px] shadow-emerald-500/40',
+                onWire(i) ? 'opacity-100' : 'opacity-0',
+              ]"
+              :style="{ top: `${24 + m.lane * 26}%`, left: chipLeft(i) }"
+            >
+              <UIcon :name="mstate[i] === 'dropped' ? 'i-ph-x-circle-duotone' : 'i-ph-arrow-left-duotone'" class="size-3.5" />
+              <span class="tabular-nums">#{{ m.seq }}</span>
+              <span>{{ mstate[i] === 'dropped' ? 'deduped' : 'order-update' }}</span>
+            </div>
           </div>
 
-          <!-- Server: holds what you missed, replays it -->
+          <!-- Server (right): the source; holds messages it can't send -->
           <div class="px-4 py-5 sm:px-5 border-l border-muted/50">
             <div class="flex items-center gap-2 mb-3">
               <span class="font-mono text-sm text-toned">server</span>
               <UIcon name="i-ph-hard-drives-duotone" class="size-5 text-emerald-300" />
-              <span class="ml-auto font-mono text-[10px] tracking-wide uppercase transition-colors duration-300" :class="flushed ? 'text-emerald-300' : (buffered ? 'text-amber-300' : 'text-dimmed')">
-                {{ flushed ? 'replayed' : (buffered ? 'held' : 'log') }}
+              <span class="ml-auto font-mono text-[10px] tracking-wide uppercase transition-colors duration-300" :class="heldMsgs.length ? 'text-amber-300' : 'text-dimmed'">
+                {{ heldMsgs.length ? 'held' : 'emitting' }}
               </span>
             </div>
-            <div class="space-y-2 min-h-[5.5rem]">
+            <div class="space-y-2 h-44 overflow-hidden">
               <div
-                v-for="(m, i) in missed"
-                :key="i"
-                class="flex items-center gap-2 border px-3 py-2 font-mono text-xs sm:text-[13px] leading-4 transition-all duration-300"
-                :class="!buffered ? 'border-muted/30 opacity-0 translate-x-2'
-                  : (flushed && m.dup ? 'border-red-400/40 bg-red-500/[0.06] opacity-100 translate-x-0'
-                  : (flushed ? 'border-emerald-400/45 bg-emerald-500/[0.08] opacity-100 translate-x-0'
-                  : 'border-amber-400/45 bg-amber-500/[0.07] opacity-100 translate-x-0'))"
-                :style="{ transitionDelay: `${i * 120}ms` }"
+                v-for="m in heldMsgs"
+                :key="`h-${m.seq}`"
+                class="flex items-center gap-2.5 border border-amber-400/45 bg-amber-500/[0.07] px-3 py-2 font-mono text-xs sm:text-[13px] leading-4"
               >
-                <span class="shrink-0 tabular-nums" :class="flushed && m.dup ? 'text-red-300 line-through' : 'text-violet-300'">#{{ m.seq }}</span>
-                <span class="truncate" :class="flushed && m.dup ? 'text-dimmed line-through' : 'text-toned'">{{ m.event }}</span>
-                <span class="ml-auto shrink-0 text-[10px]" :class="flushed && m.dup ? 'text-red-300' : (flushed ? 'text-emerald-300' : 'text-amber-300')">
-                  {{ flushed ? (m.dup ? 'deduped' : 'replayed') : 'held' }}
-                </span>
+                <UIcon name="i-ph-clock-duotone" class="size-3.5 text-amber-300 shrink-0" />
+                <span class="text-violet-300 tabular-nums">#{{ m.seq }}</span>
+                <span class="text-toned truncate">order-update</span>
+                <span class="ml-auto text-[10px] text-amber-300">held</span>
               </div>
+              <p v-if="!heldMsgs.length" class="font-mono text-[11px] text-dimmed pt-1">
+                {{ phase === 'synced' ? 'all delivered · in order' : 'streaming in order →' }}
+              </p>
             </div>
           </div>
         </div>
 
         <div class="border-t border-muted/60 px-4 py-3 font-mono text-xs text-toned flex items-center gap-2">
           <UIcon name="i-ph-shield-check-duotone" class="size-4 text-emerald-400 shrink-0" />
-          the socket drops and comes back — your offline sends flush, the messages you missed replay, and nothing arrives twice
+          messages flow until the socket drops, hold while it's down, then replay on reconnect — and the duplicate never lands twice
         </div>
       </div>
     </Motion>
@@ -289,17 +306,9 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
 </template>
 
 <style scoped>
-.reliab-flow {
-  background-image: repeating-linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--ui-color-primary-500) 90%, transparent) 0 5px,
-    transparent 5px 18px
-  );
-  background-size: 18px 100%;
-  animation: reliab-flow-bg 0.55s linear infinite;
-  transition: opacity 0.3s ease;
-}
-@keyframes reliab-flow-bg {
-  to { background-position: 18px 0; }
+.msg {
+  transition-property: left, opacity;
+  transition-duration: 750ms, 250ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1), ease;
 }
 </style>

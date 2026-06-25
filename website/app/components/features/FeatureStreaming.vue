@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + server generator code -->
-    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-start">
+    <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
         :initial="false"
         :while-in-view="{ opacity: 1, y: 0 }"
@@ -142,8 +142,8 @@ onBeforeUnmount(() => {
               {{ pill.label }}
             </span>
           </div>
-          <NuxtLink v-if="props.link" :to="props.link" class="mt-5 group inline-flex items-center gap-2 border border-primary/40 bg-primary/[0.06] px-4 py-2 font-mono text-xs text-primary hover:bg-primary/15 hover:border-primary/60 transition-colors">
-            {{ props.linkLabel || 'Learn more' }}
+          <NuxtLink v-if="props.link" :to="props.link" class="mt-5 group inline-flex items-center gap-1.5 font-mono text-xs text-primary transition-colors">
+            <span class="border-b border-primary/50 pb-0.5 transition-colors group-hover:border-primary">{{ props.linkLabel || 'Learn more' }}</span>
             <UIcon name="i-ph-arrow-right-duotone" class="size-4 transition-transform group-hover:translate-x-0.5" />
           </NuxtLink>
         </div>
@@ -154,15 +154,16 @@ onBeforeUnmount(() => {
         :while-in-view="{ opacity: 1, y: 0 }"
         :transition="{ duration: 0.5, delay: 0.15 }"
         :in-view-options="{ once: true }"
+        class="h-full"
       >
-        <div class="overflow-hidden border border-muted bg-default">
+        <div class="h-full flex flex-col overflow-hidden border border-muted bg-default">
           <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
             <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-300">
               <span class="size-1.5 rounded-full bg-emerald-400" /> server
             </span>
             <span class="font-mono text-xs text-toned">ai.server.ts</span>
           </div>
-          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+          <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">export const</span> handleAsk = base.<span class="text-amber-400">stream</span>(<span class="text-emerald-400">'ask-ai'</span>, {
   <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ prompt: v.<span class="text-amber-400">string</span>() }),
   <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ token: <span class="text-sky-400">string</span> }&gt;(),
