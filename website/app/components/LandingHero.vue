@@ -19,7 +19,7 @@
         <UButton
           to="/start/installation"
           size="lg"
-          class="bg-primary hover:bg-blue-600 text-white font-medium"
+          class="bg-primary hover:bg-blue-600 text-zinc-950 font-medium"
           trailing-icon="i-ph-arrow-right-duotone"
           label="Start building"
         />

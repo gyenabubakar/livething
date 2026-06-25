@@ -1,26 +1,5 @@
 <script setup lang="ts">
 import { Motion } from 'motion-v'
-
-const shipByTime = ref('')
-
-let clockInterval: ReturnType<typeof setInterval> | undefined
-
-function updateShipByTime() {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() + 10)
-  const h = String(now.getHours()).padStart(2, '0')
-  const m = String(now.getMinutes()).padStart(2, '0')
-  shipByTime.value = `${h}:${m}`
-}
-
-onMounted(() => {
-  updateShipByTime()
-  clockInterval = setInterval(updateShipByTime, 1_000)
-})
-
-onBeforeUnmount(() => {
-  if (clockInterval) clearInterval(clockInterval)
-})
 </script>
 
 <template>
@@ -45,14 +24,7 @@ onBeforeUnmount(() => {
         <div>
           <div class="relative mb-6">
             <h2 class="section-title text-center text-shadow-lg text-shadow-black">
-              Typed real-time<br>by
-              <ClientOnly>
-                <span class="tabular-nums">{{ shipByTime }}</span>
-                <template #fallback>
-                  <span>tonight</span>
-                </template>
-              </ClientOnly>
-              <span class="cta-dot">.</span>
+              Real-time,<br>finally typed<span class="cta-dot">.</span>
             </h2>
           </div>
           <p class="text-base leading-relaxed text-highlighted mb-10">

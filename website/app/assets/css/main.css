@@ -29,7 +29,7 @@
 
 @layer base {
   :root {
-    @apply selection:bg-primary selection:text-white;
+    @apply selection:bg-primary/30;
   }
 
   html, body {
