@@ -169,7 +169,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
           <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> socket = <span class="text-amber-400">client</span>&lt;<span class="text-sky-400">AppSocket</span>&gt;()(
   <span class="text-amber-400">connect</span>(<span class="text-emerald-400">'wss://api.example.com/ws'</span>),
-  <span class="text-amber-400">reconnection</span>(),               <span class="text-dimmed">// get back after a drop</span>
+  <span class="text-amber-400">reconnection</span>(),               <span class="text-dimmed">// get back after a disconnect</span>
   <span class="text-amber-400">keepalive</span>(),                  <span class="text-dimmed">// notice a dead socket fast</span>
   <span class="text-amber-400">buffering</span>({ enabled: <span class="text-violet-400">true</span> }),  <span class="text-dimmed">// keep offline sends</span>
   <span class="text-amber-400">dedup</span>(),                      <span class="text-dimmed">// no duplicates on catch-up</span>
@@ -191,7 +191,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
       <div ref="wireRef" class="overflow-hidden border border-muted bg-default">
         <div class="flex items-center gap-2.5 border-b border-muted px-4 py-3">
           <UIcon name="i-ph-pulse-duotone" class="size-4 text-primary" />
-          <span class="font-mono text-xs sm:text-sm text-toned">live socket · messages keep flowing through a drop</span>
+          <span class="font-mono text-xs sm:text-sm text-toned">live socket · messages keep flowing through a disconnect</span>
           <span class="ml-auto inline-flex items-center justify-end gap-1.5 min-w-[8.5rem] font-mono text-[11px] transition-colors duration-300" :class="toneText[status.tone]">
             <span class="size-1.5 rounded-full transition-colors duration-300" :class="[toneDot[status.tone], status.tone !== 'ok' ? 'animate-pulse' : '']" />
             {{ status.label }}
@@ -298,7 +298,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
 
         <div class="border-t border-muted/60 px-4 py-3 font-mono text-xs text-toned flex items-center gap-2">
           <UIcon name="i-ph-shield-check-duotone" class="size-4 text-emerald-400 shrink-0" />
-          messages flow until the socket drops, hold while it's down, then replay on reconnect — and the duplicate never lands twice
+          messages flow until the socket disconnects, hold while it's down, then replay on reconnect — and the duplicate never lands twice
         </div>
       </div>
     </Motion>

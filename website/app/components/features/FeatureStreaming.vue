@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
             Lose the socket, keep the stream<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
-            Mark a stream durable and a dropped client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.
+            Mark a stream durable and a disconnected client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.
           </p>
         </div>
       </Motion>
@@ -481,21 +481,21 @@ onBeforeUnmount(() => {
           class="block"
         >
           <div ref="recordedRef" class="overflow-hidden border border-muted bg-default">
-            <div class="flex flex-wrap items-center gap-2.5 border-b border-muted px-4 py-3">
+            <div class="flex items-center gap-2.5 border-b border-muted px-4 py-3">
               <UIcon name="i-ph-floppy-disk-duotone" class="size-4 text-primary shrink-0" />
-              <span class="font-mono text-xs sm:text-sm text-toned"><span class="text-default">recorded</span> · ask-ai</span>
+              <span class="min-w-0 shrink truncate font-mono text-xs sm:text-sm text-toned"><span class="text-default">recorded</span> · ask-ai</span>
               <span class="hidden sm:inline-flex items-center gap-1 border border-muted bg-elevated/40 px-2 py-0.5 font-mono text-[10px] text-toned">best for LLM output</span>
-              <span class="ml-auto inline-flex min-w-[8.5rem] items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[recStatus.tone]">
+              <span class="ml-auto inline-flex min-w-[8.5rem] shrink-0 items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[recStatus.tone]">
                 <span class="size-1.5 rounded-full transition-colors duration-300" :class="[durableDot[recStatus.tone], recStatus.tone !== 'ok' ? 'animate-pulse' : '']" />
                 {{ recStatus.label }}
               </span>
             </div>
 
-            <div class="flex min-h-[3.75rem] flex-wrap items-center gap-1.5 px-4 py-5 font-mono text-[11px] sm:text-xs">
+            <div class="flex h-[4.25rem] items-center gap-1.5 overflow-x-auto px-4 font-mono text-[11px] sm:text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <template v-for="(tk, i) in recTokens" :key="i">
                 <span
                   v-if="recState[i] !== 'idle'"
-                  class="border px-2 py-1 transition-colors duration-300"
+                  class="shrink-0 whitespace-nowrap border px-2 py-1 transition-colors duration-300"
                   :class="{
                     'border-emerald-400/50 bg-emerald-500/10 text-emerald-200': recState[i] === 'live',
                     'border-amber-400/50 bg-amber-500/10 text-amber-200': recState[i] === 'buffered',
@@ -507,11 +507,11 @@ onBeforeUnmount(() => {
                 <span
                   v-if="recPhase !== 'streaming' && i === 2"
                   :key="`m-${i}`"
-                  class="inline-flex items-center gap-1 border px-2 py-1 transition-colors duration-300"
+                  class="inline-flex items-center gap-1 shrink-0 whitespace-nowrap border px-2 py-1 transition-colors duration-300"
                   :class="recPhase === 'dropped' ? 'border-red-500/50 bg-red-500/10 text-red-300' : 'border-primary/50 bg-primary/10 text-primary'"
                 >
                   <UIcon :name="recPhase === 'dropped' ? 'i-ph-plugs-duotone' : 'i-ph-arrow-clockwise-duotone'" class="size-3.5" />
-                  {{ recPhase === 'dropped' ? 'dropped' : 'reconnected' }}
+                  {{ recPhase === 'dropped' ? 'disconnected' : 'reconnected' }}
                 </span>
               </template>
             </div>
@@ -532,34 +532,34 @@ onBeforeUnmount(() => {
           class="block"
         >
           <div ref="resumableRef" class="overflow-hidden border border-muted bg-default">
-            <div class="flex flex-wrap items-center gap-2.5 border-b border-muted px-4 py-3">
+            <div class="flex items-center gap-2.5 border-b border-muted px-4 py-3">
               <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-4 text-primary shrink-0" />
-              <span class="font-mono text-xs sm:text-sm text-toned"><span class="text-default">resumable</span> · paginate</span>
+              <span class="min-w-0 shrink truncate font-mono text-xs sm:text-sm text-toned"><span class="text-default">resumable</span> · paginate</span>
               <span class="hidden sm:inline-flex items-center gap-1 border border-muted bg-elevated/40 px-2 py-0.5 font-mono text-[10px] text-toned">best for re-runnable sources</span>
-              <span class="ml-auto inline-flex min-w-[10.5rem] items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[resStatus.tone]">
+              <span class="ml-auto inline-flex min-w-[10.5rem] shrink-0 items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[resStatus.tone]">
                 <span class="size-1.5 rounded-full transition-colors duration-300" :class="[durableDot[resStatus.tone], resStatus.tone !== 'ok' ? 'animate-pulse' : '']" />
                 {{ resStatus.label }}
               </span>
             </div>
 
-            <div class="flex min-h-[3.75rem] flex-wrap items-center gap-1.5 px-4 py-5 font-mono text-[11px] sm:text-xs">
+            <div class="flex h-[4.25rem] items-center gap-1.5 overflow-x-auto px-4 font-mono text-[11px] sm:text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <template v-for="r in resRows" :key="r">
                 <span
                   v-if="r <= resShown"
-                  class="border px-2 py-1 transition-colors duration-300"
+                  class="shrink-0 whitespace-nowrap border px-2 py-1 transition-colors duration-300"
                   :class="r <= 3 ? 'border-sky-400/40 bg-sky-500/10 text-sky-200' : 'border-emerald-400/50 bg-emerald-500/10 text-emerald-200'"
                 >row #{{ r }}</span>
                 <span
                   v-if="resPhase !== 'streaming' && r === 3"
                   :key="`rm-${r}`"
-                  class="inline-flex items-center gap-1 border px-2 py-1 transition-colors duration-300"
+                  class="inline-flex items-center gap-1 shrink-0 whitespace-nowrap border px-2 py-1 transition-colors duration-300"
                   :class="resPhase === 'dropped' ? 'border-red-500/50 bg-red-500/10 text-red-300' : 'border-primary/50 bg-primary/10 text-primary'"
                 >
                   <UIcon :name="resPhase === 'dropped' ? 'i-ph-plugs-duotone' : 'i-ph-arrow-clockwise-duotone'" class="size-3.5" />
-                  {{ resPhase === 'dropped' ? 'dropped' : 're-run from idx: 3' }}
+                  {{ resPhase === 'dropped' ? 'disconnected' : 're-run from idx: 3' }}
                 </span>
               </template>
-              <span v-if="resShown > 0" class="ml-1 inline-flex items-center gap-1 border border-primary/40 bg-primary/[0.06] px-2 py-1 text-primary">
+              <span v-if="resShown > 0" class="ml-1 inline-flex shrink-0 whitespace-nowrap items-center gap-1 border border-primary/40 bg-primary/[0.06] px-2 py-1 text-primary">
                 <UIcon name="i-ph-map-pin-duotone" class="size-3.5" /> cursor idx: {{ resCursor }}
               </span>
             </div>
