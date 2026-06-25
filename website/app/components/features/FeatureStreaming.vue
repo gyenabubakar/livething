@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Motion } from 'motion-v'
+import type { TimedEvent } from '~/composables/useTimedSequence'
 
 const prefersReducedMotion = ref(false)
 const demoRef = ref<HTMLElement>()
@@ -66,6 +67,100 @@ function stepTick() {
   }
 }
 
+/* ----------------------------------------------------------------------------
+ * Durable streams — two demos.
+ * Recorded (good for AI): buffers every chunk; a reconnecting client replays
+ * the misses. Resumable (good for deterministic sources): stores only a cursor
+ * and re-runs the generator from it.
+ * ------------------------------------------------------------------------- */
+const recordedRef = ref<HTMLElement>()
+const resumableRef = ref<HTMLElement>()
+let recordedObs: IntersectionObserver | undefined
+let resumableObs: IntersectionObserver | undefined
+
+// Recorded: AI tokens stream, the socket drops, the missed chunks replay.
+const recTokens = ['Type-', 'safe ', 'realtime, ', 'token ', 'by ', 'token']
+type RecS = 'idle' | 'live' | 'buffered' | 'replayed'
+const recState = ref<RecS[]>(recTokens.map(() => 'idle'))
+type RecPhase = 'streaming' | 'dropped' | 'replaying' | 'synced'
+const recPhase = ref<RecPhase>('streaming')
+function recSet(i: number, s: RecS) {
+  const next = [...recState.value]
+  next[i] = s
+  recState.value = next
+}
+function recReset() {
+  recPhase.value = 'streaming'
+  recState.value = recTokens.map(() => 'idle')
+}
+const recEvents: TimedEvent[] = [
+  { at: 300, run: () => recSet(0, 'live') },
+  { at: 750, run: () => recSet(1, 'live') },
+  { at: 1200, run: () => recSet(2, 'live') },
+  { at: 1700, run: () => { recPhase.value = 'dropped' } },
+  { at: 2050, run: () => recSet(3, 'buffered') },
+  { at: 2450, run: () => recSet(4, 'buffered') },
+  { at: 3500, run: () => { recPhase.value = 'replaying' } },
+  { at: 3850, run: () => recSet(3, 'replayed') },
+  { at: 4200, run: () => recSet(4, 'replayed') },
+  { at: 4650, run: () => recSet(5, 'live') },
+  { at: 5050, run: () => { recPhase.value = 'synced' } },
+]
+const recSeq = useTimedSequence({ events: recEvents, totalDuration: 5050 + 2400, loop: true, onReset: recReset })
+const recStatus = computed(() => {
+  switch (recPhase.value) {
+    case 'dropped': return { label: 'disconnected', tone: 'bad' }
+    case 'replaying': return { label: 'replaying buffer', tone: 'warn' }
+    case 'synced': return { label: 'in sync', tone: 'ok' }
+    default: return { label: 'streaming', tone: 'warn' }
+  }
+})
+
+// Resumable: rows are produced and the cursor advances; on reconnect the
+// generator re-runs from the saved cursor and continues live.
+const resRows = [1, 2, 3, 4, 5, 6]
+const resShown = ref(0)
+const resCursor = ref(0)
+type ResPhase = 'streaming' | 'dropped' | 'rerun' | 'synced'
+const resPhase = ref<ResPhase>('streaming')
+function resReset() {
+  resPhase.value = 'streaming'
+  resShown.value = 0
+  resCursor.value = 0
+}
+const resEvents: TimedEvent[] = [
+  { at: 300, run: () => { resShown.value = 1; resCursor.value = 1 } },
+  { at: 750, run: () => { resShown.value = 2; resCursor.value = 2 } },
+  { at: 1200, run: () => { resShown.value = 3; resCursor.value = 3 } },
+  { at: 1700, run: () => { resPhase.value = 'dropped' } },
+  { at: 3100, run: () => { resPhase.value = 'rerun' } },
+  { at: 3650, run: () => { resShown.value = 4; resCursor.value = 4 } },
+  { at: 4100, run: () => { resShown.value = 5; resCursor.value = 5 } },
+  { at: 4550, run: () => { resShown.value = 6; resCursor.value = 6 } },
+  { at: 5000, run: () => { resPhase.value = 'synced' } },
+]
+const resSeq = useTimedSequence({ events: resEvents, totalDuration: 5000 + 2400, loop: true, onReset: resReset })
+const resStatus = computed(() => {
+  switch (resPhase.value) {
+    case 'dropped': return { label: 'disconnected', tone: 'bad' }
+    case 'rerun': return { label: 're-running from cursor', tone: 'warn' }
+    case 'synced': return { label: 'in sync', tone: 'ok' }
+    default: return { label: 'streaming', tone: 'warn' }
+  }
+})
+
+const durableTone: Record<string, string> = { ok: 'text-emerald-300', warn: 'text-amber-300', bad: 'text-red-300' }
+const durableDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-400', bad: 'bg-red-400' }
+
+function observeOnce(el: HTMLElement | undefined, start: () => void): IntersectionObserver | undefined {
+  if (!el) { start(); return undefined }
+  const o = new IntersectionObserver(([e]) => {
+    if (e?.isIntersecting) { start(); o.disconnect() }
+  }, { threshold: 0.3 })
+  o.observe(el)
+  return o
+}
+
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -73,6 +168,11 @@ onMounted(() => {
     shown.value = tokens.length
     phase.value = 'done'
     stepShown.value = agentSteps.length
+    recState.value = recTokens.map(() => 'live')
+    recPhase.value = 'synced'
+    resShown.value = resRows.length
+    resCursor.value = resRows.length
+    resPhase.value = 'synced'
     return
   }
 
@@ -95,11 +195,16 @@ onMounted(() => {
     )
     nudgeObserver.observe(nudgeRef.value)
   }
+
+  recordedObs = observeOnce(recordedRef.value, recSeq.start)
+  resumableObs = observeOnce(resumableRef.value, resSeq.start)
 })
 
 onBeforeUnmount(() => {
   observer?.disconnect()
   nudgeObserver?.disconnect()
+  recordedObs?.disconnect()
+  resumableObs?.disconnect()
   if (tickInterval) clearInterval(tickInterval)
   if (restartTimer) clearTimeout(restartTimer)
   if (stepInterval) clearInterval(stepInterval)
@@ -344,6 +449,132 @@ onBeforeUnmount(() => {
           </div>
         </Motion>
       </div>
+    </div>
+
+    <!-- Sub-section: durable streams -->
+    <div class="mt-20 md:mt-24">
+      <Motion
+        :initial="false"
+        :while-in-view="{ opacity: 1, y: 0 }"
+        :transition="{ duration: 0.5 }"
+        :in-view-options="{ once: true }"
+        class="mb-8"
+      >
+        <div>
+          <p class="section-label">Durable streams</p>
+          <h3 class="mt-4 text-2xl md:text-3xl font-semibold tracking-tight text-highlighted">
+            Lose the socket, keep the stream<span class="text-primary">.</span>
+          </h3>
+          <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
+            Mark a stream durable and a dropped client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.
+          </p>
+        </div>
+      </Motion>
+
+      <div class="space-y-6">
+        <!-- Recorded — buffers every chunk, replays the misses (good for AI) -->
+        <Motion
+          :initial="false"
+          :while-in-view="{ opacity: 1, y: 0 }"
+          :transition="{ duration: 0.5, delay: 0.1 }"
+          :in-view-options="{ once: true }"
+          class="block"
+        >
+          <div ref="recordedRef" class="overflow-hidden border border-muted bg-default">
+            <div class="flex flex-wrap items-center gap-2.5 border-b border-muted px-4 py-3">
+              <UIcon name="i-ph-floppy-disk-duotone" class="size-4 text-primary shrink-0" />
+              <span class="font-mono text-xs sm:text-sm text-toned"><span class="text-default">recorded</span> · ask-ai</span>
+              <span class="hidden sm:inline-flex items-center gap-1 border border-muted bg-elevated/40 px-2 py-0.5 font-mono text-[10px] text-toned">best for LLM output</span>
+              <span class="ml-auto inline-flex min-w-[8.5rem] items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[recStatus.tone]">
+                <span class="size-1.5 rounded-full transition-colors duration-300" :class="[durableDot[recStatus.tone], recStatus.tone !== 'ok' ? 'animate-pulse' : '']" />
+                {{ recStatus.label }}
+              </span>
+            </div>
+
+            <div class="flex min-h-[3.75rem] flex-wrap items-center gap-1.5 px-4 py-5 font-mono text-[11px] sm:text-xs">
+              <template v-for="(tk, i) in recTokens" :key="i">
+                <span
+                  v-if="recState[i] !== 'idle'"
+                  class="border px-2 py-1 transition-colors duration-300"
+                  :class="{
+                    'border-emerald-400/50 bg-emerald-500/10 text-emerald-200': recState[i] === 'live',
+                    'border-amber-400/50 bg-amber-500/10 text-amber-200': recState[i] === 'buffered',
+                    'border-primary/60 bg-primary/10 text-primary': recState[i] === 'replayed',
+                  }"
+                >
+                  {{ tk.trim() }}<span v-if="recState[i] === 'buffered'" class="ml-1.5 text-[9px] uppercase tracking-wide text-amber-300">buffered</span><span v-if="recState[i] === 'replayed'" class="ml-1.5 text-[9px] uppercase tracking-wide text-primary">replayed</span>
+                </span>
+                <span
+                  v-if="recPhase !== 'streaming' && i === 2"
+                  :key="`m-${i}`"
+                  class="inline-flex items-center gap-1 border px-2 py-1 transition-colors duration-300"
+                  :class="recPhase === 'dropped' ? 'border-red-500/50 bg-red-500/10 text-red-300' : 'border-primary/50 bg-primary/10 text-primary'"
+                >
+                  <UIcon :name="recPhase === 'dropped' ? 'i-ph-plugs-duotone' : 'i-ph-arrow-clockwise-duotone'" class="size-3.5" />
+                  {{ recPhase === 'dropped' ? 'dropped' : 'reconnected' }}
+                </span>
+              </template>
+            </div>
+
+            <div class="flex flex-col gap-2 border-t border-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-xs leading-relaxed text-toned">Every chunk is buffered as it sends, so a reconnecting client replays exactly what it missed — your generator never re-runs.</p>
+              <code class="shrink-0 border border-muted bg-elevated/40 px-2 py-1 font-mono text-[11px] text-primary">base.recordedStream('ask-ai', …)</code>
+            </div>
+          </div>
+        </Motion>
+
+        <!-- Resumable — stores only a cursor, re-runs from it (good for deterministic sources) -->
+        <Motion
+          :initial="false"
+          :while-in-view="{ opacity: 1, y: 0 }"
+          :transition="{ duration: 0.5, delay: 0.2 }"
+          :in-view-options="{ once: true }"
+          class="block"
+        >
+          <div ref="resumableRef" class="overflow-hidden border border-muted bg-default">
+            <div class="flex flex-wrap items-center gap-2.5 border-b border-muted px-4 py-3">
+              <UIcon name="i-ph-arrow-counter-clockwise-duotone" class="size-4 text-primary shrink-0" />
+              <span class="font-mono text-xs sm:text-sm text-toned"><span class="text-default">resumable</span> · paginate</span>
+              <span class="hidden sm:inline-flex items-center gap-1 border border-muted bg-elevated/40 px-2 py-0.5 font-mono text-[10px] text-toned">best for re-runnable sources</span>
+              <span class="ml-auto inline-flex min-w-[10.5rem] items-center justify-end gap-1.5 font-mono text-[11px] transition-colors duration-300" :class="durableTone[resStatus.tone]">
+                <span class="size-1.5 rounded-full transition-colors duration-300" :class="[durableDot[resStatus.tone], resStatus.tone !== 'ok' ? 'animate-pulse' : '']" />
+                {{ resStatus.label }}
+              </span>
+            </div>
+
+            <div class="flex min-h-[3.75rem] flex-wrap items-center gap-1.5 px-4 py-5 font-mono text-[11px] sm:text-xs">
+              <template v-for="r in resRows" :key="r">
+                <span
+                  v-if="r <= resShown"
+                  class="border px-2 py-1 transition-colors duration-300"
+                  :class="r <= 3 ? 'border-sky-400/40 bg-sky-500/10 text-sky-200' : 'border-emerald-400/50 bg-emerald-500/10 text-emerald-200'"
+                >row #{{ r }}</span>
+                <span
+                  v-if="resPhase !== 'streaming' && r === 3"
+                  :key="`rm-${r}`"
+                  class="inline-flex items-center gap-1 border px-2 py-1 transition-colors duration-300"
+                  :class="resPhase === 'dropped' ? 'border-red-500/50 bg-red-500/10 text-red-300' : 'border-primary/50 bg-primary/10 text-primary'"
+                >
+                  <UIcon :name="resPhase === 'dropped' ? 'i-ph-plugs-duotone' : 'i-ph-arrow-clockwise-duotone'" class="size-3.5" />
+                  {{ resPhase === 'dropped' ? 'dropped' : 're-run from idx: 3' }}
+                </span>
+              </template>
+              <span v-if="resShown > 0" class="ml-1 inline-flex items-center gap-1 border border-primary/40 bg-primary/[0.06] px-2 py-1 text-primary">
+                <UIcon name="i-ph-map-pin-duotone" class="size-3.5" /> cursor idx: {{ resCursor }}
+              </span>
+            </div>
+
+            <div class="flex flex-col gap-2 border-t border-muted/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-xs leading-relaxed text-toned">Only the cursor is stored. On reconnect the generator re-runs from it and continues live — nothing buffered but the position.</p>
+              <code class="shrink-0 border border-muted bg-elevated/40 px-2 py-1 font-mono text-[11px] text-primary">base.resumableStream('paginate', …)</code>
+            </div>
+          </div>
+        </Motion>
+      </div>
+
+      <p class="mt-6 font-mono text-[11px] text-dimmed">
+        Suspended streams are kept for 5 minutes, by default.
+      </p>
     </div>
   </section>
 </template>

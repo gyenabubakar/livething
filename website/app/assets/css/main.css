@@ -38,7 +38,10 @@
 }
 
 .section-label {
-  @apply font-pixel text-xs uppercase tracking-wider text-default mb-4 flex items-center;
+  @apply font-pixel text-[13px] uppercase tracking-wider text-highlighted mb-4 flex items-center;
+  /* The pixel font is a hairline at one weight — a tight currentColor glow
+     thickens the strokes so the small label reads on the dark background. */
+  text-shadow: 0 0 1px currentColor;
 }
 
 .section-label::before {
