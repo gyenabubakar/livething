@@ -375,7 +375,7 @@ const parcelCls: Record<string, string> = {
             The server can ask too<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
-            Requests run both ways. Declare one with an <code class="font-mono text-primary bg-elevated/60 px-1">out</code> the server sends and an <code class="font-mono text-primary bg-elevated/60 px-1">in</code> the client returns, then <code class="font-mono text-primary bg-elevated/60 px-1">await ctx.request</code> on the server — it pauses until that one client answers its <code class="font-mono text-primary bg-elevated/60 px-1">onRequest</code> handler, fully typed, with a timeout if it never does.
+            Most realtime only flows one way. WSKit lets the server turn around and ask the client — for a confirmation, a permission, a value — and <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">await</code> the typed answer, with a timeout if it never comes. The same request/response, pointed the other direction.
           </p>
         </div>
       </Motion>

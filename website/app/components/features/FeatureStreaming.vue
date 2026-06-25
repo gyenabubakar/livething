@@ -265,7 +265,7 @@ onBeforeUnmount(() => {
             Steer it between steps<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
-            You can't rewrite a token once it's out — but between steps, like an agent's tool calls, a nudge is a typed message the client sends back into a running stream. The generator reads it right where it yields, so you can <span class="text-highlighted">stop</span> or <span class="text-highlighted">redirect</span> a run without tearing it down.
+            Change your mind mid-stream. Between steps, the client can reach back into a running stream to <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">stop</code> it or point it somewhere new, with no restart and nothing torn down. Typed, like everything else.
           </p>
         </div>
       </Motion>
