@@ -2,11 +2,22 @@
 // beacon only loads once a token is present, so local dev stays clean.
 const cfBeaconToken = process.env.NUXT_PUBLIC_CF_BEACON_TOKEN
 
+// Single source of truth for the site's public URL. Override via the
+// NUXT_PUBLIC_SITE_URL build env var, or just change this default when the
+// real domain is bought — every canonical/OG/sitemap URL follows it.
+const siteUrl = process.env.NUXT_PUBLIC_SITE_URL || 'https://wskit.gyen.dev'
+
 export default defineNuxtConfig({
   extends: ['docus'],
 
   devServer: {
     port: 9000,
+  },
+
+  runtimeConfig: {
+    public: {
+      siteUrl,
+    },
   },
 
   app: {
@@ -76,7 +87,7 @@ export default defineNuxtConfig({
 
   site: {
     name: 'WSKit',
-    url: 'https://www.wskit.dev',
+    url: siteUrl,
   },
 
   ogImage: {

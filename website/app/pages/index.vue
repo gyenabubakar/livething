@@ -4,10 +4,12 @@ definePageMeta({
   layout: false,
 })
 
+const siteUrl = useRuntimeConfig().public.siteUrl as string
+
 useHead({
   titleTemplate: '',
   link: [
-    { rel: 'canonical', href: 'https://www.wskit.dev/' },
+    { rel: 'canonical', href: `${siteUrl}/` },
     {
       rel: 'preload',
       href: '/fonts/GeistPixel-Line.woff2',
@@ -33,7 +35,7 @@ useSeoMeta({
   description:
     page.value?.description
     || 'A typed WebSocket framework for TypeScript. Channels, streams, requests, and reconnection built in, with one inferred contract across your server and client.',
-  ogUrl: 'https://www.wskit.dev/',
+  ogUrl: `${siteUrl}/`,
   twitterSite: '@GyenAbubakar',
   twitterCreator: '@GyenAbubakar',
 })

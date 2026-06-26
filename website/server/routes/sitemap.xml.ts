@@ -18,7 +18,7 @@ interface SitemapUrl {
  *    pointing at a URL that does not match any prerendered page. We rewrite it to `/`.
  */
 export default defineEventHandler(async (event) => {
-  const siteUrl = inferSiteURL() || ''
+  const siteUrl = (useRuntimeConfig(event).public.siteUrl as string) || ''
 
   const urls: SitemapUrl[] = []
   const seen = new Set<string>()
@@ -55,27 +55,6 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, 'content-type', 'application/xml')
   return generateSitemap(urls, siteUrl)
 })
-
-function inferSiteURL() {
-  const url
-    = process.env.NUXT_PUBLIC_SITE_URL
-      || process.env.NUXT_SITE_URL
-      || process.env.VERCEL_PROJECT_PRODUCTION_URL
-      || process.env.VERCEL_BRANCH_URL
-      || process.env.VERCEL_URL
-      || process.env.URL
-      || process.env.CI_PAGES_URL
-      || process.env.CF_PAGES_URL
-
-  // Cloudflare Workers builds set none of the above, so fall back to the
-  // canonical domain — a sitemap needs absolute URLs.
-  return url ? ensureHttps(url) : 'https://www.wskit.dev'
-}
-
-// Force the https:// protocol, whether the env var is a bare host or already prefixed.
-function ensureHttps(input: string): string {
-  return `https://${input.replace(/^(?:https?:)?\/\//, '')}`
-}
 
 function generateSitemap(urls: SitemapUrl[], siteUrl: string): string {
   const urlEntries = urls
