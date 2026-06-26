@@ -1,3 +1,7 @@
+// Cloudflare Web Analytics beacon token — set in the Workers build env. The
+// beacon only loads once a token is present, so local dev stays clean.
+const cfBeaconToken = process.env.NUXT_PUBLIC_CF_BEACON_TOKEN
+
 export default defineNuxtConfig({
   extends: ['docus'],
 
@@ -15,11 +19,34 @@ export default defineNuxtConfig({
         { rel: 'manifest', href: '/site.webmanifest' },
         { rel: 'shortcut icon', href: '/favicon.ico' },
       ],
+      script: cfBeaconToken
+        ? [
+            {
+              src: 'https://static.cloudflareinsights.com/beacon.min.js',
+              defer: true,
+              'data-cf-beacon': JSON.stringify({ token: cfBeaconToken }),
+            },
+          ]
+        : [],
     },
   },
 
   routeRules: {
     '/': { prerender: true },
+  },
+
+  nitro: {
+    prerender: {
+      crawlLinks: true,
+      routes: ['/'],
+      // Cap parallelism so the OG-image (satori/resvg) renders don't swamp the
+      // worker pool and time out — the heavy OG template needs breathing room.
+      concurrency: 3,
+    },
+  },
+
+  mcp: {
+    enabled: false,
   },
 
   modules: [
@@ -79,6 +106,13 @@ export default defineNuxtConfig({
   },
 
   content: {
+    build: {
+      markdown: {
+        highlight: {
+          theme: { default: 'github-dark', dark: 'github-dark' },
+        },
+      },
+    },
     experimental: {
       sqliteConnector: 'native',
     },
@@ -86,6 +120,7 @@ export default defineNuxtConfig({
 
   mdc: {
     highlight: {
+      theme: { default: 'github-dark', dark: 'github-dark' },
       noApiRoute: false,
       // Include every language used in `content/` — a narrow list (e.g. only `tsx`) breaks SSR
       // on refresh when Shiki/MDC cannot load grammars for `bash`, `vue`, etc.

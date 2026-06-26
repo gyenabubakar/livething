@@ -67,7 +67,9 @@ function inferSiteURL() {
       || process.env.CI_PAGES_URL
       || process.env.CF_PAGES_URL
 
-  return url ? ensureHttps(url) : undefined
+  // Cloudflare Workers builds set none of the above, so fall back to the
+  // canonical domain — a sitemap needs absolute URLs.
+  return url ? ensureHttps(url) : 'https://www.wskit.dev'
 }
 
 // Force the https:// protocol, whether the env var is a bare host or already prefixed.
