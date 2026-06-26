@@ -4,11 +4,11 @@
  * Every WSKit wire frame is `{ event, payload, __wskit }`. `payload` is pure
  * user data; `__wskit` is framework routing and correlation metadata — the two
  * never share a namespace. Protocol events (the ones the engine itself speaks)
- * are named `__x__`. Incoming protocol frames each have a valibot schema here and
- * are parsed once at the gateway, so the dispatcher works with a discriminated
- * union instead of hand-checking wire fields at each read site. Outgoing frames
- * are not validated — the engine builds them itself — so only their event names
- * are tracked, in `OUTGOING_PROTOCOL_EVENT_NAMES`.
+ * are named `__x__` and each has its own valibot schema here.
+ *
+ * The incoming variants are parsed once at the gateway, so the dispatcher works
+ * with a discriminated union instead of hand-checking wire fields at each read
+ * site.
  */
 import { WIRE_LIMITS } from '@wskit/core';
 import * as v from 'valibot';
@@ -150,6 +150,145 @@ export const IncomingProtocolFrame = v.variant('event', [
   MemberSyncRequestFrame,
 ]);
 
+export const SubscribeOkFrame = v.object({
+  event: v.literal('__subscribeOk__'),
+  payload: NoPayload,
+  // `source` is who initiated the subscribe: 'client' (the client's own
+  // subscribe call, so it resolves that pending promise) or 'server' (the server
+  // subscribed it, so there is no client promise to settle). `channelPersistent`
+  // tells the client whether this channel auto-rejoins on reconnect (server
+  // -driven) so it knows not to re-subscribe it itself.
+  __wskit: v.strictObject({
+    ...RequiredChannelScope,
+    source: Source,
+    channelPersistent: v.optional(v.boolean()),
+  }),
+});
+
+export const UnsubscribeOkFrame = v.object({
+  event: v.literal('__unsubscribeOk__'),
+  payload: NoPayload,
+  // Echoes the leave's `unsubscribeId` so the client settles the exact pending
+  // leave op — never a stale one from an earlier connection.
+  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: WireId }),
+});
+
+export const StreamOkFrame = v.object({
+  event: v.literal('__streamOk__'),
+  payload: NoPayload,
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamKind: StreamKind }),
+});
+
+export const NudgeOkFrame = v.object({
+  event: v.literal('__nudgeOk__'),
+  payload: NoPayload,
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamNudgeId: WireId }),
+});
+
+export const StreamEndFrame = v.object({
+  event: v.literal('__streamEnd__'),
+  payload: NoPayload,
+  // `seq` is the final sequence number, so the client can check for missed chunks.
+  // `eventName` is the stream's declared event, carried on a broadcast fan-out so a
+  // listen-only subscriber can route this terminal frame (its `event` is the protocol name).
+  __wskit: v.strictObject({
+    ...OptionalScope,
+    streamId: StreamIdString,
+    seq: v.optional(NonNegativeSafeInt),
+    eventName: v.optional(EventName),
+  }),
+});
+
+export const ErrorFrame = v.object({
+  event: v.literal('__error__'),
+  payload: v.strictObject({
+    code: v.string(),
+    detail: v.optional(v.unknown()),
+  }),
+  __wskit: v.strictObject({
+    ...OptionalScope,
+    correlationId: v.optional(v.string()),
+    source: v.optional(Source),
+    streamId: v.optional(v.string()),
+    streamNudgeId: v.optional(v.string()),
+    // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
+    streamTerminated: v.optional(v.boolean()),
+    // The stream's declared event, carried on a broadcast error fan-out so a
+    // listen-only subscriber can route this terminal frame.
+    eventName: v.optional(EventName),
+  }),
+});
+
+export const KickedFrame = v.object({
+  event: v.literal('__kicked__'),
+  payload: v.strictObject({ reason: v.string() }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const MemberJoinFrame = v.object({
+  event: v.literal('__memberJoin__'),
+  payload: v.strictObject({
+    connectionId: v.string(),
+    meta: v.optional(v.record(v.string(), v.unknown())),
+  }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const MemberLeaveFrame = v.object({
+  event: v.literal('__memberLeave__'),
+  payload: v.strictObject({
+    connectionId: v.string(),
+    meta: v.optional(v.record(v.string(), v.unknown())),
+  }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const MemberOnlineFrame = v.object({
+  event: v.literal('__memberOnline__'),
+  payload: v.strictObject({
+    connectionId: v.string(),
+    meta: v.optional(v.record(v.string(), v.unknown())),
+  }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const MemberOfflineFrame = v.object({
+  event: v.literal('__memberOffline__'),
+  payload: v.strictObject({ connectionId: v.string() }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+// The whole current member list, sent once right after __subscribeOk__ in
+// place of a per-member __memberJoin__ / __memberOnline__ initial batch.
+export const MemberSyncFrame = v.object({
+  event: v.literal('__memberSync__'),
+  payload: v.strictObject({
+    members: v.array(
+      v.strictObject({
+        connectionId: v.string(),
+        meta: v.optional(v.record(v.string(), v.unknown())),
+      }),
+    ),
+  }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
+});
+
+/** All frames the engine sends to clients, discriminated on `event`. */
+export const OutgoingProtocolFrame = v.variant('event', [
+  SubscribeOkFrame,
+  UnsubscribeOkFrame,
+  StreamOkFrame,
+  NudgeOkFrame,
+  StreamEndFrame,
+  ErrorFrame,
+  KickedFrame,
+  MemberJoinFrame,
+  MemberLeaveFrame,
+  MemberOnlineFrame,
+  MemberOfflineFrame,
+  MemberSyncFrame,
+]);
+
 /**
  * The loose `__wskit` block on a user-event frame. Carries the correlation id
  * for request-response flows, the routing markers for scoped sends, and the
@@ -181,6 +320,7 @@ export const UserEventFrameSchema = v.strictObject({
 });
 
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
+export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
 export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;
 export type UserEventFrame = v.InferOutput<typeof UserEventFrameSchema>;
 
@@ -194,8 +334,23 @@ export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
 
+export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
+export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
+export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
+export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
+export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
+export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;
+export type KickedFrame = v.InferOutput<typeof KickedFrame>;
+export type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
+export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
+export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
+export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
+export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
+
 /** Names of the protocol events the client may send into the engine. */
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
+/** Names of the protocol events the engine sends to clients. */
+export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
 
 /**
  * True when `name` has the protocol-event shape `__x__`.
@@ -206,24 +361,24 @@ export function isProtocolEventName(name: unknown): name is `__${string}__` {
   );
 }
 
+/** Pull the `event` literal out of each option of a protocol variant schema. */
+function collectVariantEventNames(variant: typeof OutgoingProtocolFrame): string[] {
+  const names: string[] = [];
+  for (const option of variant.options) {
+    const eventSchema = option.entries.event;
+    if (eventSchema.type === 'literal' && typeof eventSchema.literal === 'string') {
+      names.push(eventSchema.literal);
+    }
+  }
+  return names;
+}
+
 /**
- * The exact set of protocol event names the engine itself sends to clients.
- * The engine does not validate outgoing frames, so these are listed directly
- * rather than derived from schemas. Use this — not the `__x__` shape — to decide
- * whether an outgoing event is real engine traffic, so an undeclared `__madeUp__`
- * cannot pass as a protocol frame. `protocol.spec.ts` pins this list.
+ * The exact set of protocol event names the engine itself sends to clients,
+ * built from the outgoing protocol frame schemas. Use this — not the `__x__`
+ * shape — to decide whether an outgoing event is real engine traffic, so an
+ * undeclared `__madeUp__` cannot pass as a protocol frame.
  */
-export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set([
-  '__subscribeOk__',
-  '__unsubscribeOk__',
-  '__streamOk__',
-  '__nudgeOk__',
-  '__streamEnd__',
-  '__error__',
-  '__kicked__',
-  '__memberJoin__',
-  '__memberLeave__',
-  '__memberOnline__',
-  '__memberOffline__',
-  '__memberSync__',
-]);
+export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(
+  collectVariantEventNames(OutgoingProtocolFrame),
+);

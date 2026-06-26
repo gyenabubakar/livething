@@ -206,12 +206,12 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
   if (!hasReplay) return;
   if (!hasDedup) {
     throw new Error(
-      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup()\` to capabilities.`,
+      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
     );
   }
   if (!hasPersistentSequence) {
     throw new Error(
-      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence({ persist: true })\` to capabilities.`,
+      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
     );
   }
 }
