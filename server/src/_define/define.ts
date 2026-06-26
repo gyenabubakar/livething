@@ -1122,9 +1122,23 @@ export type ChannelObjectCore<
     TCaps,
     TServerRequests
   > &
+  ('requests' extends BrandsOf<TCaps>
+    ? ChannelRequestMethods<
+        TSlots,
+        TEnv,
+        TMeta,
+        TKey,
+        TParams,
+        TOutgoing,
+        TAddressing,
+        TSubscribe,
+        TCaps,
+        TServerRequests
+      >
+    : {}) &
   ('intercepts' extends BrandsOf<TCaps> ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps> : {});
 
-/** The `on` / `request` / lifecycle methods every channel object carries. */
+/** The `on` / lifecycle methods every channel object carries. */
 export interface ChannelCoreMethods<
   TSlots,
   TEnv,
@@ -1153,6 +1167,35 @@ export interface ChannelCoreMethods<
     { incoming: Record<TEvent, InferInput<TInput>> }
   >;
 
+  /** Runs after a client subscribes to this channel. */
+  subscribe(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
+  /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
+  unsubscribe(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
+  /** Runs on every session end, including a plain disconnect. */
+  sessionEnd(
+    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+  ): void;
+  /** Register a custom replay strategy scoped to this channel. */
+  replay(hooks: CustomReplayHooks): void;
+}
+
+/** Channel `request(...)`, granted by the `requests()` capability. */
+export interface ChannelRequestMethods<
+  TSlots,
+  TEnv,
+  TMeta,
+  TKey extends string,
+  TParams,
+  TOutgoing,
+  TAddressing extends string,
+  TSubscribe,
+  TCaps extends readonly AnyCapability[] = readonly [],
+  TServerRequests = {},
+> {
   /** Register a client→server request handler scoped to this channel. */
   request<
     TEvent extends string,
@@ -1172,21 +1215,6 @@ export interface ChannelCoreMethods<
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
     { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
   >;
-
-  /** Runs after a client subscribes to this channel. */
-  subscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
-  ): void;
-  /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
-  unsubscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
-  ): void;
-  /** Runs on every session end, including a plain disconnect. */
-  sessionEnd(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
-  ): void;
-  /** Register a custom replay strategy scoped to this channel. */
-  replay(hooks: CustomReplayHooks): void;
 }
 
 /** Channel `intercept(...)`, granted by the `intercepts()` capability. */

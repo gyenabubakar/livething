@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
@@ -137,6 +138,7 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
 ): ScheduledCapability<TDefs> {
   const declarations = new Map<string, ScheduledDeclaration>();
   for (const [taskId, def] of Object.entries(defs)) {
+    assertValidWSKitIdentifier(taskId, 'scheduled() task id');
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
   const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>([

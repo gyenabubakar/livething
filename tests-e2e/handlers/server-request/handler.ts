@@ -70,9 +70,18 @@ const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
   input: v.object({}),
   async run(ctx) {
     try {
-      const answer = await (ctx as any).request(
+      const unsafeCtx = ctx as {
+        request(
+          event: string,
+          payload: Record<string, unknown>,
+          opts: { timeout: number },
+        ): Promise<unknown>;
+      };
+      const answer = await unsafeCtx.request(
         'undeclared-question',
-        { action: 'should-not-send' },
+        {
+          action: 'should-not-send',
+        },
         { timeout: 500 },
       );
       ctx.send('undeclared-outcome', {

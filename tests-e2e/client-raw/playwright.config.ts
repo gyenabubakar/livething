@@ -22,6 +22,7 @@ export default defineConfig({
   // can't mask a real bug — a deterministic failure fails the retry too.
   workers: 3,
   retries: 1,
+  failOnFlakyTests: !!process.env.CI,
   use: {
     baseURL: 'http://127.0.0.1:4173',
   },

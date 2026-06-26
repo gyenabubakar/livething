@@ -1,10 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  assertSyncResult,
-  assertValidWSKitIdentifier,
-  ValidationFailed,
-  WSKitConfigError,
-} from '@wskit/core';
+import { assertSyncResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -55,22 +50,6 @@ export function setUniqueOrThrow<V>(
     );
   }
   map.set(key, entry.value);
-}
-
-/**
- * Throw at declaration time if an event name clashes with the WSKit wire
- * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
- * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
- * plugin-owned events. Called by every definition factory that takes an event
- * name.
- */
-export function assertNonReservedEventName(name: string, factory: string): void {
-  assertValidWSKitIdentifier(name, `${factory}() event name`);
-  if (name === 'ping' || name === 'pong') {
-    throw new Error(
-      `[wskit] '${name}' is a reserved keepalive frame name. Pick a different name for ${factory}().`,
-    );
-  }
 }
 
 /**

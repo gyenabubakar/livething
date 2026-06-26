@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -42,6 +43,7 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
   handler: IncomingHandler<TCtx, TPayload>,
   options?: { validator?: Validator<TPayload> },
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
+  assertValidWSKitIdentifier(event, 'incoming() event name');
   return {
     __wskit: 'incoming',
     __kind: 'handler',

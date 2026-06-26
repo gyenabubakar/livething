@@ -121,3 +121,8 @@ noRequests.channel(['room', 'room:{id}'], {
 noRequests.channel(['lobby', 'lobby:{id}'], {
   outgoing: { emits: { tick: t<{ n: number }>() } },
 });
+
+const noRequestRoom = noRequests.channel('room');
+
+// @ts-expect-error - channel request handlers need requests() just like base.request().
+noRequestRoom.request('lookup', { run: () => ({ ok: true }) });
