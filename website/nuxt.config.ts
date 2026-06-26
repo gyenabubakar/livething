@@ -53,6 +53,11 @@ export default defineNuxtConfig({
   },
 
   ogImage: {
+    // Standard social card ratio (1.91:1).
+    defaults: {
+      width: 1200,
+      height: 630,
+    },
     // OgImageDocs.satori.vue uses heavy shadow/blur effects, so Satori is slow.
     // The 15s default can time some pages out during prerender — bump it so every
     // OG image renders fully at build time instead of failing the prerender.

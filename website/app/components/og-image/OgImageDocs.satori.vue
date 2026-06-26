@@ -7,7 +7,7 @@ defineOptions({
 
 const brand = '#f4610f'
 const brandGlow =
-  '0 0 10px rgba(40, 83, 255, 0.38), 0 0 22px rgba(40, 83, 255, 0.16)'
+  '0 0 10px rgba(244, 97, 15, 0.38), 0 0 22px rgba(244, 97, 15, 0.16)'
 
 const props = defineProps<{
   title?: string
@@ -128,7 +128,7 @@ function truncate(str: string, max: number) {
       :style="{
         width: '6px',
         backgroundColor: brand,
-        boxShadow: '4px 0 20px rgba(40, 83, 255, 0.28)',
+        boxShadow: '4px 0 20px rgba(244, 97, 15, 0.28)',
       }"
     />
 
@@ -227,13 +227,17 @@ function truncate(str: string, max: number) {
       </div>
 
       <div class="flex flex-col px-14 pb-11 pt-2 gap-3 shrink-0">
-        <div class="flex w-full h-px" style="background-color: rgba(255,255,255,0.1)" />
+        <div class="flex flex-row items-center w-full gap-0">
+          <div class="flex shrink-0" :style="{ width: '7px', height: '7px', backgroundColor: brand, boxShadow: brandGlow }" />
+          <div class="flex flex-1" :style="{ height: '1px', backgroundColor: 'rgba(244,97,15,0.25)' }" />
+          <div class="flex shrink-0" :style="{ width: '7px', height: '7px', backgroundColor: brand, boxShadow: brandGlow }" />
+        </div>
         <div class="flex flex-row justify-between items-center gap-8">
           <div
             class="flex text-[13px] tracking-[0.18em] font-semibold uppercase"
             :style="{ fontFamily: 'DM Mono', color: '#787c85' }"
           >
-            WIDE EVENTS · STRUCTURED ERRORS · TYPESCRIPT
+            CHANNELS · STREAMS · REQUESTS · TYPESCRIPT
           </div>
           <div
             v-if="headline"

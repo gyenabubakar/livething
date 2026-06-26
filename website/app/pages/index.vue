@@ -29,16 +29,17 @@ const { data: page } = await useAsyncData('wskit-docs-home', () => {
 useSeoMeta({
   title:
     page.value?.title
-    || `evlog — Digging through logs is not observability. It's hope.`,
+    || 'WSKit — The complete WebSocket stack for TypeScript',
   description:
     page.value?.description
-    || 'A modern TypeScript logger built for everything you ship — scripts, libraries, jobs, edge, requests. Simple logs, wide events, and structured errors in one API.',
-  ogImage: '/og.png',
-  ogImageWidth: 1200,
-  ogImageHeight: 630,
+    || 'A typed WebSocket framework for TypeScript. Channels, streams, requests, and reconnection built in, with one inferred contract across your server and client.',
   ogUrl: 'https://www.wskit.dev/',
   twitterSite: '@GyenAbubakar',
   twitterCreator: '@GyenAbubakar',
+})
+
+defineOgImage('Home', {
+  title: 'The complete WebSocket stack for TypeScript',
 })
 </script>
 
