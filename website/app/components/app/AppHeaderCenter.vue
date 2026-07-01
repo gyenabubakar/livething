@@ -186,12 +186,6 @@ const landingItems = [
         icon: 'i-ph-warning-duotone',
         description: 'How errors surface and narrow',
         to: '/client/errors/overview'
-      },
-      {
-        label: 'Framework Hooks',
-        icon: 'i-simple-icons-react',
-        description: 'React, Vue, Svelte, Solid, RN',
-        to: '/client/framework-hooks/overview'
       }
     ]
   },
@@ -199,6 +193,12 @@ const landingItems = [
     label: 'Recipes',
     to: '/recipes/overview',
     children: [
+      {
+        label: 'Framework Hooks',
+        icon: 'i-simple-icons-react',
+        description: 'React, Vue, Svelte, Solid, RN',
+        to: '/recipes/framework-hooks/overview'
+      },
       {
         label: 'Chat App',
         icon: 'i-ph-chat-circle-dots-duotone',
