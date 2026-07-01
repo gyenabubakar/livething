@@ -113,7 +113,8 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *
  * @example
  * ```ts
- * import { define, scheduled, t } from '@wskit/server';
+ * import { define, t } from '@wskit/server';
+ * import { scheduled } from '@wskit/server/scheduled';
  *
  * const base = define({
  *   env: t<Env>(),
