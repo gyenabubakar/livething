@@ -6,7 +6,7 @@
         <h1 class="section-title mb-5 leading-[1.1]">
           <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
         </h1>
-        <div aria-hidden="true" class="absolute inset-0 section-title mb-5 leading-[1.1] blur-xs animate-pulse pointer-events-none">
+        <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title mb-5 leading-[1.1] blur-xs animate-pulse pointer-events-none">
           <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
         </div>
       </div>

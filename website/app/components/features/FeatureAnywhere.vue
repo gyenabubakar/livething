@@ -38,21 +38,23 @@ const prefersReducedMotion = ref(false)
 const wireRef = ref<HTMLElement>()
 const seq = useTimedSequence({ events, totalDuration: total, loop: true, onReset: resetState })
 
-let observer: IntersectionObserver | undefined
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (prefersReducedMotion.value) return
-  if (!wireRef.value) { seq.start(); return }
-  observer = new IntersectionObserver(([e]) => {
-    if (e?.isIntersecting) { seq.start(); observer?.disconnect() }
-  }, { threshold: 0.25 })
-  observer.observe(wireRef.value)
 })
-onBeforeUnmount(() => observer?.disconnect())
+
+useViewportActivation(wireRef, {
+  threshold: 0.25,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    seq.start()
+    seq.resume()
+  },
+  onExit: seq.pause,
+})
 </script>
 
 <template>
-  <section class="pt-16 md:pt-20 pb-24 md:pb-32">
+  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + the adapter swap -->
     <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
@@ -69,7 +71,7 @@ onBeforeUnmount(() => observer?.disconnect())
             <h2 class="section-title max-w-xl">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </h2>
-            <div aria-hidden="true" class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
+            <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </div>
           </div>

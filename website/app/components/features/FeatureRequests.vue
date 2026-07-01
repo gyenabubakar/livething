@@ -104,31 +104,33 @@ const askSeq = useTimedSequence({ events: askEvents, totalDuration: 4500 + 2600,
 
 const wireRef = ref<HTMLElement>()
 const askRef = ref<HTMLElement>()
-let mainObs: IntersectionObserver | undefined
-let askObs: IntersectionObserver | undefined
-
-function observe(el: HTMLElement | undefined, start: () => void) {
-  if (!el) { start(); return undefined }
-  const obs = new IntersectionObserver(([e]) => {
-    if (e?.isIntersecting) { start(); obs.disconnect() }
-  }, { threshold: 0.2 })
-  obs.observe(el)
-  return obs
-}
 
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (prefersReducedMotion.value) {
     legs.value = parcels.map(() => 'resolved')
     ask.value = 'done'
-    return
   }
-  mainObs = observe(wireRef.value, main.start)
-  askObs = observe(askRef.value, askSeq.start)
 })
-onBeforeUnmount(() => {
-  mainObs?.disconnect()
-  askObs?.disconnect()
+
+useViewportActivation(wireRef, {
+  threshold: 0.2,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    main.start()
+    main.resume()
+  },
+  onExit: main.pause,
+})
+
+useViewportActivation(askRef, {
+  threshold: 0.2,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    askSeq.start()
+    askSeq.resume()
+  },
+  onExit: askSeq.pause,
 })
 
 // Parcel position. At the server it is right-anchored (left:100% +
@@ -177,7 +179,7 @@ const parcelCls: Record<string, string> = {
 </script>
 
 <template>
-  <section class="py-24 md:py-32">
+  <section class="deferred-section py-24 md:py-32">
     <!-- Top: copy on the left, code on the right -->
     <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
@@ -194,7 +196,7 @@ const parcelCls: Record<string, string> = {
             <h2 class="section-title max-w-xl">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </h2>
-            <div aria-hidden="true" class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
+            <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </div>
           </div>

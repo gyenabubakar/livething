@@ -7,7 +7,6 @@ const demoRef = ref<HTMLElement>()
 
 let cycleInterval: ReturnType<typeof setInterval> | undefined
 let clearTimer: ReturnType<typeof setTimeout> | undefined
-let observer: IntersectionObserver | undefined
 
 const props = defineProps<{
   link?: string
@@ -35,37 +34,41 @@ function pulse() {
   }, 3200)
 }
 
+function startCycle() {
+  if (cycleInterval) return
+  pulse()
+  cycleInterval = setInterval(pulse, 4800)
+}
+
+function stopCycle() {
+  if (cycleInterval) {
+    clearInterval(cycleInterval)
+    cycleInterval = undefined
+  }
+  if (clearTimer) {
+    clearTimeout(clearTimer)
+    clearTimer = undefined
+  }
+  delivered.value = false
+}
+
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-  if (prefersReducedMotion.value) {
-    delivered.value = true
-    return
-  }
-
-  if (demoRef.value) {
-    observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !cycleInterval) {
-          pulse()
-          cycleInterval = setInterval(pulse, 4800)
-        }
-      },
-      { threshold: 0.3 },
-    )
-    observer.observe(demoRef.value)
-  }
+  if (prefersReducedMotion.value) delivered.value = true
 })
 
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  if (cycleInterval) clearInterval(cycleInterval)
-  if (clearTimer) clearTimeout(clearTimer)
+useViewportActivation(demoRef, {
+  threshold: 0.3,
+  disabled: prefersReducedMotion,
+  onEnter: startCycle,
+  onExit: stopCycle,
 })
+
+onBeforeUnmount(stopCycle)
 </script>
 
 <template>
-  <section class="pt-16 md:pt-20 pb-24 md:pb-32">
+  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + server code -->
     <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
@@ -82,7 +85,7 @@ onBeforeUnmount(() => {
             <h2 class="section-title max-w-xl">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </h2>
-            <div aria-hidden="true" class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
+            <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </div>
           </div>

@@ -116,7 +116,7 @@ onUnmounted(() => {
               <span class="font-mono text-[10px] tracking-wider text-dimmed">wss://chat.wskit.dev</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" :class="{ 'animate-pulse': started }" />
+              <span v-play-when-visible class="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" :class="{ 'animate-pulse': started }" />
               <span class="font-mono text-[9px] text-emerald-500/70 uppercase tracking-wider hidden sm:inline">connected</span>
             </div>
           </div>

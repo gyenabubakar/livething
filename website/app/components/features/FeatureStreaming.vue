@@ -16,8 +16,6 @@ let tickInterval: ReturnType<typeof setInterval> | undefined
 let restartTimer: ReturnType<typeof setTimeout> | undefined
 let stepInterval: ReturnType<typeof setInterval> | undefined
 let stepRestart: ReturnType<typeof setTimeout> | undefined
-let observer: IntersectionObserver | undefined
-let nudgeObserver: IntersectionObserver | undefined
 
 const props = defineProps<{
   link?: string
@@ -75,8 +73,6 @@ function stepTick() {
  * ------------------------------------------------------------------------- */
 const recordedRef = ref<HTMLElement>()
 const resumableRef = ref<HTMLElement>()
-let recordedObs: IntersectionObserver | undefined
-let resumableObs: IntersectionObserver | undefined
 
 // Recorded: AI tokens stream, the socket drops, the missed chunks replay.
 const recTokens = ['Type-', 'safe ', 'realtime, ', 'token ', 'by ', 'token']
@@ -152,18 +148,45 @@ const resStatus = computed(() => {
 const durableTone: Record<string, string> = { ok: 'text-emerald-300', warn: 'text-amber-300', bad: 'text-red-300' }
 const durableDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-400', bad: 'bg-red-400' }
 
-function observeOnce(el: HTMLElement | undefined, start: () => void): IntersectionObserver | undefined {
-  if (!el) { start(); return undefined }
-  const o = new IntersectionObserver(([e]) => {
-    if (e?.isIntersecting) { start(); o.disconnect() }
-  }, { threshold: 0.3 })
-  o.observe(el)
-  return o
+function startTick() {
+  if (tickInterval) return
+  if (phase.value === 'done') {
+    shown.value = 0
+    phase.value = 'streaming'
+  }
+  tickInterval = setInterval(tick, 150)
+}
+
+function stopTick() {
+  if (tickInterval) {
+    clearInterval(tickInterval)
+    tickInterval = undefined
+  }
+  if (restartTimer) {
+    clearTimeout(restartTimer)
+    restartTimer = undefined
+  }
+}
+
+function startStep() {
+  if (stepInterval) return
+  if (stepShown.value === agentSteps.length) stepShown.value = 0
+  stepInterval = setInterval(stepTick, 950)
+}
+
+function stopStep() {
+  if (stepInterval) {
+    clearInterval(stepInterval)
+    stepInterval = undefined
+  }
+  if (stepRestart) {
+    clearTimeout(stepRestart)
+    stepRestart = undefined
+  }
 }
 
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
   if (prefersReducedMotion.value) {
     shown.value = tokens.length
     phase.value = 'done'
@@ -173,47 +196,51 @@ onMounted(() => {
     resShown.value = resRows.length
     resCursor.value = resRows.length
     resPhase.value = 'synced'
-    return
   }
+})
 
-  if (demoRef.value) {
-    observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !tickInterval) tickInterval = setInterval(tick, 150)
-      },
-      { threshold: 0.3 },
-    )
-    observer.observe(demoRef.value)
-  }
+useViewportActivation(demoRef, {
+  threshold: 0.3,
+  disabled: prefersReducedMotion,
+  onEnter: startTick,
+  onExit: stopTick,
+})
 
-  if (nudgeRef.value) {
-    nudgeObserver = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !stepInterval) stepInterval = setInterval(stepTick, 950)
-      },
-      { threshold: 0.3 },
-    )
-    nudgeObserver.observe(nudgeRef.value)
-  }
+useViewportActivation(nudgeRef, {
+  threshold: 0.3,
+  disabled: prefersReducedMotion,
+  onEnter: startStep,
+  onExit: stopStep,
+})
 
-  recordedObs = observeOnce(recordedRef.value, recSeq.start)
-  resumableObs = observeOnce(resumableRef.value, resSeq.start)
+useViewportActivation(recordedRef, {
+  threshold: 0.3,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    recSeq.start()
+    recSeq.resume()
+  },
+  onExit: recSeq.pause,
+})
+
+useViewportActivation(resumableRef, {
+  threshold: 0.3,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    resSeq.start()
+    resSeq.resume()
+  },
+  onExit: resSeq.pause,
 })
 
 onBeforeUnmount(() => {
-  observer?.disconnect()
-  nudgeObserver?.disconnect()
-  recordedObs?.disconnect()
-  resumableObs?.disconnect()
-  if (tickInterval) clearInterval(tickInterval)
-  if (restartTimer) clearTimeout(restartTimer)
-  if (stepInterval) clearInterval(stepInterval)
-  if (stepRestart) clearTimeout(stepRestart)
+  stopTick()
+  stopStep()
 })
 </script>
 
 <template>
-  <section class="pt-16 md:pt-20 pb-24 md:pb-32">
+  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + server generator code -->
     <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
@@ -230,7 +257,7 @@ onBeforeUnmount(() => {
             <h2 class="section-title max-w-xl">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </h2>
-            <div aria-hidden="true" class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
+            <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </div>
           </div>
@@ -343,6 +370,7 @@ onBeforeUnmount(() => {
             <div class="min-h-[5rem] border-l-2 border-amber-500/30 pl-3 font-mono text-xs sm:text-sm leading-relaxed text-toned">
               {{ visibleText }}<span
                 v-if="phase === 'streaming'"
+                v-play-when-visible
                 class="inline-block w-1.5 h-3.5 -mb-0.5 bg-amber-400 animate-pulse"
               />
             </div>

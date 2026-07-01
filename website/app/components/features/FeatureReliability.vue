@@ -66,21 +66,23 @@ const total = 7400 + 2800
 
 const seq = useTimedSequence({ events, totalDuration: total, loop: true, onReset: resetState })
 
-let observer: IntersectionObserver | undefined
 onMounted(() => {
   prefersReducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (prefersReducedMotion.value) {
     phase.value = 'synced'
     mstate.value = ['arrived', 'arrived', 'arrived', 'arrived', 'dropped']
-    return
   }
-  if (!wireRef.value) { seq.start(); return }
-  observer = new IntersectionObserver(([e]) => {
-    if (e?.isIntersecting) { seq.start(); observer?.disconnect() }
-  }, { threshold: 0.25 })
-  observer.observe(wireRef.value)
 })
-onBeforeUnmount(() => observer?.disconnect())
+
+useViewportActivation(wireRef, {
+  threshold: 0.25,
+  disabled: prefersReducedMotion,
+  onEnter: () => {
+    seq.start()
+    seq.resume()
+  },
+  onExit: seq.pause,
+})
 
 const broken = computed(() => phase.value === 'drop')
 const flowing = computed(() => phase.value === 'live' || phase.value === 'replay')
@@ -111,7 +113,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
 </script>
 
 <template>
-  <section class="pt-16 md:pt-20 pb-24 md:pb-32">
+  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
     <!-- Top: copy + the stacked client -->
     <div class="grid gap-8 lg:grid-cols-2 lg:gap-12 *:min-w-0 items-stretch">
       <Motion
@@ -128,7 +130,7 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
             <h2 class="section-title max-w-xl">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </h2>
-            <div aria-hidden="true" class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
+            <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-xl blur-xs animate-pulse pointer-events-none">
               <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
             </div>
           </div>

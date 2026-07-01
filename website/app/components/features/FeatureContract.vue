@@ -14,7 +14,7 @@ const pills = [
 </script>
 
 <template>
-  <section class="pt-16 md:pt-20 pb-24 md:pb-32">
+  <section class="deferred-section pt-16 md:pt-20 pb-24 md:pb-32">
     <Motion
       :initial="false"
       :while-in-view="{ opacity: 1, y: 0 }"
@@ -30,7 +30,7 @@ const pills = [
           <h2 class="section-title max-w-2xl">
             <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
           </h2>
-          <div aria-hidden="true" class="absolute inset-0 section-title max-w-2xl blur-xs animate-pulse pointer-events-none">
+          <div aria-hidden="true" v-play-when-visible class="absolute inset-0 section-title max-w-2xl blur-xs animate-pulse pointer-events-none">
             <slot name="title" mdc-unwrap="p" /><span class="text-primary">.</span>
           </div>
         </div>
