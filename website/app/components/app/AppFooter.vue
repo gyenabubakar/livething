@@ -56,6 +56,10 @@ const columns = computed<FooterColumn[]>(() => [
         <ULink to="https://gyen.dev/" target="_blank" class="hover:underline">
           Gyen Abubakar
         </ULink>
+        <span class="text-muted"> · Logo by </span>
+        <ULink to="https://charlesarthur.framer.website/" target="_blank" class="hover:underline">
+          Charles Arthur
+        </ULink>
       </div>
     </template>
 

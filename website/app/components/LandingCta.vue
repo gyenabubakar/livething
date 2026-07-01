@@ -74,9 +74,14 @@ import { Motion } from 'motion-v'
             </a>
           </div>
         </div>
-        <p class="mt-4 border-t border-black/10 pt-4 text-xs font-mono italic tracking-tight text-muted">
-          This website was built from <a href="https://github.com/HugoRCD" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>'s <a href="https://evlog.dev" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">evlog</a> website.
-        </p>
+        <div class="mt-4 flex flex-col gap-1 border-t border-black/10 pt-4 text-xs font-mono italic tracking-tight text-muted sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <p>
+            This website was built from <a href="https://github.com/HugoRCD" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>'s <a href="https://evlog.dev" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">evlog</a> website.
+          </p>
+          <p>
+            Logo by <a href="https://charlesarthur.framer.website/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Charles Arthur</a>
+          </p>
+        </div>
       </div>
     </div>
   </section>
