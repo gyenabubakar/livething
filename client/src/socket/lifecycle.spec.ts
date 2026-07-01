@@ -77,7 +77,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('state settles to reconnecting even when a primitive onClose throws (with reconnection)', () => {
@@ -90,7 +90,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
 
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 
   it("user 'close' event fires even when a primitive onClose throws", () => {
@@ -148,7 +148,7 @@ describe('primitive onClose throw isolation on disconnect()', () => {
     MockWebSocket.last().open();
     socket.disconnect();
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 });
 
@@ -156,7 +156,7 @@ describe('_setState no-op when entering the same state', () => {
   it('subscribe() callback is not called when the new state equals the current state', () => {
     const socket = c(connect('wss://test'));
     const stateCallback = vi.fn();
-    socket.subscribe(stateCallback);
+    socket.state.subscribe(stateCallback);
 
     (socket as unknown as { _setState: (s: string) => void })._setState('closed');
 
@@ -166,7 +166,7 @@ describe('_setState no-op when entering the same state', () => {
   it('subscribe() is called exactly once for a real state change', () => {
     const socket = c(connect('wss://test'));
     const stateCallback = vi.fn();
-    socket.subscribe(stateCallback);
+    socket.state.subscribe(stateCallback);
 
     socket.connect();
 
@@ -226,7 +226,7 @@ describe('event ordering on reconnect open', () => {
     const socket = c(connect('wss://test'));
     let stateAtOpen = '';
     socket.onOpen(() => {
-      stateAtOpen = socket.getState();
+      stateAtOpen = socket.state.get();
     });
     socket.connect();
     MockWebSocket.last().open();
@@ -247,7 +247,7 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
 
     vi.advanceTimersByTime(60_000);
 
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 
   it('does not idle-close when the idle timer would be 0 even after multiple release cycles', () => {
@@ -263,7 +263,7 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
 
     vi.advanceTimersByTime(30_000);
 
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
@@ -277,13 +277,13 @@ describe('lazy idle window resets on send', () => {
     MockWebSocket.last().open();
 
     vi.advanceTimersByTime(8_000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     raw.send('echo', {});
     vi.advanceTimersByTime(8_000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     vi.advanceTimersByTime(10_000);
-    expect(socket.getState()).not.toBe('open');
+    expect(socket.state.get()).not.toBe('open');
   });
 });

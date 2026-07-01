@@ -19,8 +19,8 @@ export function setup(): void {
     reconnection({ nonRetryableCodes: [4009] }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.onClose((event) => {

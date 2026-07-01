@@ -46,8 +46,8 @@ export function setup(): void {
     }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('echoed', (data) => {

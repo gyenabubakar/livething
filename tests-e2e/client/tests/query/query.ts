@@ -25,8 +25,8 @@ export function setup(): void {
     query(() => ({ username: 'q-user' })),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('who-am-i-result', (p) => {

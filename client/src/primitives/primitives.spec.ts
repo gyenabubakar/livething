@@ -155,7 +155,7 @@ describe('reconnection config', () => {
     const ws = MockWebSocket.last();
     ws.open();
     ws.serverClose(4009, 'banned');
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('reconnects on an ordinary drop when registered', () => {
@@ -163,7 +163,7 @@ describe('reconnection config', () => {
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006, 'dropped');
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 
   it('does NOT reconnect when the primitive is absent (opt-in)', () => {
@@ -171,7 +171,7 @@ describe('reconnection config', () => {
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006, 'dropped');
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 });
 
@@ -186,7 +186,7 @@ describe('keepalive (opt-in)', () => {
       vi.advanceTimersByTime(1000);
       expect(ws.sent).toContain('ping');
       ws.emit('pong');
-      expect(socket.getLatency()).not.toBeNull();
+      expect(socket.latency.get()).not.toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -237,7 +237,7 @@ describe('quality + debug compose without error', () => {
       quality({ thresholds: { excellent: 10, good: 20, degraded: 30 } }),
       debug(false),
     );
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 });
 
@@ -272,7 +272,7 @@ describe('kernel lifecycle-hook isolation', () => {
   it('contains a throwing onOpen so the rest of the open sequence still runs', () => {
     const p = pair('onOpen');
     const { socket } = build(...p.specs);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     expect(p.ran()).toBe(true);
   });
 
@@ -287,7 +287,7 @@ describe('kernel lifecycle-hook isolation', () => {
     const p = pair('onClose');
     const { socket } = build(...p.specs);
     expect(() => socket.disconnect()).not.toThrow();
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     expect(p.ran()).toBe(true);
   });
 

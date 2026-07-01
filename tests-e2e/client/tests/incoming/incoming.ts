@@ -22,8 +22,8 @@ export function setup(): void {
 
   const socket = client<IncomingClient>()(connect(wsUrl('incoming')));
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.onError((err: unknown) => {

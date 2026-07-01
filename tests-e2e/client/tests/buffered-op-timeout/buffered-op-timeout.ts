@@ -25,8 +25,8 @@ export function setup(): void {
     buffering({ enabled: true }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   button('connect', () => socket.connect());

@@ -34,8 +34,8 @@ export function setup(): void {
 
   const archive = socket.channel('archive-room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   // Count the subscribe flows the server actually ran for this identity. A second
@@ -59,7 +59,7 @@ export function setup(): void {
   });
 
   function renderMembers(): void {
-    el('members').textContent = String(archive.members.size);
+    el('members').textContent = String(archive.members.get().size);
   }
   archive.onMemberJoin(renderMembers);
   archive.onMemberLeave(renderMembers);

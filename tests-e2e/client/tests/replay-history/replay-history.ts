@@ -46,8 +46,8 @@ export function setup(): void {
     span.textContent = span.textContent ? `${span.textContent},${value}` : value;
   }
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   let reconnects = 0;

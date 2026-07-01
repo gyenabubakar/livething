@@ -21,14 +21,16 @@ export function setup(): void {
     quality(),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
-  socket.onQualityChange((q) => {
+  socket.quality.subscribe((q) => {
     el('quality-changed').textContent = 'yes';
     el('quality').textContent = q;
-    const latency = socket.getLatency();
+  });
+
+  socket.latency.subscribe((latency) => {
     if (latency !== null) el('latency').textContent = String(latency);
   });
 

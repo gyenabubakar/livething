@@ -318,6 +318,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             // reconnect. Persistent channels wait for the server's auto-rejoin;
             // others wait for the client's re-subscribe reply. A failure clears this.
             state.rejoining = true;
+            state.markSubscribing();
             if (!state.persistent) {
               resubscribes.push({
                 event: '__subscribe__',

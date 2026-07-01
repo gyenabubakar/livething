@@ -36,8 +36,8 @@ export function setup(): void {
 
   let mode: 'good' | 'bad' | 'drop' = 'good';
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('outcome', (data) => {

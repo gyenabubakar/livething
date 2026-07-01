@@ -42,8 +42,8 @@ export function setup(): void {
   // address the same name, so a broadcast in it fans to the subscribed peer.
   const room = socket.channel('rooms', 'room:bcast');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   function append(testid: string, value: string): void {

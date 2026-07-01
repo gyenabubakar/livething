@@ -37,8 +37,8 @@ export function setup(): void {
     el('snapshots').textContent = [...latest].map(([id, title]) => `${id}:${title}`).join(' | ');
   }
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   let reconnects = 0;

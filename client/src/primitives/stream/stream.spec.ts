@@ -478,7 +478,7 @@ describe('one reconnect decision per close (#19)', () => {
     ws.serverClose(1006);
 
     expect(calls).toBe(1);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
     expect(handle.active).toBe(true);
   });
 });
@@ -499,7 +499,7 @@ describe('stream control frames while not open (#24)', () => {
     const handle = await promise;
 
     ws.serverClose(1006);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
     expect(handle.active).toBe(true);
 
     await expect(handle.nudge('add-context', { context: 'x' })).rejects.toMatchObject({

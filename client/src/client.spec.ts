@@ -43,17 +43,17 @@ describe('client() composition', () => {
 describe('connection lifecycle', () => {
   it('starts closed and transitions to open on connect', () => {
     const socket = client<TestContract>()(connect('wss://test'));
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     socket.connect();
-    expect(socket.getState()).toBe('connecting');
+    expect(socket.state.get()).toBe('connecting');
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 
   it('notifies subscribers on state change', () => {
     const socket = client<TestContract>()(connect('wss://test'));
     const seen: string[] = [];
-    socket.subscribe(() => seen.push(socket.getState()));
+    socket.state.subscribe(() => seen.push(socket.state.get()));
     socket.connect();
     MockWebSocket.last().open();
     expect(seen).toEqual(['connecting', 'open']);
@@ -63,7 +63,7 @@ describe('connection lifecycle', () => {
     const { socket, ws } = connected();
     socket.disconnect(4001, 'auth expired');
     expect(ws.readyState).toBe(3);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('connect() is idempotent while open', () => {

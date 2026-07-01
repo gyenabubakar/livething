@@ -1,7 +1,9 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { createStore } from '~/internal/store.ts';
 import type { WSKitError } from '@wskit/core';
 import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
-import type { ChannelMember, SubscribeSource } from '~/primitives/channels/types.ts';
+import type { ReadableStore } from '~/internal/store.ts';
+import type { ChannelMember, ChannelStatus, SubscribeSource } from '~/primitives/channels/types.ts';
 
 type Handler = (data: unknown) => void;
 type MemberCallback = (connectionId: string, member: ChannelMember) => void;
@@ -96,8 +98,24 @@ export class ChannelState {
   /** Roster captured at a network drop, so the next `__memberSync__` can fire only real deltas. */
   private priorMembers: Set<string> | null = null;
 
-  readonly members = new Map<string, ChannelMember>();
+  private readonly roster = new Map<string, ChannelMember>();
   readonly handlers = new Map<string, Set<Handler>>();
+
+  private readonly membersStore = createStore<ReadonlyMap<string, ChannelMember>>(
+    new Map(),
+    (error) => this.log.report(error),
+  );
+  /**
+   * The member roster as a reactive store. Every join, leave, or sync publishes a
+   * fresh snapshot, so `members.get()` is safe to compare by reference.
+   */
+  readonly members: ReadableStore<ReadonlyMap<string, ChannelMember>> = this.membersStore.store;
+
+  private readonly statusStore = createStore<ChannelStatus>('unsubscribed', (error) =>
+    this.log.report(error),
+  );
+  /** The subscription state as a reactive store. */
+  readonly status: ReadableStore<ChannelStatus> = this.statusStore.store;
 
   private readonly subscribed = listeners<(source: SubscribeSource) => void>(() => this.log);
   private readonly unsubscribed = listeners<() => void>(() => this.log);
@@ -167,6 +185,21 @@ export class ChannelState {
     }
   }
 
+  /** Publish the current roster as a fresh immutable snapshot to the members store. */
+  private publishMembers(): void {
+    this.membersStore.set(new Map(this.roster));
+  }
+
+  /** Move the subscription to a new state and publish it to the status store. */
+  private setStatus(next: ChannelStatus): void {
+    this.statusStore.set(next);
+  }
+
+  /** Mark that a `subscribe()` — or a reconnect rejoin — is now in flight. */
+  markSubscribing(): void {
+    this.setStatus('subscribing');
+  }
+
   /** Mark active and tell `onSubscribed` listeners who started it. */
   markSubscribed(source: SubscribeSource): void {
     // A duplicate confirmation for an already-live subscription (e.g. a
@@ -184,6 +217,7 @@ export class ChannelState {
       this.pending = null;
       this.pendingPromise = null;
     }
+    this.setStatus('subscribed');
     this.subscribed.each((callback) => callback(source));
   }
 
@@ -204,6 +238,7 @@ export class ChannelState {
     this.pendingPromise = null;
     this.pendingSubscribeFrame = null;
     this.releaseLazy();
+    this.setStatus('failed');
   }
 
   /**
@@ -260,7 +295,8 @@ export class ChannelState {
     this.rejoining = false;
     this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
-    this.members.clear();
+    this.roster.clear();
+    this.publishMembers();
     this.priorMembers = null;
     // The subscription ended (unsubscribed or kicked) — release the idle-prevention
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
@@ -269,6 +305,7 @@ export class ChannelState {
     this.pending?.reject(new Error('[wskit] unsubscribed before the subscribe was confirmed'));
     this.pending = null;
     this.pendingPromise = null;
+    this.setStatus('unsubscribed');
     this.unsubscribed.each((callback) => callback());
   }
 
@@ -289,8 +326,10 @@ export class ChannelState {
       this.active = false;
       this.persistent = false;
       this.rejoining = false;
-      this.members.clear();
+      this.roster.clear();
+      this.publishMembers();
       this.priorMembers = null;
+      this.setStatus('failed');
     }
     if (this.pending) {
       this.pending.reject(error);
@@ -309,14 +348,14 @@ export class ChannelState {
    * an unchanged peer is reported online again but not re-joined.
    */
   syncMembers(members: { connectionId: string; meta?: Record<string, unknown> }[]): void {
-    const prev = this.priorMembers ?? new Set(this.members.keys());
+    const prev = this.priorMembers ?? new Set(this.roster.keys());
     this.priorMembers = null;
     const next = new Set<string>();
-    this.members.clear();
+    this.roster.clear();
     for (const { connectionId, meta } of members) {
       next.add(connectionId);
       const member: ChannelMember = { meta: meta ?? {} };
-      this.members.set(connectionId, member);
+      this.roster.set(connectionId, member);
       if (!prev.has(connectionId))
         this.memberJoin.each((callback) => callback(connectionId, member));
       this.memberOnline.each((callback) => callback(connectionId, member));
@@ -324,16 +363,19 @@ export class ChannelState {
     for (const connectionId of prev) {
       if (!next.has(connectionId)) this.memberLeave.each((callback) => callback(connectionId));
     }
+    this.publishMembers();
   }
 
   addMember(connectionId: string, meta?: Record<string, unknown>): void {
     const member: ChannelMember = { meta: meta ?? {} };
-    this.members.set(connectionId, member);
+    this.roster.set(connectionId, member);
+    this.publishMembers();
     this.memberJoin.each((callback) => callback(connectionId, member));
   }
 
   removeMember(connectionId: string): void {
-    this.members.delete(connectionId);
+    this.roster.delete(connectionId);
+    this.publishMembers();
     this.memberLeave.each((callback) => callback(connectionId));
   }
 
@@ -353,8 +395,9 @@ export class ChannelState {
     // with an empty set, making the next sync re-fire onMemberJoin for unchanged
     // peers. The reset paths (markUnsubscribed, fireSubscriptionFailed, syncMembers)
     // null priorMembers, so this re-arms on a genuine resubscribe.
-    this.priorMembers ??= new Set(this.members.keys());
-    this.members.clear();
+    this.priorMembers ??= new Set(this.roster.keys());
+    this.roster.clear();
+    this.publishMembers();
   }
 }
 

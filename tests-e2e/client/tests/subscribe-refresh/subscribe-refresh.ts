@@ -27,8 +27,8 @@ export function setup(): void {
 
   const room = socket.channel('nonce-room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   let subscribed = 0;

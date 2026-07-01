@@ -135,7 +135,7 @@ room.subscribe();
 // @ts-expect-error — 'nope' is not a channel
 socket.channel('nope');
 
-expectTypeOf(socket.getState()).toBeString();
+expectTypeOf(socket.state.get()).toBeString();
 expectTypeOf(socket.connect()).toEqualTypeOf<void>();
 
 const bare = client<Full>()(connect('wss://example.com'));

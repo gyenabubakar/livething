@@ -300,7 +300,7 @@ describe('membership and presence', () => {
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.get('c1')).toEqual({ meta: { name: 'Ada' } });
+    expect(room.members.get().get('c1')).toEqual({ meta: { name: 'Ada' } });
     expect(onJoin).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
     expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
   });
@@ -322,13 +322,13 @@ describe('membership and presence', () => {
       payload: { connectionId: 'c2' },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.has('c2')).toBe(true);
+    expect(room.members.get().has('c2')).toBe(true);
     ws.emit({
       event: '__memberLeave__',
       payload: { connectionId: 'c2' },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.has('c2')).toBe(false);
+    expect(room.members.get().has('c2')).toBe(false);
     expect(onLeave).toHaveBeenCalledWith('c2');
   });
 
@@ -876,7 +876,7 @@ describe('lazy hold lifecycle (no leak)', () => {
     await expect(p).rejects.toBeDefined();
 
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     vi.useRealTimers();
   });
 
@@ -896,7 +896,7 @@ describe('lazy hold lifecycle (no leak)', () => {
 
     ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'general' } });
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     vi.useRealTimers();
   });
 });

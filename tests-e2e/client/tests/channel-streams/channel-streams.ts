@@ -32,8 +32,8 @@ export function setup(): void {
 
   const rooms = socket.channel('rooms');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   const rows: number[] = [];

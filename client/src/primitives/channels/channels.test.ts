@@ -27,7 +27,7 @@ general.on('message', (data) => {
 });
 general.send('send-message', { text: 'hi' });
 void general.subscribe();
-general.members.get('c1');
+general.members.get().get('c1');
 
 // @ts-expect-error — 'nope' is not an event on this channel
 general.on('nope', () => {});

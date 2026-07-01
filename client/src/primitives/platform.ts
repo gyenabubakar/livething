@@ -1,7 +1,24 @@
 import { WSKitConfigError } from '@wskit/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { createStore } from '~/internal/store.ts';
 import type { ClientEnvironment } from '~/environment.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { ReadableStore } from '~/internal/store.ts';
+import type { Primitive, TypeFn } from '~/primitives/types.ts';
+
+/** The network-status store that `platform()` adds to the socket. */
+export interface PlatformApi {
+  /**
+   * Whether the device is online, as a reactive store: `online.get()` reads it
+   * now and `online.subscribe(listener)` watches it. It only changes when the
+   * environment reports network changes (via `onNetworkChange`); with an
+   * environment that can't, it stays `true`.
+   */
+  online: ReadableStore<boolean>;
+}
+
+interface PlatformTypeFn extends TypeFn {
+  readonly _api: PlatformApi;
+}
 
 /** Options for `platform()`. */
 export interface PlatformOptions {
@@ -24,13 +41,15 @@ export interface PlatformOptions {
  *
  * Platform code only loads when you register this primitive — it's not built in.
  */
-export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
+export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
   const { environment, backgroundDisconnectMs } = options;
   const wantsBackground = backgroundDisconnectMs !== undefined && backgroundDisconnectMs > 0;
 
   return {
     _tag: 'platform',
     setup(helpers) {
+      const onlineStore = createStore<boolean>(true, (error) => helpers.log.report(error));
+
       // You asked for background disconnect but the environment can't see
       // visibility — surface the mistake now, not as a silent no-op.
       if (wantsBackground && !environment.onVisibilityChange) {
@@ -64,6 +83,7 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           cleanups.push(
             environment.onNetworkChange((online) => {
               helpers.log.info(`network ${online ? 'online' : 'offline'}`);
+              onlineStore.set(online);
               helpers.emitSignal('online', online);
             }),
           );
@@ -118,6 +138,11 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
 
       return {
         id: 'platform',
+
+        install(socket) {
+          // @ts-expect-error — install adds the online store to the socket dynamically
+          socket.online = onlineStore.store;
+        },
 
         onOpen() {
           bind();

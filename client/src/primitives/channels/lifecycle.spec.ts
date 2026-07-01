@@ -419,11 +419,11 @@ describe('channels-onclose-keeps-active-clears-members', () => {
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.size).toBe(1);
+    expect(room.members.get().size).toBe(1);
 
     ws.serverClose(1006, 'drop');
 
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().size).toBe(0);
 
     // Channel is still "active" — send() must not throw channel-not-subscribed.
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
@@ -742,7 +742,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().open();
       vi.advanceTimersByTime(2000);
-      expect(socket.getState()).toBe('closed');
+      expect(socket.state.get()).toBe('closed');
     } finally {
       vi.useRealTimers();
     }
@@ -845,7 +845,7 @@ describe('reconnection give-up tears down active channels', () => {
 
     ws.serverClose(4001, 'policy');
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
     expect(onUnsub).toHaveBeenCalledTimes(1);
   });
@@ -1021,5 +1021,71 @@ describe('duplicate subscribe confirmation', () => {
       __wskit: { source: 'server', channel: 'general' },
     });
     expect(onSub).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('channel.status store', () => {
+  it('starts unsubscribed before any subscribe', () => {
+    const { socket } = build();
+    const room = socket.channel('general');
+    expect(room.status.get()).toBe('unsubscribed');
+  });
+
+  it('moves subscribing -> subscribed across the confirmation', async () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+
+    const seen: string[] = [];
+    room.status.subscribe((status) => seen.push(status));
+
+    const subscribePromise = room.subscribe();
+    expect(room.status.get()).toBe('subscribing');
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await subscribePromise;
+
+    expect(room.status.get()).toBe('subscribed');
+    expect(seen).toEqual(['subscribing', 'subscribed']);
+  });
+
+  it('moves to unsubscribed after an unsubscribe is confirmed', async () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+
+    const subscribePromise = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await subscribePromise;
+
+    room.unsubscribe();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+
+    expect(room.status.get()).toBe('unsubscribed');
+  });
+
+  it('moves to failed when the server rejects an in-flight subscribe', async () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+
+    const subscribePromise = room.subscribe();
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'forbidden', message: 'no access' },
+      __wskit: { channel: 'general' },
+    });
+
+    await expect(subscribePromise).rejects.toMatchObject({ code: 'forbidden' });
+    expect(room.status.get()).toBe('failed');
   });
 });

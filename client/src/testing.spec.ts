@@ -34,7 +34,7 @@ describe('inject', () => {
 
     inject(socket as Socket<C>, 'message', { text: 'hi' });
     expect(handler).toHaveBeenCalledWith({ text: 'hi' });
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('respects intercept Block', () => {

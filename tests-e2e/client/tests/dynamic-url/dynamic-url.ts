@@ -27,8 +27,8 @@ export function setup(): void {
     reconnection({ maxDelay: 400 }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.onOpen(() => {

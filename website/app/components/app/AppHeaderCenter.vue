@@ -197,7 +197,7 @@ const landingItems = [
         label: 'Framework Hooks',
         icon: 'i-simple-icons-react',
         description: 'React, Vue, Svelte, Solid, RN',
-        to: '/recipes/framework-hooks/overview'
+        to: '/recipes/framework-hooks/react'
       },
       {
         label: 'Chat App',

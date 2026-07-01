@@ -5,6 +5,7 @@ import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReconnectionApi } from '~/primitives/reconnection/reconnection.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
@@ -66,7 +67,7 @@ describe('max attempts exhaustion', () => {
     MockWebSocket.last().serverClose(1006);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('reaches maxAttempts=1 after a single failed retry', () => {
@@ -83,7 +84,7 @@ describe('max attempts exhaustion', () => {
     MockWebSocket.last().serverClose(1006);
 
     expect(onFailed).toHaveBeenCalledTimes(1);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 });
 
@@ -213,7 +214,7 @@ describe('shouldReconnect precedence', () => {
       reconnection({ shouldReconnect: (code) => (code === 4000 ? false : undefined) }),
     );
     ws.serverClose(4000);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
@@ -225,7 +226,7 @@ describe('shouldReconnect precedence', () => {
       }),
     );
     ws.serverClose(4001);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 
   it('options.shouldReconnect returning undefined falls through to nonRetryableCodes', () => {
@@ -236,7 +237,7 @@ describe('shouldReconnect precedence', () => {
       }),
     );
     ws.serverClose(4002);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('primitive shouldReconnect hook returning false takes precedence over options.shouldReconnect', () => {
@@ -249,7 +250,7 @@ describe('shouldReconnect precedence', () => {
     };
     const { ws, socket } = build(reconnection({ shouldReconnect: () => true }), vetoer);
     ws.serverClose(1006);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('primitive shouldReconnect hook returning true takes precedence over nonRetryableCodes', () => {
@@ -262,7 +263,7 @@ describe('shouldReconnect precedence', () => {
     };
     const { ws, socket } = build(reconnection({ nonRetryableCodes: [4003] }), approver);
     ws.serverClose(4003);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 });
 
@@ -287,6 +288,80 @@ describe('reconnect policy error isolation (#18)', () => {
 
     expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(2);
     expect(errors).toHaveLength(1);
+  });
+});
+
+function buildWithReconnection(...args: Parameters<typeof reconnection>) {
+  const { socket, ws } = build(reconnection(...args));
+  return { socket: socket as typeof socket & ReconnectionApi, ws };
+}
+
+describe('socket.reconnection store', () => {
+  it('starts idle with no attempts and no scheduled retry', () => {
+    const { socket } = buildWithReconnection();
+    expect(socket.reconnection.get()).toEqual({
+      retrying: false,
+      attempt: 0,
+      nextRetryAt: null,
+    });
+  });
+
+  it('reports retrying with a counted attempt and a future nextRetryAt after a drop', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { ws, socket } = buildWithReconnection();
+
+    ws.serverClose(1006);
+
+    const info = socket.reconnection.get();
+    expect(info.retrying).toBe(true);
+    expect(info.attempt).toBe(1);
+    expect(info.nextRetryAt).toBeGreaterThan(Date.now());
+  });
+
+  it('publishes the snapshot to subscribers as the loop advances', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { ws, socket } = buildWithReconnection();
+    const snapshots: Array<{ retrying: boolean; attempt: number }> = [];
+    socket.reconnection.subscribe((info) =>
+      snapshots.push({ retrying: info.retrying, attempt: info.attempt }),
+    );
+
+    ws.serverClose(1006);
+
+    expect(snapshots.at(-1)).toEqual({ retrying: true, attempt: 1 });
+  });
+
+  it('resets to idle once a retry connection opens', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { ws, socket } = buildWithReconnection();
+
+    ws.serverClose(1006);
+    expect(socket.reconnection.get().retrying).toBe(true);
+
+    vi.advanceTimersByTime(60_000);
+    MockWebSocket.last().open();
+
+    expect(socket.reconnection.get()).toEqual({
+      retrying: false,
+      attempt: 0,
+      nextRetryAt: null,
+    });
+  });
+
+  it('stops retrying once the loop gives up after maxAttempts', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { ws, socket } = buildWithReconnection({ maxAttempts: 2 });
+
+    ws.serverClose(1006);
+    vi.advanceTimersByTime(60_000);
+    MockWebSocket.last().serverClose(1006);
+    vi.advanceTimersByTime(60_000);
+    MockWebSocket.last().serverClose(1006);
+    vi.advanceTimersByTime(60_000);
+
+    const info = socket.reconnection.get();
+    expect(info.retrying).toBe(false);
+    expect(info.nextRetryAt).toBeNull();
   });
 });
 

@@ -28,28 +28,27 @@ export function setup(): void {
   const archive = socket.channel('archive-room');
   const typing = socket.channel('typing-indicator');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
+  });
+
+  // The members store publishes on every roster change, including the
+  // __memberSync__ that repopulates it after a server-driven rejoin — even when
+  // no member actually changed, which onMemberJoin would not report. Binding the
+  // count to the store is what lets the reconnect repopulation stay observable.
+  archive.members.subscribe((members) => {
+    el('members-count').textContent = String(members.size);
   });
 
   // Count only the server-initiated (auto-rejoin) subscriptions; the initial
   // client subscribe reports source 'client'.
-  function renderMembers(): void {
-    el('members-count').textContent = String(archive.members.size);
-  }
-
   let serverRejoins = 0;
   archive.onSubscribed((source) => {
     if (source === 'server') {
       serverRejoins += 1;
       el('server-rejoins').textContent = String(serverRejoins);
     }
-    renderMembers();
   });
-
-  // members populates from the __memberSync__ that follows __subscribeOk__, so
-  // it lands after onSubscribed — track it as the sync replays each member.
-  archive.onMemberJoin(renderMembers);
 
   let typingServerRejoins = 0;
   typing.onSubscribed((source) => {
@@ -63,7 +62,6 @@ export function setup(): void {
     const line = `${msg.from}:${msg.text}`;
     const span = el('room-messages');
     span.textContent = span.textContent ? `${span.textContent},${line}` : line;
-    el('members-count').textContent = String(archive.members.size);
   });
 
   button('connect', () => socket.connect());
@@ -71,7 +69,6 @@ export function setup(): void {
   button('sub-archive', async () => {
     await archive.subscribe();
     el('archive-subscribed').textContent = 'yes';
-    el('members-count').textContent = String(archive.members.size);
   });
 
   button('sub-typing', async () => {

@@ -99,8 +99,8 @@ export function setup(): void {
     el('feed-joined').textContent = data.who ? 'joined' : '';
   });
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   // Plugin-owned event under the `__<id>::` prefix. The outgoing hook stamps
