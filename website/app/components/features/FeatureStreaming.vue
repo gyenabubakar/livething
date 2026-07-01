@@ -301,8 +301,7 @@ onBeforeUnmount(() => {
   <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ token: <span class="text-sky-400">string</span> }&gt;(),
   <span class="text-violet-400">async</span> *<span class="text-sky-400">run</span>(ctx, { prompt }) {
     <span class="text-violet-400">for await</span> (<span class="text-violet-400">const</span> token <span class="text-violet-400">of</span> <span class="text-amber-400">llm</span>(prompt)) {
-      <span class="text-violet-400">yield</span> { token } <span class="text-dimmed">// one chunk on the wire</span>
-    }
+<span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">      <span class="text-violet-400">yield</span> { token } <span class="text-dimmed">// one chunk on the wire</span></span>    }
   },
 })</code></pre>
           </div>
@@ -496,6 +495,34 @@ onBeforeUnmount(() => {
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
             Mark a stream durable and a disconnected client never loses its place — it picks up mid-stream on reconnect, no replay logic on your side. Two flavors, for two kinds of source.
           </p>
+        </div>
+      </Motion>
+
+      <Motion
+        :initial="false"
+        :while-in-view="{ opacity: 1, y: 0 }"
+        :transition="{ duration: 0.5, delay: 0.05 }"
+        :in-view-options="{ once: true }"
+        class="mb-6 grid gap-6 md:grid-cols-2 items-start"
+      >
+        <div class="overflow-hidden border border-muted bg-default">
+          <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
+            <UIcon name="i-ph-floppy-disk-duotone" class="size-4 text-primary shrink-0" />
+            <span class="font-mono text-xs text-toned">recorded — buffers, then replays</span>
+          </div>
+          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+<pre><code><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">base.<span class="text-amber-400">recordedStream</span>(<span class="text-emerald-400">'ask-ai'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ prompt: v.<span class="text-amber-400">string</span>() }),</span><span class="block">  <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ token: <span class="text-sky-400">string</span> }&gt;(),</span><span class="block">  <span class="text-violet-400">async</span> *<span class="text-sky-400">run</span>(ctx, { prompt }) {</span><span class="block">    <span class="text-violet-400">for await</span> (<span class="text-violet-400">const</span> token <span class="text-violet-400">of</span> <span class="text-amber-400">llm</span>(prompt)) {</span><span class="block">      <span class="text-violet-400">yield</span> { token } <span class="text-dimmed">// buffered for replay</span></span><span class="block">    }</span><span class="block">  },</span><span class="block">})</span></code></pre>
+          </div>
+        </div>
+
+        <div class="overflow-hidden border border-muted bg-default">
+          <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
+            <UIcon name="i-ph-arrow-clockwise-duotone" class="size-4 text-primary shrink-0" />
+            <span class="font-mono text-xs text-toned">resumable — re-runs from a cursor</span>
+          </div>
+          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+            <pre><code><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">base.<span class="text-amber-400">resumableStream</span>(<span class="text-emerald-400">'paginate'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({}),</span><span class="block">  <span class="text-sky-400">chunk</span>: <span class="text-amber-400">t</span>&lt;{ row: <span class="text-sky-400">number</span> }&gt;(),</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">  <span class="text-sky-400">cursor</span>: <span class="text-amber-400">t</span>&lt;{ idx: <span class="text-sky-400">number</span> }&gt;(),</span><span class="block">  <span class="text-violet-400">async</span> *<span class="text-sky-400">run</span>(ctx) {</span><span class="block">    <span class="text-violet-400">let</span> i = ctx.stream.cursor?.idx ?? 0</span><span class="block">    <span class="text-violet-400">while</span> (++i &lt;= 1000) {</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">      <span class="text-violet-400">yield</span> ctx.stream.<span class="text-amber-400">withCursor</span>({ row: i }, { idx: i })</span><span class="block">    }</span><span class="block">  },</span><span class="block">})</span></code></pre>
+          </div>
         </div>
       </Motion>
 

@@ -158,11 +158,10 @@ useViewportActivation(wireRef, {
           <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> socket = <span class="text-amber-400">client</span>&lt;<span class="text-sky-400">AppSocket</span>&gt;()(
   <span class="text-amber-400">connect</span>(<span class="text-emerald-400">'wss://api.example.com/ws'</span>),
-  <span class="text-dimmed">// add a primitive, ship a primitive — nothing more</span>
+<span class="block -mx-5 border-l-2 border-sky-500/70 bg-sky-500/10 pl-[calc(1.25rem-2px)] pr-5">  <span class="text-dimmed">// add a primitive, ship a primitive — nothing more</span>
   <span class="text-amber-400">reconnection</span>(),
   <span class="text-amber-400">channels</span>(),
-  <span class="text-amber-400">stream</span>(),
-)</code></pre>
+  <span class="text-amber-400">stream</span>(),</span>)</code></pre>
           </div>
         </div>
       </Motion>

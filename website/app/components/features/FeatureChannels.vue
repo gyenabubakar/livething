@@ -132,9 +132,8 @@ onBeforeUnmount(stopCycle)
 room.<span class="text-amber-400">on</span>(<span class="text-emerald-400">'send'</span>, {
   <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ text: v.<span class="text-amber-400">string</span>() }),
   <span class="text-sky-400">run</span>(ctx, { text }) {
-    <span class="text-dimmed">// only this room's members hear it</span>
-    ctx.channel.<span class="text-amber-400">broadcast</span>(<span class="text-emerald-400">'message'</span>, { <span class="text-sky-400">from</span>: ctx.meta.username, text })
-  },
+<span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">    <span class="text-dimmed">// only this room's members hear it</span>
+    ctx.channel.<span class="text-amber-400">broadcast</span>(<span class="text-emerald-400">'message'</span>, { <span class="text-sky-400">from</span>: ctx.meta.username, text })</span>  },
 })</code></pre>
           </div>
         </div>

@@ -229,25 +229,25 @@ const parcelCls: Record<string, string> = {
       >
         <div class="overflow-hidden border border-muted bg-default">
           <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
-            <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-300">
-              <span class="size-1.5 rounded-full bg-emerald-400" /> server
-            </span>
-            <span class="font-mono text-xs text-toned">api.server.ts</span>
-          </div>
-          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="block"><span class="text-violet-400">const</span> getUser = base.<span class="text-amber-400">request</span>(<span class="text-emerald-400">'get-user'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ id: v.<span class="text-amber-400">string</span>() }),</span><span class="block">  <span class="text-sky-400">run</span>(ctx, { id }) {</span><span class="block">    <span class="text-violet-400">return</span> db.users.<span class="text-amber-400">find</span>(id) <span class="text-dimmed">// typed reply</span></span><span class="block">  },</span><span class="block">})</span></code></pre>
-          </div>
-        </div>
-
-        <div class="overflow-hidden border border-muted bg-default">
-          <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
             <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-sky-300">
               <span class="size-1.5 rounded-full bg-sky-400" /> client
             </span>
             <span class="font-mono text-xs text-toned">app.client.ts</span>
           </div>
           <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="block"><span class="text-dimmed">// ask, await the typed answer</span></span><span class="block"><span class="text-violet-400">const</span> user = <span class="text-violet-400">await</span> socket.<span class="text-amber-400">request</span>(<span class="text-emerald-400">'get-user'</span>, { id })</span><span class="block"><span class="text-dimmed">//    user: { name: string; email: string }</span></span></code></pre>
+            <pre><code><span class="block"><span class="text-dimmed">// ask, await the typed answer</span></span><span class="block -mx-5 border-l-2 border-sky-500/70 bg-sky-500/10 pl-[calc(1.25rem-2px)] pr-5"><span class="text-violet-400">const</span> user = <span class="text-violet-400">await</span> socket.<span class="text-amber-400">request</span>(<span class="text-emerald-400">'get-user'</span>, { id })</span><span class="block"><span class="text-dimmed">//    user: { name: string; email: string }</span></span></code></pre>
+          </div>
+        </div>
+
+        <div class="overflow-hidden border border-muted bg-default">
+          <div class="flex items-center gap-2.5 border-b border-muted px-4 py-2.5">
+            <span class="inline-flex items-center gap-1.5 font-mono text-[11px] text-emerald-300">
+              <span class="size-1.5 rounded-full bg-emerald-400" /> server
+            </span>
+            <span class="font-mono text-xs text-toned">api.server.ts</span>
+          </div>
+          <div class="p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
+            <pre><code><span class="block"><span class="text-violet-400">const</span> getUser = base.<span class="text-amber-400">request</span>(<span class="text-emerald-400">'get-user'</span>, {</span><span class="block">  <span class="text-sky-400">input</span>: v.<span class="text-amber-400">object</span>({ id: v.<span class="text-amber-400">string</span>() }),</span><span class="block">  <span class="text-sky-400">run</span>(ctx, { id }) {</span><span class="block -mx-5 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.25rem-2px)] pr-5">    <span class="text-violet-400">return</span> db.users.<span class="text-amber-400">find</span>(id) <span class="text-dimmed">// typed reply</span></span><span class="block">  },</span><span class="block">})</span></code></pre>
           </div>
         </div>
       </Motion>
@@ -377,7 +377,7 @@ const parcelCls: Record<string, string> = {
             The server can ask too<span class="text-primary">.</span>
           </h3>
           <p class="mt-5 max-w-xl text-sm leading-relaxed text-toned">
-            Most realtime only flows one way. WSKit lets the server turn around and ask the client — for a confirmation, a permission, a value — and <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">await</code> the typed answer, with a timeout if it never comes. The same request/response, pointed the other direction.
+            Requests usually go one way — the client asks, the server answers. WSKit lets the server turn around and ask the client — for a confirmation, a permission, a value — and <code class="font-mono text-primary bg-elevated/60 border border-muted px-1 py-0.5">await</code> the typed answer, with a timeout if it never comes. The same request/response, pointed the other direction.
           </p>
         </div>
       </Motion>

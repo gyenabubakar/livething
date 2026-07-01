@@ -171,12 +171,11 @@ const toneDot: Record<string, string> = { ok: 'bg-emerald-400', warn: 'bg-amber-
           <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
             <pre><code><span class="text-violet-400">const</span> socket = <span class="text-amber-400">client</span>&lt;<span class="text-sky-400">AppSocket</span>&gt;()(
   <span class="text-amber-400">connect</span>(<span class="text-emerald-400">'wss://api.example.com/ws'</span>),
-  <span class="text-amber-400">reconnection</span>(),               <span class="text-dimmed">// get back after a disconnect</span>
+<span class="block -mx-5 border-l-2 border-sky-500/70 bg-sky-500/10 pl-[calc(1.25rem-2px)] pr-5">  <span class="text-amber-400">reconnection</span>(),               <span class="text-dimmed">// get back after a disconnect</span>
   <span class="text-amber-400">keepalive</span>(),                  <span class="text-dimmed">// notice a dead socket fast</span>
   <span class="text-amber-400">buffering</span>({ enabled: <span class="text-violet-400">true</span> }),  <span class="text-dimmed">// keep offline sends</span>
   <span class="text-amber-400">dedup</span>(),                      <span class="text-dimmed">// no duplicates on catch-up</span>
-  <span class="text-amber-400">replay</span>(),                     <span class="text-dimmed">// fill in what you missed</span>
-)</code></pre>
+  <span class="text-amber-400">replay</span>(),                     <span class="text-dimmed">// fill in what you missed</span></span>)</code></pre>
           </div>
         </div>
       </Motion>

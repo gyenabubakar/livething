@@ -85,8 +85,8 @@ const pills = [
   }),
 )
 
-<span class="text-dimmed">// the whole client API — one line, no codegen</span>
-<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> handler&gt;</code></pre>
+<span class="block -mx-6 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.5rem-2px)] pr-6"><span class="text-dimmed">// the whole client API — one line, no codegen</span>
+<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> handler&gt;</span></code></pre>
           </div>
         </div>
       </Motion>
