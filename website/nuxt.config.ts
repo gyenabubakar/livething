@@ -90,6 +90,64 @@ export default defineNuxtConfig({
     url: siteUrl,
   },
 
+  llms: {
+    domain: siteUrl,
+    title: 'WSKit',
+    description:
+      'A typed, end-to-end WebSocket framework for TypeScript: define one contract and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
+    full: {
+      title: 'WSKit — full documentation',
+      description: 'Every WSKit documentation page concatenated into one file.',
+    },
+    // Group the index by the seven navbar sections. `@nuxt/content` fills each
+    // section's links by querying the `docs` collection with these path filters.
+    sections: [
+      {
+        title: 'Start',
+        description: 'Install WSKit and build your first typed realtime app.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/start/%' }],
+      },
+      {
+        title: 'Learn',
+        description: 'The guided tour — the server and client as two halves of one contract.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/learn/%' }],
+      },
+      {
+        title: 'Client',
+        description: 'The @wskit/client package: the socket, primitives, channels, streams, and errors.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/client/%' }],
+      },
+      {
+        title: 'Server',
+        description:
+          'The @wskit/server package: define, capabilities, handlers, channels, streams, and adapters.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/server/%' }],
+      },
+      {
+        title: 'Core',
+        description: 'The @wskit/core shared layer: the error model, built-in errors, and close codes.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/%' }],
+      },
+      {
+        title: 'Recipes',
+        description: 'Complete worked apps, plus the framework-wiring setup.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/recipes/%' }],
+      },
+      {
+        title: 'Reference',
+        description: 'Lookup tables: error codes, close codes, and the socket API.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/reference/%' }],
+      },
+    ],
+  },
+
   ogImage: {
     // Standard social card ratio (1.91:1).
     defaults: {
