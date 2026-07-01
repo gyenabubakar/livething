@@ -4,12 +4,9 @@ definePageMeta({
   layout: false,
 })
 
-const siteUrl = useRuntimeConfig().public.siteUrl as string
-
 useHead({
   titleTemplate: '',
   link: [
-    { rel: 'canonical', href: `${siteUrl}/` },
     {
       rel: 'preload',
       href: '/fonts/GeistPixel-Line.woff2',
@@ -28,16 +25,14 @@ const { data: page } = await useAsyncData('wskit-docs-home', () => {
   },
 })
 
-useSeoMeta({
+useSeo({
   title:
     page.value?.title
     || 'WSKit — The complete WebSocket stack for TypeScript',
   description:
     page.value?.description
-    || 'A typed WebSocket framework for TypeScript. Channels, streams, requests, and reconnection built in, with one inferred contract across your server and client.',
-  ogUrl: `${siteUrl}/`,
-  twitterSite: '@GyenAbubakar',
-  twitterCreator: '@GyenAbubakar',
+    || 'A typed, batteries-included WebSocket framework for TypeScript. One inferred contract types your client and server: channels, streams, requests, reconnection.',
+  type: 'website',
 })
 
 defineOgImage('Home', {

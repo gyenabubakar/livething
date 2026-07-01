@@ -22,6 +22,10 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      meta: [
+        { name: 'twitter:site', content: '@GyenAbubakar' },
+        { name: 'twitter:creator', content: '@GyenAbubakar' },
+      ],
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
