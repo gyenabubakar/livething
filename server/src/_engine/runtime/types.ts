@@ -31,6 +31,22 @@ export interface ChannelCommitHook {
 }
 
 /**
+ * Every channel lifecycle hook map, keyed by channel key.
+ *
+ * Shared by the runtime surfaces that dispatch channel hooks: the channel
+ * capability's own runtime and the engine's channel-frame helpers both carry
+ * this exact shape.
+ */
+export interface ChannelHooks {
+  checkHooks: ReadonlyMap<string, readonly ChannelCheckHook[]>;
+  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+  commitHooks: ReadonlyMap<string, readonly ChannelCommitHook[]>;
+  subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+  unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+  sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+}
+
+/**
  * One finalized outgoing wire message.
  *
  * At this point the outgoing hooks have run and the framework metadata —

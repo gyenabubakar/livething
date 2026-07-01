@@ -7,7 +7,12 @@
     "**/*.bench.ts",
     "**/*.mocks.ts",
     "tests-e2e/**",
-    "_type_experiments/**"
+    "_type_experiments/**",
+    "**/dist/**",
+    "**/.nuxt/**",
+    "**/.output/**",
+    "**/.data/**",
+    "**/.wrangler/**"
   ],
   "reporters": ["console"],
   "threshold": 5

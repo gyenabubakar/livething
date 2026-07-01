@@ -10,31 +10,13 @@ import type * as EngineRuntimeTypes from './types.ts';
 /**
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
-interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
+interface ChannelRuntime
+  extends EngineRuntimeTypes.ConnectionMembersRuntime, EngineRuntimeTypes.ChannelHooks {
   hasDurableMembership(
     identity: string,
     channelName: string,
     channelFamily: string | null,
   ): boolean;
-
-  checkHooks: ReadonlyMap<
-    string,
-    readonly {
-      handler: (ctx: any, data?: unknown) => unknown | Promise<unknown>;
-      validator?: unknown;
-    }[]
-  >;
-
-  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-
-  commitHooks: ReadonlyMap<
-    string,
-    readonly { handler: (ctx: any, checkResult: unknown) => void }[]
-  >;
-
-  subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-  unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-  sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
