@@ -1,23 +1,35 @@
 /**
  * Mechanical guard for wskit's tree-shaking architecture (server spec §24).
  *
- * Two import directions break tree-shaking and are forbidden here:
+ * The `@wskit/server` package splits into one bundle entry per feature. Each
+ * `<feature>/capability.ts` is that entry; whatever it statically value-imports
+ * lands in the bundle when a user imports the feature. Two import directions
+ * would defeat the split, so both are forbidden here:
  *
- *  1. The engine CORE (`server/src/_engine/**`) must never value-import a
- *     feature CAPABILITY module (`<feature>/capability.ts`). Core provides
- *     seams (`__streamBuild` / `__buildRateLimit` / `__durableSweep`, the
- *     `ChannelDeps` builders); features import core, never the reverse. Core is
- *     allowed to value-import a feature's `runtime.ts` / `context.ts` /
- *     `compile.ts` — those are the seam targets pulled in only when that engine
- *     path runs — so the rule targets `capability.ts` entry points only.
+ *  1. `core-no-feature-capability` — the engine CORE (`server/src/_engine/**`)
+ *     must never value-import a feature's `capability.ts`. Core exposes seams
+ *     (`__streamBuild` / `__buildRateLimit` / `__durableSweep`, the
+ *     `ChannelDeps` builders); features import core, never the reverse. Core
+ *     MAY value-import a feature's `runtime.ts` / `context.ts` / `compile.ts` —
+ *     those are seam targets pulled in only when that engine path runs — so the
+ *     rule targets `capability.ts` entry points only.
  *
- *  2. The `channels` capability must not value-import the stream or rate-limit
- *     capabilities, and one stream variant capability must not value-import
- *     another variant's capability or runtime. These are separate bundle
- *     entries; a value edge between them would defeat the per-capability split.
+ *  2. `capability-no-cross-feature-engine` — one feature's `capability.ts` must
+ *     never value-import a DIFFERENT feature's `capability.ts` or `runtime.ts`.
+ *     Those are the heavy engine modules; a value edge between two entries drags
+ *     one feature's engine into another feature's bundle. This one rule covers
+ *     every feature pair (15 × 15), replacing the old per-pair stream/channel
+ *     rules. Legitimate sharing still works: leaf modules (`stream/shared.ts`,
+ *     `<feature>/durable-config.ts`, markers, small primitives) are not
+ *     `capability.ts`/`runtime.ts`, so a feature that genuinely depends on
+ *     another — a durable stream on `scheduled`, `channels` on an `intercept`
+ *     primitive — imports the leaf directly and stays clean.
  *
  * Type-only imports (`import type`) are ignored everywhere — they carry no
  * runtime code and cannot leak into a bundle.
+ *
+ * `_`-prefixed folders (`_engine`, `_define`, `_adapters`) are internal
+ * plumbing, not features, so they are excluded from the feature rules.
  */
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -35,65 +47,57 @@ module.exports = {
         pathNot: '\\.(spec|test|test-d|bench)\\.ts$',
       },
       to: {
-        path: '^server/src/[^/]+/capability\\.ts$',
+        path: '^server/src/(?!_)[^/]+/capability\\.ts$',
         dependencyTypesNot: ['type-only'],
       },
     },
     {
-      name: 'channels-no-stream-or-ratelimit',
+      name: 'capability-no-cross-feature-engine',
       comment:
-        'The channels capability must not value-import the stream or rate-limit capabilities. It ' +
-        'borrows their builders at assemble time via ChannelDeps / the rate-limit seam, so a ' +
-        'channels-only app pays for neither. Keep these as `import type` only.',
+        "A feature's capability.ts (its bundle entry) must not value-import another feature's " +
+        "capability.ts or runtime.ts — that would pull the other feature's engine into this " +
+        "feature's bundle and defeat the per-capability split. Depend on the other feature's " +
+        'shared leaf module instead (e.g. stream/shared.ts), or keep the edge `import type` only.',
       severity: 'error',
       from: {
-        path: '^server/src/channel/capability\\.ts$',
+        path: '^server/src/(?!_)([^/]+)/capability\\.ts$',
       },
       to: {
-        path: '^server/src/(stream|stream-resumable|stream-recorded|rate-limit)/',
+        path: '^server/src/(?!_)[^/]+/(capability|runtime)\\.ts$',
+        pathNot: '^server/src/$1/',
         dependencyTypesNot: ['type-only'],
       },
     },
     {
-      name: 'stream-no-durable-variant',
+      name: 'client-utility-entry-no-runtime',
       comment:
-        'The plain stream capability must not value-import a durable stream variant. Each variant ' +
-        'is its own bundle entry; importing only one must not pull the others. The plain stream ' +
-        'capability may import its own runtime seam.',
+        'A client utility subpath (`errors`, `environment`, `platform`) must not value-import the ' +
+        'connection runtime (socket, connect, client, messaging, or the plugin system). Importing ' +
+        '`@wskit/client/errors` should ship error classes, not a WebSocket engine. Keep the edge ' +
+        '`import type` only, or move the shared piece to a leaf module the runtime also uses.',
       severity: 'error',
       from: {
-        path: '^server/src/stream/capability\\.ts$',
+        path: '^client/src/(errors|environment|platform)\\.ts$',
       },
       to: {
-        path: '^server/src/(stream-resumable|stream-recorded)/(capability|runtime)\\.ts$',
+        path: '^client/src/(socket/|connect\\.ts|client\\.ts|messaging\\.ts|plugins/)',
         dependencyTypesNot: ['type-only'],
       },
     },
     {
-      name: 'resumable-stream-no-other-variant',
+      name: 'client-no-test-helpers-in-runtime',
       comment:
-        'The resumable stream capability must not value-import the plain or recorded stream ' +
-        'variant capability/runtime. Shared helpers live in server/src/stream/shared.ts.',
+        'Production client code must not value-import the test-only entries (`testing.ts`, the ' +
+        "public test-utility subpath, or the internal `test-helpers.ts`). They exist for consumers' " +
+        "and wskit's own tests; pulling them into the runtime graph ships mock/injection code to " +
+        'every app. Keep such imports inside spec files.',
       severity: 'error',
       from: {
-        path: '^server/src/stream-resumable/capability\\.ts$',
+        path: '^client/src/',
+        pathNot: '^client/src/(testing|test-helpers)\\.ts$',
       },
       to: {
-        path: '^server/src/(stream|stream-recorded)/(capability|runtime)\\.ts$',
-        dependencyTypesNot: ['type-only'],
-      },
-    },
-    {
-      name: 'recorded-stream-no-other-variant',
-      comment:
-        'The recorded stream capability must not value-import the plain or resumable stream ' +
-        'variant capability/runtime. Shared helpers live in server/src/stream/shared.ts.',
-      severity: 'error',
-      from: {
-        path: '^server/src/stream-recorded/capability\\.ts$',
-      },
-      to: {
-        path: '^server/src/(stream|stream-resumable)/(capability|runtime)\\.ts$',
+        path: '^client/src/(testing|test-helpers)\\.ts$',
         dependencyTypesNot: ['type-only'],
       },
     },
@@ -106,7 +110,7 @@ module.exports = {
       path: '(^|/)(node_modules|dist)/|\\.(spec|test|test-d|bench)\\.ts$',
     },
     tsPreCompilationDeps: true,
-    // Resolve the server's `~/*` alias so cross-module edges are seen. A
+    // Resolve each package's `~/*` alias so cross-module edges are seen. A
     // dedicated tsconfig (no `include`, so TS does not error on "no inputs"
     // when run from the repo root) carries only the path mapping.
     tsConfig: {

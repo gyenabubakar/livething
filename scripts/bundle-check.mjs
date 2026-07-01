@@ -1,15 +1,25 @@
-// Tree-shaking guard for wskit (server spec §24). Bundles a few import
-// scenarios from the BUILT `@wskit/server` with esbuild and asserts — via the
-// emitted code — that forbidden engine code is absent. A minimal server must
-// bundle only core; importing one capability must pull only that capability's
-// engine.
+// Tree-shaking guard for the published `@wskit/*` packages (server spec §24).
 //
-// Markers are stable string literals that survive minification and live in
-// exactly one engine's built chunk (verified against server/dist):
-//   - durable streams  → "__wskit_stream_chunks" (durable-stream SQL schema)
-//   - channel runtime  → "__subscribeOk__"        (channel wire-frame tag)
-//   - rate-limit engine→ " at scope "             (rate-limit plan resolver)
-// We assert MARKER ABSENCE, never byte size (brittle).
+// Each package ships lightweight subpath entries alongside its main one, and
+// promises that importing a light subpath does NOT drag heavy runtime code in.
+// This script proves that empirically against the BUILT `dist`: it bundles each
+// public entry with esbuild and inspects the emitted code for per-engine
+// markers.
+//
+// A marker is a string literal that uniquely identifies one engine's code and
+// survives vite's `minify: true`. SQL table/index names and wire-frame tags are
+// ideal — they are string data, not identifiers, so minification leaves them
+// intact. We never key on a local/function name (those get mangled).
+//
+// Each suite pins an exact matrix: for every entry we assert its OWN engine (and
+// only its documented runtime dependencies) are present, and every OTHER engine
+// is absent. A new accidental import that drags an engine into the wrong bundle
+// makes a forbidden marker appear — and the check fails.
+//
+// Two suites run:
+//   • @wskit/server — one bundle entry per feature; the split is fine-grained.
+//   • @wskit/client — one socket runtime plus a few light utility subpaths; the
+//     guarantee is that those utilities never pull the connection runtime.
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,56 +29,135 @@ import { build } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
-const serverDist = resolve(repoRoot, 'server/dist');
 
-// Resolve the built entry files directly so the check does not depend on the
-// package being linked into node_modules.
-const ENTRY = {
-  index: join(serverDist, 'index.js'),
-  channels: join(serverDist, 'channels.js'),
-  streams: join(serverDist, 'streams.js'),
+// ---------------------------------------------------------------------------
+// @wskit/server — every feature is its own bundle entry.
+//
+// Not every capability has a detectable engine here. `intercept` is deliberately
+// absent: the intercept primitive is core infrastructure (define, channels,
+// requests and rate-limit all use it internally), so it is present in every
+// server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
+// streams likewise carry no durable marker — there is nothing to persist.
+// ---------------------------------------------------------------------------
+const SERVER_DIST = resolve(repoRoot, 'server/dist');
+
+const SERVER_ENGINES = {
+  streamDurable: {
+    marker: '__wskit_stream_chunks',
+    label: 'durable-stream engine (recorded chunk store)',
+  },
+  channel: { marker: '__subscribeOk__', label: 'channel runtime' },
+  scheduled: { marker: '__wskit_scheduled', label: 'scheduled-task engine' },
+  sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
+  persistence: { marker: '__wskit_channel_memberships', label: 'persistence engine' },
+  tags: { marker: '__wskit_tags', label: 'tags storage engine' },
+  replay: { marker: '__wskit_replay', label: 'replay engine' },
+  keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
+  dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
+  request: { marker: '__wskit: "request"', label: 'request engine' },
+  rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
 };
 
-const MARKER = {
-  durableStream: '__wskit_stream_chunks',
-  channelRuntime: '__subscribeOk__',
-  rateLimit: ' at scope ',
+function serverScenarios(f) {
+  return [
+    {
+      name: 'minimal server (define + emits)',
+      source: importNamed(f('index.js'), 'define', 'emits'),
+      owns: null,
+      alsoPulls: [],
+    },
+    { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
+    // Requests can target a channel's members (server→client requests are
+    // channel-scoped), so the request engine pulls the channel runtime.
+    {
+      name: 'requests',
+      source: importStar(f('requests.js')),
+      owns: 'request',
+      alsoPulls: ['channel'],
+    },
+    { name: 'scheduled', source: importStar(f('scheduled.js')), owns: 'scheduled', alsoPulls: [] },
+    { name: 'dedup', source: importStar(f('dedup.js')), owns: 'dedup', alsoPulls: [] },
+    { name: 'sequence', source: importStar(f('sequence.js')), owns: 'sequence', alsoPulls: [] },
+    { name: 'keepalive', source: importStar(f('keepalive.js')), owns: 'keepalive', alsoPulls: [] },
+    {
+      name: 'rate-limit',
+      source: importStar(f('rate-limit.js')),
+      owns: 'rateLimit',
+      alsoPulls: [],
+    },
+    // Rejoin restores a reconnecting connection's tag memberships, so the
+    // persistence engine pulls the tags storage engine.
+    {
+      name: 'persistence',
+      source: importStar(f('persistence.js')),
+      owns: 'persistence',
+      alsoPulls: ['tags'],
+    },
+    // Replay can be channel-scoped, so it pulls the channel runtime.
+    { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
+    // Durable streams schedule background sweeps to retire their stored state, so
+    // the streams barrel pulls the scheduled-task engine. `streamDurable` covers
+    // the recorded (chunk-storing) variant; that marker is the durable proof.
+    {
+      name: 'streams (all kinds)',
+      source: importStar(f('streams.js')),
+      owns: 'streamDurable',
+      alsoPulls: ['scheduled'],
+    },
+    // Picking only the plain, ephemeral `stream` from the same barrel must tree-
+    // shake BOTH durable variants and the scheduled sweep away.
+    {
+      name: 'stream (plain) only',
+      source: importNamed(f('streams.js'), 'stream'),
+      owns: null,
+      alsoPulls: [],
+    },
+    { name: 'channels', source: importStar(f('channels.js')), owns: 'channel', alsoPulls: [] },
+    { name: 'tags', source: importStar(f('tags.js')), owns: 'tags', alsoPulls: [] },
+    { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
+    { name: 'plugin', source: importStar(f('plugin.js')), owns: null, alsoPulls: [] },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// @wskit/client — one connection runtime plus light utility subpaths.
+//
+// There is no per-feature split on the client: the socket owns every wire
+// behavior. The single guarantee worth pinning is that the utility subpaths
+// (`errors`, `environment`, `platform`) and the test-helper entry (`testing`)
+// never pull the connection runtime — importing `@wskit/client/errors` must not
+// ship a WebSocket engine.
+// ---------------------------------------------------------------------------
+const CLIENT_DIST = resolve(repoRoot, 'client/dist');
+
+const CLIENT_ENGINES = {
+  socket: { marker: '__subscribeOk__', label: 'socket connection runtime' },
 };
 
-/** One import scenario: source to bundle, plus markers that must be absent. */
-const SCENARIOS = [
-  {
-    name: 'minimal server (define + emits only)',
-    source: `import { define, emits } from ${JSON.stringify(ENTRY.index)};
-export { define, emits };`,
-    forbidden: [
-      ['durable-stream engine', MARKER.durableStream],
-      ['channel runtime', MARKER.channelRuntime],
-      ['rate-limit engine', MARKER.rateLimit],
-    ],
-  },
-  {
-    name: 'channels only',
-    source: `import { channels } from ${JSON.stringify(ENTRY.channels)};
-export { channels };`,
-    forbidden: [
-      ['durable-stream engine', MARKER.durableStream],
-      ['rate-limit engine', MARKER.rateLimit],
-    ],
-  },
-  {
-    name: 'stream (plain) only',
-    // Import only the plain `stream` from the streams barrel; the resumable and
-    // recorded variants (and their durable-sweep engine) must tree-shake away,
-    // and rate limiting must not come along.
-    source: `import { stream } from ${JSON.stringify(ENTRY.streams)};
-export { stream };`,
-    forbidden: [
-      ['durable-stream engine', MARKER.durableStream],
-      ['rate-limit engine', MARKER.rateLimit],
-    ],
-  },
-];
+function clientScenarios(f) {
+  return [
+    {
+      name: 'index (full socket)',
+      source: importStar(f('index.js')),
+      owns: 'socket',
+      alsoPulls: [],
+    },
+    { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
+    { name: 'environment', source: importStar(f('environment.js')), owns: null, alsoPulls: [] },
+    { name: 'platform', source: importStar(f('platform.js')), owns: null, alsoPulls: [] },
+    { name: 'testing', source: importStar(f('testing.js')), owns: null, alsoPulls: [] },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Runner
+// ---------------------------------------------------------------------------
+function importStar(path) {
+  return `import * as m from ${JSON.stringify(path)};\nexport { m };`;
+}
+function importNamed(path, ...names) {
+  return `import { ${names.join(', ')} } from ${JSON.stringify(path)};\nexport { ${names.join(', ')} };`;
+}
 
 async function bundle(source) {
   const dir = await mkdtemp(join(tmpdir(), 'wskit-bundle-check-'));
@@ -82,80 +171,118 @@ async function bundle(source) {
       format: 'esm',
       platform: 'neutral',
       minify: false,
-      metafile: true,
-      // @wskit/core is an external peer in the built server; keep it external
-      // here too so we only inspect the server's own code.
+      // @wskit/core is an external peer in the built packages; keep it external
+      // here too so we only inspect each package's own code.
       external: ['@wskit/core', '@wskit/core/*', '@standard-schema/*'],
       logLevel: 'silent',
     });
-    return {
-      code: result.outputFiles.map((f) => f.text).join('\n'),
-      inputs: Object.keys(result.metafile.inputs),
-    };
+    return result.outputFiles.map((file) => file.text).join('\n');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 }
 
-async function main() {
-  // Sanity: confirm the dist exists and each marker is actually present
-  // somewhere in dist, so an absent marker means "tree-shaken", not "renamed".
-  await assertMarkersExist();
-
+async function runSuite({ label, distDir, engines }, scenarios) {
+  console.log(`\n${label}`);
   const failures = [];
-  for (const scenario of SCENARIOS) {
-    const { code } = await bundle(scenario.source);
-    for (const [label, marker] of scenario.forbidden) {
-      if (code.includes(marker)) {
+
+  await assertMarkersResolve(distDir, engines, failures);
+
+  for (const scenario of scenarios) {
+    const allowed = new Set([scenario.owns, ...scenario.alsoPulls].filter(Boolean));
+    const code = await bundle(scenario.source);
+    const present = new Set(Object.keys(engines).filter((id) => code.includes(engines[id].marker)));
+
+    // 1. Leak: an engine that should NOT be here showed up.
+    for (const id of present) {
+      if (!allowed.has(id)) {
         failures.push(
-          `  [${scenario.name}] leaked ${label} — found marker ${JSON.stringify(marker)}`,
+          `  [${label} · ${scenario.name}] leaked ${engines[id].label} — marker ${JSON.stringify(engines[id].marker)} found`,
         );
       }
     }
-    const present = scenario.forbidden.filter(([, m]) => code.includes(m)).map(([l]) => l);
-    const verdict = present.length ? 'LEAK' : 'ok';
-    console.log(`  ${verdict === 'ok' ? '✓' : '✗'} ${scenario.name}`);
+    // 2. Drift: an engine we expect (own or documented dependency) is missing —
+    //    either the marker was renamed or the dependency genuinely changed. Fix
+    //    the marker, or update `owns`/`alsoPulls` for this scenario.
+    for (const id of allowed) {
+      if (!present.has(id)) {
+        const kind = id === scenario.owns ? 'own engine' : 'documented dependency';
+        failures.push(
+          `  [${label} · ${scenario.name}] expected ${kind} ${engines[id].label} is absent — marker drift or dependency removed`,
+        );
+      }
+    }
+
+    const leaked = [...present].filter((id) => !allowed.has(id));
+    console.log(`  ${leaked.length ? '✗' : '✓'} ${scenario.name}`);
   }
 
-  if (failures.length) {
-    console.error('\nbundle-check: tree-shaking leak(s) detected:');
-    console.error(failures.join('\n'));
-    console.error(
-      '\nThis is a REAL architecture violation — forbidden engine code reached a ' +
-        'bundle that should not contain it. Do not loosen the assertion; fix the import edge.',
-    );
-    process.exit(1);
-  }
-  console.log('\nbundle-check: all scenarios clean — no forbidden engine code leaked.');
+  return failures;
 }
 
-// Guard against a stale/renamed marker silently passing. Each marker must be
-// findable SOMEWHERE in the built dist on disk; otherwise the absence
-// assertions are meaningless. A marker can live in a runtime chunk that no
-// capability entry statically imports (that is the whole point of the split),
-// so we scan the dist files directly rather than bundling.
-async function assertMarkersExist() {
+// Guard against a stale/renamed marker silently passing every ABSENCE check.
+// Each marker must be findable SOMEWHERE in the built dist on disk; otherwise
+// "marker absent" would mean "renamed", not "tree-shaken". A marker can live in
+// a runtime chunk no entry statically imports (that is the whole point of the
+// split), so we scan the dist files directly rather than bundling.
+async function assertMarkersResolve(distDir, engines, failures) {
   let files;
   try {
-    files = (await readdir(serverDist)).filter((f) => f.endsWith('.js'));
-  } catch (err) {
-    console.error(
-      'bundle-check: could not read server/dist. Run `pnpm --filter @wskit/server build` first.',
-    );
-    throw err;
+    files = await collectJsFiles(distDir);
+  } catch {
+    failures.push(`  could not read ${distDir} — run the package build first (pnpm build)`);
+    return;
   }
-  const haystack = (
-    await Promise.all(files.map((f) => readFile(join(serverDist, f), 'utf8')))
-  ).join('\n');
-  const missing = Object.entries(MARKER).filter(([, m]) => !haystack.includes(m));
-  if (missing.length) {
+  const haystack = (await Promise.all(files.map((f) => readFile(f, 'utf8')))).join('\n');
+  for (const [id, { marker }] of Object.entries(engines)) {
+    if (!haystack.includes(marker)) {
+      failures.push(
+        `  marker for ${id} not found in ${distDir} — it was renamed or removed; update scripts/bundle-check.mjs`,
+      );
+    }
+  }
+}
+
+// Every `.js` file under a dist tree (server dist is flat; the client emits
+// nested per-module folders, so this has to recurse).
+async function collectJsFiles(dir) {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await collectJsFiles(full)));
+    else if (entry.name.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
+
+// Resolve a dist file name against a package's dist directory.
+function withDir(dir) {
+  return (file) => join(dir, file);
+}
+
+async function main() {
+  const failures = [
+    ...(await runSuite(
+      { label: '@wskit/server', distDir: SERVER_DIST, engines: SERVER_ENGINES },
+      serverScenarios(withDir(SERVER_DIST)),
+    )),
+    ...(await runSuite(
+      { label: '@wskit/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
+      clientScenarios(withDir(CLIENT_DIST)),
+    )),
+  ];
+
+  if (failures.length) {
+    console.error('\nbundle-check: tree-shaking matrix mismatch:');
+    console.error(failures.join('\n'));
     console.error(
-      'bundle-check: marker(s) not found in the built output — they were renamed or removed:',
+      '\nA LEAK is a real architecture violation — forbidden engine code reached a bundle ' +
+        'that should not contain it. Do not loosen the assertion; fix the import edge.\n' +
+        'A DRIFT means a marker was renamed or a dependency changed — update this script to match.',
     );
-    for (const [k, m] of missing) console.error(`  ${k}: ${JSON.stringify(m)}`);
-    console.error('Update the markers in scripts/bundle-check.mjs to match the current build.');
     process.exit(1);
   }
+  console.log('\nbundle-check: all entries clean — every engine is confined to its own bundle.');
 }
 
 main().catch((err) => {

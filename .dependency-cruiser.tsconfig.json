@@ -1,9 +1,9 @@
 {
-  "//": "Path mapping only, consumed by dependency-cruiser so it resolves the server's `~/*` alias. Intentionally has no `include`/`files`.",
+  "//": "Path mapping only, consumed by dependency-cruiser so it resolves each package's `~/*` alias. Both server and client use `~` for their own src; the resolver tries each target in order, so a package-specific path (e.g. client/src/socket) falls through to the right one. Intentionally has no `include`/`files`.",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./server/src/*"]
+      "~/*": ["./server/src/*", "./client/src/*"]
     }
   }
 }
