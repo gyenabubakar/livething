@@ -50,6 +50,9 @@ jobs:
       - name: Lint
         run: pnpm lint:check
 
+      - name: Duplication check
+        run: pnpm dup
+
       - name: Unit tests
         run: pnpm test
 
