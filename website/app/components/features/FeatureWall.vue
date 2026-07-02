@@ -22,7 +22,7 @@ const features = [
     desc: 'Package your own capabilities as self-contained, typed add-ons — extra handlers, context, and wire messages that compose like the built-ins.',
     size: 'wide',
   },
-  { title: 'Gap detection', icon: 'i-ph-list-numbers-duotone', desc: 'Every outgoing message carries a rising sequence number, so the client notices the instant one goes missing — a jump from 41 to 45 means three never arrived.' },
+  { title: 'Durable state', icon: 'i-ph-database-duotone', desc: 'Channel memberships, tags, and streams survive a restart or redeploy — flip on durable storage and the room is still there when the server comes back.' },
   { title: 'Connection quality', icon: 'i-ph-cell-signal-high-duotone', desc: 'A live quality tier from round-trip latency, so your UI can react the moment the connection degrades.' },
 ]
 </script>
