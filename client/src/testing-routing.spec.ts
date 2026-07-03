@@ -38,7 +38,7 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     const handler = vi.fn();
     socket.channel('general').on('message', handler);
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     injectChannel(socket as Socket<C>, 'general', 'message', { text: 'hello' });
     expect(handler).toHaveBeenCalledWith({ text: 'hello' });
   });

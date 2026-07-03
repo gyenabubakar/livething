@@ -3,7 +3,11 @@ export { connect } from '~/connect.ts';
 export type { ConnectOptions, ConnectDescriptor } from '~/connect.ts';
 
 export { reconnection } from '~/primitives/reconnection/index.ts';
-export type { ReconnectionOptions } from '~/primitives/reconnection/index.ts';
+export type {
+  ReconnectionApi,
+  ReconnectionInfo,
+  ReconnectionOptions,
+} from '~/primitives/reconnection/index.ts';
 export { keepalive } from '~/primitives/keepalive/index.ts';
 export type { KeepaliveOptions, QualityApi } from '~/primitives/keepalive/index.ts';
 export { quality } from '~/primitives/quality.ts';
@@ -22,7 +26,7 @@ export { intercept } from '~/primitives/intercept.ts';
 export type { InterceptFn } from '~/primitives/intercept.ts';
 export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
-export type { PlatformOptions } from '~/primitives/platform.ts';
+export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
 export { plugin } from '~/plugins/index.ts';
 export type { PluginDef, PluginHooks, PluginFactory } from '~/plugins/index.ts';
 
@@ -31,6 +35,7 @@ export type {
   ChannelsOptions,
   ChannelMessaging,
   ChannelMember,
+  ChannelStatus,
   FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/index.ts';
@@ -46,6 +51,7 @@ export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/in
 
 export { CloseCodes } from '@wskit/core';
 
+export type { ReadableStore } from '~/internal/store.ts';
 export type { Socket, SocketConnection } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
 export type { Messaging, SendOptions } from '~/messaging.ts';

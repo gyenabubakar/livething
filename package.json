@@ -7,9 +7,9 @@
     "node": ">=24"
   },
   "scripts": {
-    "postinstall": "pnpm -r --filter='!@wskit/website' run build",
+    "postinstall": "pnpm run build",
     "prepare": "husky",
-    "build": "pnpm -r --filter='!@wskit/website' run build",
+    "build": "pnpm -r --workspace-concurrency=1 --filter='!@wskit/website' run build",
     "site": "pnpm --filter @wskit/website run dev",
     "test": "pnpm -r --parallel run test",
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",

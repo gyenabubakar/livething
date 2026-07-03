@@ -25,8 +25,8 @@ export function setup(): void {
     el('open-count').textContent = String(openCount);
   });
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
     el('ws-present').textContent = socket.ws ? 'yes' : 'no';
     el('protocol').textContent = socket.protocol === null ? 'null' : socket.protocol;
   });

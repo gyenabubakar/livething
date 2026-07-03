@@ -53,7 +53,7 @@ describe('throwing onClose listener', () => {
     });
     const ws = MockWebSocket.last();
     expect(() => ws.serverClose(1006)).not.toThrow();
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 });
 
@@ -68,7 +68,7 @@ describe('idempotent on() unsubscribe', () => {
       unsubA();
       unsubA();
       vi.advanceTimersByTime(1000);
-      expect(socket.getState()).toBe('open'); // B is still live → must NOT idle-close
+      expect(socket.state.get()).toBe('open'); // B is still live → must NOT idle-close
     } finally {
       vi.useRealTimers();
     }
@@ -83,7 +83,7 @@ describe('state is settled before onClose fires', () => {
     ws.open();
     let inside = '';
     socket.onClose(() => {
-      inside = socket.getState();
+      inside = socket.state.get();
     });
     ws.serverClose(1006);
     expect(inside).toBe('closed');
@@ -96,7 +96,7 @@ describe('state is settled before onClose fires', () => {
     ws.open();
     let inside = '';
     socket.onClose(() => {
-      inside = socket.getState();
+      inside = socket.state.get();
     });
     ws.serverClose(1006);
     expect(inside).toBe('reconnecting');
@@ -149,7 +149,7 @@ describe('manual connect() during reconnecting', () => {
       socket.connect();
       MockWebSocket.last().open();
       MockWebSocket.last().serverClose(1006);
-      expect(socket.getState()).toBe('reconnecting');
+      expect(socket.state.get()).toBe('reconnecting');
 
       const before = MockWebSocket.instances.length;
       socket.connect();
@@ -212,7 +212,7 @@ describe('disconnect() still cleans up primitives when already closed', () => {
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     socket.send('y', { v: 1 });
     socket.disconnect();
@@ -251,9 +251,9 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
       unsub();
       vi.advanceTimersByTime(2000);
       MockWebSocket.last().open();
-      expect(socket.getState()).toBe('open');
+      expect(socket.state.get()).toBe('open');
       vi.advanceTimersByTime(1000);
-      expect(socket.getState()).toBe('closed');
+      expect(socket.state.get()).toBe('closed');
     } finally {
       vi.useRealTimers();
     }
@@ -270,9 +270,9 @@ describe('getLatency() after disconnect', () => {
       ws.open();
       vi.advanceTimersByTime(1000);
       ws.emit('pong');
-      expect(socket.getLatency()).not.toBeNull();
+      expect(socket.latency.get()).not.toBeNull();
       socket.disconnect();
-      expect(socket.getLatency()).toBeNull();
+      expect(socket.latency.get()).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -306,14 +306,14 @@ describe('idle timer armed during close must not fire during reconnect', () => {
 
       await pending.catch(() => {});
 
-      expect(socket.getState()).toBe('reconnecting');
+      expect(socket.state.get()).toBe('reconnecting');
 
       // Advance past the idle timeout while the reconnect timer is still pending.
       // Bug: the un-cleared idle timer fires disconnect(), setting state 'closed'.
       // Correct behavior: state is 'reconnecting' (or 'open' if the retry fired).
       vi.advanceTimersByTime(1500);
 
-      expect(socket.getState()).not.toBe('closed');
+      expect(socket.state.get()).not.toBe('closed');
     } finally {
       vi.useRealTimers();
     }

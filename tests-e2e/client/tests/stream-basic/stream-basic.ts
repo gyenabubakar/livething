@@ -29,8 +29,8 @@ export function setup(): void {
 
   const socket = client<StreamBasicClient>()(connect(wsUrl('stream-basic')), stream());
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('cancel-observed', (data) => {

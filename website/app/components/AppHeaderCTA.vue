@@ -2,10 +2,10 @@
   <UButton
     v-if="$route.path === '/'"
     label="Get Started"
-    to="/start/introduction"
+    to="/start/installation"
     size="sm"
     variant="solid"
     trailing-icon="i-ph-arrow-right-duotone"
-    class="hidden text-white sm:inline-flex"
+    class="hidden text-zinc-950 sm:inline-flex"
   />
 </template>

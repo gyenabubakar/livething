@@ -22,6 +22,7 @@ const links = computed(() => appConfig.github?.url
 const headerUi = computed(() => isHome.value
   ? { root: 'fixed inset-x-0 top-0 bg-transparent backdrop-blur-none border-transparent z-50', center: 'flex-1' }
   : { center: 'flex-1' })
+
 </script>
 
 <template>

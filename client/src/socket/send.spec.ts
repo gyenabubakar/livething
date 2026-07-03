@@ -143,7 +143,7 @@ describe('_send: return value — true when buffered, false when dropped', () =>
     // actual current behavior: the guard throws, not returns false.
     const socket = client<TestContract>()(connect('wss://test'), channels());
     const ch = socket.channel('room');
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     expect(() => ch.send('update', { value: 'x' })).toThrow();
   });

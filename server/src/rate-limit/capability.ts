@@ -15,7 +15,7 @@ import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
  *
  * @internal
  */
-export interface RateLimitBuildInput {
+interface RateLimitBuildInput {
   /** Per-handler overrides, keyed by scope (`'top'` or `'channel:<key>'`) then event. */
   readonly overrides: ReadonlyMap<string, ReadonlyMap<string, RateLimitConfig>>;
   /** Channel-level rules, keyed by channel key — the scope default for that channel. */

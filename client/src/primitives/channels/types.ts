@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { WSKitError } from '@wskit/core';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
@@ -10,6 +11,15 @@ export interface ChannelMember {
 
 /** Who started a subscription: the client asked, or the server pushed it. */
 export type SubscribeSource = 'server' | 'client';
+
+/**
+ * A channel's subscription state:
+ * - `'subscribing'` — a `subscribe()` (or a reconnect rejoin) is in flight.
+ * - `'subscribed'` — the server confirmed; sends and requests work.
+ * - `'unsubscribed'` — not in the channel (never joined, left, or kicked).
+ * - `'failed'` — a subscribe or a reconnect rejoin was rejected.
+ */
+export type ChannelStatus = 'subscribing' | 'subscribed' | 'unsubscribed' | 'failed';
 
 /**
  * A channel handle: an messaging (on/send/request) plus the
@@ -46,8 +56,20 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
    */
   resyncMembers(): void;
 
-  /** Who's in the room right now, keyed by connection id. */
-  readonly members: ReadonlyMap<string, ChannelMember>;
+  /**
+   * Who's in the room, as a reactive store keyed by connection id.
+   * `members.get()` reads the roster now; `members.subscribe(listener)` runs on
+   * every join, leave, or roster sync with a fresh snapshot. Online/offline
+   * events don't change the roster — a member stays until it truly leaves.
+   */
+  readonly members: ReadableStore<ReadonlyMap<string, ChannelMember>>;
+
+  /**
+   * The subscription state as a reactive store — `status.get()` reads it now,
+   * `status.subscribe(listener)` watches it. Handy for a "joining…" indicator
+   * without wiring up the four lifecycle events below.
+   */
+  readonly status: ReadableStore<ChannelStatus>;
 
   /** Someone joined the group. */
   onMemberJoin(callback: (connectionId: string, member: ChannelMember) => void): () => void;

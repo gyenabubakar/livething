@@ -27,8 +27,8 @@ export function setup(): void {
   // the answer-* buttons before a trigger so each case is deterministic.
   let mode: 'good' | 'bad' | 'drop' = 'good';
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('outcome', (data) => {

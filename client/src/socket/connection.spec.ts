@@ -51,7 +51,7 @@ describe('url-as-function / async url resolution', () => {
     await Promise.resolve();
 
     expect(MockWebSocket.instances).toHaveLength(0);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 });
 
@@ -74,7 +74,7 @@ describe('stale-attempt onopen closes the superseded socket', () => {
     // The stale ws must not be stored as this.ws.
     expect(socket['ws']).toBeNull();
     // State must not have jumped to 'open'.
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('does not fire onOpen or set state to open for a superseded onopen', () => {
@@ -91,11 +91,11 @@ describe('stale-attempt onopen closes the superseded socket', () => {
 
     ws1.open();
     expect(onOpen).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('connecting');
+    expect(socket.state.get()).toBe('connecting');
 
     ws2.open();
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     expect(socket['ws']).toBe(ws2);
   });
 });
@@ -117,17 +117,17 @@ describe('stale-attempt onclose is a no-op', () => {
     const ws1 = MockWebSocket.instances[0]!;
     expect(ws1.onclose).not.toBeNull();
     ws1.open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     ws1.serverClose(1006, 'server restart');
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
 
     const closeCallsBefore = onClose.mock.calls.length;
 
     vi.runAllTimers();
     const ws2 = MockWebSocket.instances[1]!;
     ws2.open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     expect(socket['ws']).toBe(ws2);
 
     // ws1 still has its onclose attached (socket.ts:496 guard is the only thing
@@ -137,7 +137,7 @@ describe('stale-attempt onclose is a no-op', () => {
     // Firing ws1.onclose again must be a no-op: the guard returns early.
     ws1.serverClose(1006, 'late duplicate');
 
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     expect(socket['ws']).toBe(ws2);
     expect(onClose).toHaveBeenCalledTimes(closeCallsBefore);
   });
@@ -150,18 +150,18 @@ describe('stale-attempt onclose is a no-op', () => {
     socket.connect();
     const ws1 = MockWebSocket.instances[0]!;
     ws1.open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     expect(socket['ws']).toBe(ws1);
 
     ws1.serverClose(1001, 'going away');
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
 
     vi.runAllTimers();
     const ws2 = MockWebSocket.instances[1]!;
     ws2.open();
 
     expect(socket['ws']).toBe(ws2);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     // ws1 still has its onclose handler. Firing it now hits the attemptId guard
     // (socket.ts:496) and must leave ws2 and state untouched.
@@ -169,7 +169,7 @@ describe('stale-attempt onclose is a no-op', () => {
     ws1.serverClose(1001, 'going away');
 
     expect(socket['ws']).toBe(ws2);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
@@ -194,7 +194,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 
   it('goes to closed (no reconnection) when url function throws', async () => {
@@ -203,7 +203,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('hands off to reconnection when searchParams function rejects', async () => {
@@ -215,7 +215,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
   });
 
   it('goes to closed when searchParams rejects and no reconnection is installed', async () => {
@@ -226,7 +226,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('is a no-op when disconnect() cancels the attempt before the catch runs', async () => {
@@ -244,7 +244,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     rejectUrl(new Error('never'));
     await Promise.resolve();
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 });
@@ -260,7 +260,7 @@ describe('url-function rejection fires close event (no reconnection)', () => {
     socket.connect();
     await Promise.resolve();
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     // BUG: the catch path calls _setState('closed') but never emits 'close'.
     // Correct behaviour: onClose must fire so callers know the attempt ended.
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -281,7 +281,7 @@ describe('failed first connection runs primitive close cleanup (#2)', () => {
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
     expect(onClose).toHaveBeenCalledWith(1006, 'connection failed', false, false);
   });
 });
@@ -296,7 +296,7 @@ describe('url-function rejection surfaces error event (with reconnection)', () =
     socket.connect();
     await Promise.resolve();
 
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
     // BUG: the catch path forwards (1006, 'connection failed') to the unexpectedCloseHandler
     // and retries silently — the real Error is never surfaced via an 'error' event.
     // Correct behaviour: an error event must be emitted so the caller sees what failed.
@@ -350,10 +350,10 @@ describe('disconnect() mid-first-hook skips second onBeforeReopen', () => {
 
     socket.connect();
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     MockWebSocket.last().serverClose(1006, 'drop');
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
 
     vi.runAllTimers();
 

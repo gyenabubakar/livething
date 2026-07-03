@@ -42,7 +42,7 @@ describe('keepalive — missed pong force close', () => {
     vi.advanceTimersByTime(1000);
 
     vi.advanceTimersByTime(1000);
-    expect(socket.getQuality()).toBe('poor');
+    expect(socket.quality.get()).toBe('poor');
     expect(ws.sent.filter((s) => s === 'ping').length).toBe(2);
   });
 
@@ -80,7 +80,7 @@ describe('keepalive — missed pong force close', () => {
     ws.emit('pong');
     vi.advanceTimersByTime(1000);
 
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
@@ -96,7 +96,7 @@ describe('keepalive — quality tier transitions', () => {
     vi.advanceTimersByTime(50);
     ws.emit('pong');
 
-    expect(socket.getQuality()).toBe('excellent');
+    expect(socket.quality.get()).toBe('excellent');
   });
 
   it('maps a latency at or above the excellent threshold to good', () => {
@@ -110,7 +110,7 @@ describe('keepalive — quality tier transitions', () => {
     vi.advanceTimersByTime(100);
     ws.emit('pong');
 
-    expect(socket.getQuality()).toBe('good');
+    expect(socket.quality.get()).toBe('good');
   });
 
   it('maps latency in the good range to degraded', () => {
@@ -124,7 +124,7 @@ describe('keepalive — quality tier transitions', () => {
     vi.advanceTimersByTime(200);
     ws.emit('pong');
 
-    expect(socket.getQuality()).toBe('degraded');
+    expect(socket.quality.get()).toBe('degraded');
   });
 
   it('maps latency above the degraded threshold to poor', () => {
@@ -138,10 +138,10 @@ describe('keepalive — quality tier transitions', () => {
     vi.advanceTimersByTime(600);
     ws.emit('pong');
 
-    expect(socket.getQuality()).toBe('poor');
+    expect(socket.quality.get()).toBe('poor');
   });
 
-  it('deduplicates onQualityChange — does not fire again for the same tier', () => {
+  it('deduplicates the quality store — does not fire again for the same tier', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
@@ -149,9 +149,8 @@ describe('keepalive — quality tier transitions', () => {
     );
 
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
-    // First pong fires once (unknown → excellent). The second, same-tier pong must not.
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
     ws.emit('pong');
@@ -164,14 +163,14 @@ describe('keepalive — quality tier transitions', () => {
     expect(onChange.mock.calls.length).toBe(callsAfterFirst);
   });
 
-  it('fires onQualityChange(disconnected) when missed pongs force the connection closed', () => {
+  it('moves the quality store to disconnected when missed pongs force the connection closed', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
       keepalive({ interval: 1000, maxMissedPongs: 2 }),
     );
     const tiers: string[] = [];
-    socket.onQualityChange((q) => tiers.push(q));
+    socket.quality.subscribe((q) => tiers.push(q));
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(100);
@@ -180,26 +179,30 @@ describe('keepalive — quality tier transitions', () => {
 
     vi.advanceTimersByTime(2900);
 
-    expect(socket.getQuality()).toBe('disconnected');
+    expect(socket.quality.get()).toBe('disconnected');
     expect(tiers.at(-1)).toBe('disconnected');
   });
 
-  it('fires onQualityChange(disconnected, null) on a clean close, not with a stale latency', () => {
+  it('goes disconnected with null latency on a clean close, not with a stale latency', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
       keepalive({ interval: 1000 }),
     );
-    const calls: Array<[string, number | null]> = [];
-    socket.onQualityChange((q, l) => calls.push([q, l]));
+    const tiers: string[] = [];
+    const latencies: Array<number | null> = [];
+    socket.quality.subscribe((q) => tiers.push(q));
+    socket.latency.subscribe((l) => latencies.push(l));
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(100);
     ws.emit('pong');
-    expect(calls.at(-1)).toEqual(['good', 100]);
+    expect(tiers.at(-1)).toBe('good');
+    expect(latencies.at(-1)).toBe(100);
 
     ws.serverClose(1000, 'bye');
-    expect(calls.at(-1)).toEqual(['disconnected', null]);
+    expect(tiers.at(-1)).toBe('disconnected');
+    expect(latencies.at(-1)).toBeNull();
   });
 });
 
@@ -218,16 +221,16 @@ describe('keepalive — interval zero disables pings', () => {
     const { socket } = build(keepalive({ interval: 0 }));
 
     vi.advanceTimersByTime(300_000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
 describe('keepalive — quality at open and the first measurement', () => {
-  it('does not fire onQualityChange at open — it waits for the first measured pong', () => {
+  it('does not publish a quality tier at open — it waits for the first measured pong', () => {
     vi.useFakeTimers();
     const socket = client<C>()(connect('wss://test'), keepalive({ interval: 1000 }));
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
     socket.connect();
     MockWebSocket.last().open();
@@ -235,30 +238,31 @@ describe('keepalive — quality at open and the first measurement', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('getQuality() returns the optimistic default and getLatency() is null before any pong', () => {
+  it('quality.get() starts disconnected and latency.get() is null before any pong', () => {
     vi.useFakeTimers();
     const { socket } = build(keepalive({ interval: 1000 }));
-    expect(socket.getQuality()).toBe('excellent');
-    expect(socket.getLatency()).toBeNull();
+    expect(socket.quality.get()).toBe('disconnected');
+    expect(socket.latency.get()).toBeNull();
   });
 
-  it('fires the first onQualityChange on the first measured pong (unknown → measured tier)', () => {
+  it('publishes the first quality tier on the first measured pong (disconnected → measured tier)', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
       keepalive({ interval: 1000 }),
     );
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(20);
     ws.emit('pong');
 
-    expect(onChange).toHaveBeenCalledWith('excellent', 20);
+    expect(onChange).toHaveBeenCalledWith('excellent');
+    expect(socket.latency.get()).toBe(20);
   });
 
-  it('fires onQualityChange on reconnect when a tier change is detectable', () => {
+  it('publishes a new quality tier on reconnect when a tier change is detectable', () => {
     vi.useFakeTimers();
     const socket = client<C>()(
       connect('wss://test'),
@@ -266,7 +270,7 @@ describe('keepalive — quality at open and the first measurement', () => {
       reconnection(),
     );
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
     socket.connect();
     const ws1 = MockWebSocket.last();
@@ -275,7 +279,8 @@ describe('keepalive — quality at open and the first measurement', () => {
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
 
-    expect(onChange).toHaveBeenCalledWith('poor', null);
+    expect(onChange).toHaveBeenCalledWith('poor');
+    expect(socket.latency.get()).toBeNull();
   });
 });
 
@@ -291,7 +296,7 @@ describe('helpers.forceClose', () => {
     vi.advanceTimersByTime(1000);
 
     expect(closeSpy).toHaveBeenCalledWith(CloseCodes.IDLE, 'missed pong');
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('is a safe no-op when ws is null mid-loop (the ws?.close optional chain prevents a throw)', () => {
@@ -313,11 +318,11 @@ describe('helpers.forceClose', () => {
   });
 });
 
-describe('socket.getQuality — state gating', () => {
+describe('socket.quality — state gating', () => {
   it('returns disconnected while the socket is in connecting state', () => {
     const socket = client<C>()(connect('wss://test'), keepalive({ interval: 1000 }));
     socket.connect();
-    expect(socket.getQuality()).toBe('disconnected');
+    expect(socket.quality.get()).toBe('disconnected');
   });
 
   it('returns disconnected while the socket is in reconnecting state', () => {
@@ -330,23 +335,38 @@ describe('socket.getQuality — state gating', () => {
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
-    expect(socket.getState()).toBe('reconnecting');
-    expect(socket.getQuality()).toBe('disconnected');
+    expect(socket.state.get()).toBe('reconnecting');
+    expect(socket.quality.get()).toBe('disconnected');
   });
 
-  it('returns the live quality tier while the socket is open', () => {
+  it('returns disconnected while open until the first pong is measured', () => {
     vi.useFakeTimers();
     const { socket } = build(keepalive({ interval: 1000 }));
 
-    expect(socket.getState()).toBe('open');
-    expect(socket.getQuality()).toBe('excellent');
+    expect(socket.state.get()).toBe('open');
+    expect(socket.quality.get()).toBe('disconnected');
+  });
+
+  it('returns the live quality tier once a pong has been measured while open', () => {
+    vi.useFakeTimers();
+    const { socket, ws } = build(
+      quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ interval: 1000 }),
+    );
+
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(10);
+    ws.emit('pong');
+
+    expect(socket.state.get()).toBe('open');
+    expect(socket.quality.get()).toBe('excellent');
   });
 
   it('returns disconnected after the socket is closed', () => {
     vi.useFakeTimers();
     const { socket } = build(keepalive({ interval: 1000 }));
     socket.disconnect();
-    expect(socket.getQuality()).toBe('disconnected');
+    expect(socket.quality.get()).toBe('disconnected');
   });
 });
 
@@ -361,15 +381,15 @@ describe('quality change event and latency refresh', () => {
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
     ws.emit('pong');
-    expect(socket.getLatency()).toBe(10);
+    expect(socket.latency.get()).toBe(10);
 
     vi.advanceTimersByTime(990);
     vi.advanceTimersByTime(25);
     ws.emit('pong');
-    expect(socket.getLatency()).toBe(25);
+    expect(socket.latency.get()).toBe(25);
   });
 
-  it('does not fire onQualityChange when the pong lands at the same tier', () => {
+  it('does not publish a quality tier when the pong lands at the same tier', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 1000, good: 2000, degraded: 3000 } }),
@@ -377,7 +397,7 @@ describe('quality change event and latency refresh', () => {
     );
 
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
@@ -392,7 +412,7 @@ describe('quality change event and latency refresh', () => {
     expect(onChange.mock.calls.length).toBe(callsAfterFirst);
   });
 
-  it('fires onQualityChange when the tier genuinely changes', () => {
+  it('publishes a quality tier when the tier genuinely changes', () => {
     vi.useFakeTimers();
     const { socket, ws } = build(
       quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
@@ -400,7 +420,7 @@ describe('quality change event and latency refresh', () => {
     );
 
     const onChange = vi.fn();
-    socket.onQualityChange(onChange);
+    socket.quality.subscribe(onChange);
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
@@ -412,7 +432,7 @@ describe('quality change event and latency refresh', () => {
     ws.emit('pong');
 
     expect(onChange.mock.calls.length).toBeGreaterThan(callsAfterExcellent);
-    expect(onChange).toHaveBeenLastCalledWith('good', expect.any(Number));
+    expect(onChange).toHaveBeenLastCalledWith('good');
   });
 });
 
@@ -445,18 +465,21 @@ describe('forceClose is called exactly once even when onclose is delayed', () =>
   });
 });
 
-describe('onQualityChange reports null latency when no pong was received', () => {
-  it('latency passed to onQualityChange is null when going poor via missed pongs', () => {
+describe('latency store is null when no pong was received', () => {
+  it('latency is null and quality is poor when going poor via missed pongs', () => {
     vi.useFakeTimers();
     const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
 
-    const onChange = vi.fn<(q: string, l: number | null) => void>();
-    (socket.onQualityChange as (cb: (q: string, l: number | null) => void) => () => void)(onChange);
+    const onQuality = vi.fn();
+    const onLatency = vi.fn();
+    socket.quality.subscribe(onQuality);
+    socket.latency.subscribe(onLatency);
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);
 
-    expect(onChange).toHaveBeenCalledWith('poor', null);
+    expect(onQuality).toHaveBeenCalledWith('poor');
+    expect(socket.latency.get()).toBeNull();
   });
 });
 
@@ -481,11 +504,11 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
     pingThenPong(20);
     pingThenPong(20);
     pingThenPong(20);
-    expect(socket.getQuality()).toBe('excellent');
+    expect(socket.quality.get()).toBe('excellent');
 
     pingThenPong(300);
-    expect(socket.getQuality()).toBe('excellent');
-    expect(socket.getLatency()).toBe(300);
+    expect(socket.quality.get()).toBe('excellent');
+    expect(socket.latency.get()).toBe(300);
   });
 
   it('a sustained latency rise moves the tier once the window fills with the new samples', () => {
@@ -505,47 +528,48 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
     }
 
     for (let i = 0; i < 5; i++) pingThenPong(10);
-    expect(socket.getQuality()).toBe('excellent');
+    expect(socket.quality.get()).toBe('excellent');
 
     for (let i = 0; i < 5; i++) pingThenPong(300);
-    expect(socket.getQuality()).toBe('degraded');
+    expect(socket.quality.get()).toBe('degraded');
   });
 });
 
 describe('keepalive — latency cleared on missed pong', () => {
-  it('reports null latency on the poor change after a previously healthy pong', () => {
+  it('clears latency to null on the poor change after a previously healthy pong', () => {
     vi.useFakeTimers();
     const { socket } = build(quality(), keepalive({ interval: 1000, maxMissedPongs: 5 }));
 
-    const calls: Array<[string, number | null]> = [];
-    socket.onQualityChange((q, l) => calls.push([q, l]));
+    const tiers: string[] = [];
+    const latencies: Array<number | null> = [];
+    socket.quality.subscribe((q) => tiers.push(q));
+    socket.latency.subscribe((l) => latencies.push(l));
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(45);
     socket.ws?.onmessage?.({ data: 'pong' } as MessageEvent);
-    expect(socket.getLatency()).toBe(45);
+    expect(socket.latency.get()).toBe(45);
 
     vi.advanceTimersByTime(955);
     vi.advanceTimersByTime(1000);
 
-    const last = calls.at(-1);
-    expect(last?.[0]).toBe('poor');
-    expect(last?.[1]).toBeNull(); // stale 45ms must not be reported with the degradation
-    expect(socket.getLatency()).toBeNull();
+    expect(tiers.at(-1)).toBe('poor');
+    expect(latencies.at(-1)).toBeNull();
+    expect(socket.latency.get()).toBeNull();
   });
 });
 
 describe('keepalive — quality listener isolation (#20)', () => {
-  it('a throwing onQualityChange listener does not block the others and is reported', () => {
+  it('a throwing quality-store listener does not block the others and is reported', () => {
     vi.useFakeTimers();
     const errors: unknown[] = [];
     const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 5 }));
     socket.onError((error) => errors.push(error));
     const second = vi.fn();
-    socket.onQualityChange(() => {
+    socket.quality.subscribe(() => {
       throw new Error('listener boom');
     });
-    socket.onQualityChange(second);
+    socket.quality.subscribe(second);
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(1000);

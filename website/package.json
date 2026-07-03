@@ -6,16 +6,16 @@
     "dev": "nuxt dev",
     "dev:prepare": "nuxt prepare",
     "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt generate && wrangler dev",
+    "deploy": "nuxt generate && wrangler deploy",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@databuddy/nuxt": "^2.4.20",
     "@nuxt/content": "^3.14.0",
     "@nuxt/fonts": "0.14.0",
     "@nuxt/ui": "^4.7.1",
     "@resvg/resvg-js": "^2.6.2",
-    "@vercel/analytics": "^2.0.1",
-    "@vercel/speed-insights": "^2.0.0",
     "better-sqlite3": "^12.9.0",
     "docus": "^5.10.1",
     "motion-v": "^2.2.1",
@@ -25,7 +25,11 @@
     "shaders": "^2.5.109"
   },
   "devDependencies": {
+    "@iconify-json/logos": "^1.2.11",
     "@iconify-json/ph": "^1.2.2",
-    "vue-tsc": "^2.2.0"
+    "@iconify-json/simple-icons": "^1.2.86",
+    "@iconify-json/vscode-icons": "^1.2.59",
+    "vue-tsc": "^2.2.0",
+    "wrangler": "^4.0.0"
   }
 }

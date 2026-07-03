@@ -7,7 +7,6 @@ definePageMeta({
 useHead({
   titleTemplate: '',
   link: [
-    { rel: 'canonical', href: 'https://www.evlog.dev/' },
     {
       rel: 'preload',
       href: '/fonts/GeistPixel-Line.woff2',
@@ -18,7 +17,7 @@ useHead({
   ],
 })
 
-const { data: page } = await useAsyncData('evlog-docs-home', () => {
+const { data: page } = await useAsyncData('wskit-docs-home', () => {
   return queryCollection('docs').path('/landing').first()
 }, {
   getCachedData(key, nuxtApp) {
@@ -26,19 +25,18 @@ const { data: page } = await useAsyncData('evlog-docs-home', () => {
   },
 })
 
-useSeoMeta({
+useSeo({
   title:
     page.value?.title
-    || `evlog — Digging through logs is not observability. It's hope.`,
+    || 'WSKit — The complete WebSocket stack for TypeScript',
   description:
     page.value?.description
-    || 'A modern TypeScript logger built for everything you ship — scripts, libraries, jobs, edge, requests. Simple logs, wide events, and structured errors in one API.',
-  ogImage: '/og.png',
-  ogImageWidth: 1200,
-  ogImageHeight: 630,
-  ogUrl: 'https://www.evlog.dev/',
-  twitterSite: '@hugorcd',
-  twitterCreator: '@hugorcd',
+    || 'A typed, batteries-included WebSocket framework for TypeScript. One inferred contract types your client and server: channels, streams, requests, reconnection.',
+  type: 'website',
+})
+
+defineOgImage('Home', {
+  title: 'The complete WebSocket stack for TypeScript',
 })
 </script>
 

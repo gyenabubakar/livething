@@ -1,3 +1,16 @@
+/** A snapshot of the reconnection loop, exposed as `socket.reconnection`. */
+export interface ReconnectionInfo {
+  /** `true` while the client is retrying a dropped (or never-opened) connection. */
+  retrying: boolean;
+  /** How many retry attempts have started since the last successful open. `0` when idle. */
+  attempt: number;
+  /**
+   * `Date.now()` in ms of the next scheduled retry, or `null` when none is
+   * scheduled — either idle, or paused offline until the network returns.
+   */
+  nextRetryAt: number | null;
+}
+
 /** Options for `reconnection()`. */
 export interface ReconnectionOptions {
   /** How many times to retry before giving up. Use `Infinity` for no limit. Default: `10`. */

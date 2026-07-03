@@ -1,4 +1,5 @@
 import type { WSKitError } from '@wskit/core';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
 import type { ConnectionState, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
@@ -13,11 +14,14 @@ export interface SocketConnection {
   /** Close on purpose. Defaults to code 1000 and an empty reason. */
   disconnect(code?: number, reason?: string): void;
 
-  /** The current connection state. */
-  getState(): ConnectionState;
-
-  /** Run a callback on every state change (read the value with `getState()`). */
-  subscribe(callback: () => void): () => void;
+  /**
+   * The connection state as a reactive store. Read it now with `state.get()`
+   * (`'closed'` | `'connecting'` | `'open'` | `'reconnecting'`), or watch it with
+   * `state.subscribe(listener)` — the listener runs with the new state on every
+   * change and returns an unsubscribe. This is the standard store shape, so it
+   * drops into any framework (see [Framework Hooks](/recipes/framework-hooks/overview)).
+   */
+  readonly state: ReadableStore<ConnectionState>;
 
   /** Runs on every open (first connect and reconnects). */
   onOpen(callback: () => void): () => void;

@@ -29,7 +29,7 @@
 
 @layer base {
   :root {
-    @apply selection:bg-primary selection:text-white;
+    @apply selection:bg-primary/30;
   }
 
   html, body {
@@ -37,18 +37,30 @@
   }
 }
 
+/* Skip rendering a landing section while it is far off screen, so its blurred
+   layers and looping demos are not composited until the reader scrolls near.
+   The `auto` intrinsic size lets the browser remember each section's real
+   height after first paint, so the scrollbar does not jump. */
+.deferred-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 700px;
+}
+
 .section-label {
-  @apply font-pixel text-[10px] uppercase tracking-widest text-muted mb-4 flex items-center;
+  @apply font-pixel text-[13px] uppercase tracking-wider text-highlighted mb-4 flex items-center;
+  /* The pixel font is a hairline at one weight — a tight currentColor glow
+     thickens the strokes so the small label reads on the dark background. */
+  text-shadow: 0 0 1px currentColor;
 }
 
 .section-label::before {
   content: '';
   display: inline-block;
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   background-color: var(--ui-color-primary-500);
-  margin-right: 0.5rem;
-  box-shadow: 0 0 8px var(--ui-color-primary-500);
+  margin-right: 0.6rem;
+  box-shadow: 0 0 10px 1px var(--ui-color-primary-500);
 }
 
 .section-title {
@@ -58,6 +70,13 @@
 
 .landing-code pre[style] {
   background-color: var(--ui-bg-muted) !important;
+}
+
+/* Docs code blocks: use the github-dark theme's own (darker) background instead
+   of Nuxt UI's grey `bg-muted`, so code sits on a near-black surface. */
+.prose pre.shiki,
+pre.shiki {
+  background-color: #0d1117 !important;
 }
 
 .landing-code > div > div {

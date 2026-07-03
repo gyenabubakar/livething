@@ -1,31 +1,5 @@
 <script setup lang="ts">
 import { Motion } from 'motion-v'
-
-const { public: pub } = useRuntimeConfig()
-const justUseEvlogUrl = computed(() =>
-  typeof pub.justUseEvlogUrl === 'string' ? pub.justUseEvlogUrl.trim() : '',
-)
-
-const shipByTime = ref('')
-
-let clockInterval: ReturnType<typeof setInterval> | undefined
-
-function updateShipByTime() {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() + 10)
-  const h = String(now.getHours()).padStart(2, '0')
-  const m = String(now.getMinutes()).padStart(2, '0')
-  shipByTime.value = `${h}:${m}`
-}
-
-onMounted(() => {
-  updateShipByTime()
-  clockInterval = setInterval(updateShipByTime, 1_000)
-})
-
-onBeforeUnmount(() => {
-  if (clockInterval) clearInterval(clockInterval)
-})
 </script>
 
 <template>
@@ -50,14 +24,7 @@ onBeforeUnmount(() => {
         <div>
           <div class="relative mb-6">
             <h2 class="section-title text-center text-shadow-lg text-shadow-black">
-              Better logging<br>by
-              <ClientOnly>
-                <span class="tabular-nums">{{ shipByTime }}</span>
-                <template #fallback>
-                  <span>tonight</span>
-                </template>
-              </ClientOnly>
-              <span class="cta-dot">.</span>
+              Real-time,<br>finally typed<span class="cta-dot">.</span>
             </h2>
           </div>
           <p class="text-base leading-relaxed text-highlighted mb-10">
@@ -76,19 +43,7 @@ onBeforeUnmount(() => {
               </template>
             </UButton>
             <UButton
-              v-if="justUseEvlogUrl"
-              :to="justUseEvlogUrl"
-              target="_blank"
-              size="lg"
-              class="bg-white/10 border border-white/40 text-white hover:bg-white/20 backdrop-blur-sm"
-            >
-              <template #leading>
-                <UIcon name="i-ph-megaphone-duotone" class="size-4" />
-              </template>
-              Just fucking use evlog
-            </UButton>
-            <UButton
-              to="https://github.com/hugorcd/evlog"
+              to="https://github.com/plain-software-co/wskit"
               target="_blank"
               size="lg"
               class="bg-white/10 border border-white/40 text-white hover:bg-white/20 backdrop-blur-sm"
@@ -104,18 +59,28 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="relative z-10 mt-auto pt-32 md:pt-44 pb-4">
-      <div class="max-w-4xl mx-auto px-6 flex items-center justify-between">
-        <div class="text-xs font-mono italic tracking-tight text-muted">
-          &copy; {{ new Date().getFullYear() }} - Made by
-          <a href="https://hrcd.fr/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>
+      <div class="max-w-4xl mx-auto px-6">
+        <div class="flex items-center justify-between">
+          <div class="text-xs font-mono italic tracking-tight text-muted">
+            &copy; {{ new Date().getFullYear() }} - Made by
+            <a href="https://gyen.dev/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Gyen Abubakar</a>
+          </div>
+          <div class="flex items-center gap-3">
+            <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-muted hover:text-dimmed transition-colors">
+              <UIcon name="i-simple-icons-x" class="size-4" />
+            </a>
+            <a href="https://github.com/plain-software-co/wskit" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
+              <UIcon name="i-simple-icons-github" class="size-4" />
+            </a>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <a href="https://x.com/hugorcd" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-muted hover:text-dimmed transition-colors">
-            <UIcon name="i-simple-icons-x" class="size-4" />
-          </a>
-          <a href="https://github.com/hugorcd/evlog" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="text-muted hover:text-dimmed transition-colors">
-            <UIcon name="i-simple-icons-github" class="size-4" />
-          </a>
+        <div class="mt-4 flex flex-col gap-1 border-t border-black/10 pt-4 text-xs font-mono italic tracking-tight text-muted sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <p>
+            This website was built from <a href="https://github.com/HugoRCD" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>'s <a href="https://evlog.dev" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">evlog</a> website.
+          </p>
+          <p>
+            Logo by <a href="https://charlesarthur.framer.website/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Charles Arthur</a>.
+          </p>
         </div>
       </div>
     </div>

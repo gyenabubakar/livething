@@ -21,8 +21,8 @@ export function setup(): void {
 
   const socket = client<RateLimitClient>()(connect(wsUrl('rate-limit')), requestResponse());
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.onError((err: WSKitError) => {

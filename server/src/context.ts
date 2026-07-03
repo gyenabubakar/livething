@@ -340,8 +340,12 @@ export interface ScopeSendApi {
   /** The resolved name of this channel instance. */
   readonly name: string;
 
-  /** Send an event only to the current connection, scoped to this channel. */
-  send(event: string, payload: unknown): boolean;
+  /**
+   * Send an event only to the current connection, scoped to this channel.
+   * Returns nothing — it dispatches or throws. Use `ctx.channels.get(...).send`
+   * to target a specific member and get a delivered boolean back.
+   */
+  send(event: string, payload: unknown): void;
 
   /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
@@ -528,9 +532,8 @@ export interface ChannelsManager<
  * base.on('send', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) {
- *     const delivered: boolean = ctx.send('message', { text: input.text });
+ *     ctx.send('message', { text: input.text });
  *     ctx.broadcast('message', { text: input.text });
- *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
  *   },
  * });
  * ```
@@ -567,8 +570,13 @@ export interface ConnectionContext<
   /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
 
-  /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
-  send(event: string, payload: unknown): boolean;
+  /**
+   * Send an event to the current connection only. Returns nothing — it either
+   * dispatches the frame or throws (an undeclared event, or a non-object
+   * payload). To target a different socket and learn whether it is still live,
+   * use `ctx.connection(ref).send(...)`, which returns a boolean.
+   */
+  send(event: string, payload: unknown): void;
 
   /**
    * Send an event to all live connections except the caller. Pass

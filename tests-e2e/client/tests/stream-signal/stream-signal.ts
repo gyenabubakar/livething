@@ -26,8 +26,8 @@ export function setup(): void {
   type Handle = Awaited<ReturnType<typeof socket.stream<'slow-signal'>>>;
   let handle: Handle | null = null;
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   // The handler's abort path emits this once the signal fires.

@@ -1,6 +1,7 @@
 import { Block } from '@wskit/core';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
+import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
 import { isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
@@ -16,6 +17,7 @@ import type {
   WireMessage,
   WSKitEnvelope,
 } from '~/internal/runtime.ts';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { SendOptions } from '~/messaging.ts';
 import type { ConnectionState } from '~/types.ts';
 
@@ -32,7 +34,6 @@ export interface CloseEvent {
 }
 
 type SocketEvents = {
-  state: [state: ConnectionState];
   open: [];
   reconnect: [];
   reconnectFailed: [];
@@ -102,7 +103,18 @@ export class WSKitSocket {
   _primitives: readonly PrimitiveRuntime[] = [];
   private _knownTags: ReadonlySet<string> = new Set();
 
-  /** @internal */
+  /** @internal — the writable half; `_setState` drives it and `state` exposes it. */
+  private _stateStore = createStore<ConnectionState>('closed', (error) => this._reportError(error));
+
+  /**
+   * The connection state as a reactive store: `state.get()` reads it now
+   * (`'closed'` | `'connecting'` | `'open'` | `'reconnecting'`), and
+   * `state.subscribe(listener)` runs `listener` with the new state on every
+   * change and returns an unsubscribe.
+   */
+  readonly state: ReadableStore<ConnectionState> = this._stateStore.store;
+
+  /** @internal — mirrors `state.get()` for fast internal reads and guards. */
   _state: ConnectionState = 'closed';
 
   /** @internal — if a listener throws, the error is caught and surfaced (never
@@ -247,15 +259,6 @@ export class WSKitSocket {
       this._setState('closed');
       this._emitter.emit('close', { code, reason, wasClean: true });
     }
-  }
-
-  getState(): ConnectionState {
-    return this._state;
-  }
-
-  /** Run a callback whenever the state changes. Read the new value with `getState()`. */
-  subscribe(callback: () => void): () => void {
-    return this._emitter.on('state', callback);
   }
 
   on(event: string, handler: (data: unknown) => void): () => void {
@@ -502,7 +505,7 @@ export class WSKitSocket {
     const previous = this._state;
     this._state = state;
     this._log(`${previous} → ${state}`);
-    this._emitter.emit('state', state);
+    this._stateStore.set(state);
   }
 
   private async _openConnection(): Promise<void> {

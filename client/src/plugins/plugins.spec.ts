@@ -440,7 +440,7 @@ describe('plugin() hooks', () => {
     const { socket } = build(Bad());
     socket.onError(() => {});
     expect(() => socket.disconnect()).not.toThrow();
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('onClose fires with the code and reason', () => {

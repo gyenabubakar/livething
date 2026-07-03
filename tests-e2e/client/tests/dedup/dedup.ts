@@ -19,8 +19,8 @@ export function setup(): void {
 
   let echoCount = 0;
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.on('echoed', () => {

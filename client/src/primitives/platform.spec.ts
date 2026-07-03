@@ -5,6 +5,7 @@ import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlatformApi } from '~/primitives/platform.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
@@ -66,15 +67,15 @@ describe('background disconnect', () => {
 
     m.setVisible(false);
     vi.advanceTimersByTime(999);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     vi.advanceTimersByTime(1);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     m.setVisible(true);
-    expect(socket.getState()).toBe('connecting');
+    expect(socket.state.get()).toBe('connecting');
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 
   it('resets the timer on each visibility change', () => {
@@ -88,9 +89,9 @@ describe('background disconnect', () => {
     m.setVisible(true);
     m.setVisible(false);
     vi.advanceTimersByTime(999);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
     vi.advanceTimersByTime(1);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('does not reconnect on foreground when the socket dropped on its own while hidden', () => {
@@ -101,12 +102,12 @@ describe('background disconnect', () => {
 
     m.setVisible(false);
     ws.serverClose(1006, 'network blip');
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     vi.advanceTimersByTime(1000);
 
     m.setVisible(true); // returning must NOT trigger a platform reconnect
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
   });
 
   it('throws WSKitConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
@@ -128,20 +129,20 @@ describe('background disconnect', () => {
     const un1 = socket.on('message', () => undefined);
     socket.on('message', () => undefined);
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     m.setVisible(false);
     vi.advanceTimersByTime(500);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     m.setVisible(true);
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     // Drop ONE listener — the other is still live, so it must NOT idle-close.
     un1();
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 
   it('detaches environment listeners on a user disconnect()', () => {
@@ -176,12 +177,12 @@ describe('manual connect while already hidden', () => {
 
     socket.connect();
     MockWebSocket.last().open();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     // Advance past backgroundDisconnectMs. The socket was manually opened
     // while hidden; the platform primitive must NOT drop it.
     vi.advanceTimersByTime(1000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     void visCb;
   });
@@ -193,12 +194,12 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
     const { ws, socket } = build(platform({ environment: m.environment }), reconnection());
 
     ws.serverClose(1006);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
 
     m.setOnline(false);
     vi.advanceTimersByTime(60_000);
     expect(MockWebSocket.instances).toHaveLength(1);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
 
     m.setOnline(true);
     expect(MockWebSocket.instances).toHaveLength(2);
@@ -220,7 +221,7 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
   it('stays timer-only and never throws with no environment signal', () => {
     const { ws, socket } = build(reconnection({ networkAware: true }));
     ws.serverClose(1006);
-    expect(socket.getState()).toBe('reconnecting');
+    expect(socket.state.get()).toBe('reconnecting');
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
   });
@@ -236,5 +237,41 @@ describe('network-aware reconnection (reconnection + platform online signal)', (
     ws.serverClose(1006);
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+});
+
+function buildWithOnline(m: ReturnType<typeof mockEnvironment>) {
+  const { socket, ws } = build(platform({ environment: m.environment }));
+  return { socket: socket as typeof socket & PlatformApi, ws };
+}
+
+describe('socket.online store', () => {
+  it('defaults to true before any network change', () => {
+    const m = mockEnvironment();
+    const { socket } = buildWithOnline(m);
+    expect(socket.online.get()).toBe(true);
+  });
+
+  it('reflects the environment going offline and back online', () => {
+    const m = mockEnvironment();
+    const { socket } = buildWithOnline(m);
+
+    m.setOnline(false);
+    expect(socket.online.get()).toBe(false);
+
+    m.setOnline(true);
+    expect(socket.online.get()).toBe(true);
+  });
+
+  it('publishes each network change to subscribers', () => {
+    const m = mockEnvironment();
+    const { socket } = buildWithOnline(m);
+    const states: boolean[] = [];
+    socket.online.subscribe((online) => states.push(online));
+
+    m.setOnline(false);
+    m.setOnline(true);
+
+    expect(states).toEqual([false, true]);
   });
 });

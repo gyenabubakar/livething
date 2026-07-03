@@ -87,7 +87,7 @@ describe('network-change listener lifecycle via selfDisconnecting flag', () => {
 
     m.setVisible(false);
     vi.advanceTimersByTime(500);
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
 
     expect(m.netUnsub).not.toHaveBeenCalled();
   });
@@ -173,7 +173,7 @@ describe('visibility signal routing via onSignal', () => {
     // And without backgroundDisconnectMs, going hidden must NOT drop the socket.
     m.setVisible(false);
     vi.advanceTimersByTime(60_000);
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 

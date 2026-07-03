@@ -9,7 +9,7 @@ import {
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo, Logger } from '~/context.ts';
 import type { NotifyValidationErrorOptions, SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
@@ -211,7 +211,7 @@ export interface BroadcastToChannelOptions {
  * The engine keeps membership state and connection lookup. These helpers own
  * the subscribe and unsubscribe protocol behavior built on top of that state.
  */
-interface ChannelRuntime {
+interface ChannelRuntime extends ChannelHooks {
   compiled: {
     channels: Map<string, CompiledChannel>;
     channelFamilies: Map<string, CompiledChannel>;
@@ -220,27 +220,6 @@ interface ChannelRuntime {
   connections: Map<string, RuntimeConnection>;
 
   channelMembers: Map<string, Set<RuntimeConnection>>;
-
-  checkHooks: ReadonlyMap<
-    string,
-    readonly {
-      handler: (ctx: any, data?: unknown) => unknown | Promise<unknown>;
-      validator?: unknown;
-    }[]
-  >;
-
-  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-
-  commitHooks: ReadonlyMap<
-    string,
-    readonly { handler: (ctx: any, checkResult: unknown) => void }[]
-  >;
-
-  subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-
-  unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
-
-  sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
 
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
 
@@ -554,9 +533,7 @@ async function runSubscribeFlow(
         (typeof r === 'object' || typeof r === 'function') &&
         typeof (r as { then?: unknown }).then === 'function'
       ) {
-        throw new WSKitConfigError(
-          '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
-        );
+        throw new WSKitConfigError('[wskit] commit() must be synchronous.');
       }
     }
   }

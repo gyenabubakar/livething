@@ -29,8 +29,8 @@ export function setup(): void {
     stream({ timeout: 2000 }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   const rows: number[] = [];

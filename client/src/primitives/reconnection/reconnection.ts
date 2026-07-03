@@ -1,12 +1,30 @@
-import type { ReconnectionOptions } from '~/primitives/reconnection/types.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import { createStore } from '~/internal/store.ts';
+import type { ReadableStore } from '~/internal/store.ts';
+import type { ReconnectionInfo, ReconnectionOptions } from '~/primitives/reconnection/types.ts';
+import type { Primitive, TypeFn } from '~/primitives/types.ts';
+
+/** The reconnection store that `reconnection()` adds to the socket. */
+export interface ReconnectionApi {
+  /**
+   * The reconnection loop as a reactive store: `reconnection.get()` reads
+   * `{ retrying, attempt, nextRetryAt }` now, and `reconnection.subscribe(listener)`
+   * watches it — enough to render "reconnecting, attempt 3…" without wiring
+   * `onReconnect`/`onReconnectFailed` by hand.
+   */
+  reconnection: ReadableStore<ReconnectionInfo>;
+}
+
+interface ReconnectionTypeFn extends TypeFn {
+  readonly _api: ReconnectionApi;
+}
 
 /**
  * Adds automatic reconnection. Without it, a dropped socket simply stays closed —
  * this primitive is what makes the client retry, with a growing delay between
- * tries. It owns that retry loop and only ships when you add it.
+ * tries. It owns that retry loop and the `socket.reconnection` store, and only
+ * ships when you add it.
  */
-export function reconnection(options: ReconnectionOptions = {}): Primitive<EmptyTypeFn> {
+export function reconnection(options: ReconnectionOptions = {}): Primitive<ReconnectionTypeFn> {
   const maxAttempts = options.maxAttempts ?? 10;
   const maxDelay = options.maxDelay ?? 30_000;
   const nonRetryable = new Set(options.nonRetryableCodes ?? []);
@@ -20,6 +38,11 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
       // Tracks whether the device is online. Stays `true` (timer-only) when
       // nothing in the environment supplies an `online` / `offline` signal.
       let online = true;
+
+      const idle: ReconnectionInfo = { retrying: false, attempt: 0, nextRetryAt: null };
+      const { store, set } = createStore<ReconnectionInfo>(idle, (error) =>
+        helpers.log.report(error),
+      );
 
       function clearTimer(): void {
         if (timer !== null) {
@@ -52,6 +75,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
       function scheduleRetry(): void {
         if (attempt >= maxAttempts) {
           helpers.log.info(`reconnection exhausted after ${maxAttempts} attempts`);
+          set({ retrying: false, attempt, nextRetryAt: null });
           helpers.failReconnect();
           return;
         }
@@ -62,6 +86,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
         helpers.log.info(`reconnecting — attempt ${attempt} in ${Math.round(delay)}ms`);
         helpers.enterReconnecting();
         clearTimer();
+        set({ retrying: true, attempt, nextRetryAt: Date.now() + delay });
 
         timer = setTimeout(() => {
           timer = null;
@@ -74,6 +99,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
       helpers.onUnexpectedClose((code, reason) => {
         if (!decide(code, reason)) {
           helpers.log.info(`reconnection suppressed for close code ${code}`);
+          set({ retrying: false, attempt, nextRetryAt: null });
           helpers.giveUp();
           return;
         }
@@ -81,6 +107,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
         // and let the `online` signal kick off a fresh attempt when it returns.
         if (networkAware && !online) {
           helpers.log.info('offline — pausing reconnection until the network returns');
+          set({ retrying: true, attempt, nextRetryAt: null });
           helpers.enterReconnecting();
           return;
         }
@@ -110,10 +137,16 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
       return {
         id: 'reconnection',
 
+        install(socket) {
+          // @ts-expect-error — install adds the reconnection store to the socket dynamically
+          socket.reconnection = store;
+        },
+
         onOpen() {
           // A good connection resets the wait back to the start.
           attempt = 0;
           clearTimer();
+          set(idle);
           return null;
         },
 

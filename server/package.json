@@ -54,7 +54,7 @@
       "import": "./dist/streams.js"
     },
     "./channels": {
-      "types": "./dist/channel/capability.d.ts",
+      "types": "./dist/channel/index.d.ts",
       "import": "./dist/channels.js"
     },
     "./tags": {
@@ -62,7 +62,7 @@
       "import": "./dist/tags.js"
     },
     "./intercepts": {
-      "types": "./dist/intercept/capability.d.ts",
+      "types": "./dist/intercept/index.d.ts",
       "import": "./dist/intercepts.js"
     },
     "./plugin": {

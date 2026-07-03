@@ -3,6 +3,7 @@ export type {
   ChannelsOptions,
   ChannelMessaging,
   ChannelMember,
+  ChannelStatus,
   FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/types.ts';

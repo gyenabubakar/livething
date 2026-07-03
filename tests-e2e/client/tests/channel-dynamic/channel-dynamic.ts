@@ -39,8 +39,8 @@ export function setup(): void {
   const general = socket.channel('room', 'room:general');
   const vip = rooms('room:vip');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   function append(testid: string, value: string): void {

@@ -18,8 +18,8 @@ export function setup(): void {
     reconnection({ maxAttempts: 2, maxDelay: 100 }),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   socket.onReconnectFailed(() => {

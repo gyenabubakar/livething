@@ -23,8 +23,8 @@ export function setup(): void {
 
   const room = socket.channel('room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   room.onSubscribed(() => {

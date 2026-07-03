@@ -30,8 +30,8 @@ export function setup(): void {
   type Handle = Awaited<ReturnType<typeof socket.stream<'start-nudge-stream'>>>;
   let handle: Handle | null = null;
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   button('connect', () => socket.connect());

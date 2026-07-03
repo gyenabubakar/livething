@@ -99,8 +99,8 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     });
 
     expect(onOnline).toHaveBeenCalledWith('c42', { meta: { name: 'Bob' } });
-    expect(room.members.has('c42')).toBe(false);
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().has('c42')).toBe(false);
+    expect(room.members.get().size).toBe(0);
   });
 
   it('__memberOffline__ fires the callback but does not remove a member that is in the map', async () => {
@@ -112,7 +112,7 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
       payload: { connectionId: 'c1', meta: {} },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.has('c1')).toBe(true);
+    expect(room.members.get().has('c1')).toBe(true);
 
     const onOffline = vi.fn();
     room.onMemberOffline(onOffline);
@@ -124,7 +124,58 @@ describe('__memberOnline__/__memberOffline__ do not mutate the members map', () 
     });
 
     expect(onOffline).toHaveBeenCalledWith('c1');
-    expect(room.members.has('c1')).toBe(true);
+    expect(room.members.get().has('c1')).toBe(true);
+  });
+});
+
+describe('channel.members store — snapshot identity', () => {
+  it('keeps the same map reference across an online/offline that does not change the roster', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c1', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    const snapshot = room.members.get();
+
+    ws.emit({
+      event: '__memberOnline__',
+      payload: { connectionId: 'c42', meta: { name: 'Bob' } },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__memberOffline__',
+      payload: { connectionId: 'c1' },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(room.members.get()).toBe(snapshot);
+  });
+
+  it('publishes a fresh snapshot to subscribers on join and on leave', async () => {
+    const { socket, ws } = build();
+    const room = await subscribeChannel(socket, ws, 'general');
+
+    const snapshots: ReadonlyMap<string, { meta: Record<string, unknown> }>[] = [];
+    room.members.subscribe((members) => snapshots.push(members));
+
+    ws.emit({
+      event: '__memberJoin__',
+      payload: { connectionId: 'c1', meta: {} },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__memberLeave__',
+      payload: { connectionId: 'c1' },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0]).not.toBe(snapshots[1]);
+    expect(snapshots[0]?.has('c1')).toBe(true);
+    expect(snapshots[1]?.has('c1')).toBe(false);
   });
 });
 
@@ -138,8 +189,8 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.has('c1')).toBe(true);
-    expect(room.members.size).toBe(1);
+    expect(room.members.get().has('c1')).toBe(true);
+    expect(room.members.get().size).toBe(1);
 
     ws.emit({
       event: '__memberSync__',
@@ -147,9 +198,9 @@ describe('__memberSync__ replaces, not merges, the member roster', () => {
       __wskit: { channel: 'general' },
     });
 
-    expect(room.members.has('c1')).toBe(false);
-    expect(room.members.has('c2')).toBe(true);
-    expect(room.members.size).toBe(1);
+    expect(room.members.get().has('c1')).toBe(false);
+    expect(room.members.get().has('c2')).toBe(true);
+    expect(room.members.get().size).toBe(1);
   });
 
   it('a second __memberSync__ fires join+online for new members, not for dropped ones', async () => {
@@ -208,8 +259,8 @@ describe('top-level channel and scoped channel with same name are independent', 
       __wskit: { channel: 'general', channelFamily: 'rooms' },
     });
 
-    expect(scoped.members.has('c1')).toBe(true);
-    expect(topLevel.members.has('c1')).toBe(false);
+    expect(scoped.members.get().has('c1')).toBe(true);
+    expect(topLevel.members.get().has('c1')).toBe(false);
   });
 
   it('events routed to the scoped channel do not fire handlers on the top-level channel', async () => {
@@ -265,7 +316,7 @@ describe('presence frames are ignored while a leave is pending', () => {
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.size).toBe(1);
+    expect(room.members.get().size).toBe(1);
     room.unsubscribe();
     return { socket, ws, room };
   }
@@ -277,7 +328,7 @@ describe('presence frames are ignored while a leave is pending', () => {
       payload: { members: [{ connectionId: 'c2', meta: {} }] },
       __wskit: { channel: 'general' },
     });
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().size).toBe(0);
   });
 
   it('ignores __memberJoin__/__memberOnline__ while a leave is pending', async () => {
@@ -298,7 +349,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     });
     expect(onJoin).not.toHaveBeenCalled();
     expect(onOnline).not.toHaveBeenCalled();
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().size).toBe(0);
   });
 });
 
@@ -350,7 +401,7 @@ describe('presence frames after the channel has been left', () => {
     });
 
     expect(onJoin).not.toHaveBeenCalled();
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().size).toBe(0);
   });
 
   it('ignores a __memberJoin__ that lands after __unsubscribeOk__', async () => {
@@ -365,6 +416,6 @@ describe('presence frames after the channel has been left', () => {
     });
 
     expect(onJoin).not.toHaveBeenCalled();
-    expect(room.members.size).toBe(0);
+    expect(room.members.get().size).toBe(0);
   });
 });

@@ -53,10 +53,38 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
-      # Architecture guards for tree-shaking (server spec §24): forbidden
-      # import directions, then a bundle check that forbidden engine code stays
-      # out of minimal/feature bundles. `bundle-check` reads server/dist, which
-      # the Typecheck step above already built via `pnpm typecheck`.
+  # Architecture guards, kept separate from the fast checks so a tree-shaking
+  # regression is easy to spot. `depcruise` reads source; `dup` scans source;
+  # `bundle-check` inspects the built server/client dist, so this job builds the
+  # packages first.
+  guards:
+    name: Architecture guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Duplication check
+        run: pnpm dup
+
       - name: Dependency rules
         run: pnpm depcruise
 
@@ -64,7 +92,7 @@ jobs:
         run: pnpm bundle-check
 
   e2e:
-    name: e2e (Playwright)
+    name: e2e (Playwright) — ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The official Playwright image ships chromium + OS deps prebaked, so there
@@ -73,6 +101,27 @@ jobs:
     # bundled browser revision is the one the runner expects.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
+    strategy:
+      fail-fast: false
+      # One job per adapter (node/deno/bun to come), run concurrently so
+      # calendar time is the slowest suite, not the sum of all three.
+      matrix:
+        include:
+          - name: client-puppet
+            command: pnpm test:e2e:client-puppet
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
+          - name: cloudflare-raw
+            command: pnpm --filter @wskit/tests-e2e-server-cloudflare run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client-raw/playwright-report/
+              tests-e2e/client-raw/test-results/
+          - name: cloudflare-packaged
+            command: pnpm --filter @wskit/tests-e2e-client run test:e2e:cloudflare
+            report-path: |
+              tests-e2e/client/playwright-report/
+              tests-e2e/client/test-results/
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -92,26 +141,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # One step per adapter (node/deno/bun to come). The client-library suite
-      # is adapter-independent and runs once.
-      - name: e2e — client library (puppet)
-        run: pnpm test:e2e:client-puppet
-
-      - name: e2e — cloudflare raw client
-        run: pnpm --filter @wskit/tests-e2e-server-cloudflare run test:e2e:cloudflare
-
-      - name: e2e — cloudflare packaged client
-        run: pnpm --filter @wskit/tests-e2e-client run test:e2e:cloudflare
+      - name: e2e — ${{ matrix.name }}
+        run: ${{ matrix.command }}
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
-          path: |
-            tests-e2e/client/playwright-report/
-            tests-e2e/client/test-results/
-            tests-e2e/client-raw/playwright-report/
-            tests-e2e/client-raw/test-results/
+          name: playwright-report-${{ matrix.name }}
+          path: ${{ matrix.report-path }}
           retention-days: 7
           if-no-files-found: ignore

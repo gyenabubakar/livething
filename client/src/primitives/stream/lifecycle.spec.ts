@@ -455,7 +455,7 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
       const second = MockWebSocket.last();
       second.serverClose(1006, 'retry failed');
 
-      expect(socket.getState()).toBe('closed');
+      expect(socket.state.get()).toBe('closed');
       expect(await drained).toMatchObject({ code: 'disconnected' });
     } finally {
       vi.useRealTimers();
@@ -481,7 +481,7 @@ describe('resumable stream finishes when reconnection permanently gives up', () 
 
     ws.serverClose(4001, 'policy');
 
-    expect(socket.getState()).toBe('closed');
+    expect(socket.state.get()).toBe('closed');
     expect(await drained).toMatchObject({ code: 'disconnected' });
   });
 });

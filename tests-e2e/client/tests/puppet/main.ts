@@ -70,7 +70,7 @@ const connectOptions = {
 // const tuple client()'s inference wants. We only ever use base Socket methods
 // here, so build with the primitives applied and read it back as Socket.
 // keepalive (and so the quality API) is only present on some pages, so the
-// quality methods are optional here.
+// quality and latency stores are optional here.
 const socket = client<Contract>()(
   connect(url, connectOptions),
   ...(primitives as unknown as []),
@@ -83,15 +83,16 @@ function el(id: string): HTMLElement {
 let openCount = 0;
 
 function render(): void {
-  el('state').textContent = socket.getState();
-  el('quality').textContent = socket.getQuality?.() ?? '';
-  const latency = socket.getLatency?.() ?? null;
+  el('state').textContent = socket.state.get();
+  el('quality').textContent = socket.quality?.get() ?? '';
+  const latency = socket.latency?.get() ?? null;
   el('latency').textContent = latency === null ? '' : String(latency);
   el('open-count').textContent = String(openCount);
 }
 
-socket.subscribe(render);
-socket.onQualityChange?.(render);
+socket.state.subscribe(render);
+socket.quality?.subscribe(render);
+socket.latency?.subscribe(render);
 socket.onOpen(() => {
   openCount += 1;
   render();

@@ -36,8 +36,8 @@ export function setup(): void {
 
   const room = socket.channel('archive-room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   let onSubscribed = 0;

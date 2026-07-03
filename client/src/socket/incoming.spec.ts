@@ -74,7 +74,7 @@ describe('incoming pipeline — malformed text frame', () => {
     ws.emitRaw('this is not valid json');
 
     expect(handler).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
@@ -119,7 +119,7 @@ describe('incoming pipeline — defaultParse event field validation', () => {
     ws.emitRaw(JSON.stringify({ event: null, payload: {} }));
 
     expect(handler).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
   });
 });
 
@@ -221,7 +221,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
 
     expect(() => ws.emit({ event: 'test', payload: { n: 1 } })).not.toThrow();
     expect(topHandler).toHaveBeenCalledWith({ n: 1 });
-    expect(socket.getState()).toBe('open');
+    expect(socket.state.get()).toBe('open');
 
     shouldThrow = false;
     ws.emit({ event: 'test', payload: { n: 2 } });

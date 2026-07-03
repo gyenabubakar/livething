@@ -1,6 +1,7 @@
 import { CloseCodes } from '@wskit/core';
-import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { createStore } from '~/internal/store.ts';
 import { KeepaliveLoop } from '~/primitives/keepalive/loop.ts';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { ConnectionQuality } from '~/types.ts';
 
@@ -12,16 +13,22 @@ export interface KeepaliveOptions {
   maxMissedPongs?: number;
 }
 
-/** The connection-quality API that `keepalive()` adds to the socket. */
+/** The connection-health stores that `keepalive()` adds to the socket. */
 export interface QualityApi {
-  /** The current connection quality. `'disconnected'` while not open, the optimistic default until the first pong. */
-  getQuality(): ConnectionQuality;
-  /** The last round-trip time in ms, or `null` if not measured yet. */
-  getLatency(): number | null;
-  /** Runs when the quality tier changes. */
-  onQualityChange(
-    callback: (quality: ConnectionQuality, latency: number | null) => void,
-  ): () => void;
+  /**
+   * Connection quality as a reactive store — `quality.get()` reads the current
+   * tier, `quality.subscribe(listener)` runs whenever the tier changes. It stays
+   * `'disconnected'` until the first pong measures a real value, and returns to
+   * `'disconnected'` when the socket closes or pings start going unanswered.
+   */
+  quality: ReadableStore<ConnectionQuality>;
+
+  /**
+   * Round-trip latency in ms as a reactive store — `latency.get()` reads the last
+   * measurement, `latency.subscribe(listener)` runs on every pong. It's `null`
+   * before the first pong and again once the connection isn't being measured.
+   */
+  latency: ReadableStore<number | null>;
 }
 
 interface KeepaliveTypeFn extends TypeFn {
@@ -34,19 +41,18 @@ interface KeepaliveTypeFn extends TypeFn {
  * that stops answering. It's opt-in: without it the client still replies to
  * the server's pings (the engine handles that), but sends none of its own.
  *
- * Because the quality getters (`getQuality`/`getLatency`/`onQualityChange`) only
- * mean anything once something measures pongs, they live here — they're added to
- * the socket only when you install `keepalive()`.
+ * The `quality` and `latency` stores only mean anything once something measures
+ * pongs, so they live here — added to the socket only when you install
+ * `keepalive()`.
  */
 export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTypeFn> {
   return {
     _tag: 'keepalive',
     setup(helpers) {
-      // The latest measurements. `quality` stays null until the first pong, so
-      // getQuality() can return the optimistic default until then.
-      let quality: ConnectionQuality | null = null;
-      let latency: number | null = null;
-      const listeners = new Set<(quality: ConnectionQuality, latency: number | null) => void>();
+      const quality = createStore<ConnectionQuality>('disconnected', (error) =>
+        helpers.log.report(error),
+      );
+      const latency = createStore<number | null>(null, (error) => helpers.log.report(error));
 
       const loop = new KeepaliveLoop(
         {
@@ -57,14 +63,8 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
         {
           sendPing: () => helpers.sendPing(),
           forceClose: () => helpers.forceClose(CloseCodes.IDLE, 'missed pong'),
-          reportLatency: (latencyMs) => {
-            latency = latencyMs;
-          },
-          // The loop fires this only when the tier actually changes.
-          onQualityChange: (next) => {
-            quality = next;
-            dispatchToHandlers(listeners, helpers.log, next, latency);
-          },
+          reportLatency: (latencyMs) => latency.set(latencyMs),
+          onQualityChange: (next) => quality.set(next),
           log: (message) => helpers.log.info(message),
         },
       );
@@ -75,18 +75,10 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
         id: 'keepalive',
 
         install(socket) {
-          // @ts-expect-error — install adds the quality API to the socket dynamically
-          socket.getQuality = (): ConnectionQuality =>
-            helpers.getState() !== 'open' ? 'disconnected' : (quality ?? 'excellent');
+          // @ts-expect-error — install adds the quality/latency stores to the socket dynamically
+          socket.quality = quality.store;
           // @ts-expect-error — same
-          socket.getLatency = (): number | null => latency;
-          // @ts-expect-error — same
-          socket.onQualityChange = (callback): (() => void) => {
-            listeners.add(callback);
-            return () => {
-              listeners.delete(callback);
-            };
-          };
+          socket.latency = latency.store;
         },
 
         onOpen() {
@@ -96,8 +88,6 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
 
         onClose() {
           loop.stop();
-          quality = null;
-          latency = null;
         },
       };
     },

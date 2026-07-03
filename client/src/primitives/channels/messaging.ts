@@ -5,7 +5,6 @@ import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wir
 import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
-import type { ChannelMember } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
@@ -109,6 +108,7 @@ export function buildChannelMessaging(
       });
 
       state.pendingPromise = promise;
+      state.markSubscribing();
       const thisPending = state.pending;
       void promise.catch(() => undefined);
 
@@ -216,9 +216,8 @@ export function buildChannelMessaging(
         __wskit: { ...channelMarkers(state), source: 'client' },
       });
     },
-    get members(): ReadonlyMap<string, ChannelMember> {
-      return state.members;
-    },
+    members: state.members,
+    status: state.status,
     onMemberJoin: state.onMemberJoin,
     onMemberLeave: state.onMemberLeave,
     onMemberOnline: state.onMemberOnline,

@@ -30,8 +30,8 @@ export function setup(): void {
 
   const room = socket.channel('archive-room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   let reconnects = 0;
@@ -40,21 +40,20 @@ export function setup(): void {
     el('reconnects').textContent = String(reconnects);
   });
 
+  // The members store publishes on every roster change — including the
+  // __memberSync__ that repopulates presence after a warm rejoin, where the
+  // roster comes back as "online" rather than a fresh "join". Binding to the
+  // store is what keeps that reconnect repopulation observable without wiring up
+  // each individual presence event.
+  room.members.subscribe((members) => {
+    el('members-count').textContent = String(members.size);
+  });
+
   let onSubscribed = 0;
-  function renderMembers(): void {
-    el('members-count').textContent = String(room.members.size);
-  }
   room.onSubscribed(() => {
     onSubscribed += 1;
     el('on-subscribed').textContent = String(onSubscribed);
-    renderMembers();
   });
-  room.onMemberJoin(renderMembers);
-  room.onMemberLeave(renderMembers);
-  // onMemberOnline is the reconnect presence signal: after a warm rejoin the
-  // server re-sends __memberSync__ and the roster comes back as "online" (not a
-  // fresh "join"), so presence UIs must re-render on it too.
-  room.onMemberOnline(renderMembers);
 
   // Top-level event the server sends from archive-room's onSubscribe hook.
   let flowRan = 0;
@@ -67,7 +66,6 @@ export function setup(): void {
     const line = `${msg.from}:${msg.text}`;
     const span = el('room-messages');
     span.textContent = span.textContent ? `${span.textContent},${line}` : line;
-    renderMembers();
   });
 
   button('connect', () => socket.connect());

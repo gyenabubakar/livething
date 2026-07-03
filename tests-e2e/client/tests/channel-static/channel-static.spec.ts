@@ -46,6 +46,17 @@ test.describe('channel-static (conformance)', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('no');
   });
 
+  test('the status store reports subscribing, then subscribed, then unsubscribed', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `ch-status-${testInfo.testId}`, 'alice');
+    await page.getByTestId('sub-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed');
+    await page.getByTestId('unsub-room').click();
+    await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed,unsubscribed');
+  });
+
   test('a channel-scoped stream yields its chunks and ends', async ({ page }, testInfo) => {
     await open(page, `ch-stream-${testInfo.testId}`, 'alice');
     await page.getByTestId('sub-room').click();

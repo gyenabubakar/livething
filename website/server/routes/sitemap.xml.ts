@@ -1,6 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
 import { queryCollection } from '@nuxt/content/server'
-import { withHttps } from 'ufo'
 
 interface SitemapUrl {
   loc: string
@@ -19,7 +18,7 @@ interface SitemapUrl {
  *    pointing at a URL that does not match any prerendered page. We rewrite it to `/`.
  */
 export default defineEventHandler(async (event) => {
-  const siteUrl = inferSiteURL() || ''
+  const siteUrl = (useRuntimeConfig(event).public.siteUrl as string) || ''
 
   const urls: SitemapUrl[] = []
   const seen = new Set<string>()
@@ -28,9 +27,11 @@ export default defineEventHandler(async (event) => {
     const pages = await queryCollection(event, 'docs').all()
 
     for (const page of pages) {
+      // `sitemap` and `modifiedAt` are optional frontmatter fields, outside the collection schema.
+      const meta = page as typeof page & { sitemap?: boolean, modifiedAt?: string }
       let pagePath = page.path || '/'
 
-      if (page.sitemap === false) continue
+      if (meta.sitemap === false) continue
       if (pagePath.endsWith('.navigation') || pagePath.includes('/.navigation')) continue
 
       if (pagePath === '/landing') pagePath = '/'
@@ -40,8 +41,8 @@ export default defineEventHandler(async (event) => {
 
       const urlEntry: SitemapUrl = { loc: pagePath }
 
-      if (page.modifiedAt && typeof page.modifiedAt === 'string') {
-        const [datePart] = page.modifiedAt.split('T')
+      if (meta.modifiedAt && typeof meta.modifiedAt === 'string') {
+        const [datePart] = meta.modifiedAt.split('T')
         urlEntry.lastmod = datePart
       }
 
@@ -54,20 +55,6 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, 'content-type', 'application/xml')
   return generateSitemap(urls, siteUrl)
 })
-
-function inferSiteURL() {
-  const url
-    = process.env.NUXT_PUBLIC_SITE_URL
-      || process.env.NUXT_SITE_URL
-      || process.env.VERCEL_PROJECT_PRODUCTION_URL
-      || process.env.VERCEL_BRANCH_URL
-      || process.env.VERCEL_URL
-      || process.env.URL
-      || process.env.CI_PAGES_URL
-      || process.env.CF_PAGES_URL
-
-  return url ? withHttps(url) : undefined
-}
 
 function generateSitemap(urls: SitemapUrl[], siteUrl: string): string {
   const urlEntries = urls

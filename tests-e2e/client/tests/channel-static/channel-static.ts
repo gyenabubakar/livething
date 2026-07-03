@@ -19,6 +19,7 @@ export function setup(): void {
     <button data-testid="start-stream">start-stream</button>
     <span data-testid="status"></span>
     <span data-testid="subscribed"></span>
+    <span data-testid="status-log"></span>
     <span data-testid="subscribed-count"></span>
     <span data-testid="on-subscribed-source"></span>
     <span data-testid="sub-error"></span>
@@ -50,8 +51,13 @@ export function setup(): void {
 
   const room = socket.channel('room');
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
+  });
+
+  room.status.subscribe((status) => {
+    const span = el('status-log');
+    span.textContent = span.textContent ? `${span.textContent},${status}` : status;
   });
 
   let subscribedCount = 0;
@@ -66,21 +72,21 @@ export function setup(): void {
     const line = `${msg.from}:${msg.text}`;
     const span = el(target);
     span.textContent = span.textContent ? `${span.textContent},${line}` : line;
-    el('members-count').textContent = String(room.members.size);
+    el('members-count').textContent = String(room.members.get().size);
   });
 
   room.onMemberJoin((connectionId) => {
     const span = el('member-joins');
     const entry = `room:${connectionId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
-    el('members-count').textContent = String(room.members.size);
+    el('members-count').textContent = String(room.members.get().size);
   });
 
   room.onMemberLeave((connectionId) => {
     const span = el('member-leaves');
     const entry = `room:${connectionId}`;
     span.textContent = span.textContent ? `${span.textContent},${entry}` : entry;
-    el('members-count').textContent = String(room.members.size);
+    el('members-count').textContent = String(room.members.get().size);
   });
 
   button('connect', () => socket.connect());
@@ -97,7 +103,7 @@ export function setup(): void {
   button('sub-room', async () => {
     await room.subscribe();
     el('subscribed').textContent = 'yes';
-    el('members-count').textContent = String(room.members.size);
+    el('members-count').textContent = String(room.members.get().size);
   });
 
   button('sub-bogus', async () => {

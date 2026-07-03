@@ -22,8 +22,8 @@ export function setup(): void {
     stream(),
   );
 
-  socket.subscribe(() => {
-    el('status').textContent = socket.getState();
+  socket.state.subscribe(() => {
+    el('status').textContent = socket.state.get();
   });
 
   button('connect', () => socket.connect());
