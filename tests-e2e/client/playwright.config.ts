@@ -18,7 +18,7 @@ export default defineConfig({
   ...(adapter ? { testIgnore: '**/puppet/**' } : { testMatch: '**/puppet/**/*.spec.ts' }),
   fullyParallel: true,
   timeout: 30_000,
-  workers: adapter ? 4 : 2,
+  workers: adapter ? 1 : 2,
   retries: 0,
   failOnFlakyTests: !!process.env.CI,
   use: {
