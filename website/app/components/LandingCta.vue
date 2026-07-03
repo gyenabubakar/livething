@@ -79,7 +79,7 @@ import { Motion } from 'motion-v'
             This website was built from <a href="https://github.com/HugoRCD" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">HugoRCD</a>'s <a href="https://evlog.dev" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">evlog</a> website.
           </p>
           <p>
-            Logo by <a href="https://charlesarthur.framer.website/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Charles Arthur</a>
+            Logo by <a href="https://charlesarthur.framer.website/" target="_blank" rel="noopener noreferrer" class="hover:underline text-muted">Charles Arthur</a>.
           </p>
         </div>
       </div>

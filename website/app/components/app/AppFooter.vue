@@ -54,12 +54,7 @@ const columns = computed<FooterColumn[]>(() => [
       <div class="text-xs font-mono italic tracking-tight">
         <span class="text-muted">&copy; {{ new Date().getFullYear() }} - Made by </span>
         <ULink to="https://gyen.dev/" target="_blank" class="hover:underline">
-          Gyen Abubakar
-        </ULink>
-        <span class="text-muted"> · Logo by </span>
-        <ULink to="https://charlesarthur.framer.website/" target="_blank" class="hover:underline">
-          Charles Arthur
-        </ULink>
+          Gyen Abubakar</ULink>.
       </div>
     </template>
 
