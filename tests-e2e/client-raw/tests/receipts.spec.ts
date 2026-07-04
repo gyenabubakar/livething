@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { frames, openMember, send, subscribe, waitForFrame } from './_inbox-rig.ts';
 
-// Raw-wire conformance for delivered + read receipts against the real worker.
-// `inbox` owns delivered: `__received__` advances the received cursor and answers
-// `receivedBy`. `readReceipts` owns read: `__seen__` advances the seen cursor and
-// answers `seenBy`. Both fan out as `__receipt__` frames to members. A
-// `__receiptQuery__` round-trips over its own correlationId. `ask-cursor` returns
-// the server's authoritative view. A non-member's `__seen__` / `__receiptQuery__`
-// is dropped silently.
+// Raw-wire conformance for received + read receipts against the real worker.
+// `inbox` owns received: `__received__ {receivedThrough}` advances the received
+// cursor, fans out as `__received__ {identity, receivedThrough}`, and answers
+// `__receivedQuery__`. `readReceipts` owns read: `__read__ {readThrough}`
+// advances the read cursor, fans out as `__read__ {identity, readThrough}`, and
+// answers `__readQuery__`. `ask-cursor` returns the server's authoritative view.
+// A non-member's `__read__` / query is dropped silently.
 
-test.describe('receipts (raw wire, delivered + seen cursors)', () => {
+test.describe('receipts (raw wire, received + read cursors)', () => {
   test('__subscribeOk__ carries inbox:true and readReceipts:true', async ({
     browser,
   }, testInfo) => {
@@ -23,7 +23,7 @@ test.describe('receipts (raw wire, delivered + seen cursors)', () => {
     await alice.close();
   });
 
-  test('a delivered ack fans out a __receipt__ with receivedThrough', async ({
+  test('a received ack fans out a __received__ with identity + receivedThrough', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -54,62 +54,22 @@ test.describe('receipts (raw wire, delivered + seen cursors)', () => {
       __wskit: { channel: 'chat' },
     });
 
-    // Alice (a member) sees bob's delivered receipt.
-    const receipt = await waitForFrame(
+    // Alice (a member) sees bob's received fan-out (identity present).
+    const fanout = await waitForFrame(
       alice.page,
       (f) =>
-        f.event === '__receipt__' &&
+        f.event === '__received__' &&
         f.payload.identity === 'bob' &&
         f.payload.receivedThrough === seq,
     );
-    expect(receipt.__wskit?.channel).toBe('chat');
+    expect(fanout.__wskit?.channel).toBe('chat');
 
     await alice.close();
     await bob.close();
     await carol.close();
   });
 
-  test('a seen ack fans out a __receipt__ with seenThrough', async ({ browser }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
-    const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
-    const bob = await openMember(browser, { path: '/receipts', room, username: 'bob' });
-    const carol = await openMember(browser, { path: '/receipts', room, username: 'carol' });
-
-    await subscribe(alice.page);
-    await subscribe(bob.page);
-    await subscribe(carol.page);
-
-    await send(carol.page, {
-      event: 'send-room-msg',
-      payload: { text: 'hello' },
-      __wskit: { channel: 'chat' },
-    });
-    const msg = await waitForFrame(
-      bob.page,
-      (f) => f.event === 'room-msg' && f.payload.text === 'hello',
-    );
-    const seq = msg.__wskit?.seq as number;
-
-    // Bob marks it seen; the seen cursor advances and fans out.
-    await send(bob.page, {
-      event: '__seen__',
-      payload: { seenThrough: seq },
-      __wskit: { channel: 'chat' },
-    });
-
-    const receipt = await waitForFrame(
-      alice.page,
-      (f) =>
-        f.event === '__receipt__' && f.payload.identity === 'bob' && f.payload.seenThrough === seq,
-    );
-    expect(receipt.__wskit?.channel).toBe('chat');
-
-    await alice.close();
-    await bob.close();
-    await carol.close();
-  });
-
-  test('__receiptQuery__ round-trips received and seen identities on its correlationId', async ({
+  test('a read ack fans out a __read__ with identity + readThrough', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -132,42 +92,84 @@ test.describe('receipts (raw wire, delivered + seen cursors)', () => {
     );
     const seq = msg.__wskit?.seq as number;
 
-    // Bob acks delivery and marks seen so both cursors carry bob at seq.
+    // Bob marks it read; the read cursor advances and fans out.
+    await send(bob.page, {
+      event: '__read__',
+      payload: { readThrough: seq },
+      __wskit: { channel: 'chat' },
+    });
+
+    const fanout = await waitForFrame(
+      alice.page,
+      (f) =>
+        f.event === '__read__' && f.payload.identity === 'bob' && f.payload.readThrough === seq,
+    );
+    expect(fanout.__wskit?.channel).toBe('chat');
+
+    await alice.close();
+    await bob.close();
+    await carol.close();
+  });
+
+  test('__receivedQuery__ / __readQuery__ round-trip identities on their correlationId', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
+    const bob = await openMember(browser, { path: '/receipts', room, username: 'bob' });
+    const carol = await openMember(browser, { path: '/receipts', room, username: 'carol' });
+
+    await subscribe(alice.page);
+    await subscribe(bob.page);
+    await subscribe(carol.page);
+
+    await send(carol.page, {
+      event: 'send-room-msg',
+      payload: { text: 'hello' },
+      __wskit: { channel: 'chat' },
+    });
+    const msg = await waitForFrame(
+      bob.page,
+      (f) => f.event === 'room-msg' && f.payload.text === 'hello',
+    );
+    const seq = msg.__wskit?.seq as number;
+
+    // Bob acks received and marks read so both cursors carry bob at seq.
     await send(bob.page, {
       event: '__received__',
       payload: { receivedThrough: seq },
       __wskit: { channel: 'chat' },
     });
     await send(bob.page, {
-      event: '__seen__',
-      payload: { seenThrough: seq },
+      event: '__read__',
+      payload: { readThrough: seq },
       __wskit: { channel: 'chat' },
     });
     await bob.page.waitForTimeout(300);
 
-    // receivedBy(seq): the reply echoes the correlationId and lists bob.
+    // receiversOf(seq): the reply echoes the correlationId and lists bob.
     await send(alice.page, {
-      event: '__receiptQuery__',
-      payload: { seq, kind: 'received' },
+      event: '__receivedQuery__',
+      payload: { seq },
       __wskit: { channel: 'chat', correlationId: 'q-received-1' },
     });
     const receivedReply = await waitForFrame(
       alice.page,
-      (f) => f.event === '__receiptQuery__' && f.__wskit?.correlationId === 'q-received-1',
+      (f) => f.event === '__receivedQuery__' && f.__wskit?.correlationId === 'q-received-1',
     );
     expect(receivedReply.payload.identities).toContain('bob');
 
-    // seenBy(seq): a separate correlationId, likewise listing bob.
+    // readersOf(seq): a separate correlationId, likewise listing bob.
     await send(alice.page, {
-      event: '__receiptQuery__',
-      payload: { seq, kind: 'seen' },
-      __wskit: { channel: 'chat', correlationId: 'q-seen-1' },
+      event: '__readQuery__',
+      payload: { seq },
+      __wskit: { channel: 'chat', correlationId: 'q-read-1' },
     });
-    const seenReply = await waitForFrame(
+    const readReply = await waitForFrame(
       alice.page,
-      (f) => f.event === '__receiptQuery__' && f.__wskit?.correlationId === 'q-seen-1',
+      (f) => f.event === '__readQuery__' && f.__wskit?.correlationId === 'q-read-1',
     );
-    expect(seenReply.payload.identities).toContain('bob');
+    expect(readReply.payload.identities).toContain('bob');
 
     await alice.close();
     await bob.close();
@@ -220,7 +222,7 @@ test.describe('receipts (raw wire, delivered + seen cursors)', () => {
     await carol.close();
   });
 
-  test('a non-member __seen__ / __receiptQuery__ is dropped (no fan-out, no reply)', async ({
+  test('a non-member __read__ / __readQuery__ is dropped (no fan-out, no reply)', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -243,29 +245,29 @@ test.describe('receipts (raw wire, delivered + seen cursors)', () => {
     );
     const seq = msg.__wskit?.seq as number;
 
-    // A non-member's seen ack must not fan out a __receipt__ to real members.
+    // A non-member's read ack must not fan out a __read__ to real members.
     await send(mallory.page, {
-      event: '__seen__',
-      payload: { seenThrough: seq },
+      event: '__read__',
+      payload: { readThrough: seq },
       __wskit: { channel: 'chat' },
     });
     // A non-member's query gets no reply — it is dropped silently.
     await send(mallory.page, {
-      event: '__receiptQuery__',
-      payload: { seq, kind: 'seen' },
+      event: '__readQuery__',
+      payload: { seq },
       __wskit: { channel: 'chat', correlationId: 'mallory-q' },
     });
 
     await alice.page.waitForTimeout(800);
     await mallory.page.waitForTimeout(800);
 
-    const malloryReceipt = (await frames(alice.page)).filter(
-      (f) => f.event === '__receipt__' && f.payload.identity === 'mallory',
+    const malloryFanout = (await frames(alice.page)).filter(
+      (f) => f.event === '__read__' && f.payload.identity === 'mallory',
     );
-    expect(malloryReceipt).toHaveLength(0);
+    expect(malloryFanout).toHaveLength(0);
 
     const malloryReply = (await frames(mallory.page)).filter(
-      (f) => f.event === '__receiptQuery__' && f.__wskit?.correlationId === 'mallory-q',
+      (f) => f.event === '__readQuery__' && f.__wskit?.correlationId === 'mallory-q',
     );
     expect(malloryReply).toHaveLength(0);
 

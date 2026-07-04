@@ -6,7 +6,7 @@ import { inbox } from '~/primitives/inbox/inbox.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChannelReceipt } from '~/primitives/inbox/types.ts';
+import type { CursorList } from '~/primitives/inbox/types.ts';
 
 interface C {
   channels: {
@@ -199,9 +199,9 @@ describe('inbox — reconnect re-ack', () => {
   });
 });
 
-// The delivered surface (`receipts`/`onReceipt`/`receivedBy`) is owned by inbox()
-// and is available on any inbox channel WITHOUT readReceipts() being listed.
-interface DeliveredC {
+// The received surface (`receivers`/`onReceived`/`receiversOf`) is owned by
+// inbox() and is available on any inbox channel WITHOUT readReceipts() listed.
+interface ReceivedC {
   channels: {
     room: {
       inbox: true;
@@ -211,8 +211,8 @@ interface DeliveredC {
   };
 }
 
-function buildDelivered(inboxOptions?: { timeout?: number }) {
-  const socket = client<DeliveredC>()(
+function buildReceived(inboxOptions?: { timeout?: number }) {
+  const socket = client<ReceivedC>()(
     connect('wss://test'),
     channels(),
     dedup(),
@@ -224,8 +224,8 @@ function buildDelivered(inboxOptions?: { timeout?: number }) {
   return { socket, ws };
 }
 
-async function subscribedDelivered(
-  socket: ReturnType<typeof buildDelivered>['socket'],
+async function subscribedReceived(
+  socket: ReturnType<typeof buildReceived>['socket'],
   ws: MockWebSocket,
 ) {
   const room = socket.channel('room');
@@ -239,72 +239,119 @@ async function subscribedDelivered(
   return room;
 }
 
-describe('inbox — delivered receipt store from __receipt__', () => {
-  it('updates the reactive store and fires onReceipt with a Math.max merge', async () => {
-    const { socket, ws } = buildDelivered();
-    const room = await subscribedDelivered(socket, ws);
-    const seen: ChannelReceipt[] = [];
-    room.onReceipt((r) => seen.push(r));
+describe('inbox — receivers store from __received__ fan-out', () => {
+  it('updates the reactive store and fires onReceived with a Math.max merge', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+    const events: Array<[string, number]> = [];
+    room.onReceived((identity, receivedThrough) => events.push([identity, receivedThrough]));
 
     ws.emit({
-      event: '__receipt__',
+      event: '__received__',
       payload: { identity: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
+    // A lower value must not regress the cursor (Math.max merge).
     ws.emit({
-      event: '__receipt__',
-      payload: { identity: 'bob', seenThrough: 3 },
+      event: '__received__',
+      payload: { identity: 'bob', receivedThrough: 3 },
       __wskit: { channel: 'room' },
     });
 
-    expect(seen.at(-1)).toEqual({ identity: 'bob', receivedThrough: 5, seenThrough: 3 });
-    expect(room.receipts.get().get('bob')).toEqual({
-      identity: 'bob',
-      receivedThrough: 5,
-      seenThrough: 3,
-    });
+    expect(events).toEqual([
+      ['bob', 5],
+      ['bob', 5],
+    ]);
+    expect(room.receivers.get().get('bob')).toBe(5);
   });
 
-  it('ignores a __receipt__ with a non-string identity', async () => {
-    const { socket, ws } = buildDelivered();
-    const room = await subscribedDelivered(socket, ws);
+  it('ignores a __received__ fan-out with a non-string identity', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
     ws.emit({
-      event: '__receipt__',
+      event: '__received__',
       payload: { identity: 42, receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
-    expect(room.receipts.get().size).toBe(0);
+    expect(room.receivers.get().size).toBe(0);
   });
 
-  it('clears the store on __unsubscribeOk__', async () => {
-    const { socket, ws } = buildDelivered();
-    const room = await subscribedDelivered(socket, ws);
+  it('never re-acks after consuming a __received__ fan-out', async () => {
+    const { socket, ws } = buildReceived();
+    await subscribedReceived(socket, ws);
     ws.emit({
-      event: '__receipt__',
+      event: '__received__',
       payload: { identity: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
-    expect(room.receipts.get().size).toBe(1);
+    await flush();
+    // The fan-out is not an app message, so it must not trigger our own ack.
+    expect(receivedFrames(ws)).toEqual([]);
+  });
+
+  it('clears the store on __unsubscribeOk__', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+    ws.emit({
+      event: '__received__',
+      payload: { identity: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(room.receivers.get().size).toBe(1);
 
     ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
-    expect(room.receipts.get().size).toBe(0);
+    expect(room.receivers.get().size).toBe(0);
   });
 });
 
-describe('inbox — receivedBy query without readReceipts()', () => {
-  it('round-trips receivedBy over __receiptQuery__ with inbox() alone', async () => {
-    const { socket, ws } = buildDelivered();
-    const room = await subscribedDelivered(socket, ws);
-
-    const promise = room.receivedBy(5);
-    const query = ws
-      .sentFrames()
-      .filter((f) => f.event === '__receiptQuery__')
-      .at(-1);
-    expect(query.payload).toEqual({ seq: 5, kind: 'received' });
+describe('inbox — receivers projection', () => {
+  it('lists each member at its received cursor, dropping members still at 0', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+    const snapshots: CursorList[] = [];
+    room.receivers.subscribe((v) => snapshots.push(v));
 
     ws.emit({
-      event: '__receiptQuery__',
+      event: '__received__',
+      payload: { identity: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
+
+    ws.emit({
+      event: '__received__',
+      payload: { identity: 'alice', receivedThrough: 2 },
+      __wskit: { channel: 'room' },
+    });
+    expect(room.receivers.get()).toEqual(
+      new Map([
+        ['bob', 5],
+        ['alice', 2],
+      ]),
+    );
+    expect(snapshots.at(-1)).toEqual(
+      new Map([
+        ['bob', 5],
+        ['alice', 2],
+      ]),
+    );
+  });
+});
+
+describe('inbox — receiversOf query without readReceipts()', () => {
+  it('round-trips receiversOf over __receivedQuery__ with inbox() alone', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    const promise = room.receiversOf(5);
+    const query = ws
+      .sentFrames()
+      .filter((f) => f.event === '__receivedQuery__')
+      .at(-1);
+    expect(query.payload).toEqual({ seq: 5 });
+
+    ws.emit({
+      event: '__receivedQuery__',
       payload: { identities: ['alice', 'bob'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });
@@ -312,22 +359,22 @@ describe('inbox — receivedBy query without readReceipts()', () => {
     await expect(promise).resolves.toEqual(['alice', 'bob']);
   });
 
-  it('honours the inbox() factory default timeout for receivedBy', async () => {
+  it('honours the inbox() factory default timeout for receiversOf', async () => {
     vi.useFakeTimers();
-    const { socket, ws } = buildDelivered({ timeout: 250 });
-    const room = await subscribedDelivered(socket, ws);
+    const { socket, ws } = buildReceived({ timeout: 250 });
+    const room = await subscribedReceived(socket, ws);
 
-    const promise = room.receivedBy(5);
+    const promise = room.receiversOf(5);
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
     vi.advanceTimersByTime(251);
     await rejection;
   });
 
-  it('rejects a pending receivedBy with Disconnected when the socket closes', async () => {
-    const { socket, ws } = buildDelivered();
-    const room = await subscribedDelivered(socket, ws);
+  it('rejects a pending receiversOf with Disconnected when the socket closes', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
 
-    const promise = room.receivedBy(5);
+    const promise = room.receiversOf(5);
     socket.disconnect();
 
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });

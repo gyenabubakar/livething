@@ -10,12 +10,7 @@ import type { PrimitiveHelpers, WireMessage, WSKitEnvelope } from '~/internal/ru
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { WritableStore } from '~/internal/store.ts';
 import type { PendingQuery } from '~/primitives/inbox/receipt-query.ts';
-import type {
-  ChannelInboxApi,
-  ChannelReceipt,
-  InboxTypeFn,
-  ReceiptSnapshot,
-} from '~/primitives/inbox/types.ts';
+import type { ChannelInboxApi, CursorList, InboxTypeFn } from '~/primitives/inbox/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
 
 interface ScopeMark {
@@ -25,29 +20,29 @@ interface ScopeMark {
   acked: number;
 }
 
-/** One channel's delivered-receipt state: cursors per identity plus a reactive store. */
-interface ChannelReceipts {
-  byIdentity: Map<string, ChannelReceipt>;
-  store: WritableStore<ReceiptSnapshot>;
-  listeners: Set<(receipt: ChannelReceipt) => void>;
+/** One channel's received-receipt state: the received cursor per identity plus its store. */
+interface ChannelReceivers {
+  byIdentity: Map<string, number>;
+  store: WritableStore<CursorList>;
+  listeners: Set<(identity: string, receivedThrough: number) => void>;
 }
 
 /** Options for the client `inbox()` primitive. */
 export interface InboxOptions {
-  /** Default wait for a `receivedBy` answer before rejecting, in ms. Defaults to 10s; override per call. */
+  /** Default wait for a `receiversOf` answer before rejecting, in ms. Defaults to 10s; override per call. */
   timeout?: number;
 }
 
 const DEFAULT_QUERY_TIMEOUT_MS = 10_000;
 
 /**
- * Confirms guaranteed per-member channel delivery and surfaces the delivered
+ * Confirms guaranteed per-member channel delivery and surfaces the received
  * acknowledgement (the double-grey check). As inbox messages arrive it tracks
  * the highest sequence per channel and acks the server with `__received__`, so
  * the server drops that member's held copy; on reconnect it re-sends each
- * channel's high-water mark. It reads the server's `__receipt__` broadcasts into
- * a per-channel reactive store and adds `receipts`, `onReceipt`, and `receivedBy`
- * to each inbox channel handle.
+ * channel's high-water mark. It reads the server's `__received__` fan-out into a
+ * per-channel `receivers` store and adds `receivers`, `onReceived`, and
+ * `receiversOf` to each inbox channel handle.
  *
  * It learns which channels are inbox-backed from the `__wskit.inbox` flag on
  * `__subscribeOk__`, and acks only those. It needs `dedup()`, because the server
@@ -63,16 +58,16 @@ export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
     setup(helpers) {
       const marks = new Map<string, ScopeMark>();
       const inboxScopes = new Set<string>();
-      const channels = new Map<string, ChannelReceipts>();
+      const channels = new Map<string, ChannelReceivers>();
       const pendingQueries = new Map<string, PendingQuery>();
       let flushScheduled = false;
 
-      function stateFor(key: string): ChannelReceipts {
+      function stateFor(key: string): ChannelReceivers {
         let state = channels.get(key);
         if (!state) {
           state = {
             byIdentity: new Map(),
-            store: createStore<ReceiptSnapshot>(new Map()),
+            store: createStore<CursorList>(new Map()),
             listeners: new Set(),
           };
           channels.set(key, state);
@@ -80,24 +75,16 @@ export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
         return state;
       }
 
-      function applyReceipt(
-        key: string,
-        receipt: { identity: string; receivedThrough?: number; seenThrough?: number },
-      ): void {
+      function applyReceived(key: string, identity: string, receivedThrough: number): void {
         const state = stateFor(key);
-        const previous = state.byIdentity.get(receipt.identity);
-        const next: ChannelReceipt = {
-          identity: receipt.identity,
-          receivedThrough: Math.max(previous?.receivedThrough ?? 0, receipt.receivedThrough ?? 0),
-          seenThrough: Math.max(previous?.seenThrough ?? 0, receipt.seenThrough ?? 0),
-        };
-        state.byIdentity.set(receipt.identity, next);
-        state.store.set(new Map(state.byIdentity));
+        const next = Math.max(state.byIdentity.get(identity) ?? 0, receivedThrough);
+        state.byIdentity.set(identity, next);
+        state.store.set(projectCursor(state.byIdentity));
         for (const listener of [...state.listeners]) {
           try {
-            listener(next);
+            listener(identity, next);
           } catch (error) {
-            helpers.log.error('onReceipt listener threw', error);
+            helpers.log.error('onReceived listener threw', error);
           }
         }
       }
@@ -138,24 +125,21 @@ export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
             return message;
           }
 
-          if (message.event === '__receiptQuery__') {
+          if (message.event === '__receivedQuery__') {
             return resolveOwnQuery(pendingQueries, message);
           }
 
-          if (message.event === '__receipt__') {
-            const payload = message.payload as {
-              identity?: unknown;
-              receivedThrough?: unknown;
-              seenThrough?: unknown;
-            };
-            if (typeof payload?.identity !== 'string') return null;
-            applyReceipt(key, {
-              identity: payload.identity,
-              receivedThrough:
-                typeof payload.receivedThrough === 'number' ? payload.receivedThrough : undefined,
-              seenThrough:
-                typeof payload.seenThrough === 'number' ? payload.seenThrough : undefined,
-            });
+          if (message.event === '__received__') {
+            // A fan-out carries `identity`; a bare `{receivedThrough}` is this
+            // client's own ack echoed back on some transports — never a fan-out
+            // the client should apply, so consume it either way.
+            const payload = message.payload as { identity?: unknown; receivedThrough?: unknown };
+            if (
+              typeof payload?.identity === 'string' &&
+              typeof payload.receivedThrough === 'number'
+            ) {
+              applyReceived(key, payload.identity, payload.receivedThrough);
+            }
             return null;
           }
 
@@ -190,16 +174,16 @@ export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
             const state = stateFor(key);
 
             const inboxApi: ChannelInboxApi = {
-              receipts: { get: state.store.store.get, subscribe: state.store.store.subscribe },
-              onReceipt: (callback) => {
+              receivers: { get: state.store.store.get, subscribe: state.store.store.subscribe },
+              onReceived: (callback) => {
                 state.listeners.add(callback);
                 return () => state.listeners.delete(callback);
               },
-              receivedBy: (seq, queryOptions) =>
+              receiversOf: (seq, queryOptions) =>
                 runReceiptQuery(helpers, pendingQueries, {
                   scope,
                   seq,
-                  kind: 'received',
+                  event: '__receivedQuery__',
                   timeout: queryOptions?.timeout ?? defaultTimeout,
                 }),
             };
@@ -209,6 +193,15 @@ export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
       };
     },
   };
+}
+
+/** Drop members still at `0` from the received cursor map. */
+function projectCursor(byIdentity: ReadonlyMap<string, number>): CursorList {
+  const list = new Map<string, number>();
+  for (const [identity, cursor] of byIdentity) {
+    if (cursor > 0) list.set(identity, cursor);
+  }
+  return list;
 }
 
 function buildReceived(mark: ScopeMark): WireMessage {

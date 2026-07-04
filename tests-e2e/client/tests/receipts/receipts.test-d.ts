@@ -15,12 +15,15 @@ const socket = client<ReceiptsClient>()(
 
 const chat = socket.channel('chat');
 
-// inbox() adds receivedBy + receipts; readReceipts() adds markSeen + seenBy.
-const _receivedBy: Promise<string[]> = chat.receivedBy(1);
-const _seenBy: Promise<string[]> = chat.seenBy(1);
-chat.markSeen(1);
-chat.markSeen();
-const _receipts = chat.receipts;
-const _onReceipt: () => void = chat.onReceipt(() => {});
+// inbox() adds receiversOf + receivers + onReceived; readReceipts() adds
+// markAsRead + readersOf + readers + onRead.
+const _receiversOf: Promise<string[]> = chat.receiversOf(1);
+const _readersOf: Promise<string[]> = chat.readersOf(1);
+chat.markAsRead(1);
+chat.markAsRead();
+const _receivers: ReadonlyMap<string, number> = chat.receivers.get();
+const _readers: ReadonlyMap<string, number> = chat.readers.get();
+const _onReceived: () => void = chat.onReceived(() => {});
+const _onRead: () => void = chat.onRead(() => {});
 
 export type {};

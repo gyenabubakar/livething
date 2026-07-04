@@ -1,44 +1,31 @@
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 
-/** One member's acknowledgement cursors for a channel. */
-export interface ChannelReceipt {
-  /** The member's stable identity. */
-  identity: string;
-  /** Highest sequence number this member has confirmed receiving. */
-  receivedThrough: number;
-  /** Highest sequence number this member has marked seen. `0` when never seen. */
-  seenThrough: number;
-}
-
-/** The whole channel's receipts, keyed by member identity. */
-export type ReceiptSnapshot = ReadonlyMap<string, ChannelReceipt>;
-
-/** Per-call options for a `receivedBy` / `seenBy` query. */
+/** Per-call options for a `receiversOf` / `readersOf` query. */
 export interface ReceiptQueryOptions {
   /** Override this call's wait for the server's answer, in ms. */
   timeout?: number;
 }
 
-/**
- * A channel's receipts as a reactive store of every member's cursors, fed by the
- * `__receipt__` frames the server fans out. Above the server's broadcast
- * threshold it reflects only what this client has seen.
- */
-export type ChannelReceipts = ReadableStore<ReceiptSnapshot>;
+/** A channel's receipt cursor: member identity → one sequence number, past `0`. */
+export type CursorList = ReadonlyMap<string, number>;
 
 /**
- * The delivered-acknowledgement surface `inbox()` adds to a channel handle
- * (present whenever the channel has `inbox`): the reactive receipt store, a
- * receipt listener, and the authoritative `receivedBy` query.
+ * The received-acknowledgement surface `inbox()` adds to a channel handle
+ * (present whenever the channel has `inbox`): a reactive received-cursor store,
+ * a per-member listener, and the authoritative `receiversOf` query.
  */
 export interface ChannelInboxApi {
-  /** This channel's receipts as a reactive store. */
-  readonly receipts: ChannelReceipts;
-  /** Run `callback` whenever a member's receipt advances. Returns an unsubscribe. */
-  onReceipt(callback: (receipt: ChannelReceipt) => void): () => void;
+  /**
+   * Members that have received something, identity → `receivedThrough` (never
+   * `0`), as a reactive store fed by the server's `__received__` fan-out. Above
+   * the broadcast threshold it reflects only what this client has seen.
+   */
+  readonly receivers: ReadableStore<CursorList>;
+  /** Run `callback` whenever a member's received cursor advances. Returns an unsubscribe. */
+  onReceived(callback: (identity: string, receivedThrough: number) => void): () => void;
   /** Identities that have received up to at least `seq`. Asks the server. */
-  receivedBy(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
+  receiversOf(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
 }
 
 /**
@@ -47,13 +34,20 @@ export interface ChannelInboxApi {
  */
 export interface ChannelReadReceiptsApi {
   /**
-   * Mark messages up to `seq` seen; omit `seq` to mark everything received so
-   * far. Fire-and-forget — the server advances the seen cursor and, on a
+   * Members that have read something, identity → `readThrough` (never `0`), as a
+   * reactive store fed by the server's `__read__` fan-out.
+   */
+  readonly readers: ReadableStore<CursorList>;
+  /** Run `callback` whenever a member's read cursor advances. Returns an unsubscribe. */
+  onRead(callback: (identity: string, readThrough: number) => void): () => void;
+  /** Identities that have read up to at least `seq`. Asks the server. */
+  readersOf(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
+  /**
+   * Mark messages up to `seq` read; omit `seq` to mark everything received so
+   * far. Fire-and-forget — the server advances the read cursor and, on a
    * broadcasting channel, tells the other members.
    */
-  markSeen(seq?: number): void;
-  /** Identities that have seen up to at least `seq`. Asks the server. */
-  seenBy(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
+  markAsRead(seq?: number): void;
 }
 
 /** Inbox adds no socket-level surface — its methods live on the channel handle. */

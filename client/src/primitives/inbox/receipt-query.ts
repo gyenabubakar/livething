@@ -2,7 +2,10 @@ import { Disconnected, Timeout } from '~/errors.ts';
 import type { PrimitiveHelpers, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeInfo } from '~/internal/scoped.ts';
 
-/** A `receivedBy`/`seenBy` call waiting on its `__receiptQuery__` answer. */
+/** The two query events: inbox owns `__receivedQuery__`, read-receipts `__readQuery__`. */
+export type ReceiptQueryEvent = '__receivedQuery__' | '__readQuery__';
+
+/** A `receiversOf`/`readersOf` call waiting on its query answer. */
 export interface PendingQuery {
   resolve: (identities: string[]) => void;
   reject: (reason: unknown) => void;
@@ -10,16 +13,17 @@ export interface PendingQuery {
 }
 
 /**
- * Send a `__receiptQuery__` and resolve once the matching answer arrives. Each
- * primitive keeps its own `pending` map keyed on correlationId, so inbox's
- * `received` queries and read-receipts' `seen` queries never collide.
+ * Send a receipt query and resolve once the matching answer arrives. Each
+ * primitive keeps its own `pending` map keyed on correlationId and its own event
+ * name (`__receivedQuery__` for inbox, `__readQuery__` for read-receipts), so the
+ * two never collide.
  */
 export function runReceiptQuery(
   helpers: PrimitiveHelpers,
   pending: Map<string, PendingQuery>,
-  args: { scope: ScopeInfo; seq: number; kind: 'seen' | 'received'; timeout: number },
+  args: { scope: ScopeInfo; seq: number; event: ReceiptQueryEvent; timeout: number },
 ): Promise<string[]> {
-  const { scope, seq, kind, timeout } = args;
+  const { scope, seq, event, timeout } = args;
   return new Promise<string[]>((resolve, reject) => {
     scope.assertReady?.();
     const correlationId = helpers.generateId('receipt');
@@ -29,8 +33,8 @@ export function runReceiptQuery(
     }, timeout);
     pending.set(correlationId, { resolve, reject, timer });
     const result = helpers.rawSend({
-      event: '__receiptQuery__',
-      payload: { seq, kind },
+      event,
+      payload: { seq },
       __wskit: { ...scope.markers(), correlationId },
     });
     if (result !== 'sent') {
@@ -42,9 +46,9 @@ export function runReceiptQuery(
 }
 
 /**
- * Try to settle a `__receiptQuery__` answer against this primitive's pending
- * queries. Returns `null` (consumed) when the correlationId is ours, or the
- * message unchanged so the next primitive can claim it.
+ * Try to settle a query answer against this primitive's pending queries. Returns
+ * `null` (consumed) when the correlationId is ours, or the message unchanged so
+ * the next primitive can claim it.
  */
 export function resolveOwnQuery(
   pending: Map<string, PendingQuery>,

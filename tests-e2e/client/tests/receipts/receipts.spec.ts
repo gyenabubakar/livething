@@ -1,13 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: delivered (inbox) and read (readReceipts) surfaces against the
-// real handler. Delivered cursors advance from each member's `__received__` ack;
-// seen cursors from markSeen(). Both fan out as `__receipt__` frames into the
-// per-channel receipts store. `receivedBy`/`seenBy` round-trip to the server,
-// whose authoritative view is surfaced via `cursor-answer` and must agree.
-// A dedicated sender (carol) publishes: a channel broadcast excludes the sender,
-// so the recipients whose cursors advance are exactly the non-sending members.
+// Conformance: received (inbox) and read (readReceipts) surfaces against the
+// real handler. Received cursors advance from each member's `__received__` ack
+// and fan out as `__received__` frames into the `receivers` store; read cursors
+// from markAsRead() fan out as `__read__` frames into the `readers` store.
+// `receiversOf`/`readersOf` round-trip to the server, whose authoritative view
+// is surfaced via `cursor-answer` and must agree. A dedicated sender (carol)
+// publishes: a channel broadcast excludes the sender, so the recipients whose
+// cursors advance are exactly the non-sending members.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/receipts/index.html?room=${room}&username=${username}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
@@ -26,8 +27,8 @@ async function openMember(
   return { page, close: () => ctx.close() };
 }
 
-test.describe('receipts (delivered + seen cursors)', () => {
-  test('delivered and seen cursors advance, fan out to members, and match the server view', async ({
+test.describe('receipts (received + read cursors)', () => {
+  test('received and read cursors advance, fan out to members, and match the server view', async ({
     browser,
   }, testInfo) => {
     const room = `receipts-${testInfo.testId}`;
@@ -48,35 +49,37 @@ test.describe('receipts (delivered + seen cursors)', () => {
     await expect(alice.page.getByTestId('messages')).toHaveText('hello');
     await expect(bob.page.getByTestId('messages')).toHaveText('hello');
 
-    // Both recipients' delivered cursors advance and fan out — Alice sees BOTH rows.
-    await expect(alice.page.getByTestId('receipt-view')).toContainText('alice=r');
-    await expect(alice.page.getByTestId('receipt-view')).toContainText('bob=r');
+    // Both recipients' received cursors advance and fan out — Alice sees BOTH at seq 1.
+    await expect(alice.page.getByTestId('receivers-view')).toHaveText('alice=1,bob=1');
+    await expect(alice.page.getByTestId('readers-view')).toHaveText('');
 
     // The server's authoritative view: exactly the two recipients received seq 1.
     await alice.page.getByTestId('ask-server-received').click();
     await expect(alice.page.getByTestId('server-answer')).toHaveText('received:alice|bob');
 
-    // No one has marked seen yet — the server's seen set is empty.
-    await alice.page.getByTestId('ask-server-seen').click();
-    await expect(alice.page.getByTestId('server-answer')).toHaveText('seen:');
+    // No one has marked read yet — the server's read set is empty.
+    await alice.page.getByTestId('ask-server-read').click();
+    await expect(alice.page.getByTestId('server-answer')).toHaveText('read:');
 
-    // Alice marks everything received as seen; her seen cursor advances and fans out.
-    await alice.page.getByTestId('mark-seen').click();
-    await expect(alice.page.getByTestId('receipt-view')).toContainText('alice=rs');
+    // Alice marks everything received as read; her read cursor advances and fans out.
+    await alice.page.getByTestId('mark-read').click();
+    await expect(alice.page.getByTestId('readers-view')).toHaveText('alice=1');
+    // The received projection is unchanged.
+    await expect(alice.page.getByTestId('receivers-view')).toHaveText('alice=1,bob=1');
 
-    // Bob sees Alice's seen fan out too (he is within broadcastUpTo).
-    await expect(bob.page.getByTestId('receipt-view')).toContainText('alice=rs');
+    // Bob sees Alice's read fan out too (he is within broadcastUpTo).
+    await expect(bob.page.getByTestId('readers-view')).toContainText('alice=1');
 
-    // Server view now reports Alice (and only Alice) as seen past seq 1.
-    await alice.page.getByTestId('ask-server-seen').click();
-    await expect(alice.page.getByTestId('server-answer')).toHaveText('seen:alice');
+    // Server view now reports Alice (and only Alice) as read past seq 1.
+    await alice.page.getByTestId('ask-server-read').click();
+    await expect(alice.page.getByTestId('server-answer')).toHaveText('read:alice');
 
     await alice.close();
     await bob.close();
     await carol.close();
   });
 
-  test('client seenBy/receivedBy round-trip the server and answer authoritatively', async ({
+  test('client readersOf/receiversOf round-trip the server and answer authoritatively', async ({
     browser,
   }, testInfo) => {
     const room = `receipts-query-${testInfo.testId}`;
@@ -95,19 +98,19 @@ test.describe('receipts (delivered + seen cursors)', () => {
     await expect(alice.page.getByTestId('messages')).toHaveText('hello');
     await expect(bob.page.getByTestId('messages')).toHaveText('hello');
 
-    // receivedBy(1) round-trips over `__receiptQuery__`; both recipients received.
+    // receiversOf(1) round-trips over `__receivedQuery__`; both recipients received.
     await alice.page.getByTestId('query-received').click();
     await expect(alice.page.getByTestId('query-received-result')).toHaveText('alice|bob');
 
-    // seenBy(1) before anyone marks seen: empty.
-    await alice.page.getByTestId('query-seen').click();
-    await expect(alice.page.getByTestId('query-seen-result')).toHaveText('');
+    // readersOf(1) before anyone marks read: empty.
+    await alice.page.getByTestId('query-read').click();
+    await expect(alice.page.getByTestId('query-read-result')).toHaveText('');
 
-    // Bob marks seen; a fresh seenBy(1) query now returns bob.
-    await bob.page.getByTestId('mark-seen').click();
-    await expect(bob.page.getByTestId('receipt-view')).toContainText('bob=rs');
-    await alice.page.getByTestId('query-seen').click();
-    await expect(alice.page.getByTestId('query-seen-result')).toHaveText('bob');
+    // Bob marks read; a fresh readersOf(1) query now returns bob.
+    await bob.page.getByTestId('mark-read').click();
+    await expect(bob.page.getByTestId('readers-view')).toContainText('bob=1');
+    await alice.page.getByTestId('query-read').click();
+    await expect(alice.page.getByTestId('query-read-result')).toHaveText('bob');
 
     await alice.close();
     await bob.close();

@@ -248,12 +248,12 @@ describe('requestResponse — unmatched-correlationId passthrough', () => {
     const { ws, seen } = buildWithSpy();
 
     ws.emit({
-      event: '__receiptQuery__',
+      event: '__readQuery__',
       payload: { identities: ['alice'] },
       __wskit: { correlationId: 'never-sent' },
     });
 
-    expect(seen).toEqual(['__receiptQuery__']);
+    expect(seen).toEqual(['__readQuery__']);
   });
 
   it('drops a stale __error__ with an unknown correlationId instead of forwarding it', () => {

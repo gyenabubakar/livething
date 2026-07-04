@@ -7,6 +7,7 @@ import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CursorList } from '~/primitives/inbox/types.ts';
 
 interface C {
   channels: {
@@ -54,17 +55,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('read-receipts — markSeen default uses ownReceived', () => {
-  it('sends __seen__ with the highest non-stream seq received when no seq is given', async () => {
+describe('read-receipts — markAsRead default uses ownReceived', () => {
+  it('sends __read__ with the highest non-stream seq received when no seq is given', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
     ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 8 } });
-    room.markSeen();
+    room.markAsRead();
 
     expect(ws.sentFrames().at(-1)).toEqual({
-      event: '__seen__',
-      payload: { seenThrough: 8 },
+      event: '__read__',
+      payload: { readThrough: 8 },
       __wskit: { channel: 'room' },
     });
   });
@@ -79,12 +80,12 @@ describe('read-receipts — markSeen default uses ownReceived', () => {
       payload: { text: 'x' },
       __wskit: { channel: 'room', streamId: 's-1', seq: 99 },
     });
-    room.markSeen();
+    room.markAsRead();
 
-    expect(ws.sentFrames().at(-1).payload).toEqual({ seenThrough: 4 });
+    expect(ws.sentFrames().at(-1).payload).toEqual({ readThrough: 4 });
   });
 
-  it('resets ownReceived after a leave so a rejoin markSeen does not target the old mark', async () => {
+  it('resets ownReceived after a leave so a rejoin markAsRead does not target the old mark', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
     ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 50 } });
@@ -100,29 +101,100 @@ describe('read-receipts — markSeen default uses ownReceived', () => {
 
     const rejoined = await subscribed(socket, ws);
     ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 5 } });
-    rejoined.markSeen();
+    rejoined.markAsRead();
 
-    expect(ws.sentFrames().at(-1).payload).toEqual({ seenThrough: 5 });
+    expect(ws.sentFrames().at(-1).payload).toEqual({ readThrough: 5 });
   });
 });
 
-describe('read-receipts — seenBy query over __receiptQuery__', () => {
+describe('read-receipts — readers store from __read__ fan-out', () => {
+  it('updates the reactive store and fires onRead with a Math.max merge', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    const events: Array<[string, number]> = [];
+    room.onRead((identity, readThrough) => events.push([identity, readThrough]));
+
+    ws.emit({
+      event: '__read__',
+      payload: { identity: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    ws.emit({
+      event: '__read__',
+      payload: { identity: 'bob', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(events).toEqual([
+      ['bob', 5],
+      ['bob', 5],
+    ]);
+    expect(room.readers.get().get('bob')).toBe(5);
+  });
+
+  it('projects readThrough per member, dropping members still at 0', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    const snapshots: CursorList[] = [];
+    room.readers.subscribe((v) => snapshots.push(v));
+
+    ws.emit({
+      event: '__read__',
+      payload: { identity: 'bob', readThrough: 4 },
+      __wskit: { channel: 'room' },
+    });
+    ws.emit({
+      event: '__read__',
+      payload: { identity: 'alice', readThrough: 2 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(room.readers.get()).toEqual(
+      new Map([
+        ['bob', 4],
+        ['alice', 2],
+      ]),
+    );
+    expect(snapshots.at(-1)).toEqual(
+      new Map([
+        ['bob', 4],
+        ['alice', 2],
+      ]),
+    );
+  });
+
+  it('clears the readers store on __unsubscribeOk__', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    ws.emit({
+      event: '__read__',
+      payload: { identity: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(room.readers.get().size).toBe(1);
+
+    ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
+    expect(room.readers.get().size).toBe(0);
+  });
+});
+
+describe('read-receipts — readersOf query over __readQuery__', () => {
   function lastQuery(ws: MockWebSocket) {
     return ws
       .sentFrames()
-      .filter((f) => f.event === '__receiptQuery__')
+      .filter((f) => f.event === '__readQuery__')
       .at(-1);
   }
 
-  it('sends kind:seen and drops non-string identities from the result', async () => {
+  it('sends __readQuery__ and drops non-string identities from the result', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
-    const promise = room.seenBy(2);
+    const promise = room.readersOf(2);
     const query = lastQuery(ws);
-    expect(query.payload.kind).toBe('seen');
+    expect(query.payload).toEqual({ seq: 2 });
     ws.emit({
-      event: '__receiptQuery__',
+      event: '__readQuery__',
       payload: { identities: ['alice', 7, null, 'carol'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });
@@ -135,17 +207,17 @@ describe('read-receipts — seenBy query over __receiptQuery__', () => {
     const { socket, ws } = build({ timeout: 300 });
     const room = await subscribed(socket, ws);
 
-    const promise = room.seenBy(1);
+    const promise = room.readersOf(1);
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
     vi.advanceTimersByTime(301);
     await rejection;
   });
 
-  it('rejects a pending seenBy with Disconnected when the socket closes', async () => {
+  it('rejects a pending readersOf with Disconnected when the socket closes', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
-    const promise = room.seenBy(5);
+    const promise = room.readersOf(5);
     socket.disconnect();
 
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
@@ -153,36 +225,43 @@ describe('read-receipts — seenBy query over __receiptQuery__', () => {
 });
 
 describe('read-receipts — disjoint query ownership with inbox', () => {
-  it('inbox owns the received query and read-receipts owns the seen query', async () => {
+  it('inbox owns the received query and read-receipts owns the read query', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
 
-    // A received query is owned by inbox (which runs first); a seen query by
-    // read-receipts. Their correlationIds are disjoint, so each resolves only
-    // its own answer.
-    const received = room.receivedBy(1);
-    const seen = room.seenBy(1);
-    const queries = ws.sentFrames().filter((f) => f.event === '__receiptQuery__');
-    const receivedId = queries.find((q) => q.payload.kind === 'received').__wskit.correlationId;
-    const seenId = queries.find((q) => q.payload.kind === 'seen').__wskit.correlationId;
-    expect(receivedId).not.toBe(seenId);
+    // A received query is owned by inbox (`__receivedQuery__`); a read query by
+    // read-receipts (`__readQuery__`). Distinct events AND distinct
+    // correlationIds, so each resolves only its own answer.
+    const received = room.receiversOf(1);
+    const read = room.readersOf(1);
+    const receivedQuery = ws
+      .sentFrames()
+      .filter((f) => f.event === '__receivedQuery__')
+      .at(-1);
+    const readQuery = ws
+      .sentFrames()
+      .filter((f) => f.event === '__readQuery__')
+      .at(-1);
+    const receivedId = receivedQuery.__wskit.correlationId;
+    const readId = readQuery.__wskit.correlationId;
+    expect(receivedId).not.toBe(readId);
 
     ws.emit({
-      event: '__receiptQuery__',
-      payload: { identities: ['seen-answer'] },
-      __wskit: { channel: 'room', correlationId: seenId },
+      event: '__readQuery__',
+      payload: { identities: ['read-answer'] },
+      __wskit: { channel: 'room', correlationId: readId },
     });
     ws.emit({
-      event: '__receiptQuery__',
+      event: '__receivedQuery__',
       payload: { identities: ['received-answer'] },
       __wskit: { channel: 'room', correlationId: receivedId },
     });
 
     await expect(received).resolves.toEqual(['received-answer']);
-    await expect(seen).resolves.toEqual(['seen-answer']);
+    await expect(read).resolves.toEqual(['read-answer']);
   });
 
-  it('resolves a seen query even though request-response runs first', async () => {
+  it('resolves a read query even though request-response runs first', async () => {
     const socket = client<C>()(
       connect('wss://test'),
       requestResponse(),
@@ -196,13 +275,13 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
     ws.open();
     const room = await subscribed(socket, ws);
 
-    const promise = room.seenBy(5);
+    const promise = room.readersOf(5);
     const query = ws
       .sentFrames()
-      .filter((f) => f.event === '__receiptQuery__')
+      .filter((f) => f.event === '__readQuery__')
       .at(-1);
     ws.emit({
-      event: '__receiptQuery__',
+      event: '__readQuery__',
       payload: { identities: ['alice'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });

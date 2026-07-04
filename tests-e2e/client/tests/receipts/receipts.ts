@@ -2,27 +2,29 @@ import { channels, client, connect, dedup, inbox, readReceipts, reconnection } f
 import type { ReceiptsClient } from '@wskit/tests-e2e-handlers/receipts';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's delivered (inbox) and read (readReceipts) surfaces
-// against the real handler. `__received__` advances the delivered cursor;
-// markSeen() advances the seen cursor; both fan out as `__receipt__` frames
-// feeding the local receipts store. `receivedBy(1)`/`seenBy(1)` round-trip over
-// `__receiptQuery__`. `ask-cursor` returns the server's authoritative answer.
+// Drives @wskit/client's received (inbox) and read (readReceipts) surfaces
+// against the real handler. `__received__` advances the received cursor and fans
+// out as a `__received__` frame feeding the `receivers` store; markAsRead()
+// advances the read cursor and fans out as a `__read__` frame feeding `readers`.
+// `receiversOf(1)`/`readersOf(1)` round-trip over `__receivedQuery__` /
+// `__readQuery__`. `ask-cursor` returns the server's authoritative answer.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
     <button data-testid="sub">sub</button>
     <button data-testid="send">send</button>
-    <button data-testid="mark-seen">mark-seen</button>
+    <button data-testid="mark-read">mark-read</button>
     <button data-testid="query-received">query-received</button>
-    <button data-testid="query-seen">query-seen</button>
+    <button data-testid="query-read">query-read</button>
     <button data-testid="ask-server-received">ask-server-received</button>
-    <button data-testid="ask-server-seen">ask-server-seen</button>
+    <button data-testid="ask-server-read">ask-server-read</button>
     <span data-testid="status"></span>
     <span data-testid="subscribed"></span>
     <span data-testid="messages"></span>
-    <span data-testid="receipt-view"></span>
+    <span data-testid="receivers-view"></span>
+    <span data-testid="readers-view"></span>
     <span data-testid="query-received-result"></span>
-    <span data-testid="query-seen-result"></span>
+    <span data-testid="query-read-result"></span>
     <span data-testid="server-answer"></span>
   `);
 
@@ -53,15 +55,19 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  // Live local view from the `__receipt__` fan-out: identity=receivedThrough:seenThrough.
-  chat.receipts.subscribe(() => {
-    const snapshot = chat.receipts.get();
-    const rows = [...snapshot.values()]
-      .sort((a, b) => a.identity.localeCompare(b.identity))
-      .map(
-        (r) => `${r.identity}=${r.receivedThrough > 0 ? 'r' : ''}${r.seenThrough > 0 ? 's' : ''}`,
-      );
-    el('receipt-view').textContent = rows.join(',');
+  // The received / read cursor stores rendered as identity=cursor lists.
+  function renderCursors(list: ReadonlyMap<string, number>): string {
+    return [...list.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([identity, seq]) => `${identity}=${seq}`)
+      .join(',');
+  }
+
+  chat.receivers.subscribe(() => {
+    el('receivers-view').textContent = renderCursors(chat.receivers.get());
+  });
+  chat.readers.subscribe(() => {
+    el('readers-view').textContent = renderCursors(chat.readers.get());
   });
 
   button('connect', () => socket.connect());
@@ -72,24 +78,24 @@ export function setup(): void {
   button('send', () => {
     chat.send('send-room-msg', { text: 'hello' });
   });
-  button('mark-seen', () => {
-    chat.markSeen();
+  button('mark-read', () => {
+    chat.markAsRead();
   });
 
   button('query-received', async () => {
-    const identities = await chat.receivedBy(1);
+    const identities = await chat.receiversOf(1);
     el('query-received-result').textContent = identities.slice().sort().join('|');
   });
-  button('query-seen', async () => {
-    const identities = await chat.seenBy(1);
-    el('query-seen-result').textContent = identities.slice().sort().join('|');
+  button('query-read', async () => {
+    const identities = await chat.readersOf(1);
+    el('query-read-result').textContent = identities.slice().sort().join('|');
   });
 
   button('ask-server-received', () => {
     chat.send('ask-cursor', { kind: 'received', seq: 1 });
   });
-  button('ask-server-seen', () => {
-    chat.send('ask-cursor', { kind: 'seen', seq: 1 });
+  button('ask-server-read', () => {
+    chat.send('ask-cursor', { kind: 'read', seq: 1 });
   });
 
   ready();

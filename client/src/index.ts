@@ -48,11 +48,11 @@ export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
 export { inbox, readReceipts } from '~/primitives/inbox/index.ts';
 export type {
-  ChannelReceipt,
-  ChannelReceipts,
+  ChannelInboxApi,
+  ChannelReadReceiptsApi,
+  CursorList,
   InboxOptions,
   ReceiptQueryOptions,
-  ReceiptSnapshot,
   ReadReceiptsOptions,
 } from '~/primitives/inbox/index.ts';
 export { stream } from '~/primitives/stream/index.ts';

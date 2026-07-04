@@ -14,15 +14,15 @@ const socket = client<InboxClient>()(
 
 const chat = socket.channel('chat');
 
-// inbox() adds receivedBy + receipts + onReceipt.
-const _receivedBy: Promise<string[]> = chat.receivedBy(1);
-const _receipts = chat.receipts;
-const _onReceipt: () => void = chat.onReceipt(() => {});
+// inbox() adds receiversOf + receivers + onReceived.
+const _receiversOf: Promise<string[]> = chat.receiversOf(1);
+const _receivers: ReadonlyMap<string, number> = chat.receivers.get();
+const _onReceived: () => void = chat.onReceived(() => {});
 
-// readReceipts() is NOT applied, so markSeen / seenBy must be absent.
-// @ts-expect-error — markSeen only exists on a readReceipts channel
-chat.markSeen(1);
-// @ts-expect-error — seenBy only exists on a readReceipts channel
-chat.seenBy(1);
+// readReceipts() is NOT applied, so markAsRead / readersOf must be absent.
+// @ts-expect-error — markAsRead only exists on a readReceipts channel
+chat.markAsRead(1);
+// @ts-expect-error — readersOf only exists on a readReceipts channel
+chat.readersOf(1);
 
 export type {};
