@@ -145,6 +145,7 @@ export interface FakeEngine {
     handleAlarm: number;
     handleShutdown: number;
     reconcileConnections: Array<ReadonlySet<string>>;
+    restoreHibernatedConnections: unknown[][];
   };
   stageUpgrade: (
     decision: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision),
@@ -167,6 +168,7 @@ export function makeFakeEngine(): FakeEngine {
     handleAlarm: 0,
     handleShutdown: 0,
     reconcileConnections: [],
+    restoreHibernatedConnections: [],
   };
 
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
@@ -204,6 +206,9 @@ export function makeFakeEngine(): FakeEngine {
     }),
     reconcileConnections: vi.fn((surviving: ReadonlySet<string>) => {
       calls.reconcileConnections.push(surviving);
+    }),
+    restoreHibernatedConnections: vi.fn((sockets: Iterable<unknown>) => {
+      calls.restoreHibernatedConnections.push([...sockets]);
     }),
   } as unknown as Engine;
 

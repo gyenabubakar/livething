@@ -403,4 +403,30 @@ describe('engine wiring in the constructor', () => {
     wrapper(p);
     expect(state.waitUntil).toHaveBeenCalledWith(p);
   });
+
+  it('restores every surviving socket at boot under hibernation so live delivery reaches them', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const sockA = { tag: 'a' } as unknown;
+    const sockB = { tag: 'b' } as unknown;
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await (instance as unknown as { ready: Promise<void> }).ready;
+
+    expect(fake.calls.restoreHibernatedConnections).toHaveLength(1);
+    expect(fake.calls.restoreHibernatedConnections[0]).toEqual([sockA, sockB]);
+    // The eager restore supersedes the id-collecting reconcile at boot.
+    expect(fake.calls.reconcileConnections).toHaveLength(0);
+  });
+
+  it('does not restore or reconcile against surviving sockets in standard mode', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'a' }]) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await (instance as unknown as { ready: Promise<void> }).ready;
+
+    expect(fake.calls.restoreHibernatedConnections).toHaveLength(0);
+    expect(state.getWebSockets).not.toHaveBeenCalled();
+  });
 });

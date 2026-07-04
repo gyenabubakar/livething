@@ -76,24 +76,13 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
 
         this.ready = ctx.blockConcurrencyWhile(async () => {
           await this.engine.initialize();
-          // With hibernation on, Cloudflare may hand back sockets that survived
-          // eviction; collect their ids so the engine keeps those rows and drops
-          // orphans. Hibernation off: the empty set is a no-op.
-          const surviving = new Set<string>();
+          // Restore every surviving socket's membership eagerly so a broadcast reaches members that have not sent since the wake.
           if (this.engine.usesHibernation()) {
             this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-
-            for (const ws of this.ctx.getWebSockets()) {
-              const attachment = (ws as WebSocket).deserializeAttachment() as {
-                id?: string;
-              } | null;
-              if (attachment && typeof attachment.id === 'string') {
-                surviving.add(attachment.id);
-              }
-            }
+            this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
+          } else {
+            this.engine.reconcileConnections(new Set());
           }
-
-          this.engine.reconcileConnections(surviving);
         });
       }
 

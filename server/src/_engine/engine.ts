@@ -161,6 +161,27 @@ export class Engine {
     EngineHibernation.reconcileConnections(this.core, surviving);
   }
 
+  /**
+   * Restore every socket the platform still holds after a hibernation eviction.
+   * Each runs the same per-socket wake the lazy path uses, rebuilding its
+   * identity, tags, and ephemeral channel membership at boot so a live broadcast
+   * reaches even members whose own socket has not woken. Rows for absent ids are
+   * pruned. A no-op without hibernation.
+   */
+  restoreHibernatedConnections(sockets: Iterable<unknown>): void {
+    if (!this.usesHibernation()) return;
+    const runtime = EngineDeps.connectionRuntime(this.core);
+    const restored = new Set<string>();
+    for (const wsKey of sockets) {
+      withInvocationScope(this.core, () => {
+        EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
+      });
+      const id = this.core.wsToConnectionId.get(wsKey);
+      if (id) restored.add(id);
+    }
+    EngineHibernation.reconcileConnections(this.core, restored);
+  }
+
   /** Build the helper bag passed to every `onUpgrade` hook. @internal */
   private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {
     if (!this.core.usesTags()) return {};
