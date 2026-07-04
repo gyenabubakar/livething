@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { WSKitError } from '@wskit/core';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { ChannelReceiptsApi } from '~/primitives/inbox/types.ts';
+import type { ChannelInboxApi, ChannelReadReceiptsApi } from '~/primitives/inbox/types.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
@@ -27,7 +27,8 @@ export type ChannelStatus = 'subscribing' | 'subscribed' | 'unsubscribed' | 'fai
  * server-managed-room controls — subscribing, membership, and presence.
  */
 export type ChannelMessaging<C> = ScopedMessaging<C> &
-  (C extends { receipts: true } ? ChannelReceiptsApi : {}) & {
+  (C extends { inbox: true } ? ChannelInboxApi : {}) &
+  (C extends { readReceipts: true } ? ChannelReadReceiptsApi : {}) & {
     /**
      * Join the channel. Resolves once the server confirms; rejects on auth failure
      * or disconnect. When the channel declares a `subscribePayload` (the server set

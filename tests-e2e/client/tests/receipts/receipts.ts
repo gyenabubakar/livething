@@ -1,14 +1,12 @@
-import { channels, client, connect, dedup, inbox, receipts, reconnection } from '@wskit/client';
+import { channels, client, connect, dedup, inbox, readReceipts, reconnection } from '@wskit/client';
 import type { ReceiptsClient } from '@wskit/tests-e2e-handlers/receipts';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's receipts() against the real receipts handler. Each
-// member's `__received__` ack advances a delivered cursor; markSeen() advances a
-// seen cursor; both fan out as `__receipt__` frames feeding the local receipts
-// store. `seenBy(1)`/`receivedBy(1)` round-trip to the server over
-// `__receiptQuery__` and answer "who is caught up past the first message".
-// `ask-cursor` returns the server's authoritative `ctx.channel.receipts` answer
-// through the `cursor-answer` emit, independent of the live fan-out.
+// Drives @wskit/client's delivered (inbox) and read (readReceipts) surfaces
+// against the real handler. `__received__` advances the delivered cursor;
+// markSeen() advances the seen cursor; both fan out as `__receipt__` frames
+// feeding the local receipts store. `receivedBy(1)`/`seenBy(1)` round-trip over
+// `__receiptQuery__`. `ask-cursor` returns the server's authoritative answer.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -32,7 +30,7 @@ export function setup(): void {
     connect(wsUrl('receipts')),
     channels(),
     inbox(),
-    receipts(),
+    readReceipts(),
     dedup(),
     reconnection({ maxDelay: 400 }),
   );
@@ -79,11 +77,11 @@ export function setup(): void {
   });
 
   button('query-received', async () => {
-    const identities = await chat.receipts.receivedBy(1);
+    const identities = await chat.receivedBy(1);
     el('query-received-result').textContent = identities.slice().sort().join('|');
   });
   button('query-seen', async () => {
-    const identities = await chat.receipts.seenBy(1);
+    const identities = await chat.seenBy(1);
     el('query-seen-result').textContent = identities.slice().sort().join('|');
   });
 

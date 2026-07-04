@@ -1,12 +1,14 @@
 export { inbox } from '~/primitives/inbox/inbox.ts';
-export { receipts } from '~/primitives/inbox/receipts.ts';
-export type { ReceiptsOptions } from '~/primitives/inbox/receipts.ts';
+export type { InboxOptions } from '~/primitives/inbox/inbox.ts';
+export { readReceipts } from '~/primitives/inbox/read-receipts.ts';
+export type { ReadReceiptsOptions } from '~/primitives/inbox/read-receipts.ts';
 export type {
   ChannelReceipt,
   ChannelReceipts,
-  ChannelReceiptsApi,
+  ChannelInboxApi,
+  ChannelReadReceiptsApi,
   ReceiptQueryOptions,
   ReceiptSnapshot,
   InboxPrimitive,
-  ReceiptsPrimitive,
+  ReadReceiptsPrimitive,
 } from '~/primitives/inbox/types.ts';

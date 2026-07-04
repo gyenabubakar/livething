@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's receipts() against the real receipts handler.
-// Delivered cursors advance from each member's `__received__` ack; seen cursors
-// from markSeen(). Both fan out as `__receipt__` frames into the per-channel
-// receipts store. `receivedBy`/`seenBy` round-trip to the server; the server's
-// own `ctx.channel.receipts` view is surfaced via `cursor-answer` and must agree.
+// Conformance: delivered (inbox) and read (readReceipts) surfaces against the
+// real handler. Delivered cursors advance from each member's `__received__` ack;
+// seen cursors from markSeen(). Both fan out as `__receipt__` frames into the
+// per-channel receipts store. `receivedBy`/`seenBy` round-trip to the server,
+// whose authoritative view is surfaced via `cursor-answer` and must agree.
 // A dedicated sender (carol) publishes: a channel broadcast excludes the sender,
 // so the recipients whose cursors advance are exactly the non-sending members.
 async function open(page: Page, room: string, username: string): Promise<void> {
