@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { WSKitError } from '@wskit/core';
 import type { ReadableStore } from '~/internal/store.ts';
+import type { ChannelReceiptsApi } from '~/primitives/inbox/types.ts';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
@@ -25,70 +26,71 @@ export type ChannelStatus = 'subscribing' | 'subscribed' | 'unsubscribed' | 'fai
  * A channel handle: an messaging (on/send/request) plus the
  * server-managed-room controls — subscribing, membership, and presence.
  */
-export type ChannelMessaging<C> = ScopedMessaging<C> & {
-  /**
-   * Join the channel. Resolves once the server confirms; rejects on auth failure
-   * or disconnect. When the channel declares a `subscribePayload` (the server set
-   * a `check` validator) the payload is required and typed; otherwise it's an
-   * optional, untyped value.
-   *
-   * Pass a function instead of a value to regenerate the payload on every
-   * reconnect — the way to keep a rotating credential (e.g. a per-channel auth
-   * token) fresh, since the client re-subscribes automatically after a drop.
-   */
-  subscribe(
-    ...args: C extends { subscribePayload: infer P }
-      ? [data: P | (() => P | Promise<P>)]
-      : [data?: unknown]
-  ): Promise<void>;
-  /**
-   * Leave the channel. The channel goes inactive right away (a `send()` then
-   * throws), but the returned promise resolves only when the server confirms the
-   * leave with `__unsubscribeOk__` — the leave is resent across reconnects until
-   * then. Rejects if the connection is abandoned before it can confirm.
-   */
-  unsubscribe(): Promise<void>;
+export type ChannelMessaging<C> = ScopedMessaging<C> &
+  (C extends { receipts: true } ? ChannelReceiptsApi : {}) & {
+    /**
+     * Join the channel. Resolves once the server confirms; rejects on auth failure
+     * or disconnect. When the channel declares a `subscribePayload` (the server set
+     * a `check` validator) the payload is required and typed; otherwise it's an
+     * optional, untyped value.
+     *
+     * Pass a function instead of a value to regenerate the payload on every
+     * reconnect — the way to keep a rotating credential (e.g. a per-channel auth
+     * token) fresh, since the client re-subscribes automatically after a drop.
+     */
+    subscribe(
+      ...args: C extends { subscribePayload: infer P }
+        ? [data: P | (() => P | Promise<P>)]
+        : [data?: unknown]
+    ): Promise<void>;
+    /**
+     * Leave the channel. The channel goes inactive right away (a `send()` then
+     * throws), but the returned promise resolves only when the server confirms the
+     * leave with `__unsubscribeOk__` — the leave is resent across reconnects until
+     * then. Rejects if the connection is abandoned before it can confirm.
+     */
+    unsubscribe(): Promise<void>;
 
-  /**
-   * Ask the server to resend this channel's member roster. Fire-and-forget —
-   * it sends a `__memberSync__` request and returns immediately, with nothing to
-   * await. Use it to recover a stale roster, e.g. after a leave that failed.
-   */
-  resyncMembers(): void;
+    /**
+     * Ask the server to resend this channel's member roster. Fire-and-forget —
+     * it sends a `__memberSync__` request and returns immediately, with nothing to
+     * await. Use it to recover a stale roster, e.g. after a leave that failed.
+     */
+    resyncMembers(): void;
 
-  /**
-   * Who's in the room, as a reactive store keyed by connection id.
-   * `members.get()` reads the roster now; `members.subscribe(listener)` runs on
-   * every join, leave, or roster sync with a fresh snapshot. Online/offline
-   * events don't change the roster — a member stays until it truly leaves.
-   */
-  readonly members: ReadableStore<ReadonlyMap<string, ChannelMember>>;
+    /**
+     * Who's in the room, as a reactive store keyed by connection id.
+     * `members.get()` reads the roster now; `members.subscribe(listener)` runs on
+     * every join, leave, or roster sync with a fresh snapshot. Online/offline
+     * events don't change the roster — a member stays until it truly leaves.
+     */
+    readonly members: ReadableStore<ReadonlyMap<string, ChannelMember>>;
 
-  /**
-   * The subscription state as a reactive store — `status.get()` reads it now,
-   * `status.subscribe(listener)` watches it. Handy for a "joining…" indicator
-   * without wiring up the four lifecycle events below.
-   */
-  readonly status: ReadableStore<ChannelStatus>;
+    /**
+     * The subscription state as a reactive store — `status.get()` reads it now,
+     * `status.subscribe(listener)` watches it. Handy for a "joining…" indicator
+     * without wiring up the four lifecycle events below.
+     */
+    readonly status: ReadableStore<ChannelStatus>;
 
-  /** Someone joined the group. */
-  onMemberJoin(callback: (connectionId: string, member: ChannelMember) => void): () => void;
-  /** Someone left the group for good. */
-  onMemberLeave(callback: (connectionId: string) => void): () => void;
-  /** A connection became reachable (fires on reconnect too). */
-  onMemberOnline(callback: (connectionId: string, member: ChannelMember) => void): () => void;
-  /** A connection became unreachable (disconnect or true leave). */
-  onMemberOffline(callback: (connectionId: string) => void): () => void;
+    /** Someone joined the group. */
+    onMemberJoin(callback: (connectionId: string, member: ChannelMember) => void): () => void;
+    /** Someone left the group for good. */
+    onMemberLeave(callback: (connectionId: string) => void): () => void;
+    /** A connection became reachable (fires on reconnect too). */
+    onMemberOnline(callback: (connectionId: string, member: ChannelMember) => void): () => void;
+    /** A connection became unreachable (disconnect or true leave). */
+    onMemberOffline(callback: (connectionId: string) => void): () => void;
 
-  /** This channel became active — `source` says who initiated it. */
-  onSubscribed(callback: (source: SubscribeSource) => void): () => void;
-  /** This channel left the active set on the client side. */
-  onUnsubscribed(callback: () => void): () => void;
-  /** The server kicked you out, with a reason. */
-  onKicked(callback: (reason: string) => void): () => void;
-  /** A re-subscribe after reconnect was rejected (e.g. permissions changed). */
-  onSubscriptionFailed(callback: (error: WSKitError) => void): () => void;
-};
+    /** This channel became active — `source` says who initiated it. */
+    onSubscribed(callback: (source: SubscribeSource) => void): () => void;
+    /** This channel left the active set on the client side. */
+    onUnsubscribed(callback: () => void): () => void;
+    /** The server kicked you out, with a reason. */
+    onKicked(callback: (reason: string) => void): () => void;
+    /** A re-subscribe after reconnect was rejected (e.g. permissions changed). */
+    onSubscriptionFailed(callback: (error: WSKitError) => void): () => void;
+  };
 
 /**
  * A handle for a whole dynamic channel family. Call it like a function to get

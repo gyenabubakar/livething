@@ -85,6 +85,7 @@ export class EngineCore {
   frameMatch?: FeatureSlots.FrameMatch;
   channelService?: FeatureSlots.ChannelService;
   channelContext?: FeatureSlots.ChannelContext;
+  inboxService?: FeatureSlots.InboxService;
 
   initialized = false;
   /**
@@ -96,6 +97,12 @@ export class EngineCore {
 
   /** Per-channel `persistent` overrides. Explicit `false` opts out. */
   readonly channelPersistenceOverrides = new Map<string, boolean>();
+
+  /**
+   * Resolved inbox settings per channel key, populated by the `inbox()`
+   * capability during setup. A channel key present here has inbox enabled.
+   */
+  readonly inboxChannels = new Map<string, FeatureSlots.ResolvedInboxOptions>();
 
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {

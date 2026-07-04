@@ -152,6 +152,29 @@ export function listMembershipsByIdentity(
   }));
 }
 
+/**
+ * Read every identity with a durable membership in one channel — the full
+ * roster including members that are currently offline. Used by inbox fan-out to
+ * write a per-member copy for everyone owed the message.
+ */
+export function listIdentitiesByChannel(
+  sql: Pick<SQLProvider, 'exec'>,
+  channelName: string,
+  channelFamily: string | null,
+): string[] {
+  return sql
+    .exec<{ identity: string }>(
+      `
+        SELECT identity FROM __wskit_channel_memberships
+        WHERE channel_name = ? AND channel_family = ?
+      `,
+      channelName,
+      familyToDb(channelFamily),
+    )
+    .toArray()
+    .map((row) => row.identity);
+}
+
 /** True when a durable membership row exists for this identity and channel. */
 export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): boolean {
   return (

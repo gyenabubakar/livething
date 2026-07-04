@@ -229,6 +229,47 @@ export interface ChannelContext {
   buildChannelFamilyExtra: typeof buildChannelFamilyExtra;
 }
 
+/** Inbox settings resolved for one channel, stored on the engine core. */
+export interface ResolvedInboxOptions {
+  afterDelivered: 'delete' | 'keep';
+  retention?: { maxAgeMs?: number; maxMessages?: number };
+}
+
+/** Receipts settings resolved for one channel, stored on the engine core. */
+export interface ResolvedReceiptsOptions {
+  seen: boolean;
+  broadcastUpTo?: number;
+}
+
+/**
+ * The inbox dispatch surface. Set by the `inbox()` capability, so a handler
+ * without it never pulls the inbox storage, fan-out, or drain code. `fanOut`
+ * runs once per logical channel broadcast (not once per recipient); the other
+ * methods run on reconnect drain and on leave.
+ */
+export interface InboxService {
+  /**
+   * Write a per-member copy for every durable member of the channel and return
+   * the one seq/messageId stamped, so the caller pins the live broadcast to it.
+   */
+  fanOut(
+    core: any,
+    opts: {
+      channelName: string;
+      channelFamily: string | null;
+      event: string;
+      payload: Record<string, unknown>;
+    },
+  ): { seq: number; messageId: string } | undefined;
+  /** Re-deliver an identity's owed rows after its socket reconnects. */
+  drainOnReconnect(core: any, connection: RuntimeConnection): void;
+  /** Drop an identity's rows for a channel it has just left. */
+  clearChannel(
+    core: any,
+    key: { identity: string; channelName: string; channelFamily: string | null },
+  ): void;
+}
+
 /** The bag of optional feature slots the engine core carries. */
 export interface FeatureDispatchSlots {
   streamTrigger?: StreamTrigger;
@@ -238,6 +279,7 @@ export interface FeatureDispatchSlots {
   requestDispatch?: RequestDispatch;
   channelService?: ChannelService;
   channelContext?: ChannelContext;
+  inboxService?: InboxService;
 }
 
 /** Re-exported so the durable dispatch service can satisfy the runtime contract. */

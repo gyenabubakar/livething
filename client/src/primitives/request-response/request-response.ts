@@ -1,7 +1,7 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
-import { wireIdError } from '~/internal/wire-validation.ts';
+import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
@@ -143,7 +143,13 @@ export function requestResponse(
           if (message.__wskit?.source === 'server') return message;
 
           const waiter = pending.get(correlationId);
-          if (!waiter) return null;
+          // Forward a protocol frame (e.g. a receipt-query result) for another primitive
+          // to claim; a stale `__error__` reply is ours to drop, as is any user reply.
+          if (!waiter) {
+            return isProtocolFrameEvent(message.event) && message.event !== '__error__'
+              ? message
+              : null;
+          }
 
           helpers.log.info(`matched response for request '${correlationId}'`);
 

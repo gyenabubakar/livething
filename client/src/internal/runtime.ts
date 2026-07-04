@@ -37,6 +37,9 @@ export interface WSKitEnvelope {
   /** Set to `true` on `__subscribeOk__` when the server manages rejoining the channel on reconnect, so the client should not re-subscribe it. */
   channelPersistent?: boolean;
 
+  /** Set to `true` on `__subscribeOk__` when the channel is inbox-backed, so the client acks its messages with `__received__` and stays quiet on other channels. */
+  inbox?: boolean;
+
   /** Per-message sequence number from the server, used by replay. */
   seq?: number;
 

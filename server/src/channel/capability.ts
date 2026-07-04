@@ -52,6 +52,10 @@ export interface ChannelDeps {
   }) => Primitive;
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
+  /** Inbox builder, present only when `inbox()` is listed. */
+  readonly buildInbox?: (inboxConfig: unknown) => Primitive;
+  /** Receipts builder, present only when `receipts()` is listed. */
+  readonly buildReceipts?: (receiptsConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
   readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
   /**
@@ -135,6 +139,26 @@ export class ChannelBuilder {
         );
       }
       this.children.push(build(cfg.replay));
+    }
+    if (cfg.inbox !== undefined && cfg.inbox !== false) {
+      const build = deps.buildInbox;
+      if (!build) {
+        throw new Error(
+          `[wskit] channel '${this.__key}' sets inbox but the inbox() capability is not ` +
+            'listed. Add inbox() to capabilities.',
+        );
+      }
+      this.children.push(build(cfg.inbox));
+    }
+    if (cfg.receipts !== undefined && cfg.receipts !== false) {
+      const build = deps.buildReceipts;
+      if (!build) {
+        throw new Error(
+          `[wskit] channel '${this.__key}' sets receipts but the receipts() capability is not ` +
+            'listed. Add receipts() to capabilities.',
+        );
+      }
+      this.children.push(build(cfg.receipts));
     }
     if (cfg.check) {
       this.children.push(

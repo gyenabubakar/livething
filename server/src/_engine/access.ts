@@ -422,6 +422,14 @@ export interface EngineAccess {
   setChannelPersistent(channelKey: string, enabled: boolean): void;
 
   /**
+   * Record a channel's resolved inbox settings. The inbox fan-out, ack, and
+   * clear paths read these back by channel key at runtime. Set by `inbox()`.
+   *
+   * @internal
+   */
+  registerInboxChannel(channelKey: string, options: FeatureSlots.ResolvedInboxOptions): void;
+
+  /**
    * Check whether a durable-row `(channel_name, channel_family)` pair still
    * maps to a registered persistent channel. Used by boot-time reconcile.
    * @internal
@@ -635,6 +643,18 @@ export interface EngineAccess {
   rawSend(connectionId: string, event: string, payload: unknown): void;
 
   /**
+   * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
+   * correlationId) on the frame. Used to answer a scoped, correlated protocol
+   * query — e.g. `receipts()` replying to a `__receiptQuery__` on one connection.
+   *
+   * @internal
+   */
+  sendProtocolFrame(
+    connectionId: string,
+    options: { event: string; payload: unknown; wskit?: Record<string, unknown> },
+  ): void;
+
+  /**
    * Register the plain-stream trigger so the dispatch hub can start a matched
    * `stream(...)` without importing its runtime. Set by the `stream()`
    * capability.
@@ -726,4 +746,44 @@ export interface EngineAccess {
    * @internal
    */
   setChannelContext(context: FeatureSlots.ChannelContext): void;
+
+  /**
+   * Register the inbox fan-out / drain / clear runtime. Set by the `inbox()`
+   * capability so a handler without it never bundles the inbox storage or
+   * per-member delivery code.
+   *
+   * @internal
+   */
+  setInboxService(service: FeatureSlots.InboxService): void;
+
+  /**
+   * Broadcast one already-built protocol frame (e.g. `__receipt__`) to every
+   * live member of a channel. Offline members are not reached — the frame is a
+   * live presence signal, and its cursor stays queryable regardless.
+   *
+   * @internal
+   */
+  broadcastToChannel(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+  }): void;
+
+  /**
+   * Count the live members currently in a channel. Used by `receipts()` to skip
+   * the live `__receipt__` broadcast above `broadcastUpTo`.
+   *
+   * @internal
+   */
+  channelMemberCount(channelName: string, channelFamily: string | null): number;
+
+  /**
+   * Read the resolved inbox settings for a channel key, or `undefined` when the
+   * channel has no inbox. `receipts()` uses this to settle inbox rows with the
+   * right delete/keep lifecycle when `__seen__` advances the received mark.
+   *
+   * @internal
+   */
+  getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
 }

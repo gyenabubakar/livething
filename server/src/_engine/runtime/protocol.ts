@@ -140,6 +140,29 @@ export const MemberSyncRequestFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
+export const ReceivedFrame = v.object({
+  event: v.literal('__received__'),
+  payload: v.strictObject({ receivedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const SeenFrame = v.object({
+  event: v.literal('__seen__'),
+  payload: v.strictObject({ seenThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+/**
+ * The incoming half of a receipt query. The client asks who has received or
+ * seen up to `seq` on a channel; the answer comes back under the same event
+ * name, paired only by `correlationId` (like `__error__`).
+ */
+export const ReceiptQueryFrame = v.object({
+  event: v.literal('__receiptQuery__'),
+  payload: v.strictObject({ seq: NonNegativeSafeInt, kind: v.picklist(['seen', 'received']) }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
 /** All frames the client may send into the engine, discriminated on `event`. */
 export const IncomingProtocolFrame = v.variant('event', [
   SubscribeFrame,
@@ -148,6 +171,9 @@ export const IncomingProtocolFrame = v.variant('event', [
   StreamCancelFrame,
   ResumeStreamFrame,
   MemberSyncRequestFrame,
+  ReceivedFrame,
+  SeenFrame,
+  ReceiptQueryFrame,
 ]);
 
 export const SubscribeOkFrame = v.object({
@@ -157,11 +183,14 @@ export const SubscribeOkFrame = v.object({
   // subscribe call, so it resolves that pending promise) or 'server' (the server
   // subscribed it, so there is no client promise to settle). `channelPersistent`
   // tells the client whether this channel auto-rejoins on reconnect (server
-  // -driven) so it knows not to re-subscribe it itself.
+  // -driven) so it knows not to re-subscribe it itself. `inbox` marks a channel
+  // whose delivery is inbox-backed, so the client acks only these with
+  // `__received__` and stays quiet on the rest.
   __wskit: v.strictObject({
     ...RequiredChannelScope,
     source: Source,
     channelPersistent: v.optional(v.boolean()),
+    inbox: v.optional(v.boolean()),
   }),
 });
 
@@ -273,6 +302,27 @@ export const MemberSyncFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
+export const ReceiptFrame = v.object({
+  event: v.literal('__receipt__'),
+  payload: v.strictObject({
+    identity: v.string(),
+    receivedThrough: v.optional(NonNegativeSafeInt),
+    seenThrough: v.optional(NonNegativeSafeInt),
+  }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+/**
+ * The outgoing half of a receipt query. Shares the `__receiptQuery__` event name
+ * with the incoming request and echoes its `correlationId`; the client pairs the
+ * two by correlation id alone, exactly as `__error__` does across both unions.
+ */
+export const ReceiptQueryResultFrame = v.object({
+  event: v.literal('__receiptQuery__'),
+  payload: v.strictObject({ identities: v.array(v.string()) }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
@@ -287,6 +337,8 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberOnlineFrame,
   MemberOfflineFrame,
   MemberSyncFrame,
+  ReceiptFrame,
+  ReceiptQueryResultFrame,
 ]);
 
 /**
@@ -333,6 +385,9 @@ export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
+export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
+export type SeenFrame = v.InferOutput<typeof SeenFrame>;
+export type ReceiptQueryFrame = v.InferOutput<typeof ReceiptQueryFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
@@ -346,6 +401,8 @@ export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
 export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
 export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
 export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
+export type ReceiptFrame = v.InferOutput<typeof ReceiptFrame>;
+export type ReceiptQueryResultFrame = v.InferOutput<typeof ReceiptQueryResultFrame>;
 
 /** Names of the protocol events the client may send into the engine. */
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];

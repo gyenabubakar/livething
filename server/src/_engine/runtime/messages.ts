@@ -629,6 +629,21 @@ async function dispatchProtocolFrame(
         });
         return;
       }
+      case '__received__':
+      case '__seen__':
+      case '__receiptQuery__': {
+        const handlers = runtime.protocolHandlers.get(frame.event) ?? [];
+        const scope = resolveChannel(runtime.compiled, frame.__wskit);
+        const ctx = runtime.buildConnectionContext(connection, scope);
+        // Acks are fire-and-forget. A handler consuming the frame settles it; an
+        // ack for a channel without inbox/receipts is dropped silently — there is
+        // no reply the client waits on. A receipt query replies to its own
+        // correlationId or, unauthorized, is dropped the same way.
+        for (const handler of handlers) {
+          if (await handler(ctx, frame)) return;
+        }
+        return;
+      }
     }
   } catch (error) {
     await runtime.handleRuntimeError(connection, {

@@ -278,6 +278,19 @@ interface ChannelRuntime extends ChannelHooks {
     channelName: string,
     channelFamily: string | null,
   ): boolean;
+
+  /**
+   * Drop the identity's inbox rows for this channel. Called on a true leave —
+   * they stop being owed the channel's messages. No-op when `inbox()` is off.
+   */
+  clearInbox?(identity: string, channelName: string, channelFamily: string | null): void;
+
+  /**
+   * Whether this channel is inbox-backed. Stamped onto `__subscribeOk__` so the
+   * client acks only inbox channels. Absent (treated as `false`) when `inbox()`
+   * is off.
+   */
+  isInboxChannel?(channelName: string, channelFamily: string | null): boolean;
 }
 
 interface ChannelTarget {
@@ -361,6 +374,9 @@ export async function leaveChannel(
 
   if (isTrueLeave && (isPersistent || !scope.channel)) {
     runtime.deleteDurableMembership(connection.identity, scope.channelName, scope.channelFamily);
+    if (connection.identity) {
+      runtime.clearInbox?.(connection.identity, scope.channelName, scope.channelFamily);
+    }
   }
 
   // Hold the first hook throw and re-throw at the end so the rest of the leave
@@ -558,11 +574,20 @@ async function runSubscribeFlow(
   // Send confirmation before running onSubscribe, so a throwing hook cannot
   // delay or block it from reaching the client. The persistent flag tells the
   // client to leave this channel to server-driven auto-rejoin on reconnect
-  // rather than re-subscribing it itself.
+  // rather than re-subscribing it itself. The inbox flag tells the client to ack
+  // this channel's messages (and only inbox channels) with `__received__`.
+  const confirmation: Record<string, unknown> = {
+    ...wskit,
+    source,
+    channelPersistent: isPersistent,
+  };
+  if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
+    confirmation.inbox = true;
+  }
   runtime.sendProtocolMessage(connection, {
     event: '__subscribeOk__',
     payload: {},
-    wskit: { ...wskit, source, channelPersistent: isPersistent },
+    wskit: confirmation,
   });
 
   runtime.sendProtocolMessage(connection, {

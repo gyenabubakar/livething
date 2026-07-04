@@ -274,13 +274,18 @@ interface PrepareBroadcastOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   event: string;
   payload: unknown;
+  /**
+   * A `seq`/`messageId` an inbox channel pins so a member's live frame matches
+   * its durable inbox row. Forces the shared-frame path.
+   */
+  fixedWSKit?: { seq: number; messageId: string };
 }
 
 function prepareBroadcast(
   runtime: BroadcastRuntime,
   opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
-  const { routing, event, payload } = opts;
+  const { routing, event, payload, fixedWSKit } = opts;
   assertPayloadRecord(payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, {
@@ -298,15 +303,19 @@ function prepareBroadcast(
   const eventJson = JSON.stringify(message.event);
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
   const baseWSKit = buildWSKit(routing);
+  if (fixedWSKit) {
+    baseWSKit.seq = fixedWSKit.seq;
+    baseWSKit.messageId = fixedWSKit.messageId;
+  }
   const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
-  // The frame is identical for every recipient unless something stamps a
-  // per-connection `__wskit` value. Stampers are skipped for protocol events,
-  // so those always qualify; user events qualify only with no stampers. A
-  // beforeSend hook can rewrite `__wskit` per recipient, so it disqualifies.
+  // The frame is identical for every recipient unless a per-connection stamper
+  // or beforeSend hook rewrites `__wskit`. A pinned inbox frame shares it too.
   const sharedWSKit =
     !hasBeforeSend &&
-    (Protocol.isProtocolEventName(message.event) || runtime.wskitStampHooks.length === 0);
+    (Protocol.isProtocolEventName(message.event) ||
+      fixedWSKit !== undefined ||
+      runtime.wskitStampHooks.length === 0);
 
   return {
     event: message.event,
@@ -479,10 +488,38 @@ export function broadcastToChannel(
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
-    >,
+    > & {
+      /**
+       * Fan a channel message out to the durable inbox once, before the per-recipient
+       * loop. Returns the seq/messageId to pin on the live frame, or undefined for a
+       * non-inbox channel. Set only when `inbox()` is listed.
+       */
+      inboxFanOut?: (opts: {
+        channelName: string;
+        channelFamily: string | null;
+        event: string;
+        payload: Record<string, unknown>;
+      }) => { seq: number; messageId: string } | undefined;
+    },
   opts: BroadcastToChannelOptions,
 ): void {
   const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
+
+  let fixedWSKit: { seq: number; messageId: string } | undefined;
+  if (runtime.inboxFanOut && !Protocol.isProtocolEventName(event)) {
+    try {
+      assertPayloadRecord(payload);
+      fixedWSKit = runtime.inboxFanOut({ channelName, channelFamily, event, payload });
+    } catch (error) {
+      runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
+        channel: channelName,
+        channelFamily,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const members = runtime.channelMembers.get(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
@@ -494,6 +531,7 @@ export function broadcastToChannel(
       routing: { channel: channelName, channelFamily },
       event,
       payload,
+      fixedWSKit,
     });
   } catch (error) {
     // A payload or declaration error fails the same way for every member — log once.

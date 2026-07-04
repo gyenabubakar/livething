@@ -39,6 +39,15 @@ export interface EngineAccessDeps {
       channelFamily?: string | null;
     },
   ): boolean;
+  /** Broadcast one already-built protocol frame to every live member of a channel. */
+  broadcastToChannel(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+  }): void;
+  /** Count the live members currently in a channel. */
+  channelMemberCount(channelName: string, channelFamily: string | null): number;
 }
 
 /**
@@ -201,6 +210,9 @@ export function createEngineAccess(
     setChannelPersistent: (channelKey, enabled) => {
       core.channelPersistenceOverrides.set(channelKey, enabled);
     },
+    registerInboxChannel: (channelKey, options) => {
+      core.inboxChannels.set(channelKey, options);
+    },
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
         throw new Error(
@@ -288,6 +300,15 @@ export function createEngineAccess(
         wskit: {},
       });
     },
+    sendProtocolFrame: (connectionId, options) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+      sendProtocolMessage(core, connection, {
+        event: options.event,
+        payload: options.payload as Record<string, unknown>,
+        wskit: options.wskit ?? {},
+      });
+    },
     setStreamTrigger: (trigger) => {
       core.streamTrigger = trigger;
     },
@@ -320,6 +341,13 @@ export function createEngineAccess(
     setChannelContext: (context) => {
       core.channelContext = context;
     },
+    setInboxService: (service) => {
+      core.inboxService = service;
+    },
+    broadcastToChannel: (opts) => deps.broadcastToChannel(opts),
+    channelMemberCount: (channelName, channelFamily) =>
+      deps.channelMemberCount(channelName, channelFamily),
+    getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
   };
 }
 

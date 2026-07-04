@@ -18,6 +18,8 @@ export const CAPABILITY_KIND = {
   rateLimit: 'rate-limit',
   replay: 'replay',
   replayCustom: 'replay-custom',
+  inbox: 'inbox',
+  receipts: 'receipts',
   requests: 'requests',
   scheduled: 'scheduled',
   channels: 'channels',

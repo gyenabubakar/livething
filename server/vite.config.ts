@@ -29,6 +29,7 @@ export default defineConfig({
         'rate-limit': resolve(__dirname, 'src/rate-limit/capability.ts'),
         persistence: resolve(__dirname, 'src/persistence/capability.ts'),
         replay: resolve(__dirname, 'src/replay/capability.ts'),
+        inbox: resolve(__dirname, 'src/inbox/capability.ts'),
         streams: resolve(__dirname, 'src/streams.ts'),
         // Each stream capability is its own entry so a consumer importing only
         // one of them from `@wskit/server/streams` does not pull the engines of

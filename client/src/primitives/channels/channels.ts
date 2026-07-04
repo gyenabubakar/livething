@@ -149,14 +149,16 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.persistent = wskit?.channelPersistent === true;
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));
-              return null;
+              // Forward so inbox() (after channels) can read `__wskit.inbox`; stays channel-scoped.
+              return message;
             }
             case '__unsubscribeOk__': {
               // Settle the matching leave op. A non-matching id (a stale ack from
               // an earlier connection) is ignored inside confirmLeave.
               const id = wskit?.unsubscribeId;
               if (typeof id === 'string') state.confirmLeave(id);
-              return null;
+              // Forward so inbox() can forget this scope's ack tracking on leave.
+              return message;
             }
             case '__memberSync__':
             case '__memberJoin__':
@@ -209,7 +211,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.markUnsubscribed();
               notifyFamily((family) => family.fireUnsubscribed(name));
 
-              return null;
+              // Forward so inbox() can forget this scope's ack tracking on a kick.
+              return message;
             }
 
             case '__error__': {

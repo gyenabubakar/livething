@@ -46,6 +46,14 @@ export type { ServerRequestOptions } from '~/primitives/server-request/index.ts'
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
+export { inbox, receipts } from '~/primitives/inbox/index.ts';
+export type {
+  ChannelReceipt,
+  ChannelReceipts,
+  ReceiptQueryOptions,
+  ReceiptSnapshot,
+  ReceiptsOptions,
+} from '~/primitives/inbox/index.ts';
 export { stream } from '~/primitives/stream/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 

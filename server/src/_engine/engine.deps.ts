@@ -168,6 +168,14 @@ function buildMemberRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
     ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    inboxFanOut: core.inboxService
+      ? (opts: {
+          channelName: string;
+          channelFamily: string | null;
+          event: string;
+          payload: Record<string, unknown>;
+        }) => core.inboxService?.fanOut(core, opts)
+      : undefined,
   };
 }
 
@@ -244,6 +252,12 @@ function buildChannelRuntime(core: EngineCore) {
         channelName,
         channelFamily,
       }) ?? false,
+
+    clearInbox: (identity: string, channelName: string, channelFamily: string | null) =>
+      core.inboxService?.clearChannel(core, { identity, channelName, channelFamily }),
+
+    isInboxChannel: (channelName: string, channelFamily: string | null) =>
+      core.inboxChannels.has(channelFamily ?? channelName),
 
     logger: core.logger,
   };
@@ -423,7 +437,7 @@ function buildConnectionRuntime(core: EngineCore) {
               core.freshBoot = false;
               return Promise.resolve();
             }
-            return (
+            const rejoined =
               core.persistenceService?.autoRejoinIdentity(
                 core,
                 (ref: PublicApi.ConnectionRef, opts: unknown) =>
@@ -435,8 +449,11 @@ function buildConnectionRuntime(core: EngineCore) {
                     >[2],
                   ) ?? Promise.resolve(),
                 connection,
-              ) ?? Promise.resolve()
-            );
+              ) ?? Promise.resolve();
+            // Drain the reconnecting member's owed inbox rows after the rejoin
+            // loop has restored its channel memberships.
+            if (!core.inboxService) return rejoined;
+            return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
           },
         }
       : {}),
@@ -477,6 +494,19 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
         payload: opts.payload,
       });
     },
+    broadcastToChannel: (opts) => {
+      EngineMessageRuntime.broadcastToChannel(memberRuntime(core), {
+        channelName: opts.channelName,
+        channelFamily: opts.channelFamily,
+        event: opts.event,
+        payload: opts.payload,
+        excludeConnectionId: undefined,
+      });
+    },
+    channelMemberCount: (channelName, channelFamily) =>
+      core.channelMembers.get(
+        ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
+      )?.size ?? 0,
   };
 }
 
