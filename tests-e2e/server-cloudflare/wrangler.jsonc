@@ -7,6 +7,7 @@
   "durable_objects": {
     "bindings": [
       { "name": "REPLAY_SERVER", "class_name": "ReplayServer" },
+      { "name": "REPLAY_GAP_SERVER", "class_name": "ReplayGapServer" },
       { "name": "REPLAY_CUSTOM_SERVER", "class_name": "ReplayCustomServer" },
       { "name": "PLUGINS_SERVER", "class_name": "PluginsServer" },
       { "name": "REPLAY_SNAPSHOT_SERVER", "class_name": "ReplaySnapshotServer" },
@@ -154,6 +155,10 @@
     {
       "tag": "v9",
       "new_sqlite_classes": ["StreamBackpressureServer"],
+    },
+    {
+      "tag": "v10",
+      "new_sqlite_classes": ["ReplayGapServer"],
     },
   ],
 }

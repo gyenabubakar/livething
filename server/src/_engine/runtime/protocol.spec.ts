@@ -132,6 +132,11 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
     payload: { identities: ['u1', 'u2'] },
     __wskit: { channel: 'room', correlationId: 'rq1' },
   },
+  __gap__: {
+    event: '__gap__',
+    payload: { missedThrough: 42 },
+    __wskit: { channel: 'room' },
+  },
 };
 
 describe('outgoing protocol-frame conformance', () => {

@@ -6,6 +6,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
   buildLoadReplayQuery,
   buildReplayRow,
+  bumpReplayWatermark,
   ensureReplaySchema,
   isChannelReplayAuthorized,
   loadReplayRows,
@@ -14,6 +15,8 @@ import {
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayScope,
+  readReplayWatermark,
+  replayScopeKey,
   shouldStoreReplayMessage,
 } from './runtime.ts';
 import type { ReplayRow } from './types.ts';
@@ -36,11 +39,58 @@ class FakeSqlResult<TRow = unknown> {
 
 function createReplaySql() {
   const rows = new Map<string, ReplayRow>();
+  const watermarks = new Map<string, number>();
   const calls: { query: string; params: unknown[] }[] = [];
 
   function exec<TRow = unknown>(query: string, ...params: unknown[]) {
     const normalized = query.replaceAll(/\s+/g, ' ').trim();
     calls.push({ query: normalized, params });
+
+    if (normalized.startsWith('INSERT INTO __wskit_replay_watermark')) {
+      const [scopeKey, evicted] = params;
+      const key = String(scopeKey);
+      const next = Number(evicted);
+      const current = watermarks.get(key);
+      watermarks.set(key, current === undefined ? next : Math.max(current, next));
+      return new FakeSqlResult<TRow>([]);
+    }
+
+    if (normalized.startsWith('SELECT evicted_through_seq FROM __wskit_replay_watermark')) {
+      const key = String(params[0]);
+      const value = watermarks.get(key);
+      return new FakeSqlResult<TRow>(value === undefined ? [] : [{ evicted_through_seq: value }]);
+    }
+
+    if (normalized.startsWith('SELECT channel, channelFamily, MAX(seq) AS m FROM __wskit_replay')) {
+      const cutoff = Number(params[0]);
+      const groups = new Map<
+        string,
+        { channel: string | null; channelFamily: string | null; m: number }
+      >();
+      for (const row of rows.values()) {
+        if (row.createdAt >= cutoff) continue;
+        const key = JSON.stringify([row.channelFamily, row.channel]);
+        const existing = groups.get(key);
+        if (!existing || row.seq > existing.m) {
+          groups.set(key, { channel: row.channel, channelFamily: row.channelFamily, m: row.seq });
+        }
+      }
+      return new FakeSqlResult<TRow>([...groups.values()]);
+    }
+
+    if (normalized.startsWith('SELECT MAX(seq) AS m FROM ( SELECT seq FROM __wskit_replay')) {
+      const [channel, channelFamily, offset] = params;
+      const doomed = [...rows.values()]
+        .filter(
+          (row) =>
+            row.channel === ((channel as string | null) ?? null) &&
+            row.channelFamily === ((channelFamily as string | null) ?? null),
+        )
+        .sort((a, b) => b.seq - a.seq)
+        .slice(Number(offset));
+      const m = doomed.length === 0 ? null : Math.max(...doomed.map((row) => row.seq));
+      return new FakeSqlResult<TRow>([{ m }]);
+    }
 
     if (
       normalized.startsWith('SELECT rowKey, messageId, seq, event, payload') &&
@@ -151,6 +201,7 @@ function createReplaySql() {
 
   return {
     rows,
+    watermarks,
     calls,
     sql: {
       exec,
@@ -175,6 +226,7 @@ describe('replay/runtime', () => {
     expect(call).toContain('CREATE TABLE IF NOT EXISTS __wskit_replay');
     expect(call).toContain('CREATE INDEX IF NOT EXISTS __wskit_idx_replay_seq');
     expect(call).toContain('CREATE INDEX IF NOT EXISTS __wskit_idx_replay_scope_seq');
+    expect(call).toContain('CREATE TABLE IF NOT EXISTS __wskit_replay_watermark');
   });
 
   it('matches replay ownership by scope and excludes mismatched messages', () => {
@@ -649,6 +701,117 @@ describe('replay/runtime', () => {
 
     const result = loadReplayRows(sql, 0, { channelFamily: null });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
+  });
+
+  describe('eviction watermark', () => {
+    function makeRow(overrides: Partial<ReplayRow> & { seq: number }): ReplayRow {
+      const { seq } = overrides;
+      return {
+        rowKey: `k${seq}`,
+        messageId: `msg_${seq}`,
+        event: 'message',
+        payload: '{}',
+        channel: null,
+        channelFamily: null,
+        snapshotKey: null,
+        createdAt: seq,
+        ...overrides,
+      };
+    }
+
+    it('keys the top-level scope as an empty string and a channel scope like the membership key', () => {
+      expect(replayScopeKey({ channel: null, channelFamily: null })).toBe('');
+      // A present channel always marks a channel scope, even for a static channel
+      // (null family) — mirroring JSON.stringify([channelFamily, channel]).
+      expect(replayScopeKey({ channel: 'lobby', channelFamily: null })).toBe(
+        JSON.stringify([null, 'lobby']),
+      );
+      expect(replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' })).toBe(
+        JSON.stringify(['rooms', 'room-1']),
+      );
+    });
+
+    it('upserts the watermark monotonically — a later, lower seq never lowers it', () => {
+      const { sql } = createReplaySql();
+      bumpReplayWatermark(sql, '', 10);
+      expect(readReplayWatermark(sql, '')).toBe(10);
+      bumpReplayWatermark(sql, '', 5);
+      expect(readReplayWatermark(sql, '')).toBe(10);
+      bumpReplayWatermark(sql, '', 20);
+      expect(readReplayWatermark(sql, '')).toBe(20);
+    });
+
+    it('returns null for a scope that has never evicted anything', () => {
+      const { sql } = createReplaySql();
+      expect(readReplayWatermark(sql, '')).toBeNull();
+    });
+
+    it('age prune bumps each scope watermark to its own highest evicted seq before deleting', () => {
+      const { rows, sql } = createReplaySql();
+      // Two scopes, mixed ages. maxAgeMs cutoff drops seq 1,2 (top-level) and
+      // seq 3 (room-1). The watermark per scope is the highest evicted seq there.
+      rows.set('t1', makeRow({ rowKey: 't1', seq: 1, createdAt: 10 }));
+      rows.set('t2', makeRow({ rowKey: 't2', seq: 2, createdAt: 20 }));
+      rows.set('t3', makeRow({ rowKey: 't3', seq: 4, createdAt: 90 }));
+      rows.set(
+        'r1',
+        makeRow({ rowKey: 'r1', seq: 3, createdAt: 15, channel: 'room-1', channelFamily: 'rooms' }),
+      );
+      rows.set(
+        'r2',
+        makeRow({ rowKey: 'r2', seq: 6, createdAt: 95, channel: 'room-1', channelFamily: 'rooms' }),
+      );
+
+      // now=100, maxAgeMs=50 → cutoff 50: anything with createdAt < 50 is evicted.
+      pruneExpiredReplayRows(sql, { maxAgeMs: 50 }, 100);
+
+      expect([...rows.keys()].sort()).toEqual(['r2', 't3']);
+      expect(readReplayWatermark(sql, '')).toBe(2);
+      expect(
+        readReplayWatermark(sql, replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' })),
+      ).toBe(3);
+    });
+
+    it('age prune with no matching rows leaves the watermark untouched', () => {
+      const { rows, sql } = createReplaySql();
+      rows.set('t1', makeRow({ rowKey: 't1', seq: 1, createdAt: 90 }));
+      pruneExpiredReplayRows(sql, { maxAgeMs: 50 }, 100);
+      expect(readReplayWatermark(sql, '')).toBeNull();
+    });
+
+    it('count prune records the highest seq among the dropped tail as the watermark', () => {
+      const { rows, sql } = createReplaySql();
+      // Five rows in one channel scope; maxMessages 2 keeps seq 4,5 and drops
+      // 1,2,3. The watermark is the highest dropped seq (3).
+      for (const seq of [1, 2, 3, 4, 5]) {
+        rows.set(
+          `c${seq}`,
+          makeRow({ rowKey: `c${seq}`, seq, channel: 'room-1', channelFamily: 'rooms' }),
+        );
+      }
+      pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelFamily: 'rooms' });
+
+      const key = replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' });
+      expect(readReplayWatermark(sql, key)).toBe(3);
+      expect([...rows.values()].map((row) => row.seq).sort((a, b) => a - b)).toEqual([4, 5]);
+    });
+
+    it('count prune under the limit drops nothing and records no watermark', () => {
+      const { rows, sql } = createReplaySql();
+      rows.set('c1', makeRow({ rowKey: 'c1', seq: 1 }));
+      rows.set('c2', makeRow({ rowKey: 'c2', seq: 2 }));
+      pruneReplayScopeRows(sql, { maxMessages: 5 }, { channel: null, channelFamily: null });
+      expect(readReplayWatermark(sql, '')).toBeNull();
+    });
+
+    it('count prune raises but never lowers an existing higher watermark', () => {
+      const { rows, sql } = createReplaySql();
+      bumpReplayWatermark(sql, '', 100);
+      for (const seq of [1, 2, 3]) rows.set(`c${seq}`, makeRow({ rowKey: `c${seq}`, seq }));
+      // Dropping seq 1 would set watermark 1, but 100 already stands, so MAX wins.
+      pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelFamily: null });
+      expect(readReplayWatermark(sql, '')).toBe(100);
+    });
   });
 });
 

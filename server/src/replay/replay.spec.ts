@@ -602,6 +602,209 @@ describe('replay', () => {
     ]);
   });
 
+  describe('__gap__ emission', () => {
+    interface GapSetup {
+      /** Watermark per scope_key ('' is top-level). A missing key reads as null. */
+      watermarks?: Record<string, number>;
+      type?: 'history' | 'snapshot';
+      channelKey?: string;
+    }
+
+    function setupGapHandler({ watermarks = {}, type, channelKey }: GapSetup) {
+      const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+        [];
+      const gaps: Array<Parameters<EngineAccess['sendGap']>> = [];
+      const replays: Array<Parameters<EngineAccess['sendReplay']>> = [];
+      const watermarkReads: unknown[] = [];
+
+      const engine = {
+        getScopeInfo() {
+          return channelKey ? { channelKey } : {};
+        },
+        extendContext() {},
+        setReplayEnabled() {},
+        getReplayClaimedChannelKeys() {
+          return new Set();
+        },
+        onBeforeSend() {},
+        onAfterSend() {},
+        onBoot() {},
+        onBootSchema() {},
+        requireStorage(): StorageProvider {
+          return {
+            sql: {
+              exec<TRow = unknown>(query: string, ...params: unknown[]) {
+                const normalized = query.replaceAll(/\s+/g, ' ').trim();
+                const isWatermarkRead = normalized.startsWith(
+                  'SELECT evicted_through_seq FROM __wskit_replay_watermark',
+                );
+                // Faithfully key the watermark read on the scope_key param, so a
+                // handler that reads the WRONG scope's watermark fails the test.
+                const scopeKey = String(params[0] ?? '');
+                if (isWatermarkRead) watermarkReads.push(scopeKey);
+                return {
+                  toArray() {
+                    return [] as TRow[];
+                  },
+                  one() {
+                    if (isWatermarkRead && scopeKey in watermarks) {
+                      return { evicted_through_seq: watermarks[scopeKey] } as TRow;
+                    }
+                    return null;
+                  },
+                  raw() {
+                    return [];
+                  },
+                };
+              },
+              transaction<T>(
+                fn: (tx: {
+                  exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
+                }) => T,
+              ) {
+                return fn(this);
+              },
+            },
+            kv: {
+              async get() {
+                return undefined;
+              },
+              async set() {},
+              async delete() {},
+              async list() {
+                return [];
+              },
+            },
+          };
+        },
+        sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+          replays.push(args);
+        },
+        sendGap(...args: Parameters<EngineAccess['sendGap']>) {
+          gaps.push(args);
+        },
+        onProtocolMessage(
+          event: IncomingProtocolEvent,
+          handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+        ) {
+          if (event === '__replay__') protocolHandlers.push(handler);
+        },
+      } as unknown as EngineAccess;
+
+      const factory = type === 'snapshot' ? { type: 'snapshot' as const } : undefined;
+      replay(factory).__setup?.(engine);
+      return { handler: protocolHandlers[0]!, gaps, replays, watermarkReads };
+    }
+
+    const topLevelCtx = { id: 'c1', [ENGINE_CHANNEL_META]: {} };
+    const topLevelFrame = {
+      event: '__replay__' as const,
+      payload: { lastKnownSeq: 4 },
+      __wskit: { channelFamily: null },
+    };
+
+    it('emits __gap__ when since is below the top-level watermark in history mode', async () => {
+      const { handler, gaps, watermarkReads } = setupGapHandler({ watermarks: { '': 10 } });
+      await handler(topLevelCtx, topLevelFrame);
+      expect(gaps).toEqual([['c1', { channelName: null, channelFamily: null, missedThrough: 10 }]]);
+      // The top-level scope reads the '' key, not a channel key.
+      expect(watermarkReads).toEqual(['']);
+    });
+
+    it('does not emit __gap__ when since equals the watermark (boundary)', async () => {
+      const { handler, gaps } = setupGapHandler({ watermarks: { '': 4 } });
+      await handler(topLevelCtx, topLevelFrame);
+      expect(gaps).toEqual([]);
+    });
+
+    it('does not emit __gap__ when since is above the watermark', async () => {
+      const { handler, gaps } = setupGapHandler({ watermarks: { '': 2 } });
+      await handler(topLevelCtx, topLevelFrame);
+      expect(gaps).toEqual([]);
+    });
+
+    it('does not emit __gap__ for a fresh subscriber (since 0)', async () => {
+      const { handler, gaps } = setupGapHandler({ watermarks: { '': 10 } });
+      await handler(topLevelCtx, {
+        event: '__replay__',
+        payload: {},
+        __wskit: { channelFamily: null },
+      });
+      expect(gaps).toEqual([]);
+    });
+
+    it('does not emit __gap__ when the scope has no watermark yet', async () => {
+      const { handler, gaps } = setupGapHandler({});
+      await handler(topLevelCtx, topLevelFrame);
+      expect(gaps).toEqual([]);
+    });
+
+    it('does not emit __gap__ in snapshot mode even when since is below the watermark', async () => {
+      const { handler, gaps } = setupGapHandler({ watermarks: { '': 10 }, type: 'snapshot' });
+      await handler(topLevelCtx, topLevelFrame);
+      expect(gaps).toEqual([]);
+    });
+
+    it('emits a channel-scoped __gap__ read from the channel scope_key, with channel markers', async () => {
+      // The channel watermark lives under the membership-style key; a matching
+      // top-level watermark must NOT be read for a channel request.
+      const channelScopeKey = JSON.stringify(['rooms', 'room-1']);
+      const { handler, gaps, watermarkReads } = setupGapHandler({
+        channelKey: 'rooms',
+        watermarks: { [channelScopeKey]: 12, '': 999 },
+      });
+      const memberConnection = {
+        channelMemberships: new Map([
+          [
+            createChannelMembershipKey('room-1', 'rooms'),
+            { channelName: 'room-1', channelFamily: 'rooms' },
+          ],
+        ]),
+      };
+      const channelCtx = {
+        id: 'c1',
+        [ENGINE_CHANNEL_META]: { channelName: 'room-1', channelFamily: 'rooms' },
+        [ENGINE_INTERNAL_CONNECTION]: memberConnection,
+      };
+
+      await handler(channelCtx, {
+        event: '__replay__',
+        payload: { lastKnownSeq: 4 },
+        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+      });
+
+      expect(gaps).toEqual([
+        ['c1', { channelName: 'room-1', channelFamily: 'rooms', missedThrough: 12 }],
+      ]);
+      expect(watermarkReads).toEqual([channelScopeKey]);
+    });
+
+    it('does not emit __gap__ to a non-member (authorization gate runs first)', async () => {
+      const channelScopeKey = JSON.stringify(['rooms', 'room-1']);
+      const { handler, gaps, watermarkReads } = setupGapHandler({
+        channelKey: 'rooms',
+        watermarks: { [channelScopeKey]: 12 },
+      });
+      const nonMemberCtx = {
+        id: 'c9',
+        [ENGINE_CHANNEL_META]: { channelName: 'room-1', channelFamily: 'rooms' },
+        [ENGINE_INTERNAL_CONNECTION]: { channelMemberships: new Map() },
+      };
+
+      const result = await handler(nonMemberCtx, {
+        event: '__replay__',
+        payload: { lastKnownSeq: 4 },
+        __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+      });
+
+      expect(result).toBe(true);
+      expect(gaps).toEqual([]);
+      // The watermark is never even read — the auth gate returns before gap detection,
+      // so channel existence can't leak to a non-member.
+      expect(watermarkReads).toEqual([]);
+    });
+  });
+
   it('replay(false) returns a disabled primitive with no setup work', () => {
     const primitive = replay(false);
     expect(primitive.disabled).toBe(true);

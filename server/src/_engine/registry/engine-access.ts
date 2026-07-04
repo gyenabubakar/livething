@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getInvocationScope } from '~/_engine/async-context.ts';
-import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
@@ -279,6 +279,11 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
       sendReplay(core, connection, options);
+    },
+    sendGap: (connectionId, options) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+      sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);

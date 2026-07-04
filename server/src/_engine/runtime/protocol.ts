@@ -323,6 +323,13 @@ export const ReceiptQueryResultFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
 });
 
+export const GapFrame = v.object({
+  event: v.literal('__gap__'),
+  // `missedThrough` is the highest seq the server pruned for this scope; below it, a client missed at least up to it.
+  payload: v.strictObject({ missedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(ReplayScope),
+});
+
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
@@ -339,6 +346,7 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberSyncFrame,
   ReceiptFrame,
   ReceiptQueryResultFrame,
+  GapFrame,
 ]);
 
 /**
@@ -403,6 +411,7 @@ export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
 export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
 export type ReceiptFrame = v.InferOutput<typeof ReceiptFrame>;
 export type ReceiptQueryResultFrame = v.InferOutput<typeof ReceiptQueryResultFrame>;
+export type GapFrame = v.InferOutput<typeof GapFrame>;
 
 /** Names of the protocol events the client may send into the engine. */
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];
