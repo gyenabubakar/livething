@@ -1,11 +1,11 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
-import { broadcastReceipt } from '~/inbox/read-receipts.ts';
+import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
 import {
   advanceReceivedThrough,
   ensureReceiptsSchema,
-  listReceivedBy,
+  listReceivers,
 } from '~/inbox/receipts-storage.ts';
 import { applyInboxAck, backfillInbox } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
@@ -98,11 +98,15 @@ export function inbox(config: InboxOptions): InboxPrimitive {
         '__received__',
         buildReceivedHandler({ engine, channelKey, options }),
       );
+      engine.onProtocolMessage(
+        '__receivedQuery__',
+        buildReceivedQueryHandler({ engine, channelKey }),
+      );
     },
   };
 }
 
-/** Attach `ctx.channel.inbox.backfill(...)` when the live ctx is in this channel scope. */
+/** Attach `ctx.channel.inbox.backfill(...)` / `.receiversOf(...)` in this channel scope. */
 function buildInboxContext(engine: EngineAccess, channelKey: string) {
   return (baseCtx: unknown): Record<string, unknown> => {
     const ctx = baseCtx as {
@@ -130,8 +134,8 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
           frames,
         });
       },
-      receivedBy(seq: number): string[] {
-        return listReceivedBy(engine.requireStorage().sql, { channelName, channelFamily, seq });
+      receiversOf(seq: number): string[] {
+        return listReceivers(engine.requireStorage().sql, { channelName, channelFamily, seq });
       },
     };
     return {};
@@ -172,14 +176,55 @@ function buildReceivedHandler(deps: {
         broadcastReceipt(engine, options.broadcastUpTo, {
           channelName,
           channelFamily,
-          identity,
-          receivedThrough: cursors.receivedThrough,
+          event: '__received__',
+          payload: { identity, receivedThrough: cursors.receivedThrough },
         });
       }
     }
 
     // Return false so read-receipts (if listed) can also observe this ack.
     return false;
+  };
+}
+
+/**
+ * Answer a client's `__receivedQuery__`: return who has received up to a given
+ * seq. Only a member of the channel may enumerate its receivers — a non-member
+ * is dropped silently, the same as an unauthorized ack. The reply reuses the
+ * `__receivedQuery__` event name and echoes the query's correlationId. Owned by
+ * `inbox()`, so it works with or without `readReceipts()` present.
+ */
+function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+  const { engine, channelKey } = deps;
+  return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
+    if (frame.event !== '__receivedQuery__') return false;
+    const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
+    if (!scopeMatchesChannel(scope, channelKey)) return false;
+
+    const channelName = frame.__wskit.channel;
+    const channelFamily = frame.__wskit.channelFamily ?? null;
+    const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
+      ENGINE_INTERNAL_CONNECTION
+    ];
+    if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
+
+    const identities = listReceivers(engine.requireStorage().sql, {
+      channelName,
+      channelFamily,
+      seq: frame.payload.seq,
+    });
+
+    const wskit: Record<string, unknown> = {
+      channel: channelName,
+      correlationId: frame.__wskit.correlationId,
+    };
+    if (channelFamily !== null) wskit.channelFamily = channelFamily;
+    engine.sendProtocolFrame(connection.id, {
+      event: '__receivedQuery__',
+      payload: { identities },
+      wskit,
+    });
+    return true;
   };
 }
 

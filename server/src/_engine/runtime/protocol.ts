@@ -146,20 +146,27 @@ export const ReceivedFrame = v.object({
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
-export const SeenFrame = v.object({
-  event: v.literal('__seen__'),
-  payload: v.strictObject({ seenThrough: NonNegativeSafeInt }),
+export const ReadFrame = v.object({
+  event: v.literal('__read__'),
+  payload: v.strictObject({ readThrough: NonNegativeSafeInt }),
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
 /**
- * The incoming half of a receipt query. The client asks who has received or
- * seen up to `seq` on a channel; the answer comes back under the same event
- * name, paired only by `correlationId` (like `__error__`).
+ * The incoming half of a receipt query. The client asks who has received up to
+ * `seq` on `__receivedQuery__`, or who has read up to `seq` on `__readQuery__`.
+ * Each answer comes back under the same event name, paired only by
+ * `correlationId` (like `__error__`).
  */
-export const ReceiptQueryFrame = v.object({
-  event: v.literal('__receiptQuery__'),
-  payload: v.strictObject({ seq: NonNegativeSafeInt, kind: v.picklist(['seen', 'received']) }),
+export const ReceivedQueryFrame = v.object({
+  event: v.literal('__receivedQuery__'),
+  payload: v.strictObject({ seq: NonNegativeSafeInt }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
+export const ReadQueryFrame = v.object({
+  event: v.literal('__readQuery__'),
+  payload: v.strictObject({ seq: NonNegativeSafeInt }),
   __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
 });
 
@@ -172,8 +179,9 @@ export const IncomingProtocolFrame = v.variant('event', [
   ResumeStreamFrame,
   MemberSyncRequestFrame,
   ReceivedFrame,
-  SeenFrame,
-  ReceiptQueryFrame,
+  ReadFrame,
+  ReceivedQueryFrame,
+  ReadQueryFrame,
 ]);
 
 export const SubscribeOkFrame = v.object({
@@ -303,23 +311,31 @@ export const MemberSyncFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
-export const ReceiptFrame = v.object({
-  event: v.literal('__receipt__'),
-  payload: v.strictObject({
-    identity: v.string(),
-    receivedThrough: v.optional(NonNegativeSafeInt),
-    seenThrough: v.optional(NonNegativeSafeInt),
-  }),
+export const ReceivedFanoutFrame = v.object({
+  event: v.literal('__received__'),
+  payload: v.strictObject({ identity: v.string(), receivedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const ReadFanoutFrame = v.object({
+  event: v.literal('__read__'),
+  payload: v.strictObject({ identity: v.string(), readThrough: NonNegativeSafeInt }),
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
 /**
- * The outgoing half of a receipt query. Shares the `__receiptQuery__` event name
- * with the incoming request and echoes its `correlationId`; the client pairs the
- * two by correlation id alone, exactly as `__error__` does across both unions.
+ * The outgoing half of a receipt query. Shares its event name with the incoming
+ * request (`__receivedQuery__` / `__readQuery__`) and echoes its `correlationId`;
+ * the client pairs the two by correlation id alone, exactly as `__error__` does.
  */
-export const ReceiptQueryResultFrame = v.object({
-  event: v.literal('__receiptQuery__'),
+export const ReceivedQueryResultFrame = v.object({
+  event: v.literal('__receivedQuery__'),
+  payload: v.strictObject({ identities: v.array(v.string()) }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
+export const ReadQueryResultFrame = v.object({
+  event: v.literal('__readQuery__'),
   payload: v.strictObject({ identities: v.array(v.string()) }),
   __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
 });
@@ -345,8 +361,10 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberOnlineFrame,
   MemberOfflineFrame,
   MemberSyncFrame,
-  ReceiptFrame,
-  ReceiptQueryResultFrame,
+  ReceivedFanoutFrame,
+  ReadFanoutFrame,
+  ReceivedQueryResultFrame,
+  ReadQueryResultFrame,
   GapFrame,
 ]);
 
@@ -395,8 +413,9 @@ export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
 export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
-export type SeenFrame = v.InferOutput<typeof SeenFrame>;
-export type ReceiptQueryFrame = v.InferOutput<typeof ReceiptQueryFrame>;
+export type ReadFrame = v.InferOutput<typeof ReadFrame>;
+export type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
+export type ReadQueryFrame = v.InferOutput<typeof ReadQueryFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
@@ -410,8 +429,10 @@ export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
 export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
 export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
 export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
-export type ReceiptFrame = v.InferOutput<typeof ReceiptFrame>;
-export type ReceiptQueryResultFrame = v.InferOutput<typeof ReceiptQueryResultFrame>;
+export type ReceivedFanoutFrame = v.InferOutput<typeof ReceivedFanoutFrame>;
+export type ReadFanoutFrame = v.InferOutput<typeof ReadFanoutFrame>;
+export type ReceivedQueryResultFrame = v.InferOutput<typeof ReceivedQueryResultFrame>;
+export type ReadQueryResultFrame = v.InferOutput<typeof ReadQueryResultFrame>;
 export type GapFrame = v.InferOutput<typeof GapFrame>;
 
 /** Names of the protocol events the client may send into the engine. */

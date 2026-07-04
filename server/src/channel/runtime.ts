@@ -294,7 +294,7 @@ interface ChannelRuntime extends ChannelHooks {
 
   /**
    * Whether this channel opted into read receipts. Stamped onto `__subscribeOk__`
-   * so the client exposes `markSeen`/`seenBy` only where they work.
+   * so the client exposes `markAsRead`/`readers`/`readersOf` only where they work.
    */
   isReadReceiptsChannel?(channelName: string, channelFamily: string | null): boolean;
 }

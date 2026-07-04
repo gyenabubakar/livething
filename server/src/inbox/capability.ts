@@ -54,9 +54,9 @@ export const inbox = withCapabilityKind(function inbox(): HostCapability<{}, nev
 
 /**
  * Enable read receipts (the blue check) on inbox channels. When a channel opts
- * in with `readReceipts: true`, `room.markSeen(seq)` advances a `seen_through`
- * cursor, broadcasts a read `__receipt__` while the channel is within
- * `broadcastUpTo` (default 256), and answers `ctx.channel.readReceipts.seenBy`.
+ * in with `readReceipts: true`, `room.markAsRead(seq)` advances a `read_through`
+ * cursor, broadcasts a `__read__` fan-out while the channel is within
+ * `broadcastUpTo` (default 256), and answers `ctx.channel.readReceipts.readersOf`.
  * Delivered acknowledgement (the double-grey check) comes with `inbox()` on its
  * own and needs no opt-in.
  *

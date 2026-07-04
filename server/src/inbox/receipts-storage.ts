@@ -7,21 +7,21 @@ const CREATE_RECEIPTS_TABLE_SQL = `
     channel_family   TEXT NOT NULL DEFAULT '',
     identity         TEXT NOT NULL,
     received_through INTEGER NOT NULL DEFAULT 0,
-    seen_through     INTEGER NOT NULL DEFAULT 0,
+    read_through     INTEGER NOT NULL DEFAULT 0,
     updated_at       INTEGER NOT NULL,
     metadata         TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (channel_name, channel_family, identity)
   )
 `;
 
-const CREATE_RECEIPTS_SEEN_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_receipts_seen
-  ON __wskit_inbox_receipts (channel_name, channel_family, seen_through)
+const CREATE_RECEIPTS_READ_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_receipts_read
+  ON __wskit_inbox_receipts (channel_name, channel_family, read_through)
 `;
 
-const RECEIPTS_SCHEMA_SQL = [CREATE_RECEIPTS_TABLE_SQL, CREATE_RECEIPTS_SEEN_INDEX_SQL].join(';\n');
+const RECEIPTS_SCHEMA_SQL = [CREATE_RECEIPTS_TABLE_SQL, CREATE_RECEIPTS_READ_INDEX_SQL].join(';\n');
 
-/** Create the receipts cursor table and its seen-through index. Idempotent. */
+/** Create the receipts cursor table and its read-through index. Idempotent. */
 export function ensureReceiptsSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(RECEIPTS_SCHEMA_SQL);
 }
@@ -29,7 +29,7 @@ export function ensureReceiptsSchema(sql: Pick<SQLProvider, 'exec'>): void {
 /** One member's receipt cursors for a channel. */
 export interface ReceiptCursors {
   receivedThrough: number;
-  seenThrough: number;
+  readThrough: number;
 }
 
 /** The settled cursors plus whether this advance actually moved them. */
@@ -37,14 +37,23 @@ export interface AdvancedCursors extends ReceiptCursors {
   changed: boolean;
 }
 
+/**
+ * A read advance's settled cursors, with a `changed` flag for the whole advance
+ * and a separate `receivedChanged` flag. `readReceipts()` fans out `__received__`
+ * only when read implied a received bump, so it needs to know that in isolation.
+ */
+export interface AdvancedReadCursors extends AdvancedCursors {
+  receivedChanged: boolean;
+}
+
 function readCursors(
   sql: Pick<SQLProvider, 'exec'>,
   params: { channelName: string; channelFamily: string | null; identity: string },
 ): ReceiptCursors {
   const row = sql
-    .exec<{ received_through: number; seen_through: number }>(
+    .exec<{ received_through: number; read_through: number }>(
       `
-        SELECT received_through, seen_through FROM __wskit_inbox_receipts
+        SELECT received_through, read_through FROM __wskit_inbox_receipts
         WHERE channel_name = ? AND channel_family = ? AND identity = ?
       `,
       params.channelName,
@@ -54,14 +63,14 @@ function readCursors(
     .one();
   return {
     receivedThrough: row ? Number(row.received_through) : 0,
-    seenThrough: row ? Number(row.seen_through) : 0,
+    readThrough: row ? Number(row.read_through) : 0,
   };
 }
 
 /**
  * Advance a member's `received_through` cursor. Cumulative — a lower or equal
  * value is a no-op. `changed` tells the caller whether the cursor actually moved,
- * so a duplicate ack doesn't re-broadcast a `__receipt__`.
+ * so a duplicate ack doesn't re-broadcast a `__received__` fan-out.
  */
 export function advanceReceivedThrough(
   sql: Pick<SQLProvider, 'exec'>,
@@ -82,34 +91,35 @@ export function advanceReceivedThrough(
     channelFamily: params.channelFamily,
     identity: params.identity,
     receivedThrough,
-    seenThrough: current.seenThrough,
+    readThrough: current.readThrough,
     now: params.now,
   });
-  return { receivedThrough, seenThrough: current.seenThrough, changed: true };
+  return { receivedThrough, readThrough: current.readThrough, changed: true };
 }
 
 /**
- * Advance a member's `seen_through` cursor. Seen implies received, so
- * `received_through` is pulled up to at least `seen_through`, and `seen_through`
+ * Advance a member's `read_through` cursor. Read implies received, so
+ * `received_through` is pulled up to at least `read_through`, and `read_through`
  * is clamped so it can never run ahead of what the member has received.
  * Cumulative and idempotent.
  */
-export function advanceSeenThrough(
+export function advanceReadThrough(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
     channelName: string;
     channelFamily: string | null;
     identity: string;
-    seenThrough: number;
+    readThrough: number;
     now: number;
   },
-): AdvancedCursors {
+): AdvancedReadCursors {
   const current = readCursors(sql, params);
-  const receivedThrough = Math.max(current.receivedThrough, params.seenThrough);
-  const seenThrough = Math.min(Math.max(current.seenThrough, params.seenThrough), receivedThrough);
+  const receivedThrough = Math.max(current.receivedThrough, params.readThrough);
+  const readThrough = Math.min(Math.max(current.readThrough, params.readThrough), receivedThrough);
+  const receivedChanged = receivedThrough !== current.receivedThrough;
 
-  if (receivedThrough === current.receivedThrough && seenThrough === current.seenThrough) {
-    return { ...current, changed: false };
+  if (!receivedChanged && readThrough === current.readThrough) {
+    return { ...current, changed: false, receivedChanged: false };
   }
 
   writeCursors(sql, {
@@ -117,10 +127,10 @@ export function advanceSeenThrough(
     channelFamily: params.channelFamily,
     identity: params.identity,
     receivedThrough,
-    seenThrough,
+    readThrough,
     now: params.now,
   });
-  return { receivedThrough, seenThrough, changed: true };
+  return { receivedThrough, readThrough, changed: true, receivedChanged };
 }
 
 function writeCursors(
@@ -130,27 +140,27 @@ function writeCursors(
     channelFamily: string | null;
     identity: string;
     receivedThrough: number;
-    seenThrough: number;
+    readThrough: number;
     now: number;
   },
 ): void {
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_inbox_receipts
-        (channel_name, channel_family, identity, received_through, seen_through, updated_at)
+        (channel_name, channel_family, identity, received_through, read_through, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
     params.channelName,
     familyToDb(params.channelFamily),
     params.identity,
     params.receivedThrough,
-    params.seenThrough,
+    params.readThrough,
     params.now,
   );
 }
 
-/** Identities whose `received_through` has reached `seq`. Backs `receipts.receivedBy(seq)`. */
-export function listReceivedBy(
+/** Identities whose `received_through` has reached `seq`. Backs `receiversOf(seq)`. */
+export function listReceivers(
   sql: Pick<SQLProvider, 'exec'>,
   params: { channelName: string; channelFamily: string | null; seq: number },
 ): string[] {
@@ -168,8 +178,8 @@ export function listReceivedBy(
     .map((row) => row.identity);
 }
 
-/** Identities whose `seen_through` has reached `seq`. Backs `receipts.seenBy(seq)`. */
-export function listSeenBy(
+/** Identities whose `read_through` has reached `seq`. Backs `readersOf(seq)`. */
+export function listReaders(
   sql: Pick<SQLProvider, 'exec'>,
   params: { channelName: string; channelFamily: string | null; seq: number },
 ): string[] {
@@ -177,7 +187,7 @@ export function listSeenBy(
     .exec<{ identity: string }>(
       `
         SELECT identity FROM __wskit_inbox_receipts
-        WHERE channel_name = ? AND channel_family = ? AND seen_through >= ?
+        WHERE channel_name = ? AND channel_family = ? AND read_through >= ?
       `,
       params.channelName,
       familyToDb(params.channelFamily),

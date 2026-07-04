@@ -719,8 +719,8 @@ export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = Chan
 
 /**
  * The client-visible capability flags a channel's config turns on. Merged into
- * the channel's contract slice so `InferClient` gates `receivedBy` to inbox
- * channels and `markSeen`/`seenBy` to channels with `readReceipts`. `TInbox`/
+ * the channel's contract slice so `InferClient` gates `receiversOf` to inbox
+ * channels and `markAsRead`/`readersOf` to channels with `readReceipts`. `TInbox`/
  * `TReadReceipts` are the raw config values inferred at the `channel(...)` call;
  * a truthy one lands the flag, `false`/absent lands nothing.
  */

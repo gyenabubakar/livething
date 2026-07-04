@@ -630,8 +630,9 @@ async function dispatchProtocolFrame(
         return;
       }
       case '__received__':
-      case '__seen__':
-      case '__receiptQuery__': {
+      case '__read__':
+      case '__receivedQuery__':
+      case '__readQuery__': {
         const handlers = runtime.protocolHandlers.get(frame.event) ?? [];
         const scope = resolveChannel(runtime.compiled, frame.__wskit);
         const ctx = runtime.buildConnectionContext(connection, scope);

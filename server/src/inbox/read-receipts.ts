@@ -1,19 +1,15 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
-import {
-  advanceSeenThrough,
-  ensureReceiptsSchema,
-  listReceivedBy,
-  listSeenBy,
-} from '~/inbox/receipts-storage.ts';
+import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
+import { advanceReadThrough, listReaders } from '~/inbox/receipts-storage.ts';
 import { applyInboxAck } from '~/inbox/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { ReceiptCursors } from '~/inbox/receipts-storage.ts';
+import type { AdvancedReadCursors } from '~/inbox/receipts-storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The primitive type produced by the `readReceipts()` capability for one channel. */
@@ -26,7 +22,7 @@ const READ_RECEIPTS_KEY = Symbol('read-receipts');
 
 /**
  * The channel-scoped read-receipts primitive. Built by the `readReceipts()`
- * capability from a channel's `readReceipts` config. It tracks only the seen
+ * capability from a channel's `readReceipts` config. It tracks only the read
  * cursor (the blue check); delivered acknowledgement belongs to `inbox`.
  * Requires `inbox` (and its transitive `sequence`/`persistence`); the build
  * fails without them.
@@ -53,22 +49,15 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
 
       engine.registerReadReceiptsChannel(channelKey);
 
-      engine.onBootSchema(() => {
-        ensureReceiptsSchema(engine.requireStorage().sql);
-      });
-
       engine.extendContext(buildReadReceiptsContext(engine, channelKey));
 
-      engine.onProtocolMessage('__seen__', buildSeenHandler({ engine, channelKey, options }));
-      engine.onProtocolMessage(
-        '__receiptQuery__',
-        buildReceiptQueryHandler({ engine, channelKey }),
-      );
+      engine.onProtocolMessage('__read__', buildReadHandler({ engine, channelKey, options }));
+      engine.onProtocolMessage('__readQuery__', buildReadQueryHandler({ engine, channelKey }));
     },
   };
 }
 
-/** Attach `ctx.channel.readReceipts.seenBy(seq)` in this channel scope. */
+/** Attach `ctx.channel.readReceipts.readersOf(seq)` in this channel scope. */
 function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
   return (baseCtx: unknown): Record<string, unknown> => {
     const ctx = baseCtx as {
@@ -82,24 +71,24 @@ function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
     const channelFamily = scope?.channelFamily ?? null;
 
     ctx.channel.readReceipts = {
-      seenBy(seq: number): string[] {
-        return listSeenBy(engine.requireStorage().sql, { channelName, channelFamily, seq });
+      readersOf(seq: number): string[] {
+        return listReaders(engine.requireStorage().sql, { channelName, channelFamily, seq });
       },
     };
     return {};
   };
 }
 
-interface SeenHandlerDeps {
+interface ReadHandlerDeps {
   engine: EngineAccess;
   channelKey: string;
   options: ResolvedReadReceiptsOptions;
 }
 
-function buildSeenHandler(deps: SeenHandlerDeps) {
+function buildReadHandler(deps: ReadHandlerDeps) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
-    if (frame.event !== '__seen__') return false;
+    if (frame.event !== '__read__') return false;
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -110,11 +99,11 @@ function buildSeenHandler(deps: SeenHandlerDeps) {
     const channelFamily = frame.__wskit.channelFamily ?? null;
     if (!isMember(ctx, channelName, channelFamily)) return true;
 
-    const cursors = advanceSeenThrough(engine.requireStorage().sql, {
+    const cursors = advanceReadThrough(engine.requireStorage().sql, {
       channelName,
       channelFamily,
       identity,
-      seenThrough: frame.payload.seenThrough,
+      readThrough: frame.payload.readThrough,
       now: Date.now(),
     });
     if (!cursors.changed) return true;
@@ -122,29 +111,36 @@ function buildSeenHandler(deps: SeenHandlerDeps) {
     broadcastReceipt(engine, options.broadcastUpTo, {
       channelName,
       channelFamily,
-      identity,
-      receivedThrough: cursors.receivedThrough,
-      seenThrough: cursors.seenThrough,
+      event: '__read__',
+      payload: { identity, readThrough: cursors.readThrough },
     });
 
-    // Seen implies received, so settle the inbox up to the advanced mark too.
-    advanceInboxOnSeen(engine, channelKey, { channelName, channelFamily, identity, cursors });
+    // Read implies received. When the read mark pulled received up too, settle the
+    // held inbox rows and fan out a `__received__` so the delivered column stays
+    // correct even though the client normally auto-acks received first.
+    if (cursors.receivedChanged) {
+      settleInboxOnRead(engine, channelKey, { channelName, channelFamily, identity, cursors });
+      broadcastReceipt(engine, options.broadcastUpTo, {
+        channelName,
+        channelFamily,
+        event: '__received__',
+        payload: { identity, receivedThrough: cursors.receivedThrough },
+      });
+    }
     return true;
   };
 }
 
 /**
- * Answer a client's `__receiptQuery__`: return who has received or seen up to a
- * given seq. Only a member of the channel may enumerate its readers — a
- * non-member is dropped silently, the same as an unauthorized ack. The reply
- * reuses the `__receiptQuery__` event name and echoes the query's correlationId.
- * `received` is answered here too so a channel with `readReceipts` (which always
- * has `inbox`) can serve both queries through one handler.
+ * Answer a client's `__readQuery__`: return who has read up to a given seq. Only
+ * a member of the channel may enumerate its readers — a non-member is dropped
+ * silently, the same as an unauthorized ack. The reply reuses the `__readQuery__`
+ * event name and echoes the query's correlationId.
  */
-function buildReceiptQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
-    if (frame.event !== '__receiptQuery__') return false;
+    if (frame.event !== '__readQuery__') return false;
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -155,12 +151,11 @@ function buildReceiptQueryHandler(deps: { engine: EngineAccess; channelKey: stri
     ];
     if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
 
-    const { seq, kind } = frame.payload;
-    const sql = engine.requireStorage().sql;
-    const identities =
-      kind === 'seen'
-        ? listSeenBy(sql, { channelName, channelFamily, seq })
-        : listReceivedBy(sql, { channelName, channelFamily, seq });
+    const identities = listReaders(engine.requireStorage().sql, {
+      channelName,
+      channelFamily,
+      seq: frame.payload.seq,
+    });
 
     const wskit: Record<string, unknown> = {
       channel: channelName,
@@ -168,7 +163,7 @@ function buildReceiptQueryHandler(deps: { engine: EngineAccess; channelKey: stri
     };
     if (channelFamily !== null) wskit.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
-      event: '__receiptQuery__',
+      event: '__readQuery__',
       payload: { identities },
       wskit,
     });
@@ -177,49 +172,18 @@ function buildReceiptQueryHandler(deps: { engine: EngineAccess; channelKey: stri
 }
 
 /**
- * Broadcast a `__receipt__` presence frame to the channel's live members, but
- * only while the member count is within `broadcastUpTo`. Above the threshold the
- * cursor is still stored and stays queryable via `receivedBy` / `seenBy`. Shared
- * by inbox's delivered tick and the read-receipts tick.
- */
-export function broadcastReceipt(
-  engine: EngineAccess,
-  broadcastUpTo: number,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    identity: string;
-    receivedThrough?: number;
-    seenThrough?: number;
-  },
-): void {
-  if (engine.channelMemberCount(opts.channelName, opts.channelFamily) > broadcastUpTo) return;
-
-  const payload: Record<string, unknown> = { identity: opts.identity };
-  if (opts.receivedThrough !== undefined) payload.receivedThrough = opts.receivedThrough;
-  if (opts.seenThrough !== undefined) payload.seenThrough = opts.seenThrough;
-
-  engine.broadcastToChannel({
-    channelName: opts.channelName,
-    channelFamily: opts.channelFamily,
-    event: '__receipt__',
-    payload,
-  });
-}
-
-/**
- * When `__seen__` pulls `received_through` up (seen implies received), settle
+ * When `__read__` pulls `received_through` up (read implies received), settle
  * the member's inbox rows up to the new mark using the inbox capability's own
  * ack, so the delete/keep lifecycle stays consistent with a plain `__received__`.
  */
-function advanceInboxOnSeen(
+function settleInboxOnRead(
   engine: EngineAccess,
   channelKey: string,
   opts: {
     channelName: string;
     channelFamily: string | null;
     identity: string;
-    cursors: ReceiptCursors;
+    cursors: AdvancedReadCursors;
   },
 ): void {
   const inboxConfig = engine.getInboxChannel(channelKey);
@@ -238,9 +202,9 @@ function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: s
 }
 
 /**
- * A `__seen__` ack may advance the cursor and force a `__receipt__` broadcast, so
- * — like `__receiptQuery__` — it must come from a current member. A socket that
- * has left or been kicked but still holds the connection is dropped.
+ * A `__read__` ack may advance the cursor and force a fan-out, so — like
+ * `__readQuery__` — it must come from a current member. A socket that has left or
+ * been kicked but still holds the connection is dropped.
  */
 function isMember(ctx: unknown, channelName: string, channelFamily: string | null): boolean {
   const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[

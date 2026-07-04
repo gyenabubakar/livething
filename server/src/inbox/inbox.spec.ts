@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import { inbox } from './inbox.ts';
-import { listReceivedBy } from './receipts-storage.ts';
+import { advanceReceivedThrough, listReceivers } from './receipts-storage.ts';
 import { ensureInboxSchema, insertInboxRows, loadUndeliveredRows } from './storage.ts';
 import { createTestSql } from './test-sql.ts';
 import type { InboxOptions } from './types.ts';
@@ -16,6 +16,7 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
   ensureInboxSchema(sql);
   const handlers = new Map<string, Handler>();
   const broadcasts: Array<Record<string, unknown>> = [];
+  const sentFrames: Array<{ connectionId: string; frame: unknown }> = [];
 
   const bootSchemaHooks: Array<() => void> = [];
   const engine = {
@@ -29,11 +30,13 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
     requireStorage: () => ({ sql }),
     channelMemberCount: () => opts.memberCount ?? 1,
     broadcastToChannel: (b: Record<string, unknown>) => broadcasts.push(b),
+    sendProtocolFrame: (connectionId: string, frame: unknown) =>
+      sentFrames.push({ connectionId, frame }),
   } as unknown as EngineAccess;
 
   inbox(config).__setup!(engine as never);
   for (const run of bootSchemaHooks) run();
-  return { sql, handlers, broadcasts };
+  return { sql, handlers, broadcasts, sentFrames };
 }
 
 function ctxFor(identity: string, connection: unknown) {
@@ -60,6 +63,13 @@ function receivedFrame(receivedThrough: number): Protocol.IncomingProtocolFrame 
     __wskit: { channel: 'room' },
   } as unknown as Protocol.IncomingProtocolFrame;
 }
+
+describe('inbox registers received and received-query handlers', () => {
+  it('owns __received__ and __receivedQuery__', () => {
+    const { handlers } = harness();
+    expect([...handlers.keys()].sort()).toEqual(['__receivedQuery__', '__received__']);
+  });
+});
 
 describe('inbox __received__ handler', () => {
   function seedRow(sql: ReturnType<typeof harness>['sql'], seq: number) {
@@ -108,18 +118,17 @@ describe('inbox __received__ handler', () => {
 });
 
 describe('inbox delivered acknowledgement (the double-grey check)', () => {
-  it('advances the received cursor and broadcasts a delivered __receipt__', () => {
+  it('advances the received cursor and fans out __received__', () => {
     const { handlers, broadcasts } = harness();
 
     handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
 
     expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0]).toMatchObject({ event: '__receipt__' });
-    expect(broadcasts[0]!.payload).toMatchObject({ identity: 'alice', receivedThrough: 5 });
-    expect(broadcasts[0]!.payload).not.toHaveProperty('seenThrough');
+    expect(broadcasts[0]).toMatchObject({ event: '__received__' });
+    expect(broadcasts[0]!.payload).toEqual({ identity: 'alice', receivedThrough: 5 });
   });
 
-  it('broadcasts the delivered tick only when the cursor advances', () => {
+  it('fans out the delivered tick only when the cursor advances', () => {
     const { handlers, broadcasts } = harness();
     const ctx = ctxFor('alice', member());
 
@@ -137,12 +146,51 @@ describe('inbox delivered acknowledgement (the double-grey check)', () => {
     expect(broadcasts).toEqual([]);
   });
 
-  it('records receivedBy after a delivered ack', () => {
+  it('records receiversOf after a delivered ack', () => {
     const { sql, handlers } = harness();
     handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
 
-    expect(listReceivedBy(sql, { channelName: 'room', channelFamily: null, seq: 5 })).toEqual([
+    expect(listReceivers(sql, { channelName: 'room', channelFamily: null, seq: 5 })).toEqual([
       'alice',
     ]);
+  });
+});
+
+describe('inbox __receivedQuery__ handler', () => {
+  function queryFrame(seq: number): Protocol.IncomingProtocolFrame {
+    return {
+      event: '__receivedQuery__',
+      payload: { seq },
+      __wskit: { channel: 'room', correlationId: 'q-1' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+  }
+
+  it('answers a received query without readReceipts present', () => {
+    const { sql, handlers, sentFrames } = harness();
+    advanceReceivedThrough(sql, {
+      channelName: 'room',
+      channelFamily: null,
+      identity: 'bob',
+      receivedThrough: 10,
+      now: 1,
+    });
+
+    handlers.get('__receivedQuery__')!(ctxFor('alice', member()), queryFrame(5));
+
+    expect(sentFrames).toHaveLength(1);
+    expect(sentFrames[0]!.frame).toMatchObject({
+      event: '__receivedQuery__',
+      payload: { identities: ['bob'] },
+      wskit: { channel: 'room', correlationId: 'q-1' },
+    });
+  });
+
+  it('drops a query from a non-member and sends nothing', () => {
+    const { handlers, sentFrames } = harness();
+    const ctx = ctxFor('alice', { id: 'c1', channelMemberships: new Map() });
+
+    handlers.get('__receivedQuery__')!(ctx, queryFrame(5));
+
+    expect(sentFrames).toEqual([]);
   });
 });

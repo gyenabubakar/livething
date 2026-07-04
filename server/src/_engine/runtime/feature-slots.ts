@@ -233,13 +233,13 @@ export interface ChannelContext {
 export interface ResolvedInboxOptions {
   afterDelivered: 'delete' | 'keep';
   retention?: { maxAgeMs?: number; maxMessages?: number };
-  /** Member cap for the delivered `__receipt__` tick. Defaults to 256. */
+  /** Member cap for the delivered `__received__` fan-out. Defaults to 256. */
   broadcastUpTo: number;
 }
 
 /** Read-receipts settings resolved for one channel, stored on the engine core. */
 export interface ResolvedReadReceiptsOptions {
-  /** Member cap for the read `__receipt__` tick. Defaults to 256. */
+  /** Member cap for the read `__read__` fan-out. Defaults to 256. */
   broadcastUpTo: number;
 }
 

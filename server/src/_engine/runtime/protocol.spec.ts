@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
+  IncomingProtocolFrame,
   isProtocolEventName,
   OUTGOING_PROTOCOL_EVENT_NAMES,
   OutgoingProtocolFrame,
@@ -122,15 +123,25 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
     payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
     __wskit: { channel: 'room', source: 'server' },
   },
-  __receipt__: {
-    event: '__receipt__',
-    payload: { identity: 'u1', receivedThrough: 5, seenThrough: 3 },
+  __received__: {
+    event: '__received__',
+    payload: { identity: 'u1', receivedThrough: 5 },
     __wskit: { channel: 'room' },
   },
-  __receiptQuery__: {
-    event: '__receiptQuery__',
+  __read__: {
+    event: '__read__',
+    payload: { identity: 'u1', readThrough: 3 },
+    __wskit: { channel: 'room' },
+  },
+  __receivedQuery__: {
+    event: '__receivedQuery__',
     payload: { identities: ['u1', 'u2'] },
     __wskit: { channel: 'room', correlationId: 'rq1' },
+  },
+  __readQuery__: {
+    event: '__readQuery__',
+    payload: { identities: ['u1', 'u2'] },
+    __wskit: { channel: 'room', correlationId: 'rq2' },
   },
   __gap__: {
     event: '__gap__',
@@ -171,6 +182,39 @@ describe('outgoing protocol-frame conformance', () => {
     });
     expect(result.success).toBe(false);
   });
+});
+
+const INCOMING_RECEIPT_SAMPLES: Record<string, unknown> = {
+  __received__: {
+    event: '__received__',
+    payload: { receivedThrough: 5 },
+    __wskit: { channel: 'room' },
+  },
+  __read__: {
+    event: '__read__',
+    payload: { readThrough: 3 },
+    __wskit: { channel: 'room' },
+  },
+  __receivedQuery__: {
+    event: '__receivedQuery__',
+    payload: { seq: 5 },
+    __wskit: { channel: 'room', correlationId: 'rq1' },
+  },
+  __readQuery__: {
+    event: '__readQuery__',
+    payload: { seq: 5 },
+    __wskit: { channel: 'room', correlationId: 'rq2' },
+  },
+};
+
+describe('incoming receipt-frame conformance', () => {
+  it.each(Object.entries(INCOMING_RECEIPT_SAMPLES))(
+    'round-trips %s through the incoming schema',
+    (_event, frame) => {
+      const result = v.safeParse(IncomingProtocolFrame, frame);
+      expect(result.success).toBe(true);
+    },
+  );
 });
 
 describe('protocol event detection', () => {

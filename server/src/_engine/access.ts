@@ -664,7 +664,7 @@ export interface EngineAccess {
   /**
    * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
    * correlationId) on the frame. Used to answer a scoped, correlated protocol
-   * query — e.g. `readReceipts()` replying to a `__receiptQuery__` on one connection.
+   * query — e.g. `inbox()` replying to a `__receivedQuery__` on one connection.
    *
    * @internal
    */
@@ -776,9 +776,10 @@ export interface EngineAccess {
   setInboxService(service: FeatureSlots.InboxService): void;
 
   /**
-   * Broadcast one already-built protocol frame (e.g. `__receipt__`) to every
-   * live member of a channel. Offline members are not reached — the frame is a
-   * live presence signal, and its cursor stays queryable regardless.
+   * Broadcast one already-built protocol frame (e.g. a `__received__` /
+   * `__read__` receipt fan-out) to every live member of a channel. Offline
+   * members are not reached — the frame is a live presence signal, and its
+   * cursor stays queryable regardless.
    *
    * @internal
    */
@@ -790,8 +791,8 @@ export interface EngineAccess {
   }): void;
 
   /**
-   * Count the live members currently in a channel. Used by the delivered/read
-   * the live `__receipt__` broadcast above `broadcastUpTo`.
+   * Count the live members currently in a channel. Used to suppress the
+   * delivered/read receipt fan-out above `broadcastUpTo`.
    *
    * @internal
    */
@@ -800,7 +801,7 @@ export interface EngineAccess {
   /**
    * Read the resolved inbox settings for a channel key, or `undefined` when the
    * channel has no inbox. `readReceipts()` uses this to settle inbox rows with the
-   * right delete/keep lifecycle when `__seen__` advances the received mark.
+   * right delete/keep lifecycle when `__read__` advances the received mark.
    *
    * @internal
    */
