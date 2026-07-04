@@ -247,17 +247,11 @@ interface PreparedBroadcast {
 
   /**
    * The whole frame string when it is identical for every recipient — set
-   * when nothing stamps a per-connection `__wskit` value. Built once here so
-   * `sendPrepared` skips the per-recipient stamp + serialize.
+   * whenever no `beforeSend` hook can rewrite `__wskit` per connection. The
+   * sequence/dedup stampers already ran once into `baseWSKit`, so every
+   * recipient shares these bytes and `sendPrepared` skips re-serializing.
    */
   sharedFrame?: string;
-
-  /**
-   * The `seq`/`messageId` are pinned by an inbox fan-out, so the per-recipient
-   * stampers must not run — they are already fixed, and the sequence stamper
-   * would otherwise burn the durable counter once per recipient.
-   */
-  pinnedWSKit: boolean;
 }
 
 type BroadcastRuntime = Pick<
@@ -281,18 +275,13 @@ interface PrepareBroadcastOptions {
   routing: EngineRuntimeTypes.RoutingTarget | undefined;
   event: string;
   payload: unknown;
-  /**
-   * A `seq`/`messageId` an inbox channel pins so a member's live frame matches
-   * its durable inbox row. Forces the shared-frame path.
-   */
-  fixedWSKit?: { seq: number; messageId: string };
 }
 
 function prepareBroadcast(
   runtime: BroadcastRuntime,
   opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
-  const { routing, event, payload, fixedWSKit } = opts;
+  const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, {
@@ -309,20 +298,12 @@ function prepareBroadcast(
   const finalPayload = message.payload as Record<string, unknown>;
   const eventJson = JSON.stringify(message.event);
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
-  const baseWSKit = buildWSKit(routing);
-  if (fixedWSKit) {
-    baseWSKit.seq = fixedWSKit.seq;
-    baseWSKit.messageId = fixedWSKit.messageId;
-  }
-  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
-  // The frame is identical for every recipient unless a per-connection stamper
-  // or beforeSend hook rewrites `__wskit`. A pinned inbox frame shares it too.
-  const sharedWSKit =
-    !hasBeforeSend &&
-    (Protocol.isProtocolEventName(message.event) ||
-      fixedWSKit !== undefined ||
-      runtime.wskitStampHooks.length === 0);
+  // Stamp once for the whole broadcast: all recipients share one seq/messageId, so replay stores one row, not one per member.
+  const baseWSKit = buildWSKit(routing) as Record<string, unknown>;
+  applyWSKitStampers(runtime.wskitStampHooks, message.event, baseWSKit);
+
+  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
   return {
     event: message.event,
@@ -331,10 +312,9 @@ function prepareBroadcast(
     finalPayload,
     baseWSKit,
     needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
-    pinnedWSKit: fixedWSKit !== undefined,
-    sharedFrame: sharedWSKit
-      ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`
-      : undefined,
+    sharedFrame: hasBeforeSend
+      ? undefined
+      : `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`,
   };
 }
 
@@ -367,10 +347,7 @@ function sendPrepared(
   }
 
   const wskit = { ...prepared.baseWSKit };
-  if (!prepared.pinnedWSKit) applyWSKitStampers(runtime.wskitStampHooks, prepared.event, wskit);
 
-  // The wire message only feeds before/after-send hooks — skip the
-  // per-recipient allocation when no such hooks are registered.
   let wireMessage: EngineRuntimeTypes.WireOutgoingMessage | undefined;
   if (prepared.needsWireMessage) {
     wireMessage = {
@@ -498,26 +475,58 @@ export function broadcastToChannel(
       | 'wskitStampHooks'
     > & {
       /**
-       * Fan a channel message out to the durable inbox once, before the per-recipient
-       * loop. Returns the seq/messageId to pin on the live frame, or undefined for a
-       * non-inbox channel. Set only when `inbox()` is listed.
+       * Write a durable inbox copy for every member of the channel, keyed on the
+       * `seq`/`messageId` this broadcast already stamped so a member's live frame
+       * and its inbox row share one identity. Runs once, before the recipient
+       * loop. A no-op for a non-inbox channel. Set only when `inbox()` is listed.
        */
       inboxFanOut?: (opts: {
         channelName: string;
         channelFamily: string | null;
         event: string;
         payload: Record<string, unknown>;
-      }) => { seq: number; messageId: string } | undefined;
+        seq: number;
+        messageId: string;
+      }) => void;
     },
   opts: BroadcastToChannelOptions,
 ): void {
   const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
 
-  let fixedWSKit: { seq: number; messageId: string } | undefined;
-  if (runtime.inboxFanOut && !Protocol.isProtocolEventName(event)) {
+  let prepared: PreparedBroadcast;
+  try {
+    prepared = prepareBroadcast(runtime, {
+      routing: { channel: channelName, channelFamily },
+      event,
+      payload,
+    });
+  } catch (error) {
+    // A payload or declaration error fails the same way for every member — log once.
+    runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
+      channel: channelName,
+      channelFamily,
+      event,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  const { seq, messageId } = prepared.baseWSKit;
+  if (
+    runtime.inboxFanOut &&
+    !Protocol.isProtocolEventName(prepared.event) &&
+    typeof seq === 'number' &&
+    typeof messageId === 'string'
+  ) {
     try {
-      assertPayloadRecord(payload);
-      fixedWSKit = runtime.inboxFanOut({ channelName, channelFamily, event, payload });
+      runtime.inboxFanOut({
+        channelName,
+        channelFamily,
+        event: prepared.event,
+        payload: prepared.finalPayload,
+        seq,
+        messageId,
+      });
     } catch (error) {
       runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
         channel: channelName,
@@ -532,25 +541,6 @@ export function broadcastToChannel(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members || members.size === 0) return;
-
-  let prepared: PreparedBroadcast;
-  try {
-    prepared = prepareBroadcast(runtime, {
-      routing: { channel: channelName, channelFamily },
-      event,
-      payload,
-      fixedWSKit,
-    });
-  } catch (error) {
-    // A payload or declaration error fails the same way for every member — log once.
-    runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
-      channel: channelName,
-      channelFamily,
-      event,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
 
   for (const connection of members) {
     if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)

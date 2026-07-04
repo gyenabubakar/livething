@@ -12,29 +12,11 @@ import {
   pruneInboxRetention,
 } from '~/inbox/storage.ts';
 import { listIdentitiesByChannel } from '~/persistence/storage.ts';
-import { createPersistentSequenceAllocator } from '~/sequence/runtime.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
-
-/**
- * A message id generator paired with the shared persistent sequence allocator.
- * One allocator per engine keeps inbox message ids monotonic and durable, drawn
- * from the same global counter the wire uses so client dedup and ordering line
- * up. Held in a WeakMap so multiple engines never share one counter.
- */
-const allocators = new WeakMap<EngineCore, { next(): number }>();
-
-function inboxAllocator(core: EngineCore): { next(): number } {
-  let allocator = allocators.get(core);
-  if (!allocator) {
-    allocator = createPersistentSequenceAllocator(core.requireStorage().sql);
-    allocators.set(core, allocator);
-  }
-  return allocator;
-}
 
 /** Resolve the channel key (family key for families, name for static channels). */
 function channelKeyFor(channelName: string, channelFamily: string | null): string {
@@ -42,13 +24,12 @@ function channelKeyFor(channelName: string, channelFamily: string | null): strin
 }
 
 /**
- * Fan one logical channel message out to every durable member's inbox. Runs once
- * per broadcast and returns the single `seq`/`messageId` it stamped — the caller
- * pins the live broadcast to the same identity so a member's live frame matches
- * its durable inbox row (its ack settles the row, and dedup suppresses the
- * reconnect re-delivery). Returns `undefined` for a channel without inbox.
+ * Fan one logical channel message out to every durable member's inbox, keyed on
+ * the `seq`/`messageId` the broadcast already stamped, so a member's inbox row
+ * matches the live frame it also receives (its ack settles the row, and dedup
+ * suppresses the reconnect re-delivery). A no-op for a channel without inbox.
  * Anonymous members (empty identity) hold no durable row and get live-only
- * delivery, but still see this shared seq/messageId.
+ * delivery, but still see the same shared seq/messageId on the live frame.
  */
 export function fanOutToInbox(
   core: EngineCore,
@@ -57,24 +38,25 @@ export function fanOutToInbox(
     channelFamily: string | null;
     event: string;
     payload: Record<string, unknown>;
+    seq: number;
+    messageId: string;
   },
-): { seq: number; messageId: string } | undefined {
+): void {
   const config = core.inboxChannels.get(channelKeyFor(opts.channelName, opts.channelFamily));
-  if (!config) return undefined;
-
-  const frame: InboxFrame = {
-    seq: inboxAllocator(core).next(),
-    messageId: core.generateId('inbox'),
-    event: opts.event,
-    payload: opts.payload,
-  };
+  if (!config) return;
 
   const { sql } = core.requireStorage();
   const identities = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
     (identity) => identity !== '',
   );
-  if (identities.length === 0) return { seq: frame.seq, messageId: frame.messageId };
+  if (identities.length === 0) return;
 
+  const frame: InboxFrame = {
+    seq: opts.seq,
+    messageId: opts.messageId,
+    event: opts.event,
+    payload: opts.payload,
+  };
   insertInboxRows(sql, {
     identities,
     channelName: opts.channelName,
@@ -93,8 +75,6 @@ export function fanOutToInbox(
       });
     }
   }
-
-  return { seq: frame.seq, messageId: frame.messageId };
 }
 
 /**

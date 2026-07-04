@@ -38,71 +38,77 @@ function connection(identity: string | null): RuntimeConnection {
   return { identity } as unknown as RuntimeConnection;
 }
 
-const deliver: ResolvedInboxOptions = { afterDelivered: 'delete' };
+const deliver: ResolvedInboxOptions = { afterDelivered: 'delete', broadcastUpTo: 256 };
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('fanOutToInbox', () => {
-  it('returns undefined and writes nothing for a non-inbox channel', () => {
+  it('writes nothing for a non-inbox channel', () => {
     const { core, sql } = createCore();
     insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
 
-    const result = fanOutToInbox(core, {
+    fanOutToInbox(core, {
       channelName: 'room',
       channelFamily: null,
       event: 'msg',
       payload: { text: 'hi' },
+      seq: 1,
+      messageId: 'm1',
     });
 
-    expect(result).toBeUndefined();
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
   });
 
-  it('stamps one shared seq/messageId and writes one row per durable member', () => {
+  it('writes one row per durable member sharing the given seq/messageId', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
     insertMembership(sql, { identity: 'bob', channelName: 'room', channelFamily: null });
 
-    const result = fanOutToInbox(core, {
+    fanOutToInbox(core, {
       channelName: 'room',
       channelFamily: null,
       event: 'msg',
       payload: { text: 'hi' },
+      seq: 42,
+      messageId: 'msg_1',
     });
 
-    expect(result).toBeDefined();
-    expect(loadUndeliveredRows(sql, 'alice')[0]?.seq).toBe(result!.seq);
-    expect(loadUndeliveredRows(sql, 'bob')[0]?.messageId).toBe(result!.messageId);
+    expect(loadUndeliveredRows(sql, 'alice')[0]?.seq).toBe(42);
+    expect(loadUndeliveredRows(sql, 'alice')[0]?.messageId).toBe('msg_1');
+    expect(loadUndeliveredRows(sql, 'bob')[0]?.seq).toBe(42);
+    expect(loadUndeliveredRows(sql, 'bob')[0]?.messageId).toBe('msg_1');
   });
 
-  it('filters out anonymous members but still returns the shared seq/messageId', () => {
+  it('filters out anonymous members but still writes durable rows', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
     insertMembership(sql, { identity: '', channelName: 'room', channelFamily: null });
 
-    const result = fanOutToInbox(core, {
+    fanOutToInbox(core, {
       channelName: 'room',
       channelFamily: null,
       event: 'msg',
       payload: {},
+      seq: 1,
+      messageId: 'm1',
     });
 
-    expect(result).toBeDefined();
     expect(loadUndeliveredRows(sql, '')).toEqual([]);
     expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(1);
   });
 
-  it('returns the seq/messageId without inserting when a channel has zero durable members', () => {
+  it('inserts nothing when a channel has zero durable members', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
 
-    const result = fanOutToInbox(core, {
+    fanOutToInbox(core, {
       channelName: 'room',
       channelFamily: null,
       event: 'msg',
       payload: {},
+      seq: 1,
+      messageId: 'm1',
     });
 
-    expect(result).toBeDefined();
     expect(sql.exec('SELECT COUNT(*) AS c FROM __wskit_inbox').one() as { c: number }).toEqual({
       c: 0,
     });
@@ -112,14 +118,15 @@ describe('fanOutToInbox', () => {
     const { core, sql } = createCore(new Map([['rooms', deliver]]));
     insertMembership(sql, { identity: 'alice', channelName: 'room-1', channelFamily: 'rooms' });
 
-    const result = fanOutToInbox(core, {
+    fanOutToInbox(core, {
       channelName: 'room-1',
       channelFamily: 'rooms',
       event: 'msg',
       payload: {},
+      seq: 1,
+      messageId: 'm1',
     });
 
-    expect(result).toBeDefined();
     expect(loadUndeliveredRows(sql, 'alice')[0]?.channelFamily).toBe('rooms');
   });
 });

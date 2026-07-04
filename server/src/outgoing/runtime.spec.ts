@@ -566,7 +566,7 @@ describe('broadcastToChannel — fanout resilience', () => {
   });
 });
 
-describe('broadcastToChannel — inbox fixedWSKit pinning', () => {
+describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageId', () => {
   function inboxPeer(
     channelMembers: Map<string, Set<RuntimeConnection>>,
     id: string,
@@ -597,14 +597,18 @@ describe('broadcastToChannel — inbox fixedWSKit pinning', () => {
     return conn;
   }
 
+  type FanOutOpts = {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+    seq: number;
+    messageId: string;
+  };
+
   function inboxRuntime(
     overrides: Partial<OutgoingRuntime> & {
-      inboxFanOut?: (opts: {
-        channelName: string;
-        channelFamily: string | null;
-        event: string;
-        payload: Record<string, unknown>;
-      }) => { seq: number; messageId: string } | undefined;
+      inboxFanOut?: (opts: FanOutOpts) => void;
     },
     channelMembers: Map<string, Set<RuntimeConnection>>,
   ) {
@@ -635,36 +639,41 @@ describe('broadcastToChannel — inbox fixedWSKit pinning', () => {
     });
   }
 
-  it('pins the fan-out seq/messageId on the shared frame and never invokes the seq stamper', () => {
+  it('stamps seq/messageId once and hands the same pair to the inbox fan-out', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
     inboxPeer(channelMembers, 'B', (f) => sent.push(f));
 
     let stamperCalls = 0;
+    const fanOutSeen: FanOutOpts[] = [];
     const runtime = inboxRuntime(
       {
         wskitStampHooks: [
           () => {
             stamperCalls += 1;
-            return { seq: 999 };
+            return { seq: 42, messageId: 'msg_1' };
           },
         ],
-        inboxFanOut: () => ({ seq: 42, messageId: 'inbox_1' }),
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
       },
       channelMembers,
     );
 
     broadcastOnce(runtime);
 
-    expect(stamperCalls).toBe(0);
+    // The stamper fires exactly once for the whole broadcast, not once per member.
+    expect(stamperCalls).toBe(1);
+    expect(fanOutSeen).toHaveLength(1);
+    expect(fanOutSeen[0]).toMatchObject({ seq: 42, messageId: 'msg_1', event: 'msg' });
+
     expect(sent).toHaveLength(2);
     expect(sent[0]).toBe(sent[1]);
     const frame = JSON.parse(sent[0]!);
-    expect(frame.__wskit).toMatchObject({ seq: 42, messageId: 'inbox_1', channel: 'general' });
+    expect(frame.__wskit).toMatchObject({ seq: 42, messageId: 'msg_1', channel: 'general' });
   });
 
-  it('pins the seq/messageId on every recipient even when a beforeSend hook forces the per-recipient path', () => {
+  it('keeps the shared seq/messageId on every recipient even when a beforeSend hook forces the per-recipient path', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
@@ -676,37 +685,34 @@ describe('broadcastToChannel — inbox fixedWSKit pinning', () => {
         wskitStampHooks: [
           () => {
             stamperCalls += 1;
-            return { seq: 999 };
+            return { seq: 42, messageId: 'msg_1' };
           },
         ],
         beforeSendHooks: [() => {}],
-        inboxFanOut: () => ({ seq: 42, messageId: 'inbox_1' }),
+        inboxFanOut: () => {},
       },
       channelMembers,
     );
 
     broadcastOnce(runtime);
 
-    // A beforeSend hook disqualifies the shared frame, so this runs per recipient.
-    // The stamper must still NOT fire — the seq/messageId are pinned — so the
-    // durable sequence counter is not burned once per member.
-    expect(stamperCalls).toBe(0);
+    // A beforeSend hook disqualifies the shared frame, so sending runs per
+    // recipient — but the stamper still fires only once, so both members see
+    // the same seq/messageId and the durable counter advances a single step.
+    expect(stamperCalls).toBe(1);
     expect(sent).toHaveLength(2);
     for (const raw of sent) {
-      expect(JSON.parse(raw).__wskit).toMatchObject({ seq: 42, messageId: 'inbox_1' });
+      expect(JSON.parse(raw).__wskit).toMatchObject({ seq: 42, messageId: 'msg_1' });
     }
   });
 
-  it('produces byte-identical frames whether inboxFanOut returns undefined or is absent', () => {
+  it('produces byte-identical frames whether inboxFanOut runs or is absent', () => {
     function run(withFanOut: boolean): string[] {
       const channelMembers = new Map<string, Set<RuntimeConnection>>();
       const sent: string[] = [];
       inboxPeer(channelMembers, 'A', (f) => sent.push(f));
       inboxPeer(channelMembers, 'B', (f) => sent.push(f));
-      const runtime = inboxRuntime(
-        withFanOut ? { inboxFanOut: () => undefined } : {},
-        channelMembers,
-      );
+      const runtime = inboxRuntime(withFanOut ? { inboxFanOut: () => {} } : {}, channelMembers);
       broadcastOnce(runtime);
       return sent;
     }
@@ -720,6 +726,7 @@ describe('broadcastToChannel — inbox fixedWSKit pinning', () => {
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
     const runtime = inboxRuntime(
       {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
         inboxFanOut: () => {
           throw new Error('storage down');
         },
