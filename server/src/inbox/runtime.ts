@@ -1,10 +1,12 @@
-import { sendReplay } from '~/_engine/runtime/wire.ts';
+import { sendGap, sendReplay } from '~/_engine/runtime/wire.ts';
 import {
   ackInboxRows,
   bumpInboxWatermark,
+  clearInboxWatermarks,
   deleteInboxRowsForChannel,
   insertInboxRows,
   insertInboxRowsForIdentity,
+  loadInboxWatermarks,
   loadUndeliveredRows,
   pruneInboxRetention,
 } from '~/inbox/storage.ts';
@@ -102,6 +104,17 @@ export function fanOutToInbox(
 export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
   if (!connection.identity) return;
   const { sql } = core.requireStorage();
+
+  const watermarks = loadInboxWatermarks(sql, connection.identity);
+  for (const watermark of watermarks) {
+    sendGap(core, connection, {
+      channelName: watermark.channelName,
+      channelFamily: watermark.channelFamily,
+      missedThrough: watermark.evictedThroughSeq,
+    });
+  }
+  if (watermarks.length > 0) clearInboxWatermarks(sql, connection.identity);
+
   const rows = loadUndeliveredRows(sql, connection.identity);
   if (rows.length === 0) return;
 
@@ -202,8 +215,4 @@ function applyRetention(
     channelFamily: opts.channelFamily,
     evictedThroughSeq: evictedThrough,
   });
-
-  // TODO(gap-branch): a parallel branch emits a `__gap__` frame to the member so
-  // its client knows messages up to `evictedThrough` were dropped. Only the
-  // watermark is raised here; the gap-frame emission belongs to that branch.
 }

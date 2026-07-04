@@ -413,3 +413,30 @@ export function bumpInboxWatermark(
     evictedThroughSeq,
   );
 }
+
+/** Every scope where a member's inbox overflowed, to turn into a gap on the next drain. */
+export function loadInboxWatermarks(
+  sql: Pick<SQLProvider, 'exec'>,
+  identity: string,
+): Array<{ channelName: string; channelFamily: string | null; evictedThroughSeq: number }> {
+  return sql
+    .exec<{ channel_name: string; channel_family: string; evicted_through_seq: number }>(
+      `
+        SELECT channel_name, channel_family, evicted_through_seq
+        FROM __wskit_inbox_watermark
+        WHERE identity = ?
+      `,
+      identity,
+    )
+    .toArray()
+    .map((row) => ({
+      channelName: String(row.channel_name),
+      channelFamily: familyFromDb(String(row.channel_family)),
+      evictedThroughSeq: Number(row.evicted_through_seq),
+    }));
+}
+
+/** Drop a member's overflow watermarks once their gap has been delivered on drain. */
+export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
+  sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE identity = ?`, identity);
+}
