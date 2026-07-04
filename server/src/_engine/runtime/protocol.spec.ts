@@ -122,6 +122,11 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
     payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
     __wskit: { channel: 'room', source: 'server' },
   },
+  __gap__: {
+    event: '__gap__',
+    payload: { missedThrough: 42 },
+    __wskit: { channel: 'room' },
+  },
 };
 
 describe('outgoing protocol-frame conformance', () => {

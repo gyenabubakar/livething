@@ -185,12 +185,31 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
   : {};
 
 /**
+ * What an `onGap` callback receives. `missedThrough` is the highest sequence
+ * number the server dropped from retention — anything you hadn't seen at or
+ * below it is gone. `channel` / `channelFamily` are set on a channel gap and
+ * absent on a top-level one.
+ */
+export interface GapInfo {
+  channel?: string;
+  channelFamily?: string;
+  missedThrough: number;
+}
+
+/**
  * The full messaging type for one scope (a channel): `on`/`send`
  * plus `request()` when the scope has requests, and the stream methods when it
  * has streams.
  */
-export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
-  (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
+
+export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> & {
+  /**
+   * Fires when replay could not fully catch this channel up after a reconnect
+   * because retention had already evicted messages the client hadn't seen. Needs
+   * `replay()` on both client and server. Call the returned function to stop listening.
+   */
+  onGap(callback: (info: GapInfo) => void): () => void;
+} & (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
     ? {
         request<E extends keyof R & string>(
           event: E,

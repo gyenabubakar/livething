@@ -591,6 +591,19 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Send a `__gap__` frame to one connection. `missedThrough` is the scope's
+   * eviction watermark (highest seq retention deleted). @internal
+   */
+  sendGap(
+    connectionId: string,
+    options: {
+      channelName: string | null;
+      channelFamily: string | null;
+      missedThrough: number;
+    },
+  ): void;
+
+  /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
    * as a normal `ctx.send(...)`: the payload is a plain object and the event
    * is declared in the routing scope. Used by the replay primitive to enforce

@@ -38,10 +38,20 @@ const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
   ON __wskit_replay (channel, channelFamily, seq)
 `;
 
+const CREATE_REPLAY_WATERMARK_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __wskit_replay_watermark (
+    scope_key TEXT PRIMARY KEY,
+    evicted_through_seq INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-scope fields later without a migration.
+    metadata TEXT NOT NULL DEFAULT '{}'
+  )
+`;
+
 const REPLAY_SCHEMA_SQL = [
   CREATE_REPLAY_TABLE_SQL,
   CREATE_REPLAY_SEQ_INDEX_SQL,
   CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL,
+  CREATE_REPLAY_WATERMARK_TABLE_SQL,
 ].join(';\n');
 
 /**
@@ -55,6 +65,21 @@ export function ensureReplaySchema(sql: {
 }
 
 const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * The `scope_key` primary key for the eviction watermark table. The top-level
+ * store is `''`; a channel scope mirrors the membership-key convention
+ * (`JSON.stringify([channelFamily, channel])`) so both stay in step. A channel
+ * row always has a concrete `channel`, so a present `channel` marks a channel
+ * scope even when `channelFamily` is null (a static channel).
+ */
+export function replayScopeKey(scope: {
+  channel: string | null;
+  channelFamily: string | null;
+}): string {
+  if (scope.channel === null) return '';
+  return JSON.stringify([scope.channelFamily, scope.channel]);
+}
 
 /**
  * The shared rule deciding whether a (channelFamily, channelName) pair belongs
@@ -514,23 +539,98 @@ export function storeReplayRow(
 }
 
 /**
- * Delete all replay rows older than the configured max age.
+ * Raise one scope's eviction watermark to at least `evictedThroughSeq`.
+ *
+ * The upsert is monotonic: an existing watermark is never lowered, so a later
+ * prune that happens to delete an older (smaller-seq) tail can't roll back a
+ * higher watermark a previous prune already recorded. The watermark is the
+ * highest `seq` this scope has actually deleted, which gap detection reads to
+ * tell "you missed evicted messages" from "nothing happened".
  */
-export function pruneExpiredReplayRows(
+export function bumpReplayWatermark(
   sql: {
     exec(query: string, ...params: unknown[]): unknown;
+  },
+  scopeKey: string,
+  evictedThroughSeq: number,
+): void {
+  sql.exec(
+    `
+      INSERT INTO __wskit_replay_watermark (scope_key, evicted_through_seq)
+      VALUES (?, ?)
+      ON CONFLICT(scope_key) DO UPDATE SET
+        evicted_through_seq = MAX(evicted_through_seq, excluded.evicted_through_seq)
+    `,
+    scopeKey,
+    evictedThroughSeq,
+  );
+}
+
+/**
+ * Read one scope's eviction watermark, or `null` when nothing has been evicted
+ * from that scope yet.
+ */
+export function readReplayWatermark(
+  sql: {
+    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
+  },
+  scopeKey: string,
+): number | null {
+  const row = sql
+    .exec<{ evicted_through_seq: number }>(
+      `
+        SELECT evicted_through_seq
+        FROM __wskit_replay_watermark
+        WHERE scope_key = ?
+      `,
+      scopeKey,
+    )
+    .one();
+
+  return row ? Number(row.evicted_through_seq) : null;
+}
+
+/** Delete replay rows older than the max age, first recording each scope's highest dropped seq as its watermark. */
+export function pruneExpiredReplayRows(
+  sql: {
+    exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
   },
   retention: ReplayOptions['retention'] | undefined,
   now: number,
 ): void {
   if (retention?.maxAgeMs === undefined) return;
 
+  const cutoff = now - retention.maxAgeMs;
+
+  const evicted = sql
+    .exec<{ channel: string | null; channelFamily: string | null; m: number }>(
+      `
+        SELECT channel, channelFamily, MAX(seq) AS m
+        FROM __wskit_replay
+        WHERE createdAt < ?
+        GROUP BY channel, channelFamily
+      `,
+      cutoff,
+    )
+    .toArray();
+
+  for (const scope of evicted) {
+    bumpReplayWatermark(
+      sql,
+      replayScopeKey({
+        channel: (scope.channel as string | null) ?? null,
+        channelFamily: (scope.channelFamily as string | null) ?? null,
+      }),
+      Number(scope.m),
+    );
+  }
+
   sql.exec(
     `
       DELETE FROM __wskit_replay
       WHERE createdAt < ?
     `,
-    now - retention.maxAgeMs,
+    cutoff,
   );
 }
 
@@ -551,12 +651,35 @@ export function pruneExpiredReplayRows(
  */
 export function pruneReplayScopeRows(
   sql: {
-    exec(query: string, ...params: unknown[]): unknown;
+    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
   },
   retention: ReplayOptions['retention'] | undefined,
   scope: ReplayPayloadScope,
 ): void {
   if (retention?.maxMessages === undefined) return;
+
+  const dropped = sql
+    .exec<{ m: number | null }>(
+      `
+        SELECT MAX(seq) AS m
+        FROM (
+          SELECT seq
+          FROM __wskit_replay
+          WHERE channel IS ?
+            AND channelFamily IS ?
+          ORDER BY seq DESC
+          LIMIT -1 OFFSET ?
+        )
+      `,
+      scope.channel,
+      scope.channelFamily,
+      retention.maxMessages,
+    )
+    .one();
+
+  if (dropped?.m != null) {
+    bumpReplayWatermark(sql, replayScopeKey(scope), Number(dropped.m));
+  }
 
   sql.exec(
     `

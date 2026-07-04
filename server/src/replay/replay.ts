@@ -12,6 +12,8 @@ import {
   pruneReplayScopeRows,
   readReplayContextScope,
   readReplayScope,
+  readReplayWatermark,
+  replayScopeKey,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
@@ -359,13 +361,31 @@ class ReplayInstaller {
 
     const since = frame.payload.lastKnownSeq ?? 0;
     const { sql } = this.engine.requireStorage();
+
+    const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
+    if (!connectionId) return true;
+
+    // Snapshot resends current state, so only history mode can have a gap.
+    // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
+    if ((this.opts.type ?? 'history') === 'history' && since > 0) {
+      const scopeKey = replayScopeKey({
+        channel: scope.channelName ?? null,
+        channelFamily: scope.channelFamily ?? null,
+      });
+      const watermark = readReplayWatermark(sql, scopeKey);
+      if (watermark !== null && since < watermark) {
+        this.engine.sendGap(connectionId, {
+          channelName: scope.channelName ?? null,
+          channelFamily: scope.channelFamily ?? null,
+          missedThrough: watermark,
+        });
+      }
+    }
+
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
       channelFamily: scope.channelFamily ?? null,
     });
-
-    const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
-    if (!connectionId) return true;
 
     for (const row of rows) {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;

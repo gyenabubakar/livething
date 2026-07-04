@@ -1,4 +1,5 @@
 export { ReplayServer } from './replay-history.ts';
+export { ReplayGapServer } from './replay-gap.ts';
 export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
@@ -109,6 +110,11 @@ export default {
     if (url.pathname === '/ws/replay') {
       const id = env.REPLAY_SERVER.idFromName(room);
       return env.REPLAY_SERVER.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/ws/replay-gap') {
+      const id = env.REPLAY_GAP_SERVER.idFromName(room);
+      return env.REPLAY_GAP_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/replay-custom') {
