@@ -104,6 +104,9 @@ export class EngineCore {
    */
   readonly inboxChannels = new Map<string, FeatureSlots.ResolvedInboxOptions>();
 
+  /** Channel keys that opted into read receipts via `readReceipts()`. */
+  readonly readReceiptsChannels = new Set<string>();
+
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {
     ephemeral: new Set<string>(),

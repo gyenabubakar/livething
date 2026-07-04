@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { inbox } from './inbox.ts';
 
 describe('inbox capability — option resolution and validation', () => {
-  it('defaults afterDelivered to delete and carries no retention', () => {
-    expect(inbox({}).options).toEqual({ afterDelivered: 'delete' });
+  it('defaults afterDelivered to delete with the default delivered-tick cap', () => {
+    expect(inbox({}).options).toEqual({ afterDelivered: 'delete', broadcastUpTo: 256 });
   });
 
   it('throws when afterDelivered:keep is set without retention', () => {
@@ -14,7 +14,13 @@ describe('inbox capability — option resolution and validation', () => {
     expect(inbox({ afterDelivered: 'keep', retention: { maxMessages: 100 } }).options).toEqual({
       afterDelivered: 'keep',
       retention: { maxMessages: 100 },
+      broadcastUpTo: 256,
     });
+  });
+
+  it('honors a custom delivered-tick broadcastUpTo, keeping 256 as the default', () => {
+    expect(inbox({ broadcastUpTo: 50 }).options.broadcastUpTo).toBe(50);
+    expect(inbox({}).options.broadcastUpTo).toBe(256);
   });
 
   it('declares its required capabilities and storage', () => {

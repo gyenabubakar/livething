@@ -153,7 +153,7 @@ type ClientFamily<TFamily> = {
   ? { subscribePayload: TFamily['subscribePayload'] }
   : {}) &
   (TFamily extends { inbox: true } ? { inbox: true } : {}) &
-  (TFamily extends { receipts: true } ? { receipts: true } : {});
+  (TFamily extends { readReceipts: true } ? { readReceipts: true } : {});
 
 /**
  * Like `ClientFamilyMap`, but channel-aware: each channel family is stamped with

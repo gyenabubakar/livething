@@ -11,7 +11,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
  */
 export const inboxService: InboxService = {
   fanOut(core: EngineCore, opts) {
-    return fanOutToInbox(core, opts);
+    fanOutToInbox(core, opts);
   },
   drainOnReconnect(core: EngineCore, connection: RuntimeConnection) {
     drainInboxOnReconnect(core, connection);

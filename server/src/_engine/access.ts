@@ -430,6 +430,12 @@ export interface EngineAccess {
   registerInboxChannel(channelKey: string, options: FeatureSlots.ResolvedInboxOptions): void;
 
   /**
+   * Record that a channel opted into read receipts, so `__subscribeOk__` can
+   * carry the flag. Set by `readReceipts()`. @internal
+   */
+  registerReadReceiptsChannel(channelKey: string): void;
+
+  /**
    * Check whether a durable-row `(channel_name, channel_family)` pair still
    * maps to a registered persistent channel. Used by boot-time reconcile.
    * @internal
@@ -658,7 +664,7 @@ export interface EngineAccess {
   /**
    * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
    * correlationId) on the frame. Used to answer a scoped, correlated protocol
-   * query — e.g. `receipts()` replying to a `__receiptQuery__` on one connection.
+   * query — e.g. `readReceipts()` replying to a `__receiptQuery__` on one connection.
    *
    * @internal
    */
@@ -784,7 +790,7 @@ export interface EngineAccess {
   }): void;
 
   /**
-   * Count the live members currently in a channel. Used by `receipts()` to skip
+   * Count the live members currently in a channel. Used by the delivered/read
    * the live `__receipt__` broadcast above `broadcastUpTo`.
    *
    * @internal
@@ -793,7 +799,7 @@ export interface EngineAccess {
 
   /**
    * Read the resolved inbox settings for a channel key, or `undefined` when the
-   * channel has no inbox. `receipts()` uses this to settle inbox rows with the
+   * channel has no inbox. `readReceipts()` uses this to settle inbox rows with the
    * right delete/keep lifecycle when `__seen__` advances the received mark.
    *
    * @internal

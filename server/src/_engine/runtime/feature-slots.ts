@@ -233,12 +233,14 @@ export interface ChannelContext {
 export interface ResolvedInboxOptions {
   afterDelivered: 'delete' | 'keep';
   retention?: { maxAgeMs?: number; maxMessages?: number };
+  /** Member cap for the delivered `__receipt__` tick. Defaults to 256. */
+  broadcastUpTo: number;
 }
 
-/** Receipts settings resolved for one channel, stored on the engine core. */
-export interface ResolvedReceiptsOptions {
-  seen: boolean;
-  broadcastUpTo?: number;
+/** Read-receipts settings resolved for one channel, stored on the engine core. */
+export interface ResolvedReadReceiptsOptions {
+  /** Member cap for the read `__receipt__` tick. Defaults to 256. */
+  broadcastUpTo: number;
 }
 
 /**
@@ -249,8 +251,9 @@ export interface ResolvedReceiptsOptions {
  */
 export interface InboxService {
   /**
-   * Write a per-member copy for every durable member of the channel and return
-   * the one seq/messageId stamped, so the caller pins the live broadcast to it.
+   * Write a per-member copy for every durable member of the channel, keyed on
+   * the `seq`/`messageId` the broadcast already stamped so each row matches the
+   * live frame the member also receives.
    */
   fanOut(
     core: any,
@@ -259,8 +262,10 @@ export interface InboxService {
       channelFamily: string | null;
       event: string;
       payload: Record<string, unknown>;
+      seq: number;
+      messageId: string;
     },
-  ): { seq: number; messageId: string } | undefined;
+  ): void;
   /** Re-deliver an identity's owed rows after its socket reconnects. */
   drainOnReconnect(core: any, connection: RuntimeConnection): void;
   /** Drop an identity's rows for a channel it has just left. */

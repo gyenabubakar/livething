@@ -213,6 +213,9 @@ export function createEngineAccess(
     registerInboxChannel: (channelKey, options) => {
       core.inboxChannels.set(channelKey, options);
     },
+    registerReadReceiptsChannel: (channelKey) => {
+      core.readReceiptsChannels.add(channelKey);
+    },
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
         throw new Error(

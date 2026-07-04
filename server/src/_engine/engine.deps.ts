@@ -174,6 +174,8 @@ function buildMemberRuntime(core: EngineCore) {
           channelFamily: string | null;
           event: string;
           payload: Record<string, unknown>;
+          seq: number;
+          messageId: string;
         }) => core.inboxService?.fanOut(core, opts)
       : undefined,
   };
@@ -258,6 +260,9 @@ function buildChannelRuntime(core: EngineCore) {
 
     isInboxChannel: (channelName: string, channelFamily: string | null) =>
       core.inboxChannels.has(channelFamily ?? channelName),
+
+    isReadReceiptsChannel: (channelName: string, channelFamily: string | null) =>
+      core.readReceiptsChannels.has(channelFamily ?? channelName),
 
     logger: core.logger,
   };

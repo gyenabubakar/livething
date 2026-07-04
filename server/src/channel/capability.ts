@@ -54,8 +54,8 @@ export interface ChannelDeps {
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
   /** Inbox builder, present only when `inbox()` is listed. */
   readonly buildInbox?: (inboxConfig: unknown) => Primitive;
-  /** Receipts builder, present only when `receipts()` is listed. */
-  readonly buildReceipts?: (receiptsConfig: unknown) => Primitive;
+  /** Read-receipts builder, present only when `readReceipts()` is listed. */
+  readonly buildReadReceipts?: (readReceiptsConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
   readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
   /**
@@ -150,15 +150,15 @@ export class ChannelBuilder {
       }
       this.children.push(build(cfg.inbox));
     }
-    if (cfg.receipts !== undefined && cfg.receipts !== false) {
-      const build = deps.buildReceipts;
+    if (cfg.readReceipts !== undefined && cfg.readReceipts !== false) {
+      const build = deps.buildReadReceipts;
       if (!build) {
         throw new Error(
-          `[wskit] channel '${this.__key}' sets receipts but the receipts() capability is not ` +
-            'listed. Add receipts() to capabilities.',
+          `[wskit] channel '${this.__key}' sets readReceipts but the readReceipts() capability is ` +
+            'not listed. Add readReceipts() to capabilities.',
         );
       }
-      this.children.push(build(cfg.receipts));
+      this.children.push(build(cfg.readReceipts));
     }
     if (cfg.check) {
       this.children.push(

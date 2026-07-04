@@ -291,6 +291,12 @@ interface ChannelRuntime extends ChannelHooks {
    * is off.
    */
   isInboxChannel?(channelName: string, channelFamily: string | null): boolean;
+
+  /**
+   * Whether this channel opted into read receipts. Stamped onto `__subscribeOk__`
+   * so the client exposes `markSeen`/`seenBy` only where they work.
+   */
+  isReadReceiptsChannel?(channelName: string, channelFamily: string | null): boolean;
 }
 
 interface ChannelTarget {
@@ -583,6 +589,9 @@ async function runSubscribeFlow(
   };
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.inbox = true;
+  }
+  if (runtime.isReadReceiptsChannel?.(scope.channelName, scope.channelFamily)) {
+    confirmation.readReceipts = true;
   }
   runtime.sendProtocolMessage(connection, {
     event: '__subscribeOk__',

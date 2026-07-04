@@ -191,6 +191,7 @@ export const SubscribeOkFrame = v.object({
     source: Source,
     channelPersistent: v.optional(v.boolean()),
     inbox: v.optional(v.boolean()),
+    readReceipts: v.optional(v.boolean()),
   }),
 });
 

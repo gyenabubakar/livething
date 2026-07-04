@@ -1,14 +1,21 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { inbox as inboxFactory } from '~/inbox/inbox.ts';
-import { receipts as receiptsFactory } from '~/inbox/receipts.ts';
+import { readReceipts as readReceiptsFactory } from '~/inbox/read-receipts.ts';
+import { DEFAULT_RECEIPT_BROADCAST_UP_TO } from '~/inbox/types.ts';
 import type { HostCapability } from '~/_define/capability.ts';
-import type { InboxConfig, InboxOptions, ReceiptsConfig, ReceiptsOptions } from '~/inbox/types.ts';
+import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slots.ts';
+import type {
+  InboxConfig,
+  InboxOptions,
+  ReadReceiptsConfig,
+  ReadReceiptsOptions,
+} from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
 export type {
   InboxOptions,
-  ReceiptsOptions,
+  ReadReceiptsOptions,
   AfterDelivered,
   InboxRetention,
 } from '~/inbox/types.ts';
@@ -46,24 +53,32 @@ export const inbox = withCapabilityKind(function inbox(): HostCapability<{}, nev
 }, CAPABILITY_KIND.inbox);
 
 /**
- * Enable delivered + seen acknowledgements on inbox channels. When on, a
- * member's `__received__` advances a `received_through` cursor, and (with
- * `seen: true`) `room.markSeen(seq)` advances `seen_through`. Both are broadcast
- * to the channel as `__receipt__` frames while the channel is within
- * `broadcastUpTo`, and are always queryable via `ctx.channel.receipts`.
+ * Enable read receipts (the blue check) on inbox channels. When a channel opts
+ * in with `readReceipts: true`, `room.markSeen(seq)` advances a `seen_through`
+ * cursor, broadcasts a read `__receipt__` while the channel is within
+ * `broadcastUpTo` (default 256), and answers `ctx.channel.readReceipts.seenBy`.
+ * Delivered acknowledgement (the double-grey check) comes with `inbox()` on its
+ * own and needs no opt-in.
  *
  * Requires `inbox()` (and its `sequence`/`persistence`); the build fails without it.
  *
  * @example
  * ```ts
- * capabilities: [channels(), persistence(), sequence({ persist: true }), dedup(), inbox(), receipts()];
+ * capabilities: [
+ *   channels(),
+ *   persistence(),
+ *   sequence({ persist: true }),
+ *   dedup(),
+ *   inbox(),
+ *   readReceipts(),
+ * ];
  * ```
  */
-export const receipts = withCapabilityKind(function receipts(): HostCapability<{}, never> {
+export const readReceipts = withCapabilityKind(function readReceipts(): HostCapability<{}, never> {
   const cap = hostCapability<{}, never>([]);
-  attachReceiptsBuilder(cap);
-  return stampKind(cap, CAPABILITY_KIND.receipts);
-}, CAPABILITY_KIND.receipts);
+  attachReadReceiptsBuilder(cap);
+  return stampKind(cap, CAPABILITY_KIND.readReceipts);
+}, CAPABILITY_KIND.readReceipts);
 
 function normalizeInbox(config: InboxConfig): InboxOptions {
   return config === true ? {} : (config as InboxOptions);
@@ -74,11 +89,13 @@ function attachInboxBuilder(cap: HostCapability<{}, never>): void {
     inboxFactory(normalizeInbox(config as InboxConfig));
 }
 
-function normalizeReceipts(config: ReceiptsConfig): ReceiptsOptions {
-  return config === true ? {} : (config as ReceiptsOptions);
+function resolveReadReceipts(config: ReadReceiptsConfig): ResolvedReadReceiptsOptions {
+  const options: ReadReceiptsOptions = config === true || config === false ? {} : config;
+  return { broadcastUpTo: options.broadcastUpTo ?? DEFAULT_RECEIPT_BROADCAST_UP_TO };
 }
 
-function attachReceiptsBuilder(cap: HostCapability<{}, never>): void {
-  (cap as { __buildReceipts?: (config: unknown) => Primitive }).__buildReceipts = (config) =>
-    receiptsFactory(normalizeReceipts(config as ReceiptsConfig));
+function attachReadReceiptsBuilder(cap: HostCapability<{}, never>): void {
+  (cap as { __buildReadReceipts?: (config: unknown) => Primitive }).__buildReadReceipts = (
+    config,
+  ) => readReceiptsFactory(resolveReadReceipts(config as ReadReceiptsConfig));
 }

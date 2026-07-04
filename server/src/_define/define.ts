@@ -28,7 +28,7 @@ import type {
   TaskContext,
 } from '~/context.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import type { InboxConfig, ReceiptsConfig } from '~/inbox/types.ts';
+import type { InboxConfig, ReadReceiptsConfig } from '~/inbox/types.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame, OutgoingFrame } from '~/intercept/intercept.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
@@ -701,10 +701,11 @@ export type ChannelConfig<
    */
   readonly inbox?: InboxConfig;
   /**
-   * Delivered + seen acknowledgements on an inbox channel. `true` tracks
-   * `received`; `{ seen: true }` adds a seen cursor. Requires `receipts()`.
+   * Read receipts (the blue check) on an inbox channel. `true` uses the default
+   * broadcast cap; `{ broadcastUpTo }` tunes it. Requires `readReceipts()`.
+   * Delivered acknowledgement comes with `inbox` and needs no opt-in.
    */
-  readonly receipts?: ReceiptsConfig;
+  readonly readReceipts?: ReadReceiptsConfig;
 } & ChannelRateLimitField<TCaps>;
 
 /**
@@ -718,21 +719,25 @@ export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = Chan
 
 /**
  * The client-visible capability flags a channel's config turns on. Merged into
- * the channel's contract slice so `InferClient` can gate `markSeen`/`onReceipt`/
- * `receipts` to only the channels that enabled them. `TInbox`/`TReceipts` are the
- * raw config values inferred at the `channel(...)` call; a truthy one lands the
- * flag, `false`/absent lands nothing.
+ * the channel's contract slice so `InferClient` gates `receivedBy` to inbox
+ * channels and `markSeen`/`seenBy` to channels with `readReceipts`. `TInbox`/
+ * `TReadReceipts` are the raw config values inferred at the `channel(...)` call;
+ * a truthy one lands the flag, `false`/absent lands nothing.
  */
-type ChannelCapabilityFlags<TInbox, TReceipts> = (TInbox extends false
+type ChannelCapabilityFlags<TInbox, TReadReceipts> = (TInbox extends false
   ? {}
   : [TInbox] extends [undefined]
     ? {}
     : { inbox: true }) &
-  (TReceipts extends false ? {} : [TReceipts] extends [undefined] ? {} : { receipts: true });
+  (TReadReceipts extends false
+    ? {}
+    : [TReadReceipts] extends [undefined]
+      ? {}
+      : { readReceipts: true });
 
 /** Intersect a channel's capability flags onto its contract slice. */
-type ChannelFlagsContribution<TKey extends string, TInbox, TReceipts> = Contribution<{
-  channels: { [K in TKey]: ChannelCapabilityFlags<TInbox, TReceipts> };
+type ChannelFlagsContribution<TKey extends string, TInbox, TReadReceipts> = Contribution<{
+  channels: { [K in TKey]: ChannelCapabilityFlags<TInbox, TReadReceipts> };
 }>;
 
 /** The channel's own contract slice — declared from its config and pattern. */
@@ -1274,7 +1279,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
     const TInbox extends InboxConfig | undefined = undefined,
-    const TReceipts extends ReceiptsConfig | undefined = undefined,
+    const TReadReceipts extends ReadReceiptsConfig | undefined = undefined,
   >(
     name: TName,
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
@@ -1283,7 +1288,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
         readonly requests?: TRequests;
       };
       readonly inbox?: TInbox;
-      readonly receipts?: TReceipts;
+      readonly readReceipts?: TReadReceipts;
     },
   ): ChannelObject<
     TSlots,
@@ -1297,7 +1302,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TCaps,
     ServerRequestMap<TRequests>
   > &
-    ChannelFlagsContribution<TName, TInbox, TReceipts>;
+    ChannelFlagsContribution<TName, TInbox, TReadReceipts>;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
@@ -1307,7 +1312,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
     const TInbox extends InboxConfig | undefined = undefined,
-    const TReceipts extends ReceiptsConfig | undefined = undefined,
+    const TReadReceipts extends ReadReceiptsConfig | undefined = undefined,
   >(
     pattern: readonly [TFamily, TPattern],
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
@@ -1316,7 +1321,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
         readonly requests?: TRequests;
       };
       readonly inbox?: TInbox;
-      readonly receipts?: TReceipts;
+      readonly readReceipts?: TReadReceipts;
     },
   ): ChannelObject<
     TSlots,
@@ -1330,7 +1335,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TCaps,
     ServerRequestMap<TRequests>
   > &
-    ChannelFlagsContribution<TFamily, TInbox, TReceipts>;
+    ChannelFlagsContribution<TFamily, TInbox, TReadReceipts>;
 }
 
 /** Builder method granted by the `replay.custom()` capability. */
@@ -1752,7 +1757,7 @@ export function define(config: any): Base<any, any, any, any> {
       let buildCustomReplay: unknown;
       let buildBuiltinReplay: unknown;
       let buildInbox: unknown;
-      let buildReceipts: unknown;
+      let buildReadReceipts: unknown;
       let buildRequest: unknown;
       let registerServerRequests: unknown;
       for (const cap of config.capabilities ?? []) {
@@ -1769,8 +1774,8 @@ export function define(config: any): Base<any, any, any, any> {
         if (builtinReplay) buildBuiltinReplay = builtinReplay;
         const inbox = (cap as { __buildInbox?: unknown }).__buildInbox;
         if (inbox) buildInbox = inbox;
-        const receipts = (cap as { __buildReceipts?: unknown }).__buildReceipts;
-        if (receipts) buildReceipts = receipts;
+        const readReceipts = (cap as { __buildReadReceipts?: unknown }).__buildReadReceipts;
+        if (readReceipts) buildReadReceipts = readReceipts;
         const request = (cap as { __buildRequest?: unknown }).__buildRequest;
         if (request) buildRequest = request;
         const registerSR = (cap as { __registerServerRequests?: unknown }).__registerServerRequests;
@@ -1786,7 +1791,7 @@ export function define(config: any): Base<any, any, any, any> {
         buildCustomReplay,
         buildBuiltinReplay,
         buildInbox,
-        buildReceipts,
+        buildReadReceipts,
         buildRequest,
         registerServerRequests,
       });

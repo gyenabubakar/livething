@@ -1,9 +1,16 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
+import { broadcastReceipt } from '~/inbox/read-receipts.ts';
+import {
+  advanceReceivedThrough,
+  ensureReceiptsSchema,
+  listReceivedBy,
+} from '~/inbox/receipts-storage.ts';
 import { applyInboxAck, backfillInbox } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
+import { DEFAULT_RECEIPT_BROADCAST_UP_TO } from '~/inbox/types.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
@@ -35,7 +42,10 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
       "[wskit] inbox `afterDelivered: 'keep'` requires `retention` so kept rows can age out.",
     );
   }
-  return config.retention ? { afterDelivered, retention: config.retention } : { afterDelivered };
+  const broadcastUpTo = config.broadcastUpTo ?? DEFAULT_RECEIPT_BROADCAST_UP_TO;
+  return config.retention
+    ? { afterDelivered, retention: config.retention, broadcastUpTo }
+    : { afterDelivered, broadcastUpTo };
 }
 
 /**
@@ -79,6 +89,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
 
       engine.onBootSchema(() => {
         ensureInboxSchema(engine.requireStorage().sql);
+        ensureReceiptsSchema(engine.requireStorage().sql);
       });
 
       engine.extendContext(buildInboxContext(engine, channelKey));
@@ -119,6 +130,9 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
           frames,
         });
       },
+      receivedBy(seq: number): string[] {
+        return listReceivedBy(engine.requireStorage().sql, { channelName, channelFamily, seq });
+      },
     };
     return {};
   };
@@ -146,10 +160,25 @@ function buildReceivedHandler(deps: {
         receivedThrough: frame.payload.receivedThrough,
         afterDelivered: options.afterDelivered,
       });
+
+      const cursors = advanceReceivedThrough(engine.requireStorage().sql, {
+        channelName,
+        channelFamily,
+        identity,
+        receivedThrough: frame.payload.receivedThrough,
+        now: Date.now(),
+      });
+      if (cursors.changed) {
+        broadcastReceipt(engine, options.broadcastUpTo, {
+          channelName,
+          channelFamily,
+          identity,
+          receivedThrough: cursors.receivedThrough,
+        });
+      }
     }
 
-    // Not consumed: receipts (if listed) also observes `__received__` to advance
-    // its cursor. Acks carry no reply, so an unconsumed frame is harmless.
+    // Return false so read-receipts (if listed) can also observe this ack.
     return false;
   };
 }
