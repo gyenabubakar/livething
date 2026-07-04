@@ -3,7 +3,7 @@ import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
-import { isReservedEventName } from '~/internal/wire-validation.ts';
+import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
@@ -763,6 +763,10 @@ export class WSKitSocket {
         }
       }
     }
+
+    // An unclaimed reserved protocol frame is engine bookkeeping, not user traffic — drop it
+    // rather than leak to a `.on()` handler. Plugin-namespaced `__id::event` frames pass through.
+    if (isProtocolFrameEvent(message.event)) return;
 
     // Top-level handlers only see top-level events. Messages tagged with a
     // channel or stream id are delivered by the matching add-on module, so they

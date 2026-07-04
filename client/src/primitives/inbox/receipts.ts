@@ -87,6 +87,18 @@ export function receipts(options: ReceiptsOptions = {}): Primitive<ReceiptsTypeF
           if (channel === undefined) return message;
           const key = channelKey(message.__wskit?.channelFamily, channel);
 
+          if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
+            // A later rejoin to the same channel key starts fresh — a bare
+            // markSeen() must not target the pre-leave high-water mark.
+            const state = channels.get(key);
+            if (state) {
+              state.ownReceived = 0;
+              state.byIdentity.clear();
+              state.store.set(new Map());
+            }
+            return message;
+          }
+
           if (message.event === '__receiptQuery__') {
             const correlationId = message.__wskit?.correlationId;
             const waiter = correlationId ? pendingQueries.get(correlationId) : undefined;

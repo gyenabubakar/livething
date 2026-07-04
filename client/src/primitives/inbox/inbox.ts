@@ -64,7 +64,10 @@ export function inbox(): Primitive<InboxTypeFn> {
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
             inboxScopes.delete(key);
             marks.delete(key);
-            return null;
+            // Forward so receipts() (after inbox) can reset its own per-channel
+            // high-water mark on leave; the socket drops this protocol frame
+            // before any user handler.
+            return message;
           }
 
           // Stream chunks carry a per-stream seq unrelated to inbox ordering.
