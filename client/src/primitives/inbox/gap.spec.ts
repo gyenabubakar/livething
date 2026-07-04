@@ -1,0 +1,103 @@
+import { client } from '~/client.ts';
+import { connect } from '~/connect.ts';
+import { channels } from '~/primitives/channels/index.ts';
+import { dedup } from '~/primitives/dedup.ts';
+import { inbox } from '~/primitives/inbox/inbox.ts';
+import { replay } from '~/primitives/replay.ts';
+import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GapInfo } from '~/types.ts';
+
+interface C {
+  channels: {
+    room: {
+      incoming: { msg: { text: string } };
+      outgoing: { chat: { text: string } };
+    };
+  };
+}
+
+let restore: () => void;
+beforeEach(() => {
+  restore = installMockWebSocket();
+});
+afterEach(() => {
+  restore();
+  vi.useRealTimers();
+});
+
+describe('protocol frame leak guard (no replay)', () => {
+  it('does not deliver a top-level __gap__ to a user socket.on() handler', () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const onMessage = vi.fn();
+    // A user could subscribe to the reserved name; the frame must still be dropped.
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__gap__', onMessage);
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 5 }, __wskit: {} });
+
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('inbox overflow gap surfacing', () => {
+  it('routes a channel-scoped overflow __gap__ to channel.onGap when replay() is installed', () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const roomGap: GapInfo[] = [];
+    const socketGap: GapInfo[] = [];
+    socket.channel('room').onGap((info) => roomGap.push(info));
+    socket.onGap((info) => socketGap.push(info));
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+
+    expect(roomGap).toEqual([{ missedThrough: 7, channel: 'room' }]);
+    expect(socketGap).toEqual([]);
+  });
+
+  it('routes a family-channel overflow __gap__ to that channel handle keyed by family + name', () => {
+    interface FamilyC {
+      channels: {
+        rooms: {
+          addressing: 'dynamic';
+          incoming: { msg: { text: string } };
+          outgoing: { chat: { text: string } };
+        };
+      };
+    }
+    const socket = client<FamilyC>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const roomGap: GapInfo[] = [];
+    socket.channel('rooms', 'room-1').onGap((info) => roomGap.push(info));
+
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 9 },
+      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+    });
+
+    expect(roomGap).toEqual([{ missedThrough: 9, channel: 'room-1', channelFamily: 'rooms' }]);
+  });
+
+  it('drops a channel-scoped overflow __gap__ on an inbox-only client without replay() (D1 current behavior)', () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const onMessage = vi.fn();
+    socket.channel('room').on('__gap__' as never, onMessage);
+
+    // Without replay() nothing consumes __gap__; the channel primitive keeps it
+    // channel-scoped (never a top-level dispatch) and no onGap handler exists,
+    // so it is silently dropped. Pinned so a D1 fix must consciously change it.
+    ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
+
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+});

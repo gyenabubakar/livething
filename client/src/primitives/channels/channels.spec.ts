@@ -1050,3 +1050,69 @@ describe('plugin-channel namespace delivery (A3)', () => {
     expect(joined).not.toHaveBeenCalled();
   });
 });
+
+describe('protocol frame forwarding stays channel-scoped', () => {
+  it('settles subscribe state yet never delivers __subscribeOk__ to a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    // A user could register the reserved name; it must never fire.
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__subscribeOk__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', inbox: true },
+    });
+    await expect(p).resolves.toBeUndefined();
+    expect(topLevel).not.toHaveBeenCalled();
+  });
+
+  it('settles a leave on __unsubscribeOk__ without reaching a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__unsubscribeOk__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await p;
+
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId },
+    });
+    await expect(leave).resolves.toBeUndefined();
+    expect(topLevel).not.toHaveBeenCalled();
+  });
+
+  it('fires onKicked on __kicked__ without reaching a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__kicked__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await p;
+    const onKicked = vi.fn();
+    room.onKicked(onKicked);
+
+    ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });
+
+    expect(onKicked).toHaveBeenCalledWith('spam');
+    expect(topLevel).not.toHaveBeenCalled();
+  });
+});

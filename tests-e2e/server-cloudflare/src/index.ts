@@ -51,6 +51,9 @@ export { ChannelCheckCommitServer } from './channel-check-commit.ts';
 export { CtxLocalsServer } from './ctx-locals.ts';
 export { MultiStateServer } from './multi-state.ts';
 export { DurableConfigServer } from './durable-config.ts';
+export { InboxServer } from './inbox.ts';
+export { ReceiptsServer } from './receipts.ts';
+export { InboxGapServer } from './inbox-gap.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -100,6 +103,9 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-locals': 'CTX_LOCALS_SERVER',
   '/ws/multi-state': 'MULTI_STATE_SERVER',
   '/ws/durable-config': 'DURABLE_CONFIG_SERVER',
+  '/ws/inbox': 'INBOX_SERVER',
+  '/ws/receipts': 'RECEIPTS_SERVER',
+  '/ws/inbox-gap': 'INBOX_GAP_SERVER',
 };
 
 export default {

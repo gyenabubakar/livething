@@ -68,6 +68,9 @@
       { "name": "CTX_LOCALS_SERVER", "class_name": "CtxLocalsServer" },
       { "name": "MULTI_STATE_SERVER", "class_name": "MultiStateServer" },
       { "name": "DURABLE_CONFIG_SERVER", "class_name": "DurableConfigServer" },
+      { "name": "INBOX_SERVER", "class_name": "InboxServer" },
+      { "name": "RECEIPTS_SERVER", "class_name": "ReceiptsServer" },
+      { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
     ],
   },
   "observability": {
@@ -159,6 +162,10 @@
     {
       "tag": "v10",
       "new_sqlite_classes": ["ReplayGapServer"],
+    },
+    {
+      "tag": "v11",
+      "new_sqlite_classes": ["InboxServer", "ReceiptsServer", "InboxGapServer"],
     },
   ],
 }

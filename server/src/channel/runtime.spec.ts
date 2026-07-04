@@ -968,6 +968,54 @@ describe('channel runtime', () => {
   });
 });
 
+describe('__subscribeOk__ inbox flag', () => {
+  function subscribeOkFrame(protocol: { event: string; wskit: Record<string, unknown> }[]) {
+    return protocol.find((frame) => frame.event === '__subscribeOk__');
+  }
+
+  it('stamps inbox:true on the client-subscribe confirmation for an inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, isInboxChannel: () => true }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+  });
+
+  it('stamps inbox:true on the server-rejoin confirmation for an inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer({ ...runtime, isInboxChannel: () => true }, target, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      payload: {},
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+  });
+
+  it('omits the inbox flag for a non-inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, isInboxChannel: () => false }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).not.toHaveProperty('inbox');
+  });
+});
+
 describe('subscribeConnectionAsServer', () => {
   it('runs the gate, commits, and sends _subscribeOk with source server', async () => {
     const { protocol, broadcasts, connections, runtime } = createRuntime();

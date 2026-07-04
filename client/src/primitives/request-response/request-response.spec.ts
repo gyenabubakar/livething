@@ -5,6 +5,7 @@ import { buffering } from '~/primitives/buffering/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive } from '~/primitives/types.ts';
 
 interface C {
   requests: {
@@ -213,5 +214,81 @@ describe('requestResponse', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('requestResponse — unmatched-correlationId passthrough', () => {
+  function buildWithSpy() {
+    const seen: string[] = [];
+    const spy = {
+      _tag: 'incoming-spy',
+      dependencies: ['requestResponse'],
+      setup() {
+        return {
+          id: 'incoming-spy',
+          onIncoming(message: { event: string }) {
+            seen.push(message.event);
+            return message;
+          },
+        };
+      },
+    };
+    const socket = client<C>()(
+      connect('wss://test'),
+      requestResponse(),
+      spy as unknown as Primitive,
+    );
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    return { socket, ws, seen };
+  }
+
+  it('forwards a protocol frame with an unknown correlationId so another primitive can claim it', () => {
+    const { ws, seen } = buildWithSpy();
+
+    ws.emit({
+      event: '__receiptQuery__',
+      payload: { identities: ['alice'] },
+      __wskit: { correlationId: 'never-sent' },
+    });
+
+    expect(seen).toEqual(['__receiptQuery__']);
+  });
+
+  it('drops a stale __error__ with an unknown correlationId instead of forwarding it', () => {
+    const { ws, seen } = buildWithSpy();
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'forbidden' },
+      __wskit: { correlationId: 'stale' },
+    });
+
+    expect(seen).toEqual([]);
+  });
+
+  it('drops a user-event reply with an unknown correlationId', () => {
+    const { ws, seen } = buildWithSpy();
+
+    ws.emit({
+      event: 'get-balance',
+      payload: { balance: 1 },
+      __wskit: { correlationId: 'orphan' },
+    });
+
+    expect(seen).toEqual([]);
+  });
+
+  it('forwards a server-source frame untouched for the serverRequest primitive', () => {
+    const { ws, seen } = buildWithSpy();
+
+    ws.emit({
+      event: 'server-ask',
+      payload: {},
+      __wskit: { correlationId: 'srv-1', source: 'server' },
+    });
+
+    expect(seen).toEqual(['server-ask']);
   });
 });
