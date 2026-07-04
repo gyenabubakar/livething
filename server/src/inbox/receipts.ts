@@ -121,6 +121,8 @@ function buildReceivedHandler(deps: ReceiptsHandlerDeps) {
 
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
+    if (!isMember(ctx, channelName, channelFamily)) return false;
+
     const cursors = advanceReceivedThrough(engine.requireStorage().sql, {
       channelName,
       channelFamily,
@@ -156,6 +158,8 @@ function buildSeenHandler(deps: ReceiptsHandlerDeps) {
 
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
+    if (!isMember(ctx, channelName, channelFamily)) return true;
+
     const cursors = advanceSeenThrough(engine.requireStorage().sql, {
       channelName,
       channelFamily,
@@ -284,6 +288,18 @@ function advanceInboxOnSeen(
 
 function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: string): boolean {
   return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
+}
+
+/**
+ * A `__received__`/`__seen__` ack may advance cursors and force a `__receipt__`
+ * broadcast, so — like `__receiptQuery__` — it must come from a current member.
+ * A socket that has left or been kicked but still holds the connection is dropped.
+ */
+function isMember(ctx: unknown, channelName: string, channelFamily: string | null): boolean {
+  const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
+    ENGINE_INTERNAL_CONNECTION
+  ];
+  return !!connection && hasChannelMembership(connection, channelName, channelFamily);
 }
 
 /** Symbol identity for dependency declarations. */

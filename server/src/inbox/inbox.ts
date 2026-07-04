@@ -1,5 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { ENGINE_CHANNEL_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { hasChannelMembership } from '~/channel/runtime.ts';
 import { applyInboxAck, backfillInbox } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
@@ -7,6 +8,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
 import type { InboxOptions } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -134,11 +136,13 @@ function buildReceivedHandler(deps: {
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
     const identity = (ctx as { identity?: string }).identity ?? '';
-    if (identity) {
+    const channelName = frame.__wskit.channel;
+    const channelFamily = frame.__wskit.channelFamily ?? null;
+    if (identity && isMember(ctx, channelName, channelFamily)) {
       applyInboxAck(engine.requireStorage().sql, {
         identity,
-        channelName: frame.__wskit.channel,
-        channelFamily: frame.__wskit.channelFamily ?? null,
+        channelName,
+        channelFamily,
         receivedThrough: frame.payload.receivedThrough,
         afterDelivered: options.afterDelivered,
       });
@@ -152,6 +156,14 @@ function buildReceivedHandler(deps: {
 
 function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: string): boolean {
   return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
+}
+
+/** True when the acking socket is still a current member of the channel. */
+function isMember(ctx: unknown, channelName: string, channelFamily: string | null): boolean {
+  const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
+    ENGINE_INTERNAL_CONNECTION
+  ];
+  return !!connection && hasChannelMembership(connection, channelName, channelFamily);
 }
 
 function assertRecord(value: unknown): Record<string, unknown> {

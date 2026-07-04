@@ -440,3 +440,22 @@ export function loadInboxWatermarks(
 export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
   sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE identity = ?`, identity);
 }
+
+/**
+ * Drop a member's overflow watermark for one channel. Used when they leave it, so
+ * a later reconnect does not emit a gap for a channel they are no longer in.
+ */
+export function deleteInboxWatermarkForChannel(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { identity: string; channelName: string; channelFamily: string | null },
+): void {
+  sql.exec(
+    `
+      DELETE FROM __wskit_inbox_watermark
+      WHERE identity = ? AND channel_name = ? AND channel_family = ?
+    `,
+    params.identity,
+    params.channelName,
+    familyToDb(params.channelFamily),
+  );
+}

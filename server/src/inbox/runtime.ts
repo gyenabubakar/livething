@@ -4,6 +4,7 @@ import {
   bumpInboxWatermark,
   clearInboxWatermarks,
   deleteInboxRowsForChannel,
+  deleteInboxWatermarkForChannel,
   insertInboxRows,
   insertInboxRowsForIdentity,
   loadInboxWatermarks,
@@ -163,6 +164,7 @@ export function clearInboxForChannel(
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
   const { sql } = core.requireStorage();
   deleteInboxRowsForChannel(sql, key);
+  deleteInboxWatermarkForChannel(sql, key);
 }
 
 /**

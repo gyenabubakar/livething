@@ -251,6 +251,13 @@ interface PreparedBroadcast {
    * `sendPrepared` skips the per-recipient stamp + serialize.
    */
   sharedFrame?: string;
+
+  /**
+   * The `seq`/`messageId` are pinned by an inbox fan-out, so the per-recipient
+   * stampers must not run — they are already fixed, and the sequence stamper
+   * would otherwise burn the durable counter once per recipient.
+   */
+  pinnedWSKit: boolean;
 }
 
 type BroadcastRuntime = Pick<
@@ -324,6 +331,7 @@ function prepareBroadcast(
     finalPayload,
     baseWSKit,
     needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
+    pinnedWSKit: fixedWSKit !== undefined,
     sharedFrame: sharedWSKit
       ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`
       : undefined,
@@ -359,7 +367,7 @@ function sendPrepared(
   }
 
   const wskit = { ...prepared.baseWSKit };
-  applyWSKitStampers(runtime.wskitStampHooks, prepared.event, wskit);
+  if (!prepared.pinnedWSKit) applyWSKitStampers(runtime.wskitStampHooks, prepared.event, wskit);
 
   // The wire message only feeds before/after-send hooks — skip the
   // per-recipient allocation when no such hooks are registered.
