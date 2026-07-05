@@ -152,15 +152,13 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     // Kofi and Ama never send a message; without eager restore their membership
     // would be missing and the broadcast would skip them.
-    await engine
-      .handleHibernationWake(yaw.ws)
-      .handleMessage(
-        JSON.stringify({
-          event: 'shout',
-          payload: { text: 'akwaaba' },
-          __wskit: { channel: 'room' },
-        }),
-      );
+    await engine.handleHibernationWake(yaw.ws).handleMessage(
+      JSON.stringify({
+        event: 'shout',
+        payload: { text: 'akwaaba' },
+        __wskit: { channel: 'room' },
+      }),
+    );
 
     function received(s: { frames: string[] }) {
       return s.frames.map((f) => JSON.parse(f)).find((m) => m.event === 'room-message');

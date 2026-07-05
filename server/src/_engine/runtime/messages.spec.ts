@@ -996,6 +996,76 @@ describe('message runtime', () => {
     expect(routing).toEqual({ channel: 'admin', channelFamily: 'rooms' });
   });
 
+  it('routes an unexpected throw from deep in dispatch to handleRuntimeError instead of letting it escape', async () => {
+    // A throw from an unguarded dispatch step (here the nudge buffer) must not
+    // leak out of processTextMessage as a rejected promise — the adapter drops
+    // that silently, so the client gets no signal and onError never runs. The
+    // outer safety net routes it through handleRuntimeError so onError fires and
+    // the client gets an internal-error frame.
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const boom = new Error('unexpected internal failure');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      answerFrameHooks: [],
+      errorHooks: [],
+      activityHooks: [],
+      incomingDedupCap: 0,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      streamNudgeBuffer() {
+        throw boom;
+      },
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await expect(
+      processTextMessage(
+        runtime as unknown as Parameters<typeof processTextMessage>[0],
+        connection,
+        JSON.stringify({ event: 'stop', payload: {}, __wskit: { streamId: 's1' } }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, { error, event }] = handleRuntimeError.mock.calls[0] as [
+      unknown,
+      SendRuntimeErrorOptions,
+    ];
+    expect(error).toBe(boom);
+    expect(event).toBe('stop');
+  });
+
   it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
     // A non-string `channel` fails the protocol-frame schema parse, so the
     // frame settles as a ValidationFailed routed through handleRuntimeError
