@@ -118,8 +118,19 @@ describe('inbox __received__ handler', () => {
 });
 
 describe('inbox delivered acknowledgement (the double-grey check)', () => {
-  it('advances the received cursor and fans out __received__', () => {
-    const { handlers, broadcasts } = harness();
+  it('does not fan out the delivered tick by default, but still records the cursor', () => {
+    const { sql, handlers, broadcasts } = harness();
+
+    handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
+
+    expect(broadcasts).toEqual([]);
+    expect(listReceivers(sql, { channelName: 'room', channelFamily: null, seq: 5 })).toEqual([
+      'alice',
+    ]);
+  });
+
+  it('fans out __received__ when broadcastReceipts is on', () => {
+    const { handlers, broadcasts } = harness({ broadcastReceipts: true });
 
     handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
 
@@ -129,7 +140,7 @@ describe('inbox delivered acknowledgement (the double-grey check)', () => {
   });
 
   it('fans out the delivered tick only when the cursor advances', () => {
-    const { handlers, broadcasts } = harness();
+    const { handlers, broadcasts } = harness({ broadcastReceipts: true });
     const ctx = ctxFor('alice', member());
 
     handlers.get('__received__')!(ctx, receivedFrame(5));
@@ -139,7 +150,7 @@ describe('inbox delivered acknowledgement (the double-grey check)', () => {
   });
 
   it('suppresses the delivered tick above the 256-member cap but keeps the cursor', () => {
-    const { handlers, broadcasts } = harness({}, { memberCount: 300 });
+    const { handlers, broadcasts } = harness({ broadcastReceipts: true }, { memberCount: 300 });
 
     handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
 

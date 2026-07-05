@@ -792,7 +792,7 @@ export interface EngineAccess {
 
   /**
    * Count the live members currently in a channel. Used to suppress the
-   * delivered/read receipt fan-out above `broadcastUpTo`.
+   * delivered/read receipt fan-out above `maxReceiptAudience`.
    *
    * @internal
    */

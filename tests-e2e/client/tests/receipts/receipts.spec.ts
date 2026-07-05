@@ -67,7 +67,7 @@ test.describe('receipts (received + read cursors)', () => {
     // The received projection is unchanged.
     await expect(alice.page.getByTestId('receivers-view')).toHaveText('alice=1,bob=1');
 
-    // Bob sees Alice's read fan out too (he is within broadcastUpTo).
+    // Bob sees Alice's read fan out too (he is within maxReceiptAudience).
     await expect(bob.page.getByTestId('readers-view')).toContainText('alice=1');
 
     // Server view now reports Alice (and only Alice) as read past seq 1.

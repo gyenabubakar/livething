@@ -2,7 +2,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { inbox as inboxFactory } from '~/inbox/inbox.ts';
 import { readReceipts as readReceiptsFactory } from '~/inbox/read-receipts.ts';
-import { DEFAULT_RECEIPT_BROADCAST_UP_TO } from '~/inbox/types.ts';
+import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/types.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slots.ts';
 import type {
@@ -16,7 +16,7 @@ import type { Primitive } from '~/primitive.ts';
 export type {
   InboxOptions,
   ReadReceiptsOptions,
-  AfterDelivered,
+  OnDelivered,
   InboxRetention,
 } from '~/inbox/types.ts';
 
@@ -56,7 +56,7 @@ export const inbox = withCapabilityKind(function inbox(): HostCapability<{}, nev
  * Enable read receipts (the blue check) on inbox channels. When a channel opts
  * in with `readReceipts: true`, `room.markAsRead(seq)` advances a `read_through`
  * cursor, broadcasts a `__read__` fan-out while the channel is within
- * `broadcastUpTo` (default 256), and answers `ctx.channel.readReceipts.readersOf`.
+ * `maxReceiptAudience` (default 256), and answers `ctx.channel.readReceipts.readersOf`.
  * Delivered acknowledgement (the double-grey check) comes with `inbox()` on its
  * own and needs no opt-in.
  *
@@ -91,7 +91,7 @@ function attachInboxBuilder(cap: HostCapability<{}, never>): void {
 
 function resolveReadReceipts(config: ReadReceiptsConfig): ResolvedReadReceiptsOptions {
   const options: ReadReceiptsOptions = config === true || config === false ? {} : config;
-  return { broadcastUpTo: options.broadcastUpTo ?? DEFAULT_RECEIPT_BROADCAST_UP_TO };
+  return { maxReceiptAudience: options.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE };
 }
 
 function attachReadReceiptsBuilder(cap: HostCapability<{}, never>): void {

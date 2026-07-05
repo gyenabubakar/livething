@@ -72,15 +72,19 @@ function readFrame(readThrough: number): Protocol.IncomingProtocolFrame {
 
 describe('readReceipts registers only read and read-query handlers', () => {
   it('owns __read__ and __readQuery__ but not __received__', () => {
-    const { handlers } = harness({ broadcastUpTo: 256 });
+    const { handlers } = harness({ maxReceiptAudience: 256 });
     expect([...handlers.keys()].sort()).toEqual(['__readQuery__', '__read__']);
   });
 });
 
 describe('readReceipts __read__ handler', () => {
   it('advances the cursor, fans out __read__, and settles inbox rows up to received_through', () => {
-    const inboxConfig: ResolvedInboxOptions = { afterDelivered: 'delete', broadcastUpTo: 256 };
-    const { sql, handlers, broadcasts } = harness({ broadcastUpTo: 256 }, { inboxConfig });
+    const inboxConfig: ResolvedInboxOptions = {
+      onDelivered: 'delete',
+      broadcastReceipts: true,
+      maxReceiptAudience: 256,
+    };
+    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
     insertInboxRows(sql, {
       identities: ['alice'],
       channelName: 'room',
@@ -105,8 +109,31 @@ describe('readReceipts __read__ handler', () => {
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
   });
 
+  it('settles inbox rows but withholds the __received__ tick when inbox broadcastReceipts is off', () => {
+    const inboxConfig: ResolvedInboxOptions = {
+      onDelivered: 'delete',
+      broadcastReceipts: false,
+      maxReceiptAudience: 256,
+    };
+    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
+    insertInboxRows(sql, {
+      identities: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
+      now: 1,
+    });
+    const ctx = ctxFor('alice', memberConnection('c1', 'room'));
+
+    handlers.get('__read__')!(ctx, readFrame(5));
+
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]).toMatchObject({ event: '__read__' });
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+  });
+
   it('does not fan out __received__ when received was already ahead of the read mark', () => {
-    const { sql, handlers, broadcasts } = harness({ broadcastUpTo: 256 });
+    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
     advanceReceivedThrough(sql, {
       channelName: 'room',
       channelFamily: null,
@@ -126,7 +153,7 @@ describe('readReceipts __read__ handler', () => {
   });
 
   it('fans out the read tick only when the cursor actually advances', () => {
-    const { handlers, broadcasts } = harness({ broadcastUpTo: 256 });
+    const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
 
     handlers.get('__read__')!(ctx, readFrame(5));
@@ -136,8 +163,8 @@ describe('readReceipts __read__ handler', () => {
     expect(broadcasts).toEqual([]);
   });
 
-  it('persists the read cursor but suppresses the tick above broadcastUpTo', () => {
-    const { sql, handlers, broadcasts } = harness({ broadcastUpTo: 2 }, { memberCount: 3 });
+  it('persists the read cursor but suppresses the tick above maxReceiptAudience', () => {
+    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 2 }, { memberCount: 3 });
     const ctx = ctxFor('alice', memberConnection('c1', 'room'));
 
     handlers.get('__read__')!(ctx, readFrame(5));
@@ -155,7 +182,7 @@ describe('readReceipts __read__ handler', () => {
   });
 
   it('drops a non-member read ack', () => {
-    const { handlers, broadcasts } = harness({ broadcastUpTo: 256 });
+    const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
     const ctx = ctxFor('alice', { id: 'c1', channelMemberships: new Map() });
     expect(handlers.get('__read__')!(ctx, readFrame(5))).toBe(true);
     expect(broadcasts).toEqual([]);
@@ -172,7 +199,7 @@ describe('readReceipts __readQuery__ handler', () => {
   }
 
   it('answers a read query with the read cursor', () => {
-    const { sql, handlers, sentFrames } = harness({ broadcastUpTo: 256 });
+    const { sql, handlers, sentFrames } = harness({ maxReceiptAudience: 256 });
     advanceReadThrough(sql, {
       channelName: 'room',
       channelFamily: null,
@@ -193,7 +220,7 @@ describe('readReceipts __readQuery__ handler', () => {
   });
 
   it('drops a query from a non-member and sends nothing', () => {
-    const { handlers, sentFrames } = harness({ broadcastUpTo: 256 });
+    const { handlers, sentFrames } = harness({ maxReceiptAudience: 256 });
     const ctx = ctxFor('alice', { id: 'c1', channelMemberships: new Map() });
 
     handlers.get('__readQuery__')!(ctx, queryFrame(5));
@@ -204,7 +231,7 @@ describe('readReceipts __readQuery__ handler', () => {
 
 describe('readReceipts scope isolation', () => {
   it('ignores a read frame scoped to a different channel', () => {
-    const { handlers, broadcasts } = harness({ broadcastUpTo: 256 });
+    const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
     const ctx = {
       identity: 'alice',
       [ENGINE_CHANNEL_META]: { channelName: 'other', channelFamily: null },

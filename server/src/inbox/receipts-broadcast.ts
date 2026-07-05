@@ -2,7 +2,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 
 /**
  * Broadcast one receipt fan-out frame to the channel's live members, but only
- * while the member count is within `broadcastUpTo`. Above the threshold the
+ * while the member count is within `maxReceiptAudience`. Above the threshold the
  * cursor is still stored and stays queryable via `receiversOf` / `readersOf`.
  *
  * Shared by `inbox()` (the `__received__` fan-out) and `readReceipts()` (the
@@ -11,7 +11,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
  */
 export function broadcastReceipt(
   engine: EngineAccess,
-  broadcastUpTo: number,
+  maxReceiptAudience: number,
   opts: {
     channelName: string;
     channelFamily: string | null;
@@ -19,7 +19,7 @@ export function broadcastReceipt(
     payload: Record<string, unknown>;
   },
 ): void {
-  if (engine.channelMemberCount(opts.channelName, opts.channelFamily) > broadcastUpTo) return;
+  if (engine.channelMemberCount(opts.channelName, opts.channelFamily) > maxReceiptAudience) return;
 
   engine.broadcastToChannel({
     channelName: opts.channelName,

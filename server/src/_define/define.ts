@@ -696,14 +696,15 @@ export type ChannelConfig<
   readonly replay?: boolean;
   /**
    * Guaranteed per-member delivery. `true` uses the defaults (delete a member's
-   * copy once it acks); an object tunes `afterDelivered` and `retention`.
-   * Requires the `inbox()` capability.
+   * copy once it acks); an object tunes `onDelivered`, `retention`, and
+   * `broadcastReceipts`. Requires the `inbox()` capability.
    */
   readonly inbox?: InboxConfig;
   /**
    * Read receipts (the blue check) on an inbox channel. `true` uses the default
-   * broadcast cap; `{ broadcastUpTo }` tunes it. Requires `readReceipts()`.
-   * Delivered acknowledgement comes with `inbox` and needs no opt-in.
+   * broadcast cap; `{ maxReceiptAudience }` tunes it. Requires `readReceipts()`.
+   * Delivered acknowledgement is tracked by `inbox`; its live tick opts in with
+   * `broadcastReceipts`.
    */
   readonly readReceipts?: ReadReceiptsConfig;
 } & ChannelRateLimitField<TCaps>;

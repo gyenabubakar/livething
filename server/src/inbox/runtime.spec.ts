@@ -38,7 +38,11 @@ function connection(identity: string | null): RuntimeConnection {
   return { identity } as unknown as RuntimeConnection;
 }
 
-const deliver: ResolvedInboxOptions = { afterDelivered: 'delete', broadcastUpTo: 256 };
+const deliver: ResolvedInboxOptions = {
+  onDelivered: 'delete',
+  broadcastReceipts: false,
+  maxReceiptAudience: 256,
+};
 
 afterEach(() => vi.restoreAllMocks());
 

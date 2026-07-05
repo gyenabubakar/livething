@@ -48,7 +48,7 @@ export function ensureInboxSchema(sql: Pick<SQLProvider, 'exec'>): void {
 }
 
 /** How a channel treats a member's rows once they ack them. */
-export type AfterDelivered = 'delete' | 'keep';
+export type OnDelivered = 'delete' | 'retain';
 
 /** Retention limits for a member's kept (delivered) inbox rows. */
 export interface InboxRetention {
@@ -172,7 +172,7 @@ export function insertInboxRowsForIdentity(
 /**
  * Read a member's undelivered rows across every channel, ordered by channel and
  * seq. In `delete` mode nothing is ever marked delivered, so every remaining row
- * is still owed; in `keep` mode a row stays owed until its `delivered_at` is set.
+ * is still owed; in `retain` mode a row stays owed until its `delivered_at` is set.
  */
 export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, identity: string): InboxRow[] {
   const rows = sql
@@ -206,7 +206,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, identity: st
 
 /**
  * Apply one member's cumulative ack. In `delete` mode the acked rows are dropped
- * outright; in `keep` mode they are stamped `delivered_at` so retention can age
+ * outright; in `retain` mode they are stamped `delivered_at` so retention can age
  * them out later. Both are idempotent — a repeated or lower `receivedThrough`
  * changes nothing already settled.
  */
@@ -217,14 +217,14 @@ export function ackInboxRows(
     channelName: string;
     channelFamily: string | null;
     receivedThrough: number;
-    afterDelivered: AfterDelivered;
+    onDelivered: OnDelivered;
     now: number;
   },
 ): void {
-  const { identity, channelName, channelFamily, receivedThrough, afterDelivered, now } = params;
+  const { identity, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
   const family = familyToDb(channelFamily);
 
-  if (afterDelivered === 'delete') {
+  if (onDelivered === 'delete') {
     sql.exec(
       `
         DELETE FROM __wskit_inbox

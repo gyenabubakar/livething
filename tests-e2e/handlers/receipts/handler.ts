@@ -43,7 +43,7 @@ export const handleServerDrop = base.on('server-drop', {
 
 export const chat = base.channel('chat', {
   persistent: true,
-  inbox: true,
+  inbox: { broadcastReceipts: true },
   readReceipts: true,
   outgoing: {
     emits: {

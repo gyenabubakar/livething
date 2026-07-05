@@ -122,7 +122,7 @@ export function applyInboxAck(
     channelName: string;
     channelFamily: string | null;
     receivedThrough: number;
-    afterDelivered: ResolvedInboxOptions['afterDelivered'];
+    onDelivered: ResolvedInboxOptions['onDelivered'];
   },
 ): void {
   ackInboxRows(sql, {
@@ -130,7 +130,7 @@ export function applyInboxAck(
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     receivedThrough: opts.receivedThrough,
-    afterDelivered: opts.afterDelivered,
+    onDelivered: opts.onDelivered,
     now: Date.now(),
   });
 }

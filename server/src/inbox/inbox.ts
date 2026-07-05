@@ -10,7 +10,7 @@ import {
 import { applyInboxAck, backfillInbox } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
-import { DEFAULT_RECEIPT_BROADCAST_UP_TO } from '~/inbox/types.ts';
+import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/types.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
@@ -36,16 +36,17 @@ interface BackfillFrame {
 }
 
 function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
-  const afterDelivered = config.afterDelivered ?? 'delete';
-  if (afterDelivered === 'keep' && !config.retention) {
+  const onDelivered = config.onDelivered ?? 'delete';
+  if (onDelivered === 'retain' && !config.retention) {
     throw new Error(
-      "[wskit] inbox `afterDelivered: 'keep'` requires `retention` so kept rows can age out.",
+      "[wskit] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
     );
   }
-  const broadcastUpTo = config.broadcastUpTo ?? DEFAULT_RECEIPT_BROADCAST_UP_TO;
+  const broadcastReceipts = config.broadcastReceipts ?? false;
+  const maxReceiptAudience = config.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE;
   return config.retention
-    ? { afterDelivered, retention: config.retention, broadcastUpTo }
-    : { afterDelivered, broadcastUpTo };
+    ? { onDelivered, retention: config.retention, broadcastReceipts, maxReceiptAudience }
+    : { onDelivered, broadcastReceipts, maxReceiptAudience };
 }
 
 /**
@@ -162,7 +163,7 @@ function buildReceivedHandler(deps: {
         channelName,
         channelFamily,
         receivedThrough: frame.payload.receivedThrough,
-        afterDelivered: options.afterDelivered,
+        onDelivered: options.onDelivered,
       });
 
       const cursors = advanceReceivedThrough(engine.requireStorage().sql, {
@@ -172,8 +173,8 @@ function buildReceivedHandler(deps: {
         receivedThrough: frame.payload.receivedThrough,
         now: Date.now(),
       });
-      if (cursors.changed) {
-        broadcastReceipt(engine, options.broadcastUpTo, {
+      if (cursors.changed && options.broadcastReceipts) {
+        broadcastReceipt(engine, options.maxReceiptAudience, {
           channelName,
           channelFamily,
           event: '__received__',

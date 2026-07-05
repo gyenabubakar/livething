@@ -16,7 +16,7 @@ import type { RoomMsg } from './events.ts';
 // holds it until that member acks with `__received__`. A member that is OFFLINE
 // when a broadcast lands still gets the message — its rows are drained on the
 // next reconnect (after the auto-rejoin), and its `__received__` ack settles them
-// so a later reconnect does not re-deliver. `afterDelivered: 'delete'` (the
+// so a later reconnect does not re-deliver. `onDelivered: 'delete'` (the
 // default) drops each row once acked.
 const base = define({
   env: t<Env>(),

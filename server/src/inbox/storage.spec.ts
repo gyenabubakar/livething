@@ -160,7 +160,7 @@ describe('inbox/storage — ack lifecycle', () => {
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 2,
-      afterDelivered: 'delete',
+      onDelivered: 'delete',
       now: 2000,
     });
 
@@ -176,7 +176,7 @@ describe('inbox/storage — ack lifecycle', () => {
         channelName: 'room',
         channelFamily: null,
         receivedThrough,
-        afterDelivered: 'delete',
+        onDelivered: 'delete',
         now: 2000,
       });
     }
@@ -187,7 +187,7 @@ describe('inbox/storage — ack lifecycle', () => {
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([3]);
   });
 
-  it('keep mode stamps delivered_at only on still-NULL rows and stays owed until then', () => {
+  it('retain mode stamps delivered_at only on still-NULL rows and stays owed until then', () => {
     const sql = setup();
     seedThree(sql);
 
@@ -196,7 +196,7 @@ describe('inbox/storage — ack lifecycle', () => {
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 2,
-      afterDelivered: 'keep',
+      onDelivered: 'retain',
       now: 2000,
     });
 
@@ -215,7 +215,7 @@ describe('inbox/storage — ack lifecycle', () => {
     ]);
   });
 
-  it('keep mode does not clobber an earlier delivered_at on a repeated ack', () => {
+  it('retain mode does not clobber an earlier delivered_at on a repeated ack', () => {
     const sql = setup();
     seedThree(sql);
     function ack(now: number) {
@@ -224,7 +224,7 @@ describe('inbox/storage — ack lifecycle', () => {
         channelName: 'room',
         channelFamily: null,
         receivedThrough: 1,
-        afterDelivered: 'keep',
+        onDelivered: 'retain',
         now,
       });
     }

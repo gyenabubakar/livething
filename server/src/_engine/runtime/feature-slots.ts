@@ -231,16 +231,18 @@ export interface ChannelContext {
 
 /** Inbox settings resolved for one channel, stored on the engine core. */
 export interface ResolvedInboxOptions {
-  afterDelivered: 'delete' | 'keep';
+  onDelivered: 'delete' | 'retain';
   retention?: { maxAgeMs?: number; maxMessages?: number };
+  /** Whether the delivered `__received__` tick is pushed live to other members. Off by default. */
+  broadcastReceipts: boolean;
   /** Member cap for the delivered `__received__` fan-out. Defaults to 256. */
-  broadcastUpTo: number;
+  maxReceiptAudience: number;
 }
 
 /** Read-receipts settings resolved for one channel, stored on the engine core. */
 export interface ResolvedReadReceiptsOptions {
   /** Member cap for the read `__read__` fan-out. Defaults to 256. */
-  broadcastUpTo: number;
+  maxReceiptAudience: number;
 }
 
 /**

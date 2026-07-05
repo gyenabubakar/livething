@@ -6,7 +6,10 @@ import { advanceReadThrough, listReaders } from '~/inbox/receipts-storage.ts';
 import { applyInboxAck } from '~/inbox/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
-import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slots.ts';
+import type {
+  ResolvedInboxOptions,
+  ResolvedReadReceiptsOptions,
+} from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AdvancedReadCursors } from '~/inbox/receipts-storage.ts';
@@ -108,24 +111,30 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     });
     if (!cursors.changed) return true;
 
-    broadcastReceipt(engine, options.broadcastUpTo, {
+    broadcastReceipt(engine, options.maxReceiptAudience, {
       channelName,
       channelFamily,
       event: '__read__',
       payload: { identity, readThrough: cursors.readThrough },
     });
 
-    // Read implies received. When the read mark pulled received up too, settle the
-    // held inbox rows and fan out a `__received__` so the delivered column stays
-    // correct even though the client normally auto-acks received first.
+    // Read implies received, so a read mark can pull received up and settle the
+    // held inbox rows; the `__received__` tick is then inbox's to send.
     if (cursors.receivedChanged) {
-      settleInboxOnRead(engine, channelKey, { channelName, channelFamily, identity, cursors });
-      broadcastReceipt(engine, options.broadcastUpTo, {
+      const inboxConfig = settleInboxOnRead(engine, channelKey, {
         channelName,
         channelFamily,
-        event: '__received__',
-        payload: { identity, receivedThrough: cursors.receivedThrough },
+        identity,
+        cursors,
       });
+      if (inboxConfig?.broadcastReceipts) {
+        broadcastReceipt(engine, inboxConfig.maxReceiptAudience, {
+          channelName,
+          channelFamily,
+          event: '__received__',
+          payload: { identity, receivedThrough: cursors.receivedThrough },
+        });
+      }
     }
     return true;
   };
@@ -174,7 +183,8 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
 /**
  * When `__read__` pulls `received_through` up (read implies received), settle
  * the member's inbox rows up to the new mark using the inbox capability's own
- * ack, so the delete/keep lifecycle stays consistent with a plain `__received__`.
+ * ack, so the delete/retain lifecycle stays consistent with a plain `__received__`.
+ * Returns the inbox config so the caller can honor its receipt-broadcast settings.
  */
 function settleInboxOnRead(
   engine: EngineAccess,
@@ -185,16 +195,17 @@ function settleInboxOnRead(
     identity: string;
     cursors: AdvancedReadCursors;
   },
-): void {
+): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
-  if (!inboxConfig) return;
+  if (!inboxConfig) return undefined;
   applyInboxAck(engine.requireStorage().sql, {
     identity: opts.identity,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     receivedThrough: opts.cursors.receivedThrough,
-    afterDelivered: inboxConfig.afterDelivered,
+    onDelivered: inboxConfig.onDelivered,
   });
+  return inboxConfig;
 }
 
 function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: string): boolean {
