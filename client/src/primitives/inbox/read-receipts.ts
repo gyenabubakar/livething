@@ -12,9 +12,8 @@ import type { PendingQuery } from '~/primitives/inbox/receipt-query.ts';
 import type {
   ChannelReadReceiptsApi,
   CursorList,
-  ReadReceiptsTypeFn,
+  ReadReceiptsPrimitive,
 } from '~/primitives/inbox/types.ts';
-import type { Primitive } from '~/primitives/types.ts';
 
 /** One channel's read-receipt state: the read cursor per identity plus its store. */
 interface ChannelReaders {
@@ -38,7 +37,7 @@ const DEFAULT_QUERY_TIMEOUT_MS = 10_000;
  * sequence; `readers`/`onRead` surface the server's `__read__` fan-out. The
  * received surface (`receivers`/`onReceived`/`receiversOf`) belongs to `inbox()`.
  */
-export function readReceipts(options: ReadReceiptsOptions = {}): Primitive<ReadReceiptsTypeFn> {
+export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPrimitive {
   const defaultTimeout = options.timeout ?? DEFAULT_QUERY_TIMEOUT_MS;
   return {
     _tag: 'read-receipts',

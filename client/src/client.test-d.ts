@@ -5,6 +5,9 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { dedup } from '~/primitives/dedup.ts';
+import { inbox } from '~/primitives/inbox/inbox.ts';
+import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { serverRequest } from '~/primitives/server-request/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
@@ -218,3 +221,57 @@ function needsChannels(): Primitive<EmptyTypeFn, { channels: Record<string, any>
 }
 // @ts-expect-error — ReceiveOnly has no `channels`
 client<ReceiveOnly>()(connect('wss://example.com'), needsChannels());
+
+interface Receipts {
+  channels: {
+    room: {
+      incoming: { msg: { text: string } };
+      inbox: true;
+      readReceipts: true;
+    };
+    plain: {
+      incoming: { msg: { text: string } };
+    };
+  };
+}
+
+const noReceiptPrimitives = client<Receipts>()(connect('wss://example.com'), dedup(), channels());
+const noReceiptRoom = noReceiptPrimitives.channel('room');
+// @ts-expect-error — receivers needs the inbox() primitive
+noReceiptRoom.receivers;
+// @ts-expect-error — onReceived needs the inbox() primitive
+noReceiptRoom.onReceived;
+// @ts-expect-error — receiversOf needs the inbox() primitive
+noReceiptRoom.receiversOf;
+// @ts-expect-error — readers needs the readReceipts() primitive
+noReceiptRoom.readers;
+// @ts-expect-error — markAsRead needs the readReceipts() primitive
+noReceiptRoom.markAsRead;
+
+const withReceiptPrimitives = client<Receipts>()(
+  connect('wss://example.com'),
+  dedup(),
+  channels(),
+  inbox(),
+  readReceipts(),
+);
+const receiptRoom = withReceiptPrimitives.channel('room');
+expectTypeOf(receiptRoom.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+receiptRoom.onReceived((identity, receivedThrough) => {
+  expectTypeOf(identity).toBeString();
+  expectTypeOf(receivedThrough).toBeNumber();
+});
+expectTypeOf(receiptRoom.receiversOf(3)).resolves.toEqualTypeOf<string[]>();
+expectTypeOf(receiptRoom.readers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+receiptRoom.onRead((identity, readThrough) => {
+  expectTypeOf(identity).toBeString();
+  expectTypeOf(readThrough).toBeNumber();
+});
+expectTypeOf(receiptRoom.readersOf(3)).resolves.toEqualTypeOf<string[]>();
+expectTypeOf(receiptRoom.markAsRead()).toEqualTypeOf<void>();
+
+const plainRoom = withReceiptPrimitives.channel('plain');
+// @ts-expect-error — 'plain' channel has no inbox flag, so receivers is absent
+plainRoom.receivers;
+// @ts-expect-error — 'plain' channel has no readReceipts flag, so markAsRead is absent
+plainRoom.markAsRead;

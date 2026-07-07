@@ -8,6 +8,7 @@ import type {
   ApplyPrimitives,
   Primitive,
   ValidatePrimitives,
+  WithChannelPrimitiveSurface,
   WithMissingPrimitiveStubs,
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
@@ -36,7 +37,11 @@ export function client<TContract extends SocketContract = SocketContract>() {
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
   ): WithMissingPrimitiveStubs<
-    Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+    WithChannelPrimitiveSurface<
+      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+      TContract,
+      TPrimitives
+    >,
     TContract,
     TPrimitives
   > {
@@ -44,7 +49,11 @@ export function client<TContract extends SocketContract = SocketContract>() {
       connectDescriptor,
       primitives as readonly Primitive[],
     ) as unknown as WithMissingPrimitiveStubs<
-      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+      WithChannelPrimitiveSurface<
+        Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
+        TContract,
+        TPrimitives
+      >,
       TContract,
       TPrimitives
     >;

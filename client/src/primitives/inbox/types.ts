@@ -1,5 +1,5 @@
 import type { ReadableStore } from '~/internal/store.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { ChannelTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
 
 /** Per-call options for a `receiversOf` / `readersOf` query. */
 export interface ReceiptQueryOptions {
@@ -60,8 +60,25 @@ export interface ReadReceiptsTypeFn extends TypeFn {
   readonly _api: {};
 }
 
+/**
+ * The channel-handle surface `inbox()` contributes: present only on channels
+ * whose contract sets `inbox: true`, and only because `inbox()` is registered.
+ */
+export interface InboxChannelTypeFn extends ChannelTypeFn {
+  readonly _api: this['_contract'] extends { inbox: true } ? ChannelInboxApi : {};
+}
+
+/**
+ * The channel-handle surface `readReceipts()` contributes: present only on
+ * channels whose contract sets `readReceipts: true`, and only because
+ * `readReceipts()` is registered.
+ */
+export interface ReadReceiptsChannelTypeFn extends ChannelTypeFn {
+  readonly _api: this['_contract'] extends { readReceipts: true } ? ChannelReadReceiptsApi : {};
+}
+
 /** The descriptor `inbox()` returns. */
-export type InboxPrimitive = Primitive<InboxTypeFn>;
+export type InboxPrimitive = Primitive<InboxTypeFn, {}, InboxChannelTypeFn>;
 
 /** The descriptor `readReceipts()` returns. */
-export type ReadReceiptsPrimitive = Primitive<ReadReceiptsTypeFn>;
+export type ReadReceiptsPrimitive = Primitive<ReadReceiptsTypeFn, {}, ReadReceiptsChannelTypeFn>;

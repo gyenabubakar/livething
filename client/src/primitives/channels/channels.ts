@@ -8,7 +8,7 @@ import {
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { MessagingObject } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type {
@@ -62,7 +62,32 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       const cache = new Map<string, MessagingObject>();
       const families = new Map<string, FamilyState>();
       const familyHandles = new Map<string, FamilyHandle>();
+      const warnedInboxMissing = new Set<string>();
+      const warnedReadReceiptsMissing = new Set<string>();
       let socket: WSKitSocket; // assigned in install, before any handle is built
+
+      function warnMissingReceiptPrimitive(key: string, name: string, wskit?: WSKitEnvelope): void {
+        if (
+          wskit?.inbox === true &&
+          !helpers.hasPrimitive('inbox') &&
+          !warnedInboxMissing.has(key)
+        ) {
+          warnedInboxMissing.add(key);
+          helpers.log.warn(
+            `channel '${name}' is inbox-backed but inbox() is not registered — received receipts will not be tracked. Add inbox() to client().`,
+          );
+        }
+        if (
+          wskit?.readReceipts === true &&
+          !helpers.hasPrimitive('read-receipts') &&
+          !warnedReadReceiptsMissing.has(key)
+        ) {
+          warnedReadReceiptsMissing.add(key);
+          helpers.log.warn(
+            `channel '${name}' has read receipts enabled but readReceipts() is not registered — read receipts will not be tracked. Add readReceipts() to client().`,
+          );
+        }
+      }
 
       function resolveTtl(event: string): number | undefined {
         if (typeof options.ttl === 'number') return options.ttl;
@@ -146,6 +171,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 return null;
               }
               helpers.log.info(`channel '${name}' subscribed (${source})`);
+              warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
               state.persistent = wskit?.channelPersistent === true;
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));

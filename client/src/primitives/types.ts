@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- the type-level machinery needs `any` to stay generic */
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
-import type { StubbedChannelMethod } from '~/primitives/channels/types.ts';
+import type { AugmentedChannelMethod, StubbedChannelMethod } from '~/primitives/channels/types.ts';
 import type { Simplify } from '~/types.ts';
 
 /**
@@ -25,6 +25,27 @@ export interface EmptyTypeFn extends TypeFn {
 }
 
 /**
+ * A type function that contributes to a CHANNEL HANDLE rather than the socket.
+ * Its `_contract` slot is filled with a single channel's contract, and `_api` is
+ * the surface the primitive adds to that channel's handle. Because it only runs
+ * for primitives the developer actually registered, a channel handle gains this
+ * surface only when both the primitive is installed and the channel's contract
+ * opts in — the primitive itself gates on the contract flag inside `_api`.
+ */
+export interface ChannelTypeFn {
+  readonly _contract: unknown;
+  readonly _api: unknown;
+}
+
+/** A channel type function that adds nothing — the default for most primitives. */
+export interface NoChannelTypeFn extends ChannelTypeFn {
+  readonly _api: {};
+}
+
+/** Run a channel type function: set `_contract` to `C` and read back `_api`. */
+export type ApplyChannel<F extends ChannelTypeFn, C> = (F & { readonly _contract: C })['_api'];
+
+/**
  * Run a type function: set `_contract` to `Contract` and read back `_api`.
  */
 export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contract })['_api'];
@@ -36,7 +57,11 @@ export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contr
  * type-only fields (no runtime value); `applyConfig` and `setup` are what
  * actually run.
  */
-export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
+export interface Primitive<
+  F extends TypeFn = EmptyTypeFn,
+  TRequires = {},
+  FChannel extends ChannelTypeFn = NoChannelTypeFn,
+> {
   /** Names the primitive (e.g. `'connect'`, `'channels'`). Used to catch duplicates. */
   readonly _tag: string;
   /**
@@ -58,6 +83,8 @@ export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   readonly optionalAfter?: readonly string[];
   /** Type-only: the API this primitive adds to the socket. */
   readonly _typeFn?: F;
+  /** Type-only: the surface this primitive adds to each channel handle. */
+  readonly _channelTypeFn?: FChannel;
   /** Type-only: what the contract must contain for this primitive to be valid. */
   readonly _requires?: TRequires;
   /** Copy this primitive's settings into the shared config the kernel reads. */
@@ -78,6 +105,22 @@ export type ApplyPrimitives<
   ...infer Rest extends Primitive<any, any>[],
 ]
   ? Apply<NonNullable<Head['_typeFn']>, TContract> & ApplyPrimitives<Rest, TContract>
+  : {};
+
+/**
+ * Run each installed primitive's channel type function against a single channel's
+ * contract and merge the results. Only primitives the developer registered appear
+ * in `TPrimitives`, so a channel handle gains a primitive's surface only when that
+ * primitive is installed — the missing-primitive gate for channel-handle methods.
+ */
+export type ApplyChannelPrimitives<
+  TPrimitives extends readonly Primitive<any, any, any>[],
+  C,
+> = TPrimitives extends readonly [
+  infer Head extends Primitive<any, any, any>,
+  ...infer Rest extends Primitive<any, any, any>[],
+]
+  ? ApplyChannel<NonNullable<Head['_channelTypeFn']>, C> & ApplyChannelPrimitives<Rest, C>
   : {};
 
 /**
@@ -269,3 +312,21 @@ export type WithMissingPrimitiveStubs<
   MissingPrimitiveStubs<TContract, TPrimitives> extends infer Stubs
     ? Simplify<Omit<Api, keyof Stubs> & Stubs>
     : Api;
+
+/**
+ * Rewrite the socket's `channel` accessor so every handle it hands back carries
+ * the channel-handle surface each installed primitive contributes (e.g. `inbox()`
+ * adds `receivers`/`onReceived`/`receiversOf`). The accessor is only rewritten
+ * when the contract declares channels and `channels()` is installed — otherwise
+ * `channel` is either absent or already replaced by a missing-primitive stub, and
+ * this leaves it untouched.
+ */
+export type WithChannelPrimitiveSurface<
+  Api,
+  TContract,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> = TContract extends { channels: infer C extends Record<string, any> }
+  ? 'channel' extends keyof Api
+    ? Simplify<Omit<Api, 'channel'> & { channel: AugmentedChannelMethod<C, TPrimitives> }>
+    : Api
+  : Api;

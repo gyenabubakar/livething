@@ -10,8 +10,7 @@ import type { PrimitiveHelpers, WireMessage, WSKitEnvelope } from '~/internal/ru
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { WritableStore } from '~/internal/store.ts';
 import type { PendingQuery } from '~/primitives/inbox/receipt-query.ts';
-import type { ChannelInboxApi, CursorList, InboxTypeFn } from '~/primitives/inbox/types.ts';
-import type { Primitive } from '~/primitives/types.ts';
+import type { ChannelInboxApi, CursorList, InboxPrimitive } from '~/primitives/inbox/types.ts';
 
 interface ScopeMark {
   seq: number;
@@ -48,7 +47,7 @@ const DEFAULT_QUERY_TIMEOUT_MS = 10_000;
  * `__subscribeOk__`, and acks only those. It needs `dedup()`, because the server
  * re-delivers held copies on reconnect and dedup filters the ones already seen.
  */
-export function inbox(options: InboxOptions = {}): Primitive<InboxTypeFn> {
+export function inbox(options: InboxOptions = {}): InboxPrimitive {
   const defaultTimeout = options.timeout ?? DEFAULT_QUERY_TIMEOUT_MS;
   return {
     _tag: 'inbox',
