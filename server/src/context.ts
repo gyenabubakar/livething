@@ -291,6 +291,13 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly bufferedAmount: number;
 
   /**
+   * The connection's identity last-seen timestamp (ms), present only when the
+   * `lastSeen()` capability is installed; `null` when that identity has never
+   * been stamped, and absent from the type entirely without the capability.
+   */
+  readonly lastSeen?: number | null;
+
+  /**
    * Build a `ConnectionRef` for this connection — pass it to engine methods
    * that act on a specific socket (such as `channelHandle.subscribe(ref)`).
    */
@@ -371,6 +378,62 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string; channelFamily?: string | null },
   ): void;
+}
+
+/**
+ * One member's standing in a channel's inbox backlog — the unacked rows still
+ * held for it and how far its received cursor has reached. Returned by
+ * `handle.inbox().backlog()` for observability (who is behind, by how many rows,
+ * and for how long), not as a warning.
+ */
+export interface InboxBacklogEntry {
+  /** The member's identity. */
+  readonly identity: string;
+  /** Whether this identity has a live connection on this instance right now. */
+  readonly online: boolean;
+  /** Count of unacked rows still held for this member on this channel. */
+  readonly heldRows: number;
+  /** The member's `received_through` cursor for this channel. */
+  readonly receivedThrough: number;
+  /** `created_at` (ms) of the member's oldest unacked held row. */
+  readonly oldestHeldAt: number;
+  /**
+   * The member's last-seen timestamp (ms). Populated only when the `lastSeen()`
+   * capability is installed; `undefined` otherwise.
+   */
+  readonly lastSeenAt?: number | null;
+}
+
+/**
+ * The inbox surface for one channel, reached via `ctx.channel.inbox` in the
+ * owning scope or `handle.inbox()` on any handle. Backs guaranteed per-member
+ * delivery: seed a member's queue, read who has received a message, and inspect
+ * the backlog.
+ */
+export interface ChannelInbox {
+  /** Seed one identity's inbox with full frames, drained on its next reconnect. */
+  backfill(
+    identity: string,
+    messages: readonly {
+      event: string;
+      payload: unknown;
+      __wskit: { seq: number; messageId: string };
+    }[],
+  ): void;
+  /** Identities whose received cursor has reached `seq`. */
+  receiversOf(seq: number): string[];
+  /** One entry per member that still has unacked held rows for this channel. */
+  backlog(): InboxBacklogEntry[];
+}
+
+/**
+ * The read-receipts surface for one channel, reached via
+ * `ctx.channel.readReceipts` in the owning scope or `handle.readReceipts()` on
+ * any handle. Present only on channels that opted into `readReceipts`.
+ */
+export interface ChannelReadReceipts {
+  /** Identities whose read cursor has reached `seq`. */
+  readersOf(seq: number): string[];
 }
 
 /**
@@ -482,6 +545,19 @@ export interface ChannelHandle<
    * row exists. Otherwise, removes whichever pieces are present.
    */
   removeMember(identity: string): Promise<void>;
+
+  /**
+   * The inbox surface for this channel, or `null` when this channel has no
+   * `inbox()` enabled. Works on any handle, including `ctx.channels.get(...)`.
+   */
+  inbox(): ChannelInbox | null;
+
+  /**
+   * The read-receipts surface for this channel, or `null` when this channel has
+   * no `readReceipts()` enabled. Works on any handle, including
+   * `ctx.channels.get(...)`.
+   */
+  readReceipts(): ChannelReadReceipts | null;
 }
 
 /**

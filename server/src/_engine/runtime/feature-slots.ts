@@ -246,6 +246,31 @@ export interface ResolvedReadReceiptsOptions {
 }
 
 /**
+ * The last-seen dispatch surface. Set by the `lastSeen()` capability, so a
+ * handler without it never pulls the last-seen storage. Other capabilities read
+ * it off the engine core through this slot with a type-only import, keeping
+ * `last-seen/` tree-shaken out when unused.
+ */
+export interface LastSeenService {
+  /** The last-seen timestamp (ms) for an identity, or `null` when never seen. */
+  at(identity: string): number | null;
+  /** Whether an identity has a live connection on this instance right now. */
+  online(identity: string): boolean;
+}
+
+/**
+ * A function that grafts extra members onto a freshly built channel handle. Set
+ * by capabilities that own a per-channel surface reachable from any handle
+ * (inbox, read receipts), so `channels()` never value-imports them. Each runs
+ * against every handle `buildChannelHandle` produces — both `ctx.channel` and
+ * `ctx.channels.get(...)`.
+ */
+export type ChannelHandleAugmenter = (
+  handle: Record<PropertyKey, unknown>,
+  scope: { channelName: string; channelFamily: string | null },
+) => void;
+
+/**
  * The inbox dispatch surface. Set by the `inbox()` capability, so a handler
  * without it never pulls the inbox storage, fan-out, or drain code. `fanOut`
  * runs once per logical channel broadcast (not once per recipient); the other
@@ -287,6 +312,7 @@ export interface FeatureDispatchSlots {
   channelService?: ChannelService;
   channelContext?: ChannelContext;
   inboxService?: InboxService;
+  lastSeenService?: LastSeenService;
 }
 
 /** Re-exported so the durable dispatch service can satisfy the runtime contract. */

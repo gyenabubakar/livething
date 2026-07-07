@@ -125,6 +125,14 @@ export interface RegisteredEngineHooks {
   /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
+  /**
+   * Fires on every valid event frame the client sends — protocol frames like
+   * `__subscribe__` / `__received__` and app events — but not on transport
+   * keepalive pings. Used by last-seen to stamp real activity, not just the fact
+   * that the connection is still alive.
+   */
+  messageActivity: ((connectionId: string) => void | Promise<void>)[];
+
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
   incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
 

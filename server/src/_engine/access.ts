@@ -159,6 +159,14 @@ export interface EngineAccess {
   onConnectionActivity(handler: (connectionId: string) => void | Promise<void>): void;
 
   /**
+   * Observe a real message from one live connection: every valid event frame —
+   * protocol frames like `__subscribe__` / `__received__` and app events — but
+   * not transport keepalive pings. Use this for "last did something" signals,
+   * where an idle connection's keepalive should not count as activity.
+   */
+  onMessageActivity(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
    * Run logic when the server finishes booting.
    *
    * This receives the same init-style context that user-facing `onInit`
@@ -776,10 +784,54 @@ export interface EngineAccess {
   setInboxService(service: FeatureSlots.InboxService): void;
 
   /**
+   * Register the last-seen surface so other capabilities (inbox backlog, channel
+   * member data) can read a member's last-seen timestamp and whether it is online
+   * now, without importing the last-seen runtime. Set by the `lastSeen()` capability.
+   *
+   * @internal
+   */
+  setLastSeenService(service: FeatureSlots.LastSeenService): void;
+
+  /**
+   * Read the registered last-seen surface, or `undefined` when `lastSeen()` is
+   * not listed. `inbox().backlog()` reads it to fill `lastSeenAt`.
+   *
+   * @internal
+   */
+  getLastSeenService(): FeatureSlots.LastSeenService | undefined;
+
+  /**
+   * Register a channel-handle augmenter. Set by capabilities that graft a
+   * per-channel surface onto every channel handle (inbox, read receipts), so
+   * `channels()` never value-imports them.
+   *
+   * @internal
+   */
+  addChannelHandleAugmenter(augmenter: FeatureSlots.ChannelHandleAugmenter): void;
+
+  /**
+   * Whether any live connection on this instance currently carries the given
+   * identity. Read by inbox backlog and the last-seen surface to report a
+   * member's online state without scanning the connection map themselves.
+   *
+   * @internal
+   */
+  isIdentityOnline(identity: string): boolean;
+
+  /**
+   * The identity of one live connection by id, or `undefined` when no such
+   * connection is live on this instance. Read by the `lastSeen()` capability's
+   * activity stamp, which only gets a connection id.
+   *
+   * @internal
+   */
+  getConnectionIdentity(connectionId: string): string | undefined;
+
+  /**
    * Broadcast one already-built protocol frame (e.g. a `__received__` /
    * `__read__` receipt fan-out) to every live member of a channel. Offline
-   * members are not reached — the frame is a live presence signal, and its
-   * cursor stays queryable regardless.
+   * members are not reached — the frame is a live presence signal, and the
+   * stored cursor stays readable either way.
    *
    * @internal
    */
@@ -791,8 +843,8 @@ export interface EngineAccess {
   }): void;
 
   /**
-   * Count the live members currently in a channel. Used to suppress the
-   * delivered/read receipt fan-out above `maxReceiptAudience`.
+   * Count the live members currently in a channel. Used to skip the
+   * delivered/read receipt fan-out once a channel is larger than `maxReceiptAudience`.
    *
    * @internal
    */
@@ -806,4 +858,13 @@ export interface EngineAccess {
    * @internal
    */
   getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
+
+  /**
+   * Whether a channel key opted into read receipts via `readReceipts()`. Read by
+   * the read-receipts handle-augmenter to decide whether `handle.readReceipts()`
+   * returns a surface or `null`.
+   *
+   * @internal
+   */
+  hasReadReceiptsChannel(channelKey: string): boolean;
 }

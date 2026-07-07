@@ -25,6 +25,7 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
     extendContext: () => {},
     onProtocolMessage: (event: string, handler: Handler) => handlers.set(event, handler),
     installOnce: (_key: symbol, run: () => void) => run(),
+    addChannelHandleAugmenter: () => {},
     setInboxService: () => {},
     registerInboxChannel: () => {},
     requireStorage: () => ({ sql }),

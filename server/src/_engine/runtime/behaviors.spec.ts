@@ -393,7 +393,7 @@ describe('processTextMessage protocol branches', () => {
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
@@ -425,6 +425,32 @@ describe('processTextMessage protocol branches', () => {
     expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
   });
 
+  it('runs message-activity hooks on a real frame but not on a transport ping', async () => {
+    const connection = createConnection();
+    const connectionActivity = vi.fn();
+    const messageActivity = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [connectionActivity],
+      messageActivityHooks: [messageActivity],
+      handleRuntimeError: vi.fn(),
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+    expect(connectionActivity).toHaveBeenCalledTimes(1);
+    expect(messageActivity).not.toHaveBeenCalled();
+
+    await processTextMessage(
+      runtimeWithActivity,
+      connection,
+      JSON.stringify({ event: 'noop', payload: {} }),
+    );
+    expect(messageActivity).toHaveBeenCalledWith(connection.id);
+  });
+
   it('cancels an active stream on __streamCancel__', async () => {
     const connection = createConnection();
     const generator = {
@@ -446,7 +472,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       activeStreams,
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,
@@ -469,7 +495,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       logger: { warn, error: vi.fn() },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(runtimeWithActivity, connection, '{not json');
 
@@ -483,7 +509,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       logger: { warn, error: vi.fn() },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     // Each of these is valid JSON, so JSON.parse succeeds. Without a shape
     // guard, reading `parsed.event` would throw and crash the adapter's
@@ -513,7 +539,7 @@ describe('processTextMessage protocol branches', () => {
         errors.push({ error, event, routing });
       },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,
@@ -546,7 +572,7 @@ describe('processTextMessage protocol branches', () => {
         errors.push({ error, event, routing });
       },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,

@@ -957,6 +957,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1028,6 +1029,7 @@ describe('message runtime', () => {
       answerFrameHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       incomingDedupCap: 0,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       buildConnectionContext() {
@@ -1098,6 +1100,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1164,6 +1167,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -1229,6 +1233,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       buildConnectionContext() {
         return { id: connection.id };
@@ -1291,6 +1296,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       // no `sql` → storage absent
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       buildConnectionContext() {
@@ -1366,6 +1372,7 @@ function makeNudgeRuntime(
     incomingHooks: [],
     errorHooks: [],
     activityHooks: [],
+    messageActivityHooks: [],
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,

@@ -1,6 +1,10 @@
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
-import { advanceReadThrough, advanceReceivedThrough } from '~/inbox/receipts-storage.ts';
+import {
+  advanceReadThrough,
+  advanceReceivedThrough,
+  ensureReceiptsSchema,
+} from '~/inbox/receipts-storage.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type {
@@ -9,7 +13,6 @@ import type {
 } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import { readReceipts } from './read-receipts.ts';
-import { ensureReceiptsSchema } from './receipts-storage.ts';
 import { ensureInboxSchema, insertInboxRows, loadUndeliveredRows } from './storage.ts';
 import { createTestSql } from './test-sql.ts';
 
@@ -32,6 +35,9 @@ function harness(
     onBootSchema: () => {},
     extendContext: () => {},
     registerReadReceiptsChannel: () => {},
+    installOnce: (_key: symbol, run: () => void) => run(),
+    addChannelHandleAugmenter: () => {},
+    hasReadReceiptsChannel: () => true,
     onProtocolMessage: (event: string, handler: Handler) => handlers.set(event, handler),
     requireStorage: () => ({ sql }),
     channelMemberCount: () => opts.memberCount ?? 1,

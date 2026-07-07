@@ -9,6 +9,7 @@ import type {
 } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
+import type { LastSeenCtx } from '~/last-seen/ctx.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { TagGroupHandle, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
@@ -449,6 +450,7 @@ export type CtxExtensionsOf<
   TMeta,
   TCaps extends readonly AnyCapability[],
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
+  ('last-seen' extends FeaturesOf<TCaps> ? LastSeenCtx : {}) &
   ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
   ('replay' extends FeaturesOf<TCaps>
     ? SendReplayCtx<TSlots>

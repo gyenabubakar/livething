@@ -671,6 +671,7 @@ async function dispatchProtocolFrame(
 export async function processTextMessage(
   runtime: DispatchRuntime & {
     activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
+    messageActivityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
   },
   connection: RuntimeConnection,
   data: string,
@@ -715,6 +716,17 @@ export async function processTextMessage(
   }
 
   const event = (parsed as { event: string }).event;
+
+  for (const hook of runtime.messageActivityHooks) {
+    try {
+      await hook(connection.id);
+    } catch (error) {
+      runtime.logger.error('[wskit] message activity hook threw', {
+        connectionId: connection.id,
+        error,
+      });
+    }
+  }
 
   let wskit: Protocol.WSKitProtocol | undefined;
   try {

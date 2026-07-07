@@ -4,6 +4,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
   return {
     activity: [],
+    messageActivity: [],
     incoming: [],
     answerFrame: [],
     outgoing: [],

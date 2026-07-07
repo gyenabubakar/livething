@@ -86,6 +86,14 @@ export class EngineCore {
   channelService?: FeatureSlots.ChannelService;
   channelContext?: FeatureSlots.ChannelContext;
   inboxService?: FeatureSlots.InboxService;
+  lastSeenService?: FeatureSlots.LastSeenService;
+
+  /**
+   * Handle-augmenters registered by capabilities that own a per-channel surface
+   * reachable from any channel handle (inbox, read receipts). `buildChannelHandle`
+   * runs them so `channels()` never value-imports those capabilities.
+   */
+  readonly channelHandleAugmenters: FeatureSlots.ChannelHandleAugmenter[] = [];
 
   initialized = false;
   /**

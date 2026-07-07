@@ -20,6 +20,7 @@ export const CAPABILITY_KIND = {
   replayCustom: 'replay-custom',
   inbox: 'inbox',
   readReceipts: 'read-receipts',
+  lastSeen: 'last-seen',
   requests: 'requests',
   scheduled: 'scheduled',
   channels: 'channels',

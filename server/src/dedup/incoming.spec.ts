@@ -50,6 +50,7 @@ function makeRuntime(cap: number) {
     protocolHandlers: new Map(),
     incomingHooks: [incomingHook],
     activityHooks: [],
+    messageActivityHooks: [],
     errorHooks: [],
     incomingDedupCap: cap,
     streamNudgeBuffer: bufferStreamNudge,

@@ -122,13 +122,19 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
+        hibernationEnabled: core.hibernationEnabled,
+        lastSeenAt: core.lastSeenService
+          ? (identity) => core.lastSeenService!.at(identity)
+          : undefined,
+      }),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),
     persistenceEnabled: core.persistenceEnabled,
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
     getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
+    channelHandleAugmenters: core.channelHandleAugmenters,
   };
 }
 
@@ -148,6 +154,7 @@ function buildOutgoingRuntime(core: EngineCore) {
     logger: core.logger,
     generateId: (prefix?: string) => core.generateId(prefix),
     activityHooks: core.hooks.activity,
+    messageActivityHooks: core.hooks.messageActivity,
   };
 }
 
@@ -163,7 +170,12 @@ function buildMemberRuntime(core: EngineCore) {
     connections: core.connections,
     channelMembers: core.channelMembers,
     toConnectionInfo: (connection: RuntimeConnection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
+        hibernationEnabled: core.hibernationEnabled,
+        lastSeenAt: core.lastSeenService
+          ? (identity) => core.lastSeenService!.at(identity)
+          : undefined,
+      }),
     sendThroughPipeline: (
       connection: RuntimeConnection,
       opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },

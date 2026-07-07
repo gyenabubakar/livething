@@ -6,6 +6,7 @@ import type * as PublicApi from '~/context.ts';
 type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
   | 'broadcastToChannel'
+  | 'channelHandleAugmenters'
   | 'getChannelMembers'
   | 'kickChannelMembers'
   | 'removeChannelMember'
@@ -24,7 +25,7 @@ export function buildChannelHandle(
   scope: { channelName: string; channelFamily: string | null; params?: Record<string, string> },
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
-  return {
+  const handle: PublicApi.ChannelHandle = {
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
@@ -60,7 +61,18 @@ export function buildChannelHandle(
       }),
     removeMember: (identity: string) =>
       deps.removeChannelMember(scope.channelName, scope.channelFamily, identity),
+    inbox: () => null,
+    readReceipts: () => null,
   };
+
+  for (const augment of deps.channelHandleAugmenters ?? []) {
+    augment(handle as unknown as Record<PropertyKey, unknown>, {
+      channelName: scope.channelName,
+      channelFamily: scope.channelFamily,
+    });
+  }
+
+  return handle;
 }
 
 type ChannelsApiDeps = ChannelHandleDeps &

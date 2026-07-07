@@ -1,22 +1,23 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
+import { registerInboxHandleAugmenter } from '~/inbox/augment.ts';
 import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
 import {
   advanceReceivedThrough,
   ensureReceiptsSchema,
   listReceivers,
 } from '~/inbox/receipts-storage.ts';
-import { applyInboxAck, backfillInbox } from '~/inbox/runtime.ts';
+import { applyInboxAck } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
+import { buildInboxSurface } from '~/inbox/surface.ts';
 import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/types.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { InboxFrame } from '~/inbox/storage.ts';
 import type { InboxOptions } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -27,13 +28,6 @@ export interface InboxPrimitive extends Primitive<'inbox'> {
 
 /** @internal */
 const INBOX_KEY = Symbol('inbox');
-
-/** A full frame the developer hands `ctx.channel.inbox.backfill(...)`. */
-interface BackfillFrame {
-  event: string;
-  payload: unknown;
-  __wskit: { seq: number; messageId: string };
-}
 
 function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
   const onDelivered = config.onDelivered ?? 'delete';
@@ -86,6 +80,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
       }
 
       registerInboxRuntime(engine);
+      registerInboxHandleAugmenter(engine);
       engine.registerInboxChannel(channelKey, options);
 
       engine.onBootSchema(() => {
@@ -107,7 +102,12 @@ export function inbox(config: InboxOptions): InboxPrimitive {
   };
 }
 
-/** Attach `ctx.channel.inbox.backfill(...)` / `.receiversOf(...)` in this channel scope. */
+/**
+ * Attach the non-null `ctx.channel.inbox` member (backfill / receiversOf /
+ * backlog) in this channel's owning scope. The handle-augmenter adds the
+ * nullable `ctx.channel.inbox()` method on every handle; this keeps the direct
+ * member for the owning scope.
+ */
 function buildInboxContext(engine: EngineAccess, channelKey: string) {
   return (baseCtx: unknown): Record<string, unknown> => {
     const ctx = baseCtx as {
@@ -117,28 +117,10 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
     const scope = ctx[ENGINE_CHANNEL_META];
     if (!ctx.channel || !scopeMatchesChannel(scope, channelKey)) return {};
 
-    const channelName = scope?.channelName ?? channelKey;
-    const channelFamily = scope?.channelFamily ?? null;
-
-    ctx.channel.inbox = {
-      backfill(identity: string, messages: readonly BackfillFrame[]): void {
-        const frames: InboxFrame[] = messages.map((message) => ({
-          seq: message.__wskit.seq,
-          messageId: message.__wskit.messageId,
-          event: message.event,
-          payload: assertRecord(message.payload),
-        }));
-        backfillInbox(engine.requireStorage().sql, {
-          channelName,
-          channelFamily,
-          identity,
-          frames,
-        });
-      },
-      receiversOf(seq: number): string[] {
-        return listReceivers(engine.requireStorage().sql, { channelName, channelFamily, seq });
-      },
-    };
+    ctx.channel.inbox = buildInboxSurface(engine, {
+      channelName: scope?.channelName ?? channelKey,
+      channelFamily: scope?.channelFamily ?? null,
+    });
     return {};
   };
 }
@@ -239,13 +221,6 @@ function isMember(ctx: unknown, channelName: string, channelFamily: string | nul
     ENGINE_INTERNAL_CONNECTION
   ];
   return !!connection && hasChannelMembership(connection, channelName, channelFamily);
-}
-
-function assertRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('[wskit] inbox backfill payload must be a plain object.');
-  }
-  return value as Record<string, unknown>;
 }
 
 /** Symbol identity for dependency declarations. */

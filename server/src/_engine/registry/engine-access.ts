@@ -105,6 +105,9 @@ export function createEngineAccess(
     onConnectionActivity: (handler) => {
       core.hooks.activity.push(handler);
     },
+    onMessageActivity: (handler) => {
+      core.hooks.messageActivity.push(handler);
+    },
     onInit: (handler) => {
       core.hooks.init.push(handler);
     },
@@ -352,10 +355,26 @@ export function createEngineAccess(
     setInboxService: (service) => {
       core.inboxService = service;
     },
+    setLastSeenService: (service) => {
+      core.lastSeenService = service;
+    },
+    getLastSeenService: () => core.lastSeenService,
+    addChannelHandleAugmenter: (augmenter) => {
+      core.channelHandleAugmenters.push(augmenter);
+    },
+    isIdentityOnline: (identity) => {
+      if (!identity) return false;
+      for (const connection of core.connections.values()) {
+        if (connection.identity === identity) return true;
+      }
+      return false;
+    },
+    getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.identity,
     broadcastToChannel: (opts) => deps.broadcastToChannel(opts),
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),
     getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
+    hasReadReceiptsChannel: (channelKey) => core.readReceiptsChannels.has(channelKey),
   };
 }
 

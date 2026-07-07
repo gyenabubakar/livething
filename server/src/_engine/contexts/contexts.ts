@@ -197,9 +197,10 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineContextTypes.RuntimeConnection,
   instanceId: string | undefined,
-  hibernationEnabled?: boolean,
+  opts?: { hibernationEnabled?: boolean; lastSeenAt?: (identity: string) => number | null },
 ): EngineContextTypes.ConnectionInfo<Record<string, unknown>> {
-  return {
+  const hibernationEnabled = opts?.hibernationEnabled;
+  const info: EngineContextTypes.ConnectionInfo<Record<string, unknown>> = {
     id: connection.id,
     identity: connection.identity,
     meta: connection.meta,
@@ -210,6 +211,10 @@ export function toConnectionInfo(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
   };
+  if (opts?.lastSeenAt) {
+    return { ...info, lastSeen: opts.lastSeenAt(connection.identity) };
+  }
+  return info;
 }
 
 /**

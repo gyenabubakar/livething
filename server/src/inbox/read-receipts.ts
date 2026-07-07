@@ -1,6 +1,8 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
+import { registerReadReceiptsHandleAugmenter } from '~/inbox/read-receipts-augment.ts';
+import { buildReadReceiptsSurface } from '~/inbox/read-receipts-surface.ts';
 import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
 import { advanceReadThrough, listReaders } from '~/inbox/receipts-storage.ts';
 import { applyInboxAck } from '~/inbox/runtime.ts';
@@ -51,6 +53,7 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
       }
 
       engine.registerReadReceiptsChannel(channelKey);
+      registerReadReceiptsHandleAugmenter(engine);
 
       engine.extendContext(buildReadReceiptsContext(engine, channelKey));
 
@@ -60,7 +63,12 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
   };
 }
 
-/** Attach `ctx.channel.readReceipts.readersOf(seq)` in this channel scope. */
+/**
+ * Attach the non-null `ctx.channel.readReceipts` member (readersOf) in this
+ * channel's owning scope. The handle-augmenter adds the nullable
+ * `ctx.channel.readReceipts()` method on every handle; this keeps the direct
+ * member for the owning scope.
+ */
 function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
   return (baseCtx: unknown): Record<string, unknown> => {
     const ctx = baseCtx as {
@@ -70,14 +78,10 @@ function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
     const scope = ctx[ENGINE_CHANNEL_META];
     if (!ctx.channel || !scopeMatchesChannel(scope, channelKey)) return {};
 
-    const channelName = scope?.channelName ?? channelKey;
-    const channelFamily = scope?.channelFamily ?? null;
-
-    ctx.channel.readReceipts = {
-      readersOf(seq: number): string[] {
-        return listReaders(engine.requireStorage().sql, { channelName, channelFamily, seq });
-      },
-    };
+    ctx.channel.readReceipts = buildReadReceiptsSurface(engine, {
+      channelName: scope?.channelName ?? channelKey,
+      channelFamily: scope?.channelFamily ?? null,
+    });
     return {};
   };
 }

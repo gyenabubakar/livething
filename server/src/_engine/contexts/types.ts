@@ -169,6 +169,13 @@ export interface ContextCommonDeps {
    * stays out of a handler that lists no channels.
    */
   channelContext?: FeatureSlots.ChannelContext;
+
+  /**
+   * Augmenters that graft extra members onto every channel handle, registered by
+   * capabilities that own a per-channel surface (inbox, read receipts). Empty
+   * when none are listed, so `buildChannelHandle` stays inbox-agnostic.
+   */
+  channelHandleAugmenters?: readonly FeatureSlots.ChannelHandleAugmenter[];
 }
 
 /**
