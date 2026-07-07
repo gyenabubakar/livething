@@ -106,4 +106,53 @@ test.describe('inbox (raw wire, guaranteed per-member delivery)', () => {
     await alice.close();
     await bob.close();
   });
+
+  test('a received ack does not fan out to other members when broadcastReceipts is off (the default)', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const alice = await openMember(browser, { path: '/inbox', room, username: 'alice' });
+    const bob = await openMember(browser, { path: '/inbox', room, username: 'bob' });
+
+    await subscribe(alice.page);
+    await subscribe(bob.page);
+
+    // Bob broadcasts; alice (a live member) receives it with a seq.
+    await send(bob.page, {
+      event: 'send-room-msg',
+      payload: { text: 'ack-me' },
+      __wskit: { channel: 'chat' },
+    });
+    const msg = await waitForFrame(
+      alice.page,
+      (f) => f.event === 'room-msg' && f.payload.text === 'ack-me',
+    );
+    const seq = msg.__wskit?.seq as number;
+
+    // Alice acks receipt. On a broadcastReceipts channel this would fan a
+    // __received__ out to the other members; this channel is inbox: true with the
+    // default (off), so it must not.
+    await send(alice.page, {
+      event: '__received__',
+      payload: { receivedThrough: seq },
+      __wskit: { channel: 'chat' },
+    });
+
+    // Barrier: alice broadcasts again after the ack. The DO processes the ack
+    // before this broadcast and sends to bob in order, so any __received__ fan-out
+    // would reach bob before this room-msg. Once bob has the barrier, his frame log
+    // holds everything the ack could have produced.
+    await send(alice.page, {
+      event: 'send-room-msg',
+      payload: { text: 'barrier' },
+      __wskit: { channel: 'chat' },
+    });
+    await waitForFrame(bob.page, (f) => f.event === 'room-msg' && f.payload.text === 'barrier');
+
+    const received = (await frames(bob.page)).filter((f) => f.event === '__received__');
+    expect(received).toHaveLength(0);
+
+    await alice.close();
+    await bob.close();
+  });
 });

@@ -71,6 +71,8 @@
       { "name": "INBOX_SERVER", "class_name": "InboxServer" },
       { "name": "RECEIPTS_SERVER", "class_name": "ReceiptsServer" },
       { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
+      { "name": "INBOX_HANDLE_SERVER", "class_name": "InboxHandleServer" },
+      { "name": "LAST_SEEN_SERVER", "class_name": "LastSeenServer" },
     ],
   },
   "observability": {
@@ -166,6 +168,10 @@
     {
       "tag": "v11",
       "new_sqlite_classes": ["InboxServer", "ReceiptsServer", "InboxGapServer"],
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": ["InboxHandleServer", "LastSeenServer"],
     },
   ],
 }

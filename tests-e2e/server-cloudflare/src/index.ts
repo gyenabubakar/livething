@@ -54,6 +54,8 @@ export { DurableConfigServer } from './durable-config.ts';
 export { InboxServer } from './inbox.ts';
 export { ReceiptsServer } from './receipts.ts';
 export { InboxGapServer } from './inbox-gap.ts';
+export { InboxHandleServer } from './inbox-handle.ts';
+export { LastSeenServer } from './last-seen.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -106,6 +108,8 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/inbox': 'INBOX_SERVER',
   '/ws/receipts': 'RECEIPTS_SERVER',
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
+  '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
+  '/ws/last-seen': 'LAST_SEEN_SERVER',
 };
 
 export default {
