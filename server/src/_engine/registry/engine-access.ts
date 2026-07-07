@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
@@ -90,7 +91,7 @@ export function createEngineAccess(
       // per-dispatch locals.
       core.hooks.outgoing.push({
         handler: (frame) => handler(deps.buildCurrentContext(), frame),
-        owner: owner ?? OutgoingRuntime.APP_HOOK_OWNER,
+        owner: owner ?? APP_HOOK_OWNER,
       });
     },
     onWSKitStamp: (handler) => {

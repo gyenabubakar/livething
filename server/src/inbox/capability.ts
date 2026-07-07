@@ -13,12 +13,8 @@ import type {
 } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
-export type {
-  InboxOptions,
-  ReadReceiptsOptions,
-  OnDelivered,
-  InboxRetention,
-} from '~/inbox/types.ts';
+export type { InboxRetention, OnDelivered } from '~/inbox/storage.ts';
+export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
 
 /**
  * Enable guaranteed per-member delivery on channels. Unlike `replay` (best-effort

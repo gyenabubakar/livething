@@ -1,5 +1,6 @@
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as PublicApi from '~/context.ts';
 
 /**
  * Build the context passed to the `onInit` lifecycle hook.
@@ -9,7 +10,7 @@ export function createInitContext(
     EngineContextTypes.CreateTaskContextDeps,
     'env' | 'logger' | 'platform' | 'requireStorage'
   >,
-): EngineContextTypes.InitContext<Record<string, unknown>, unknown> {
+): PublicApi.InitContext<Record<string, unknown>, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
   return {
     sql,
@@ -25,7 +26,7 @@ export function createInitContext(
  */
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
-): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+): PublicApi.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);

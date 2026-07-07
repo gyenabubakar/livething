@@ -250,7 +250,7 @@ export interface EngineAccess {
    * handlers stop running.
    */
   onProtocolMessage(
-    event: EngineRuntimeTypes.IncomingProtocolEvent,
+    event: Protocol.IncomingProtocolEvent,
     handler: (
       ctx: unknown,
       frame: Protocol.IncomingProtocolFrame,

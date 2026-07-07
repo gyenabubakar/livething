@@ -6,6 +6,7 @@ import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
@@ -82,13 +83,13 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         taskExists: false,
       },
     broadcastToConnections: (connections, opts) => {
-      EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
+      OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
     sendThroughPipeline: (connection, opts) => {
-      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
+      return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
     broadcastToChannel: (opts) => {
-      EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
+      OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
@@ -179,7 +180,7 @@ function buildMemberRuntime(core: EngineCore) {
     sendThroughPipeline: (
       connection: RuntimeConnection,
       opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-    ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    ) => OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
     inboxFanOut: core.inboxService
       ? (opts: {
           channelName: string;
@@ -211,7 +212,7 @@ function buildChannelRuntime(core: EngineCore) {
     sessionEndHooks: core.hooks.sessionEnd,
 
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
-      EngineMessageRuntime.broadcastToChannel(dispatchRuntime(core), opts);
+      OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);
     },
 
     buildConnectionContext: buildCtx,
@@ -351,7 +352,7 @@ function buildDispatchRuntime(core: EngineCore) {
         options?: BroadcastOptions;
         excludeConnectionId?: string;
       },
-    ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
+    ) => OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
       core.channelService?.handleSubscribe(core, connection, frame) ?? Promise.resolve(),
@@ -498,7 +499,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
-      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
+      return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,
           // The server originated this request, so the client can fast-fail with
@@ -512,7 +513,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       });
     },
     broadcastToChannel: (opts) => {
-      EngineMessageRuntime.broadcastToChannel(memberRuntime(core), {
+      OutgoingRuntime.broadcastToChannel(memberRuntime(core), {
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
         event: opts.event,

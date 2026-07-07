@@ -1,7 +1,7 @@
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { RuntimeConnection } from '~/_engine/contexts/types.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** Options accepted by the keepalive primitive factory. Both are required. */

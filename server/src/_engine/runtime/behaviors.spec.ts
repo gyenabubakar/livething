@@ -661,7 +661,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
 
 describe('onAfterSend async rejection', () => {
   it('logs errors from an after-send hook that returns a rejecting promise', async () => {
-    const { sendThroughPipeline } = await import('~/_engine/runtime/messages.ts');
+    const { sendThroughPipeline } = await import('~/outgoing/runtime.ts');
 
     const connection = createConnection();
     const error = vi.fn();

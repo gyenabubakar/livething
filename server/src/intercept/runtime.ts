@@ -6,8 +6,6 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { APP_HOOK_OWNER, hookRunsForFrame } from './intercept.ts';
 import type { HookOwner, InterceptFrame, InterceptPrimitive } from './intercept.ts';
 
-export type { FrameOwner, InterceptFrame, InterceptRouting, OutgoingFrame } from './intercept.ts';
-
 interface InterceptRuntime {
   asyncContext: EngineAsyncContext;
 }

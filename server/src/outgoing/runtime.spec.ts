@@ -1,6 +1,6 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import {
-  APP_HOOK_OWNER,
   broadcastToChannel,
   broadcastToConnections,
   sendThroughPipeline,

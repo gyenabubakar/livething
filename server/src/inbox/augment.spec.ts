@@ -2,11 +2,11 @@ import { buildChannelHandle } from '~/channel/context.ts';
 import { ensureSequenceSchema } from '~/sequence/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type {
   ChannelHandleAugmenter,
   ResolvedInboxOptions,
 } from '~/_engine/runtime/feature-slots.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import { registerInboxHandleAugmenter } from './augment.ts';
 import { registerReadReceiptsHandleAugmenter } from './read-receipts-augment.ts';
 import { ensureReceiptsSchema } from './receipts-storage.ts';
@@ -55,7 +55,7 @@ function handleFor(
     sendThroughPipeline: () => true,
     subscribeConnectionAsServer: () => Promise.resolve(),
   } as unknown as Parameters<typeof buildChannelHandle>[2];
-  const connection = { id: 'c1' } as unknown as EngineContextTypes.RuntimeConnection;
+  const connection = { id: 'c1' } as unknown as EngineRuntimeTypes.RuntimeConnection;
   return buildChannelHandle(connection, scope, deps);
 }
 

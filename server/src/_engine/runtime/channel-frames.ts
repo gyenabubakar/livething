@@ -72,8 +72,6 @@ export function getChannelMembers(
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
-export { leaveChannel } from '~/channel/runtime.ts';
-
 /**
  * Remove tagged members from a channel, typically for moderation or access
  * control.

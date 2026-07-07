@@ -9,8 +9,6 @@ import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-export { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
-
 /**
  * Minimal dependency bag for outgoing message helpers.
  */

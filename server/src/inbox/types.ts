@@ -1,7 +1,5 @@
 import type { InboxRetention } from '~/inbox/storage.ts';
 
-export type { OnDelivered, InboxRetention } from '~/inbox/storage.ts';
-
 /** Inbox settings shared by both `onDelivered` modes. */
 interface InboxOptionsBase {
   /**

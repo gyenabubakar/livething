@@ -1,4 +1,4 @@
-import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 /**
  * Persist connection state through the adapter's hibernation API so it
@@ -6,7 +6,7 @@ import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
  * simply pass `undefined` and the call no-ops.
  */
 export function persistAttachment(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   hibernationApi:
     | { persist(wsKey: unknown, snapshot: unknown): void; restore(wsKey: unknown): unknown }
     | undefined,

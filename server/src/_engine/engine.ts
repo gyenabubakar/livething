@@ -1,11 +1,11 @@
 import { CloseCodes } from '@wskit/core';
-import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
+import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -14,14 +14,6 @@ import type * as DefineServer from '~/server-definition.ts';
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
 type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
 type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
-
-export type {
-  AdapterConfig,
-  ConnectionDescriptor,
-  ConnectionHandle,
-  EngineOptions,
-  UpgradeDecision,
-} from '~/_adapters/types.ts';
 
 /**
  * Runs one compiled server definition. Adapters call methods on this class;
@@ -218,7 +210,7 @@ export class Engine {
 
   /** @internal */
   private createShutdownContext() {
-    return EngineContexts.createShutdownContext({
+    return createShutdownContext({
       connections: this.core.connections,
       ...EngineDeps.commonDeps(this.core),
     });

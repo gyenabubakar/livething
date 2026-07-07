@@ -4,7 +4,7 @@ import { replay } from '~/replay/replay.ts';
 import { persistReplayMessage } from '~/replay/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
+import type { IncomingProtocolEvent } from '~/_engine/runtime/protocol.ts';
 import type { SqlResult, StorageProvider } from '~/context.ts';
 import type { ReplayRow } from '~/replay/types.ts';
 

@@ -62,15 +62,6 @@ export interface WireOutgoingMessage {
 }
 
 /**
- * Reserved websocket events that can arrive from the client into the engine.
- *
- * These are the protocol-level messages WSKit itself understands before app
- * handlers run. Built-in primitives can hook into these names through
- * `onProtocolMessage(...)`.
- */
-export type { IncomingProtocolEvent } from './protocol.ts';
-
-/**
  * One new-model plugin lifecycle handler, tagged with its plugin id and the
  * global registration index so the engine can order hooks deterministically.
  * The handler already receives a plugin-scoped context (sends are prefixed).

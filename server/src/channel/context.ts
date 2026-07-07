@@ -1,6 +1,8 @@
 import { ChannelNotFound } from '@wskit/core';
 import * as ChannelRuntime from '~/channel/runtime.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
 type ChannelHandleDeps = Pick<
@@ -21,7 +23,7 @@ type ChannelHandleDeps = Pick<
  * @internal
  */
 export function buildChannelHandle(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   scope: { channelName: string; channelFamily: string | null; params?: Record<string, string> },
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
@@ -98,7 +100,7 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 
 /** Build the `ctx.channels` helper surface — only `get(...)`. */
 export function buildChannelsApi(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   deps: ChannelsApiDeps,
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
@@ -111,10 +113,10 @@ export function buildChannelsApi(
 }
 
 export function buildChannelFamilyExtra(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   scope:
     | {
-        channel?: EngineContextTypes.CompiledChannel;
+        channel?: EngineCompileTypes.CompiledChannel;
         channelName?: string;
         channelFamily?: string | null;
       }

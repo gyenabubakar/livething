@@ -1,13 +1,12 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
-
-export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
@@ -16,10 +15,10 @@ type MessagingDeps = Pick<
 
 /** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
 function buildMessagingApi(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   deps: MessagingDeps,
 ): Pick<
-  EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+  PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
   'broadcast' | 'close' | 'connection' | 'send'
 > {
   return {
@@ -49,20 +48,20 @@ function buildMessagingApi(
  */
 export function buildConnectionContext(
   deps: EngineContextTypes.BuildConnectionContextDeps,
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   scope?: {
-    channel?: EngineContextTypes.CompiledChannel;
+    channel?: EngineCompileTypes.CompiledChannel;
     channelName?: string;
     channelFamily?: string | null;
   },
-): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
+): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
 
   const locals = new Map<LocalKey<unknown>, unknown>();
 
   const base: Omit<
-    EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+    PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
     'channels' | 'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
@@ -165,7 +164,7 @@ export function buildConnectionContext(
             getTagGroupSchema: deps.getTagGroupSchema,
             toConnectionInfo: deps.toConnectionInfo,
             sendThroughPipeline: (
-              target: EngineContextTypes.RuntimeConnection,
+              target: EngineRuntimeTypes.RuntimeConnection,
               event: string,
               payload: unknown,
             ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
@@ -183,7 +182,7 @@ export function buildConnectionContext(
     Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));
   }
 
-  return base as EngineContextTypes.ConnectionContext<
+  return base as PublicApi.ConnectionContext<
     Record<string, unknown>,
     Record<string, unknown>,
     unknown
@@ -195,12 +194,12 @@ export function buildConnectionContext(
  * Convert mutable runtime connection state into the stable public info shape.
  */
 export function toConnectionInfo(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   instanceId: string | undefined,
   opts?: { hibernationEnabled?: boolean; lastSeenAt?: (identity: string) => number | null },
-): EngineContextTypes.ConnectionInfo<Record<string, unknown>> {
+): PublicApi.ConnectionInfo<Record<string, unknown>> {
   const hibernationEnabled = opts?.hibernationEnabled;
-  const info: EngineContextTypes.ConnectionInfo<Record<string, unknown>> = {
+  const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {
     id: connection.id,
     identity: connection.identity,
     meta: connection.meta,

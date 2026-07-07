@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
+import { createInitContext } from '~/lifecycle/context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
@@ -100,7 +100,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     await hook();
   }
 
-  const initCtx = EngineContexts.createInitContext({
+  const initCtx = createInitContext({
     env: core.env,
     logger: core.logger,
     platform: core.platform,

@@ -16,7 +16,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
  */
 function boundLeave(core: EngineCore) {
   return (connection: RuntimeConnection, opts: ChannelPrimitive.LeaveChannelOptions) =>
-    EngineChannelFrames.leaveChannel(channelRuntime(core), connection, opts);
+    ChannelPrimitive.leaveChannel(channelRuntime(core), connection, opts);
 }
 
 /**
@@ -44,7 +44,7 @@ export const channelService: ChannelService = {
   },
 
   leaveChannel(core, connection, opts) {
-    return EngineChannelFrames.leaveChannel(channelRuntime(core), connection, opts);
+    return ChannelPrimitive.leaveChannel(channelRuntime(core), connection, opts);
   },
 
   getChannelMembers(core, channelName, channelFamily) {

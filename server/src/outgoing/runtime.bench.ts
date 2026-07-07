@@ -1,5 +1,6 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
-import { APP_HOOK_OWNER, broadcastToChannel } from '~/outgoing/runtime.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
+import { broadcastToChannel } from '~/outgoing/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { broadcastToChannel as BroadcastToChannel } from '~/outgoing/runtime.ts';

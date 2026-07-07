@@ -17,7 +17,7 @@ import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
-import type * as InterceptPrimitive from '~/intercept/runtime.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -45,14 +45,6 @@ function connectionHoldsMembership(
  * so a flood of distinct deferring messages can't grow timers without limit.
  */
 const MAX_PENDING_DEFERS = 128;
-
-export type { WSKitRouting } from './protocol.ts';
-
-export {
-  broadcastToChannel,
-  broadcastToConnections,
-  sendThroughPipeline,
-} from '~/outgoing/runtime.ts';
 
 /**
  * Larger dependency bag for inbound message dispatch.

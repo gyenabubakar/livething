@@ -1,11 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  buildConnectionContext,
-  createInitContext,
-  createShutdownContext,
-  persistAttachment,
-} from '~/_engine/contexts/contexts.ts';
+import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
+import { persistAttachment } from '~/persistence/context.ts';
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';

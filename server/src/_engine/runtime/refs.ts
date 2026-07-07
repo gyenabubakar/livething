@@ -1,11 +1,12 @@
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
 /** The slice of engine deps the connection handle needs to route a send. */
 type ConnectionHandleDeps = Pick<
   EngineContextTypes.ContextCommonDeps,
   'instanceId' | 'logger' | 'sendThroughPipeline'
-> & { connections: Map<string, EngineContextTypes.RuntimeConnection> };
+> & { connections: Map<string, EngineRuntimeTypes.RuntimeConnection> };
 
 /**
  * Build the `ctx.connection(ref)` factory shared by the connection and task
