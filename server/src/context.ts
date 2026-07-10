@@ -596,8 +596,8 @@ export interface ChannelsManager<
  * trims it down.
  *
  * `ConnectionContext` is passed to handlers registered with: `base.on`,
- * `base.request`, `base.stream`, `base.connect`, `base.disconnect`,
- * `base.error`, and `base.validationError`.
+ * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
+ * `base.onError`, and `base.onValidationError`.
  *
  * @template Env      Environment variables exposed by the adapter.
  * @template Meta     Per-connection metadata set in the upgrade step.

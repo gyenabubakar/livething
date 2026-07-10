@@ -2,7 +2,7 @@
 /**
  * Compile-time fixtures for capability-gated ctx surfaces and env/owner threading.
  *
- * Covers: `base.init`/`base.shutdown` see the typed env, and shutdown's
+ * Covers: `base.onInit`/`base.onShutdown` see the typed env, and shutdown's
  * `broadcast` is gated to declared emits (gap 5); `frame.owner.id` is the union
  * of registered plugin ids in `intercept`/`outgoing` (gap 7); and each
  * capability-owned ctx arm exists only when its capability is listed, and is a
@@ -30,14 +30,14 @@ const lifecycleBase = define({
   capabilities: [emits({ bye: t<{ reason: string }>() })],
 });
 
-lifecycleBase.init((ctx) => {
+lifecycleBase.onInit((ctx) => {
   const _secret: string = ctx.env.SECRET;
   void _secret;
   // @ts-expect-error — undeclared env key
   ctx.env.NOPE;
 });
 
-lifecycleBase.shutdown((ctx) => {
+lifecycleBase.onShutdown((ctx) => {
   const _secret: string = ctx.env.SECRET;
   void _secret;
   // @ts-expect-error — undeclared env key

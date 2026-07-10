@@ -37,7 +37,7 @@ describe('define() send/receive core', () => {
       },
     });
 
-    base.connect((ctx) => {
+    base.onConnect((ctx) => {
       ctx.send('welcome', { username: ctx.meta.username });
     });
 
@@ -98,16 +98,20 @@ describe('define() send/receive core', () => {
     expect(handler.__features?.has('hibernation')).toBe(false);
   });
 
-  it.each(['init', 'connect', 'disconnect', 'error', 'validationError', 'shutdown'] as const)(
-    'throws when the %s lifecycle hook is registered twice',
-    (hook) => {
-      const base = makeBase();
-      (base[hook] as (handler: () => void) => void)(() => {});
-      expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
-        new RegExp(`Duplicate ${hook} hook`),
-      );
-    },
-  );
+  it.each([
+    'onInit',
+    'onConnect',
+    'onDisconnect',
+    'onError',
+    'onValidationError',
+    'onShutdown',
+  ] as const)('throws when the %s lifecycle hook is registered twice', (hook) => {
+    const base = makeBase();
+    (base[hook] as (handler: () => void) => void)(() => {});
+    expect(() => (base[hook] as (handler: () => void) => void)(() => {})).toThrow(
+      new RegExp(`Duplicate ${hook} hook`),
+    );
+  });
 
   it('throws when a second intercept is registered', () => {
     const base = makeBase();

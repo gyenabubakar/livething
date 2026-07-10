@@ -67,7 +67,7 @@ const base = define({
   ],
 });
 
-base.connect((ctx) => {
+base.onConnect((ctx) => {
   ctx.log.info('Plugin handler: client connected', { id: ctx.id });
 });
 

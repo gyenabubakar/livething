@@ -39,14 +39,14 @@ describe('plugin init — onion order end-to-end', () => {
     const trace: string[] = [];
 
     const ph = define({ scoped: true, capabilities: [emits({ ready: t<{}>() })] });
-    ph.init(() => {
+    ph.onInit(() => {
       trace.push('plugin');
     });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Plug = plugin('acme:boot', { handler: ph.assemble(beat) });
 
     const base = define({ env: t<{}>(), capabilities: [Plug()] });
-    base.init(() => {
+    base.onInit(() => {
       trace.push('app');
     });
     const handler = base.assemble(base.on('noop', { input: v.object({}), run() {} }));

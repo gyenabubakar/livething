@@ -22,7 +22,7 @@ const base = define({
   ],
 });
 
-base.error((ctx, _error, eventName) => {
+base.onError((ctx, _error, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
   ctx.send('scoped-error-observed', {
     channel: c.channel?.name ?? '<top-level>',
@@ -31,7 +31,7 @@ base.error((ctx, _error, eventName) => {
   });
 });
 
-base.validationError((ctx, eventName) => {
+base.onValidationError((ctx, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string } };
   ctx.send('validation-observed', {
     channel: c.channel?.name ?? '<top-level>',

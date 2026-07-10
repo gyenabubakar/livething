@@ -16,7 +16,7 @@ const base = define({
   ],
 });
 
-base.validationError((ctx, evt) => {
+base.onValidationError((ctx, evt) => {
   ctx.send('validation-error-fired', { event: evt });
 });
 

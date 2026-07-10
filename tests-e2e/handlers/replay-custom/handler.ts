@@ -91,7 +91,7 @@ base.replay({
   },
 });
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(`
     CREATE TABLE IF NOT EXISTS _custom_replay (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

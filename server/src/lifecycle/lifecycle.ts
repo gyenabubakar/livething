@@ -33,13 +33,13 @@ export interface UpgradeResult {
   readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
-/** Handler type for `base.init(...)`. */
+/** Handler type for `base.onInit(...)`. */
 export type InitHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.connect(...)`. */
+/** Handler type for `base.onConnect(...)`. */
 export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.disconnect(...)`. */
+/** Handler type for `base.onDisconnect(...)`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /** Handler type for `base.onPing(...)`. */
@@ -48,11 +48,11 @@ export type PingHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 /** Handler type for `base.onPong(...)`. */
 export type PongHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.shutdown(...)`. */
+/** Handler type for `base.onShutdown(...)`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler type for `base.error(...)`. The `event` argument is
+ * Handler type for `base.onError(...)`. The `event` argument is
  * the incoming event name that caused the error, when known.
  */
 export type ErrorHandler<TCtx = any> = (
@@ -83,7 +83,7 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/** Handler type for `base.validationError(...)`. */
+/** Handler type for `base.onValidationError(...)`. */
 export type ValidationErrorHandler<TCtx = any> = (
   ctx: TCtx,
   event: string,
@@ -182,7 +182,7 @@ function intoContextHandler(
 }
 
 /**
- * Creates an `onInit` lifecycle primitive. Prefer `base.init(...)`
+ * Creates an `onInit` lifecycle primitive. Prefer `base.onInit(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onInit = Object.assign(
@@ -193,7 +193,7 @@ export const onInit = Object.assign(
 );
 
 /**
- * Creates an `onConnect` lifecycle primitive. Prefer `base.connect(...)`
+ * Creates an `onConnect` lifecycle primitive. Prefer `base.onConnect(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onConnect = Object.assign(
@@ -204,7 +204,7 @@ export const onConnect = Object.assign(
 );
 
 /**
- * Creates an `onDisconnect` lifecycle primitive. Prefer `base.disconnect(...)`
+ * Creates an `onDisconnect` lifecycle primitive. Prefer `base.onDisconnect(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onDisconnect = Object.assign(
@@ -242,7 +242,7 @@ export const onPong = Object.assign(
 );
 
 /**
- * Creates an `onShutdown` lifecycle primitive. Prefer `base.shutdown(...)`
+ * Creates an `onShutdown` lifecycle primitive. Prefer `base.onShutdown(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onShutdown = Object.assign(
@@ -253,7 +253,7 @@ export const onShutdown = Object.assign(
 );
 
 /**
- * Creates an `onError` lifecycle primitive. Prefer `base.error(...)`
+ * Creates an `onError` lifecycle primitive. Prefer `base.onError(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onError = Object.assign(
@@ -275,7 +275,7 @@ export const onUpgrade = Object.assign(
 );
 
 /**
- * Creates an `onValidationError` lifecycle primitive. Prefer `base.validationError(...)`
+ * Creates an `onValidationError` lifecycle primitive. Prefer `base.onValidationError(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onValidationError = Object.assign(

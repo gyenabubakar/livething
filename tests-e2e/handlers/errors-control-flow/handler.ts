@@ -33,7 +33,7 @@ const base = define({
   ],
 });
 
-base.error((ctx, error, evt) => {
+base.onError((ctx, error, evt) => {
   if (DeferExhausted.matches(error)) {
     ctx.send('defer-exhausted-result', {
       event: evt ?? 'unknown',
@@ -42,7 +42,7 @@ base.error((ctx, error, evt) => {
   }
 });
 
-base.validationError((ctx, evt) => {
+base.onValidationError((ctx, evt) => {
   ctx.send('validation-error-fired', { event: evt });
 });
 

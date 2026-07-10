@@ -26,7 +26,7 @@ const base = define({
   ],
 });
 
-base.disconnect((ctx) => {
+base.onDisconnect((ctx) => {
   if (ctx.meta.username === 'throwing-user') {
     throw new Error('intentional onDisconnect throw');
   }

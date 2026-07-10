@@ -47,7 +47,7 @@ const base = define({
   ],
 });
 
-base.error((_ctx, error, event) => {
+base.onError((_ctx, error, event) => {
   console.error(`[replay] error in ${event}:`, error);
 });
 

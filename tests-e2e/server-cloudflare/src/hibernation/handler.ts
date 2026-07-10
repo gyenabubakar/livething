@@ -38,7 +38,7 @@ const base = define({
   ],
 });
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

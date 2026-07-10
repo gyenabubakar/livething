@@ -1419,11 +1419,11 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   ): IncomingHandlerValue<TEvent, InferInput<TSchema>>;
 
   /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
-  init(handler: (ctx: InitContext<TEnv>) => void | Promise<void>): void;
+  onInit(handler: (ctx: InitContext<TEnv>) => void | Promise<void>): void;
   /** Run each time a connection opens, after `upgrade(...)` succeeds. */
-  connect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  onConnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
-  disconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  onDisconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /**
    * Run each time a client sends a `ping`. The server has already replied
    * `pong` by then — this is for observing, not for answering.
@@ -1436,7 +1436,7 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
    */
   onPong(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run on any unhandled error from a handler. `event` is set when the error came from one. */
-  error(
+  onError(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       error: unknown,
@@ -1444,7 +1444,7 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
     ) => void | Promise<void>,
   ): void;
   /** Run when an incoming payload fails its schema validation. */
-  validationError(
+  onValidationError(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       event: string,
@@ -1452,7 +1452,7 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
     ) => void | Promise<void>,
   ): void;
   /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
-  shutdown(
+  onShutdown(
     handler: (ctx: ShutdownContext<TEnv, TMeta, unknown, TSlots>) => void | Promise<void>,
   ): void;
 
@@ -1810,14 +1810,14 @@ export function define(config: any): Base<any, any, any, any> {
         registerServerRequests,
       });
     },
-    init(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('init', onInit(handler));
+    onInit(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onInit', onInit(handler));
     },
-    connect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('connect', onConnect(handler));
+    onConnect(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onConnect', onConnect(handler));
     },
-    disconnect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('disconnect', onDisconnect(handler));
+    onDisconnect(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onDisconnect', onDisconnect(handler));
     },
     onPing(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('onPing', onPing(handler));
@@ -1825,24 +1825,24 @@ export function define(config: any): Base<any, any, any, any> {
     onPong(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('onPong', onPong(handler));
     },
-    error(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
+    onError(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
       registerOnce(
-        'error',
+        'onError',
         onError((ctx: any, error: unknown, event?: string) =>
           handler(adaptChannelContext(ctx), error, event),
         ),
       );
     },
-    validationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
+    onValidationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
       registerOnce(
-        'validationError',
+        'onValidationError',
         onValidationError((ctx: any, event: string, error: unknown) =>
           handler(adaptChannelContext(ctx), event, error),
         ),
       );
     },
-    shutdown(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('shutdown', onShutdown(handler));
+    onShutdown(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onShutdown', onShutdown(handler));
     },
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));

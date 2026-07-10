@@ -103,7 +103,7 @@ const h = define({
   ],
 });
 
-h.init((ctx) => {
+h.onInit((ctx) => {
   const db = getDb(ctx.platform as Platform);
 
   db.run(
@@ -124,7 +124,7 @@ h.init((ctx) => {
   db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
 });
 
-h.connect((ctx) => {
+h.onConnect((ctx) => {
   const state = getState(ctx.platform as Platform);
   state.lastGeneratedId = `drizzle-${ctx.id}`;
   const self = ctx.getConnections().find((c) => c.id === ctx.id);
@@ -137,11 +137,11 @@ h.connect((ctx) => {
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 
-h.disconnect((ctx) => {
+h.onDisconnect((ctx) => {
   getState(ctx.platform as Platform).disconnectCount++;
 });
 
-h.shutdown((ctx) => {
+h.onShutdown((ctx) => {
   getDb(ctx.platform as Platform).run(
     "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
   );

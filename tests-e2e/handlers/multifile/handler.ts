@@ -8,7 +8,7 @@ import type { InferClient } from '@wskit/server';
 import { handleSendRoomMessage } from './rooms.ts';
 import { base } from './setup.ts';
 
-base.connect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
 });
 

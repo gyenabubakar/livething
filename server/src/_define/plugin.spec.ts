@@ -108,7 +108,7 @@ describe('plugin() — scoped handler + manifest', () => {
 
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
     const h = define({ scoped: true });
-    h.connect(() => {});
+    h.onConnect(() => {});
     const { __primitives } = plugin('acme:presence', { handler: h.assemble() })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
     const registerPluginLifecycle = vi.fn();

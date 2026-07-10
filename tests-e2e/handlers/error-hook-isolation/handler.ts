@@ -12,7 +12,7 @@ const base = define({
 
 // Hook intentionally throws — the engine must still send `__error__` to the
 // client so the request Promise rejects instead of hanging.
-base.error(() => {
+base.onError(() => {
   throw new Error('observability sink is down');
 });
 
@@ -21,7 +21,7 @@ const handleDoRequest = base.request('do-request', {
   run(_ctx): { text: string } {
     // Throw an unrecognized error from the request handler. The engine should
     // normalize it into `internal-error` and still send `__error__` despite the
-    // base.error hook above blowing up.
+    // base.onError hook above blowing up.
     throw new Error('handler boom');
   },
 });
