@@ -14,6 +14,9 @@
 **/.nuxt/
 **/.output/
 
+# Written by `wrangler types`, committed but never hand-edited
+**/worker-configuration.d.ts
+
 # Docs site: only `website/content` is formatted, so Prettier formats the code
 # blocks inside the markdown. The rest is Nuxt app code kept as-is. Listing the
 # siblings rather than `website/` is deliberate — these patterns follow gitignore
