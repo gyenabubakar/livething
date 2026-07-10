@@ -55,6 +55,9 @@
       { "name": "CTX_META_SERVER", "class_name": "CtxMetaServer" },
       { "name": "KEEPALIVE_SERVER", "class_name": "KeepaliveServer" },
       { "name": "PROTOCOL_PINGS_SERVER", "class_name": "ProtocolPingsServer" },
+      { "name": "HEARTBEAT_SERVER", "class_name": "HeartbeatServer" },
+      { "name": "HEARTBEAT_KEEPALIVE_SERVER", "class_name": "HeartbeatKeepaliveServer" },
+      { "name": "HEARTBEAT_HIBERNATION_SERVER", "class_name": "HeartbeatHibernationServer" },
       { "name": "MULTIFILE_SERVER", "class_name": "MultifileServer" },
       { "name": "RATE_LIMIT_SERVER", "class_name": "RateLimitServer" },
       { "name": "STREAM_DURABLE_SERVER", "class_name": "StreamDurableServer" },
@@ -172,6 +175,14 @@
     {
       "tag": "v12",
       "new_sqlite_classes": ["InboxHandleServer", "LastSeenServer"],
+    },
+    {
+      "tag": "v13",
+      "new_sqlite_classes": ["HeartbeatServer", "HeartbeatKeepaliveServer"],
+    },
+    {
+      "tag": "v14",
+      "new_sqlite_classes": ["HeartbeatHibernationServer"],
     },
   ],
 }

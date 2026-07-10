@@ -38,8 +38,8 @@ interface KeepaliveTypeFn extends TypeFn {
 /**
  * Adds client pings so a quiet connection isn't dropped by proxies, tracks
  * round-trip latency to report connection quality, and closes a connection
- * that stops answering. It's opt-in: without it the client still replies to
- * the server's pings (the engine handles that), but sends none of its own.
+ * that stops answering. It's opt-in: without it the socket still replies to
+ * the server's pings automatically, but sends none of its own.
  *
  * The `quality` and `latency` stores only mean anything once something measures
  * pongs, so they live here — added to the socket only when you install

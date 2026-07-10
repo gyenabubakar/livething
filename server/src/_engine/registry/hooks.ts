@@ -5,6 +5,9 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
   return {
     activity: [],
     messageActivity: [],
+    ping: [],
+    pong: [],
+    connectionCleanup: [],
     incoming: [],
     answerFrame: [],
     outgoing: [],

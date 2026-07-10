@@ -2,7 +2,6 @@ import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -32,12 +31,6 @@ interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
   hibernationEnabled?: boolean;
-
-  /**
-   * Keepalive ping interval (ms) for new connections, set by `keepalive()`.
-   * `undefined` when no keepalive is configured — the pinger uses its default.
-   */
-  keepalivePingIntervalMs?: number;
 
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -264,6 +257,7 @@ export async function handleConnectionClose(
       connection: EngineRuntimeTypes.RuntimeConnection,
       opts: ChannelPrimitive.LeaveChannelOptions,
     ): Promise<void>;
+    connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
   options: HandleConnectionCloseOptions,
@@ -348,7 +342,16 @@ export async function handleConnectionClose(
     connection.deferTimers.clear();
   }
 
-  KeepalivePrimitive.stopConnectionPing(connection);
+  for (const hook of runtime.connectionCleanupHooks ?? []) {
+    try {
+      hook(connection.id);
+    } catch (error) {
+      runtime.logger?.error('[wskit] connection cleanup hook threw', {
+        connectionId: connection.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 /**
@@ -400,10 +403,6 @@ export function acceptConnection(
   // flush after the hook resolves.
   runtime.persistAttachment(connection);
   connection.pendingWrites = { active: true };
-
-  if (!runtime.hibernationEnabled) {
-    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
-  }
 
   const ctx = runtime.buildConnectionContext(connection);
   // Auto-rejoin runs before onConnect so handlers see the connection already
@@ -547,10 +546,6 @@ export function wakeHibernatedConnection(
   // even if it was missing before.
   if (restoredStreamIds.length > 0) {
     runtime.persistAttachment(connection);
-  }
-
-  if (!runtime.hibernationEnabled) {
-    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
   }
 
   connection.lifecycleReady = Promise.resolve();

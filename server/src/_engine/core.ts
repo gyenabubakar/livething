@@ -61,12 +61,6 @@ export class EngineCore {
   /** Set by `persistence: true`. Turns on durable tables and membership writes. */
   persistenceEnabled = false;
   incomingDedupCap = 0;
-  /**
-   * Ping interval (ms) for the per-connection keepalive ping, set by
-   * `keepalive()` to the configured `pingIntervalMs`. `undefined` means no
-   * keepalive was configured — the ping falls back to its built-in default.
-   */
-  keepalivePingIntervalMs: number | undefined = undefined;
 
   /**
    * Runtime dispatch slots filled by feature capabilities during `__setup`. The
@@ -210,6 +204,17 @@ export class EngineCore {
     this.waitUntilImpl = options.waitUntil;
     this.logger = options.logger;
     this.asyncContext = createAsyncContext(options.asyncContextFactory);
+    this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
+  }
+
+  /**
+   * Answer a client's `ping` with a `pong`. Registered as the engine's own
+   * first ping hook, ahead of anything a capability or the app adds, because a
+   * client measuring the server expects a reply from every server — sending
+   * pings is what `keepalive()` owns, answering them is not.
+   */
+  private replyPong(connectionId: string): void {
+    this.connections.get(connectionId)?.descriptor.send('pong');
   }
 
   setInstanceId(id: string): void {

@@ -42,6 +42,12 @@ export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 /** Handler type for `base.disconnect(...)`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
+/** Handler type for `base.onPing(...)`. */
+export type PingHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
+/** Handler type for `base.onPong(...)`. */
+export type PongHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
 /** Handler type for `base.shutdown(...)`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
@@ -99,6 +105,16 @@ export interface DisconnectPrimitive<TCtx = any> extends Primitive<'onDisconnect
   readonly handler: DisconnectHandler<TCtx>;
 }
 
+/** The TypeScript type returned by `onPing()`. */
+export interface PingPrimitive<TCtx = any> extends Primitive<'onPing'> {
+  readonly handler: PingHandler<TCtx>;
+}
+
+/** The TypeScript type returned by `onPong()`. */
+export interface PongPrimitive<TCtx = any> extends Primitive<'onPong'> {
+  readonly handler: PongHandler<TCtx>;
+}
+
 /** The TypeScript type returned by `onShutdown()`. */
 export interface ShutdownPrimitive<TCtx = any> extends Primitive<'onShutdown'> {
   readonly handler: ShutdownHandler<TCtx>;
@@ -122,6 +138,8 @@ export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValid
 const ON_INIT_KEY = Symbol('onInit');
 const ON_CONNECT_KEY = Symbol('onConnect');
 const ON_DISCONNECT_KEY = Symbol('onDisconnect');
+const ON_PING_KEY = Symbol('onPing');
+const ON_PONG_KEY = Symbol('onPong');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
@@ -143,6 +161,24 @@ function makeLifecycle<TTag extends string>(
       setupFn(engine, handler);
     },
   });
+}
+
+/**
+ * Adapt an app handler that expects a `ctx` to the connection-id hook the
+ * engine registers for heartbeat frames. A connection that closed between the
+ * frame arriving and the hook running no longer has a context, so it is
+ * skipped rather than handed a stale one.
+ *
+ * @internal
+ */
+function intoContextHandler(
+  engine: EngineAccess,
+  handler: (ctx: any) => void | Promise<void>,
+): (connectionId: string) => Promise<void> {
+  return async (connectionId) => {
+    const ctx = engine.getConnectionContext(connectionId);
+    if (ctx !== undefined) await handler(ctx);
+  };
 }
 
 /**
@@ -176,6 +212,33 @@ export const onDisconnect = Object.assign(
     handler: DisconnectHandler<TCtx>,
   ) => DisconnectPrimitive<TCtx>,
   { __key: ON_DISCONNECT_KEY },
+);
+
+/**
+ * Creates an `onPing` lifecycle primitive. Prefer `base.onPing(...)`
+ * — this factory is used internally by `assemble(...)`.
+ *
+ * The engine has already answered the client with `pong` by the time this runs.
+ */
+export const onPing = Object.assign(
+  makeLifecycle('onPing', ON_PING_KEY, (engine, handler) =>
+    engine.onPing(intoContextHandler(engine, handler)),
+  ) as <TCtx>(handler: PingHandler<TCtx>) => PingPrimitive<TCtx>,
+  { __key: ON_PING_KEY },
+);
+
+/**
+ * Creates an `onPong` lifecycle primitive. Prefer `base.onPong(...)`
+ * — this factory is used internally by `assemble(...)`.
+ *
+ * When `keepalive()` is listed it has already recorded the round-trip by the
+ * time this runs, so `ctx.latency` reflects the pong that triggered it.
+ */
+export const onPong = Object.assign(
+  makeLifecycle('onPong', ON_PONG_KEY, (engine, handler) =>
+    engine.onPong(intoContextHandler(engine, handler)),
+  ) as <TCtx>(handler: PongHandler<TCtx>) => PongPrimitive<TCtx>,
+  { __key: ON_PONG_KEY },
 );
 
 /**

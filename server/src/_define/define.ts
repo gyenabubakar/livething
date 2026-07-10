@@ -12,6 +12,8 @@ import {
   onDisconnect,
   onError,
   onInit,
+  onPing,
+  onPong,
   onShutdown,
   onUpgrade,
   onValidationError,
@@ -1422,6 +1424,17 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   connect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
   disconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  /**
+   * Run each time a client sends a `ping`. The server has already replied
+   * `pong` by then — this is for observing, not for answering.
+   */
+  onPing(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  /**
+   * Run each time a client answers a server `ping` with a `pong`. With
+   * `keepalive()` listed, the round-trip is already recorded, so `ctx.latency`
+   * is fresh here.
+   */
+  onPong(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run on any unhandled error from a handler. `event` is set when the error came from one. */
   error(
     handler: (
@@ -1805,6 +1818,12 @@ export function define(config: any): Base<any, any, any, any> {
     },
     disconnect(handler: (ctx: any) => void | Promise<void>) {
       registerOnce('disconnect', onDisconnect(handler));
+    },
+    onPing(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onPing', onPing(handler));
+    },
+    onPong(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onPong', onPong(handler));
     },
     error(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
       registerOnce(

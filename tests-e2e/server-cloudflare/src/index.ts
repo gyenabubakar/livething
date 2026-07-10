@@ -41,6 +41,9 @@ export { CtxQualityServer } from './ctx-quality.ts';
 export { CtxMetaServer } from './ctx-meta.ts';
 export { KeepaliveServer } from './keepalive.ts';
 export { ProtocolPingsServer } from './protocol-pings.ts';
+export { HeartbeatServer } from './heartbeat.ts';
+export { HeartbeatKeepaliveServer } from './heartbeat-keepalive.ts';
+export { HeartbeatHibernationServer } from './heartbeat-hibernation.ts';
 export { MultifileServer } from './multifile.ts';
 export { RateLimitServer } from './rate-limit.ts';
 export { StreamDurableServer } from './stream-durable.ts';
@@ -95,6 +98,9 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-meta': 'CTX_META_SERVER',
   '/ws/keepalive': 'KEEPALIVE_SERVER',
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
+  '/ws/heartbeat': 'HEARTBEAT_SERVER',
+  '/ws/heartbeat-keepalive': 'HEARTBEAT_KEEPALIVE_SERVER',
+  '/ws/heartbeat-hibernation': 'HEARTBEAT_HIBERNATION_SERVER',
   '/ws/multifile': 'MULTIFILE_SERVER',
   '/ws/rate-limit': 'RATE_LIMIT_SERVER',
   '/ws/stream-durable': 'STREAM_DURABLE_SERVER',

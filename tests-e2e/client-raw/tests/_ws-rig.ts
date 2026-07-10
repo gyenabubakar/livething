@@ -20,8 +20,10 @@ interface RigWindow {
     room: string,
   ) => Promise<{ id: string; frames: WireFrame[] }>;
   __wskitSend?: (id: string, frame: WireFrame) => void;
+  __wskitSendRaw?: (id: string, text: string) => void;
   __wskitClose?: (id: string) => void;
   __wskitFrames?: (id: string) => WireFrame[];
+  __wskitRawFrames?: (id: string) => string[];
 }
 
 declare global {
@@ -32,6 +34,7 @@ export async function installRig(page: Page) {
   await page.evaluate(() => {
     const sockets = new Map<string, WebSocket>();
     const frames = new Map<string, WireFrame[]>();
+    const rawFrames = new Map<string, string[]>();
     let nextId = 1;
 
     window.__wskitConnect = (path, username, room) => {
@@ -42,12 +45,14 @@ export async function installRig(page: Page) {
       const ws = new WebSocket(url);
       sockets.set(id, ws);
       frames.set(id, []);
+      rawFrames.set(id, []);
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
+          rawFrames.get(id)!.push(ev.data);
           try {
             frames.get(id)!.push(JSON.parse(ev.data));
           } catch {
-            // ignore
+            // A bare `ping` / `pong` is not JSON; it lives in rawFrames only.
           }
         }
       });
@@ -57,8 +62,10 @@ export async function installRig(page: Page) {
       });
     };
     window.__wskitSend = (id, frame) => sockets.get(id)?.send(JSON.stringify(frame));
+    window.__wskitSendRaw = (id, text) => sockets.get(id)?.send(text);
     window.__wskitClose = (id) => sockets.get(id)?.close();
     window.__wskitFrames = (id) => frames.get(id) ?? [];
+    window.__wskitRawFrames = (id) => rawFrames.get(id) ?? [];
   });
 }
 
@@ -80,12 +87,22 @@ export async function send(page: Page, id: string, frame: WireFrame) {
   await page.evaluate(([sid, f]) => window.__wskitSend!(sid, f as WireFrame), [id, frame] as const);
 }
 
+/** Send one bare text frame, bypassing JSON — used for `ping` and `pong`. */
+export async function sendRaw(page: Page, id: string, text: string) {
+  await page.evaluate(([sid, value]) => window.__wskitSendRaw!(sid, value), [id, text] as const);
+}
+
 export async function closeSocket(page: Page, id: string) {
   await page.evaluate((sid) => window.__wskitClose!(sid), id);
 }
 
 export async function frames(page: Page, id: string): Promise<WireFrame[]> {
   return page.evaluate((sid) => window.__wskitFrames!(sid), id);
+}
+
+/** Every text frame the socket received, including the non-JSON `ping` / `pong`. */
+export async function rawFrames(page: Page, id: string): Promise<string[]> {
+  return page.evaluate((sid) => window.__wskitRawFrames!(sid), id);
 }
 
 export interface WaitForFrameOptions {

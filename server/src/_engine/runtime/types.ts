@@ -124,6 +124,28 @@ export interface RegisteredEngineHooks {
    */
   messageActivity: ((connectionId: string) => void | Promise<void>)[];
 
+  /**
+   * Fires when a client sends a bare `ping` frame. The engine registers the
+   * first handler itself, and that handler replies `pong`, so every server
+   * answers a probing client whether or not `keepalive()` is listed.
+   */
+  ping: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires when a client sends a bare `pong` frame — its reply to a ping the
+   * server sent. `keepalive()` registers a handler here to measure the
+   * round-trip time. The engine records nothing on its own.
+   */
+  pong: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires once per closed connection, during the engine's own teardown and
+   * after every `disconnect` hook has had its turn. Unlike `disconnect`, this
+   * always runs — a throwing user hook cannot skip it — so it is where a
+   * capability releases per-connection resources such as timers.
+   */
+  connectionCleanup: ((connectionId: string) => void)[];
+
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
   incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
 
@@ -325,7 +347,10 @@ export interface RuntimeConnection {
    */
   channelMemberships: Map<string, { channelName: string; channelFamily: string | null }>;
 
-  /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
+  /**
+   * Most recent round-trip latency in milliseconds, or `null` when nothing has
+   * measured one. Only `keepalive()` measures; without it this stays `null`.
+   */
   latency: number | null;
 
   /** Connection quality tier derived from recent latency samples. */
@@ -334,17 +359,8 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
-  /** Handle for the keepalive idle timer. */
+  /** Handle for the idle timer armed by `refreshConnectionIdleTimeout`. */
   keepaliveTimer?: unknown;
-
-  /** Handle for the next scheduled ping timer. */
-  pingTimer?: unknown;
-
-  /** Timestamp (ms) when the last ping was sent, used to compute latency. */
-  pendingPingSentAt?: number;
-
-  /** Sliding window of recent latency samples for quality calculation. */
-  recentLatencies?: number[];
 
   /**
    * Bounded ring of `messageId` values already seen on this connection, used

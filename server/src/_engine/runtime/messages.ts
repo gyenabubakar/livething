@@ -12,7 +12,6 @@ import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -657,35 +656,60 @@ async function dispatchProtocolFrame(
   }
 }
 
+/** A hook that observes one connection by id and must never break dispatch. */
+type ConnectionHook = (connectionId: string) => void | Promise<void>;
+
 /**
- * Parse one websocket text frame and route protocol messages or app events.
+ * Run every hook in `hooks` against one connection, in registration order,
+ * logging and swallowing whatever a hook throws so one bad observer cannot stop
+ * the frame from being handled.
  */
-export async function processTextMessage(
-  runtime: DispatchRuntime & {
-    activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
-    messageActivityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
-  },
-  connection: RuntimeConnection,
-  data: string,
+async function runConnectionHooks(
+  hooks: readonly ConnectionHook[],
+  hookName: string,
+  observed: { connectionId: string; logger: DispatchRuntime['logger'] },
 ): Promise<void> {
-  for (const hook of runtime.activityHooks) {
+  for (const hook of hooks) {
     try {
-      await hook(connection.id);
+      await hook(observed.connectionId);
     } catch (error) {
-      runtime.logger.error('[wskit] connection activity hook threw', {
-        connectionId: connection.id,
+      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+        connectionId: observed.connectionId,
         error,
       });
     }
   }
+}
+
+/**
+ * Parse one websocket text frame and route protocol messages or app events.
+ *
+ * The bare `ping` and `pong` frames are not JSON and never reach a handler.
+ * They fan out to their own hooks instead: the engine's built-in ping hook
+ * answers with `pong`, and `keepalive()` listens on `pong` to time the
+ * round-trip.
+ */
+export async function processTextMessage(
+  runtime: DispatchRuntime & {
+    activityHooks: readonly ConnectionHook[];
+    messageActivityHooks: readonly ConnectionHook[];
+    pingHooks: readonly ConnectionHook[];
+    pongHooks: readonly ConnectionHook[];
+  },
+  connection: RuntimeConnection,
+  data: string,
+): Promise<void> {
+  const observed = { connectionId: connection.id, logger: runtime.logger };
+
+  await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
 
   if (data === 'ping') {
-    connection.descriptor.send('pong');
+    await runConnectionHooks(runtime.pingHooks, 'ping', observed);
     return;
   }
 
   if (data === 'pong') {
-    KeepalivePrimitive.recordConnectionLatency(connection);
+    await runConnectionHooks(runtime.pongHooks, 'pong', observed);
     return;
   }
 
@@ -709,16 +733,7 @@ export async function processTextMessage(
 
   const event = (parsed as { event: string }).event;
 
-  for (const hook of runtime.messageActivityHooks) {
-    try {
-      await hook(connection.id);
-    } catch (error) {
-      runtime.logger.error('[wskit] message activity hook threw', {
-        connectionId: connection.id,
-        error,
-      });
-    }
-  }
+  await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
 
   let wskit: Protocol.WSKitProtocol | undefined;
   try {

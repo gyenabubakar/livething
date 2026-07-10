@@ -240,7 +240,7 @@ describe('connection runtime', () => {
     expect(events).toEqual(['lifecycle:connect', 'close']);
   });
 
-  it('forwards the configured keepalive ping interval to the keepalive pinger', () => {
+  it('never pings a connection on its own — sending pings belongs to keepalive()', () => {
     vi.useFakeTimers();
 
     const compiled = {
@@ -258,12 +258,10 @@ describe('connection runtime', () => {
       replayClaimedChannelKeys: new Set<string>(),
     };
 
-    // Keepalive set a 5s interval: the keepalive ping must fire at 5s, not before.
-    const sentA: string[] = [];
+    const sent: string[] = [];
     acceptConnection(
       {
         compiled,
-        keepalivePingIntervalMs: 5_000,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -283,7 +281,7 @@ describe('connection runtime', () => {
       Symbol('ws-a'),
       {
         send(data: string) {
-          sentA.push(data);
+          sent.push(data);
         },
         close() {},
         bufferedAmount() {
@@ -292,49 +290,10 @@ describe('connection runtime', () => {
         identity: 'ping-test',
       },
     );
-    vi.advanceTimersByTime(4_999);
-    expect(sentA).not.toContain('ping');
-    vi.advanceTimersByTime(1);
-    expect(sentA).toContain('ping');
 
-    // No keepalive configured: the pinger falls back to its 30s default, so a
-    // ping must NOT have gone out at the 5s mark.
-    const sentB: string[] = [];
-    acceptConnection(
-      {
-        compiled,
-        connections: new Map(),
-        wsToConnectionId: new Map(),
-        channelMembers: new Map(),
-        tagMembers: new Map(),
-        generateId() {
-          return 'conn_ping_b';
-        },
-        persistAttachment() {},
-        buildConnectionContext(connection) {
-          return { id: connection.id };
-        },
-        async runConnectionLifecycle() {},
-        async processTextMessage() {},
-        async handleConnectionClose() {},
-        async handleRuntimeError() {},
-      },
-      Symbol('ws-b'),
-      {
-        send(data: string) {
-          sentB.push(data);
-        },
-        close() {},
-        bufferedAmount() {
-          return 0;
-        },
-        identity: 'ping-test',
-      },
-    );
-    vi.advanceTimersByTime(5_000);
-    expect(sentB).not.toContain('ping');
-    vi.advanceTimersByTime(25_000);
-    expect(sentB).toContain('ping');
+    // Well past any interval the engine used to default to.
+    vi.advanceTimersByTime(120_000);
+    expect(sent).not.toContain('ping');
 
     vi.useRealTimers();
   });

@@ -156,6 +156,8 @@ function buildOutgoingRuntime(core: EngineCore) {
     generateId: (prefix?: string) => core.generateId(prefix),
     activityHooks: core.hooks.activity,
     messageActivityHooks: core.hooks.messageActivity,
+    pingHooks: core.hooks.ping,
+    pongHooks: core.hooks.pong,
   };
 }
 
@@ -394,7 +396,6 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
-    keepalivePingIntervalMs: core.keepalivePingIntervalMs,
     connections: core.connections,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
@@ -496,6 +497,10 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
       const connection = activeId ? core.connections.get(activeId) : undefined;
       return connection ? buildCtx(connection) : undefined;
     },
+    buildContextForConnection: (connectionId) => {
+      const connection = core.connections.get(connectionId);
+      return connection ? buildCtx(connection) : undefined;
+    },
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
@@ -567,6 +572,7 @@ export function handleConnectionClose(
       runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
       leaveChannel: (connection, opts) =>
         core.channelService?.leaveChannel(core, connection, opts) ?? Promise.resolve(),
+      connectionCleanupHooks: core.hooks.connectionCleanup,
       logger: core.logger,
     },
     opts,

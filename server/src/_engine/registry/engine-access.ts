@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { CloseCodes } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -29,6 +29,12 @@ export interface EngineAccessDeps {
    * prepared once for many peers).
    */
   buildCurrentContext(): unknown;
+  /**
+   * Build the context object for one connection by id, or `undefined` when no
+   * such connection is live. Unlike `buildCurrentContext`, this does not need a
+   * dispatch to be running — a ping arrives outside one.
+   */
+  buildContextForConnection(connectionId: string): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
   sendServerRequest(
     connectionId: string,
@@ -270,10 +276,32 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
 
-      KeepalivePrimitive.refreshIdleTimeout(connection, timeoutMs);
+      if (connection.keepaliveTimer !== undefined) {
+        clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
+      }
+      connection.keepaliveTimer = setTimeout(() => {
+        connection.descriptor.close(CloseCodes.IDLE, 'Keepalive timeout');
+      }, timeoutMs);
     },
-    setKeepalivePingInterval: (intervalMs) => {
-      core.keepalivePingIntervalMs = intervalMs;
+    sendPing: (connectionId) => {
+      core.connections.get(connectionId)?.descriptor.send('ping');
+    },
+    setConnectionLatency: (connectionId, latency, quality) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+
+      connection.latency = latency;
+      connection.quality = quality;
+    },
+    getConnectionContext: (connectionId) => deps.buildContextForConnection(connectionId),
+    onPing: (handler) => {
+      core.hooks.ping.push(handler);
+    },
+    onPong: (handler) => {
+      core.hooks.pong.push(handler);
+    },
+    onConnectionCleanup: (handler) => {
+      core.hooks.connectionCleanup.push(handler);
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,

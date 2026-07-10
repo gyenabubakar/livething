@@ -388,21 +388,129 @@ describe('Block at dispatch', () => {
 });
 
 describe('processTextMessage protocol branches', () => {
-  it('responds to raw "ping" text frames with "pong"', async () => {
+  it('fans a raw "ping" text frame out to the ping hooks, in order', async () => {
     const connection = createConnection();
+    const calls: string[] = [];
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [() => void calls.push('first'), () => void calls.push('second')],
+      pongHooks: [() => void calls.push('pong')],
+    } as any;
 
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
-    expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
+    expect(calls).toEqual(['first', 'second']);
   });
 
-  it('logs activity hook failures and continues routing text frames', async () => {
+  it('fans a raw "pong" text frame out to the pong hooks, in order', async () => {
+    const connection = createConnection();
+    const calls: string[] = [];
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [() => void calls.push('ping')],
+      pongHooks: [() => void calls.push('first'), () => void calls.push('second')],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(calls).toEqual(['first', 'second']);
+  });
+
+  it('never parses a bare ping or pong as JSON', async () => {
+    const connection = createConnection();
+    const warn = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn, error: vi.fn() },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('logs a throwing ping hook and lets the remaining hooks run', async () => {
     const connection = createConnection();
     const error = vi.fn();
+    const after = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn: vi.fn(), error },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [
+        vi.fn(() => {
+          throw new Error('ping hook failed');
+        }),
+        after,
+      ],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] ping hook threw',
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    expect(after).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('logs a throwing pong hook and lets the remaining hooks run', async () => {
+    const connection = createConnection();
+    const error = vi.fn();
+    const after = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn: vi.fn(), error },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [],
+      pongHooks: [
+        vi.fn(() => {
+          throw new Error('pong hook failed');
+        }),
+        after,
+      ],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] pong hook threw',
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    expect(after).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('logs activity hook failures and still fans the ping out', async () => {
+    const connection = createConnection();
+    const error = vi.fn();
+    const pingHook = vi.fn();
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
       logger: { warn: vi.fn(), error },
@@ -414,6 +522,9 @@ describe('processTextMessage protocol branches', () => {
           throw new Error('activity failed');
         }),
       ],
+      messageActivityHooks: [],
+      pingHooks: [pingHook],
+      pongHooks: [],
     } as any;
 
     await processTextMessage(runtimeWithActivity, connection, 'ping');
@@ -422,7 +533,7 @@ describe('processTextMessage protocol branches', () => {
       '[wskit] connection activity hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
-    expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
+    expect(pingHook).toHaveBeenCalledWith(connection.id);
   });
 
   it('runs message-activity hooks on a real frame but not on a transport ping', async () => {
@@ -436,6 +547,8 @@ describe('processTextMessage protocol branches', () => {
       ...runtime,
       activityHooks: [connectionActivity],
       messageActivityHooks: [messageActivity],
+      pingHooks: [],
+      pongHooks: [],
       handleRuntimeError: vi.fn(),
     } as any;
 
@@ -449,6 +562,27 @@ describe('processTextMessage protocol branches', () => {
       JSON.stringify({ event: 'noop', payload: {} }),
     );
     expect(messageActivity).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('counts a pong as connection activity but not as message activity', async () => {
+    const connection = createConnection();
+    const connectionActivity = vi.fn();
+    const messageActivity = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [connectionActivity],
+      messageActivityHooks: [messageActivity],
+      pingHooks: [],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(connectionActivity).toHaveBeenCalledWith(connection.id);
+    expect(messageActivity).not.toHaveBeenCalled();
   });
 
   it('cancels an active stream on __streamCancel__', async () => {

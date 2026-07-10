@@ -330,7 +330,7 @@ export class WSKitSocket {
     this._debug = enabled;
   }
 
-  /** @internal — the set of actions an add-on module can call on the core engine. */
+  /** @internal — the set of actions a primitive can call on the socket. */
   _helpers(): PrimitiveHelpers {
     return {
       config: this._config,
@@ -764,7 +764,7 @@ export class WSKitSocket {
       }
     }
 
-    // An unclaimed reserved protocol frame is engine bookkeeping, not user traffic — drop it
+    // An unclaimed reserved protocol frame is protocol bookkeeping, not user traffic — drop it
     // rather than leak to a `.on()` handler. Plugin-namespaced `__id::event` frames pass through.
     if (isProtocolFrameEvent(message.event)) return;
 

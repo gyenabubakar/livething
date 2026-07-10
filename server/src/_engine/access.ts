@@ -530,22 +530,70 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Refresh the idle timeout for one live connection.
+   * Refresh the idle timeout for one live connection. When the window passes
+   * with no inbound frame the engine closes the socket as idle. Each call
+   * replaces the previous window instead of stacking a second timer.
    *
-   * Built-in primitives such as `keepalive()` use this instead of reaching
-   * into the engine's connection map directly.
+   * Primitives such as `keepalive()` use this instead of reaching into the
+   * engine's connection map directly.
    */
   refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number): void;
 
   /**
-   * Set the keepalive ping interval (ms) used for new connections. `keepalive()`
-   * calls this so the ping fires often enough that a quiet-but-alive client
-   * always answers within the close window. Only the engine's own keepalive
-   * pinger reads it; left unset, the pinger uses its built-in default.
+   * Send one bare `ping` text frame to a live connection, doing nothing when
+   * that connection has already gone away.
+   *
+   * Only `keepalive()` may call this. A `pong` carries no id, so the only way
+   * to know which ping it answers is for one thing to be sending them. A second
+   * sender makes `keepalive()` time the wrong ping and report a wrong
+   * `ctx.latency`.
+   */
+  sendPing(connectionId: string): void;
+
+  /**
+   * Record a measured round-trip time against one connection so it surfaces as
+   * `ctx.latency` / `ctx.quality` and on every `ConnectionInfo`. Only
+   * `keepalive()` measures a round-trip, so only `keepalive()` calls this.
    *
    * @internal
    */
-  setKeepalivePingInterval(intervalMs: number): void;
+  setConnectionLatency(
+    connectionId: string,
+    latency: number | null,
+    quality: EngineRuntimeTypes.RuntimeConnection['quality'],
+  ): void;
+
+  /**
+   * Build the context for one live connection, or `undefined` when it has gone
+   * away. The `onPing` / `onPong` lifecycle primitives use this to hand the app
+   * a real `ctx` rather than a bare connection id.
+   *
+   * @internal
+   */
+  getConnectionContext(connectionId: string): unknown;
+
+  /**
+   * Observe a bare `ping` frame arriving from a client. The engine registers
+   * its own reply hook first, so by the time a handler added here runs, the
+   * client has already been answered with `pong`.
+   */
+  onPing(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Observe a bare `pong` frame arriving from a client — the client's reply to
+   * a ping the server sent. `keepalive()` registers here during capability
+   * setup, so its measurement lands before any handler the app adds.
+   */
+  onPong(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Release whatever a capability holds for one connection, once it has closed.
+   *
+   * This runs inside the engine's own teardown, after every `disconnect` hook,
+   * and cannot be skipped by a user hook that throws. Register per-connection
+   * timers and map entries for release here rather than in `onDisconnect`.
+   */
+  onConnectionCleanup(handler: (connectionId: string) => void): void;
 
   /**
    * Access the engine's in-memory table of queued scheduled runs.
