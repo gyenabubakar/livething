@@ -80,6 +80,8 @@ export interface PluginLifecycleHooks {
   shutdown: PluginLifecycleEntry[];
   error: PluginLifecycleEntry[];
   validationError: PluginLifecycleEntry[];
+  ping: PluginLifecycleEntry[];
+  pong: PluginLifecycleEntry[];
 }
 
 /**
@@ -137,6 +139,16 @@ export interface RegisteredEngineHooks {
    * round-trip time. The engine records nothing on its own.
    */
   pong: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * The app's own `base.onPing` hooks, kept apart from the engine and capability
+   * `ping` hooks so the dispatch can run them last — after `keepalive()` and any
+   * plugin observers, matching the capability → plugin → app order.
+   */
+  appPing: ((connectionId: string) => void | Promise<void>)[];
+
+  /** The app's own `base.onPong` hooks, kept apart for the same ordering reason. */
+  appPong: ((connectionId: string) => void | Promise<void>)[];
 
   /**
    * Fires once per closed connection, during the engine's own teardown and

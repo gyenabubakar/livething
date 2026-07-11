@@ -503,7 +503,15 @@ export interface EngineAccess {
    * @internal
    */
   registerPluginLifecycle(
-    kind: 'init' | 'connect' | 'disconnect' | 'shutdown' | 'error' | 'validationError',
+    kind:
+      | 'init'
+      | 'connect'
+      | 'disconnect'
+      | 'shutdown'
+      | 'error'
+      | 'validationError'
+      | 'ping'
+      | 'pong',
     pluginId: string,
     handler: (ctx: unknown, ...rest: unknown[]) => void | Promise<void>,
   ): void;
@@ -585,6 +593,17 @@ export interface EngineAccess {
    * setup, so its measurement lands before any handler the app adds.
    */
   onPong(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Register an app-level `base.onPing` hook. Kept apart from `onPing` so the
+   * dispatch runs the app after the engine, `keepalive()`, and any plugin
+   * observers — the capability → plugin → app order. Used by the `onPing`
+   * lifecycle primitive; a capability registers with `onPing` instead.
+   */
+  onAppPing(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /** Register an app-level `base.onPong` hook. Runs last, for the same reason. */
+  onAppPong(handler: (connectionId: string) => void | Promise<void>): void;
 
   /**
    * Release whatever a capability holds for one connection, once it has closed.

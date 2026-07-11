@@ -222,7 +222,7 @@ export const onDisconnect = Object.assign(
  */
 export const onPing = Object.assign(
   makeLifecycle('onPing', ON_PING_KEY, (engine, handler) =>
-    engine.onPing(intoContextHandler(engine, handler)),
+    engine.onAppPing(intoContextHandler(engine, handler)),
   ) as <TCtx>(handler: PingHandler<TCtx>) => PingPrimitive<TCtx>,
   { __key: ON_PING_KEY },
 );
@@ -236,7 +236,7 @@ export const onPing = Object.assign(
  */
 export const onPong = Object.assign(
   makeLifecycle('onPong', ON_PONG_KEY, (engine, handler) =>
-    engine.onPong(intoContextHandler(engine, handler)),
+    engine.onAppPong(intoContextHandler(engine, handler)),
   ) as <TCtx>(handler: PongHandler<TCtx>) => PongPrimitive<TCtx>,
   { __key: ON_PONG_KEY },
 );

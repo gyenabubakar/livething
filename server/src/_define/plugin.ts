@@ -44,6 +44,8 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onError',
   'onValidationError',
   'onUpgrade',
+  'onPing',
+  'onPong',
   // Observers that ride along stamped with their owner, not namespaced events.
   'intercept',
   'outgoingHook',

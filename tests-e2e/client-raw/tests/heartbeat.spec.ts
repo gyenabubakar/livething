@@ -66,6 +66,27 @@ test.describe('heartbeat hooks — no keepalive() listed', () => {
       .toBe(1);
   });
 
+  test('a listed plugin can observe ping / pong too', async ({ page }, testInfo) => {
+    const room = `heartbeat-${testInfo.testId}`;
+    await openRig(page, room);
+    const sock = await connect(page, { path: '/ws/heartbeat', username: 'alice', room });
+
+    await sendRaw(page, sock, 'ping');
+    await sendRaw(page, sock, 'pong');
+
+    // The plugin's markers ride under its own namespace on the wire.
+    await expect
+      .poll(async () =>
+        (await frames(page, sock)).some((f) => f.event === '__e2e:heartbeat::plugin-ping-seen'),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        (await frames(page, sock)).some((f) => f.event === '__e2e:heartbeat::plugin-pong-seen'),
+      )
+      .toBe(true);
+  });
+
   test('a ping does not fire onPong, and a pong does not fire onPing', async ({
     page,
   }, testInfo) => {

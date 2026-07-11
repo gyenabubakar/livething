@@ -48,6 +48,8 @@ const LIFECYCLE_KINDS: Record<string, PluginLifecycleKind> = {
   onShutdown: 'shutdown',
   onError: 'error',
   onValidationError: 'validationError',
+  onPing: 'ping',
+  onPong: 'pong',
 };
 
 type PluginLifecycleKind =
@@ -56,7 +58,9 @@ type PluginLifecycleKind =
   | 'disconnect'
   | 'shutdown'
   | 'error'
-  | 'validationError';
+  | 'validationError'
+  | 'ping'
+  | 'pong';
 
 /** A plugin's id paired with the short error codes it declared. */
 interface PluginScope {

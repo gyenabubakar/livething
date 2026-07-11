@@ -98,6 +98,10 @@ function baseDispatchRuntime(
     async handleSubscribe() {},
     async handleUnsubscribe() {},
     streamCancel: cancelStream,
+    pluginPingHooks: [],
+    pluginPongHooks: [],
+    appPingHooks: [],
+    appPongHooks: [],
     ...overrides,
   } as any;
 }

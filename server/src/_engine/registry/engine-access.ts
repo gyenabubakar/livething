@@ -300,6 +300,12 @@ export function createEngineAccess(
     onPong: (handler) => {
       core.hooks.pong.push(handler);
     },
+    onAppPing: (handler) => {
+      core.hooks.appPing.push(handler);
+    },
+    onAppPong: (handler) => {
+      core.hooks.appPong.push(handler);
+    },
     onConnectionCleanup: (handler) => {
       core.hooks.connectionCleanup.push(handler);
     },

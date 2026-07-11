@@ -157,6 +157,10 @@ function buildOutgoingRuntime(core: EngineCore) {
     messageActivityHooks: core.hooks.messageActivity,
     pingHooks: core.hooks.ping,
     pongHooks: core.hooks.pong,
+    pluginPingHooks: core.hooks.pluginLifecycle.ping,
+    pluginPongHooks: core.hooks.pluginLifecycle.pong,
+    appPingHooks: core.hooks.appPing,
+    appPongHooks: core.hooks.appPong,
   };
 }
 

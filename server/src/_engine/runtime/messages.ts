@@ -681,6 +681,30 @@ async function runConnectionHooks(
   }
 }
 
+type PluginConnectionHook = { handler: (ctx: unknown) => void | Promise<void> };
+
+/**
+ * Run each plugin's `onPing` / `onPong` observer against the same scoped ctx it
+ * would see in any other lifecycle hook, isolating a throw the same way
+ * `runConnectionHooks` does. Building the ctx is skipped when no plugin listens.
+ */
+async function runPluginConnectionHooks(
+  hooks: readonly PluginConnectionHook[],
+  hookName: string,
+  observed: { connectionId: string; logger: DispatchRuntime['logger']; ctx: unknown },
+): Promise<void> {
+  for (const entry of hooks) {
+    try {
+      await entry.handler(observed.ctx);
+    } catch (error) {
+      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+        connectionId: observed.connectionId,
+        error,
+      });
+    }
+  }
+}
+
 /**
  * Parse one websocket text frame and route protocol messages or app events.
  *
@@ -695,6 +719,10 @@ export async function processTextMessage(
     messageActivityHooks: readonly ConnectionHook[];
     pingHooks: readonly ConnectionHook[];
     pongHooks: readonly ConnectionHook[];
+    pluginPingHooks: readonly PluginConnectionHook[];
+    pluginPongHooks: readonly PluginConnectionHook[];
+    appPingHooks: readonly ConnectionHook[];
+    appPongHooks: readonly ConnectionHook[];
   },
   connection: RuntimeConnection,
   data: string,
@@ -703,13 +731,30 @@ export async function processTextMessage(
 
   await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
 
+  // Ping and pong observers run in one order: the engine and capabilities first
+  // (the engine's reply, `keepalive()`'s measurement), then plugins, then the
+  // app — so a plugin or the app always reads a fresh `ctx.latency`.
   if (data === 'ping') {
     await runConnectionHooks(runtime.pingHooks, 'ping', observed);
+    if (runtime.pluginPingHooks.length > 0) {
+      await runPluginConnectionHooks(runtime.pluginPingHooks, 'ping', {
+        ...observed,
+        ctx: runtime.buildConnectionContext(connection),
+      });
+    }
+    await runConnectionHooks(runtime.appPingHooks, 'ping', observed);
     return;
   }
 
   if (data === 'pong') {
     await runConnectionHooks(runtime.pongHooks, 'pong', observed);
+    if (runtime.pluginPongHooks.length > 0) {
+      await runPluginConnectionHooks(runtime.pluginPongHooks, 'pong', {
+        ...observed,
+        ctx: runtime.buildConnectionContext(connection),
+      });
+    }
+    await runConnectionHooks(runtime.appPongHooks, 'pong', observed);
     return;
   }
 
