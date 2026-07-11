@@ -1,6 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
-import { getAugmenters } from '~/internal/scoped.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
@@ -177,7 +177,7 @@ export function requestResponse(
               callOptions?: { timeout?: number },
             ) => {
               scope.assertReady?.();
-              return sendRequest(event, payload, {
+              return sendRequest(scopedName(scope, event), payload, {
                 markers: scope.markers(),
                 timeout: callOptions?.timeout,
               });

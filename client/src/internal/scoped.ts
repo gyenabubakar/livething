@@ -23,11 +23,24 @@ export interface ScopeInfo {
   markers(): ScopeMarkers;
 
   /**
+   * Rewrite an event, request, or channel name for the wire. A channel omits this
+   * (it scopes by markers, so the name stays bare), while a plugin uses it to add
+   * its `__<id>::` prefix. Every augmenter runs a name through {@link scopedName}
+   * so both kinds of scope are handled the same way.
+   */
+  prefixName?(name: string): string;
+
+  /**
    * Throw if the scope isn't ready to send yet — a channel uses this to block
    * sends before it's subscribed. Send methods (send, request, stream)
    * call this; listen-only ones (on, onStream) don't. Omitting it means "always ready."
    */
   assertReady?(): void;
+}
+
+/** Apply a scope's name rewrite, or leave the name as-is when it has none. */
+export function scopedName(scope: ScopeInfo, name: string): string {
+  return scope.prefixName ? scope.prefixName(name) : name;
 }
 
 /** Adds methods to a freshly built scoped messaging. */

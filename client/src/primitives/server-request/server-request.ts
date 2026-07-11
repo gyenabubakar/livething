@@ -1,4 +1,4 @@
-import { getAugmenters } from '~/internal/scoped.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
@@ -136,7 +136,7 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
 
           getAugmenters(socket).push((messaging, scope) => {
             messaging.onRequest = (event: string, handler: RequestHandler) =>
-              register(event, handler, scope.markers());
+              register(scopedName(scope, event), handler, scope.markers());
           });
         },
       };

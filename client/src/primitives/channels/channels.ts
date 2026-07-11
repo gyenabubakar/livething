@@ -1,6 +1,7 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import {
   buildChannelMessaging,
@@ -444,6 +445,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           // @ts-expect-error — install adds channel() to the socket dynamically
           installedSocket.channel = channel;
+
+          // A plugin scope prefixes names, so it can own channels — reach them
+          // under the plugin's namespace. A channel scope has no `prefixName` and
+          // channels don't nest, so it gets no `channel` here.
+          getAugmenters(installedSocket).push((messaging, scope) => {
+            if (!scope.prefixName) return;
+            messaging.channel = (name: string) => channel(scopedName(scope, name));
+          });
         },
       };
     },

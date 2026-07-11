@@ -1,6 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
-import { getAugmenters } from '~/internal/scoped.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
@@ -660,20 +660,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               triggerOptions?: StreamTriggerOptions,
             ) => {
               scope.assertReady?.();
-              return triggerStream(event, payload, {
+              return triggerStream(scopedName(scope, event), payload, {
                 markers: scope.markers(),
                 options: triggerOptions,
               });
             };
             messaging.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
-              subscribeBroadcast(event, handlers, scope.markers());
+              subscribeBroadcast(scopedName(scope, event), handlers, scope.markers());
             messaging.resumeStream = (
               event: string,
               streamId: string,
               resumeOptions?: { lastKnownSeq?: number },
             ) => {
               scope.assertReady?.();
-              return resumeStream(event, streamId, {
+              return resumeStream(scopedName(scope, event), streamId, {
                 markers: scope.markers(),
                 options: resumeOptions,
               });

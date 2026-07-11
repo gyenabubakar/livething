@@ -2,7 +2,9 @@
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
 import { namespacedName, parseNamespaced } from '~/internal/namespace.ts';
+import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
   PluginDef,
@@ -90,11 +92,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   helpers: PrimitiveHelpers,
 ): PrimitiveRuntime {
   const handlers = new Map<string, Set<(data: unknown) => void>>();
-  // Registrations that need the host socket (onStream, onRequest) are made during
-  // setup, before the host is bound, so they wait here and run at install.
-  const deferredToHost: ((host: WSKitSocket) => void)[] = [];
-  let host: WSKitSocket | null = null;
   let disposed = false;
+  let instance: PluginInstance<TApi> | null = null;
 
   let userIncoming: IncomingHook | null = null;
   let userOutgoing: IncomingHook | null = null;
@@ -111,35 +110,26 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     return handler;
   }
 
-  function requireHost(): WSKitSocket {
-    if (!host) {
-      throw new WSKitConfigError(`[wskit] plugin '${id}' used the socket before it was ready.`);
-    }
-    return host;
-  }
-
-  // Register a host-dependent call. If the host is already bound, run it now;
-  // otherwise wait for install. The returned unsubscribe works either way.
-  function deferToHost(run: (host: WSKitSocket) => () => void): () => void {
-    let off: (() => void) | null = null;
-    let cancelled = false;
-    function apply(hostSocket: WSKitSocket): void {
-      if (!cancelled) off = run(hostSocket);
-    }
-    if (host) apply(host);
-    else deferredToHost.push(apply);
-    return () => {
-      cancelled = true;
-      off?.();
-    };
-  }
-
   function report(error: unknown): void {
     helpers.log.report(error);
   }
 
-  // The scoped socket. Names are plain here; the plugin's namespace is added on
-  // the way out and stripped on the way in, so the plugin never writes `__id::`.
+  /*
+   * The plugin's scope. `markers` is empty — a plugin isn't a channel, so its
+   * frames carry no channel marker — and `prefixName` adds the `__<id>::` prefix.
+   * Every scope-aware primitive reads these, so `request`, `stream`, `onRequest`,
+   * and `channel` come from the primitives that provide them (added by
+   * applyAugmenters at install), not from here. That keeps them out of the bundle
+   * unless the app registers those primitives, exactly like the top-level socket.
+   */
+  const scope: ScopeInfo = {
+    markers: () => ({}),
+    prefixName: (name) => namespacedName(id, name),
+  };
+
+  // The scoped socket's own surface. Plain names are used here; `send` adds the
+  // prefix on the way out and the pipeline hook strips it on the way in. The rest
+  // of the verbs are grafted on by applyAugmenters at install.
   const socket = {
     on(event: string, handler: (data: unknown) => void): () => void {
       let set = handlers.get(event);
@@ -159,32 +149,6 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       return result === 'sent' || result === 'buffered';
     },
 
-    request(event: string, payload: unknown, options?: { timeout?: number }): Promise<unknown> {
-      return (requireHost() as any).request(namespacedName(id, event), payload, options);
-    },
-
-    channel(name: string): unknown {
-      return (requireHost() as any).channel(namespacedName(id, name));
-    },
-
-    stream(event: string, payload: unknown, options?: { streamId?: string }): Promise<unknown> {
-      return (requireHost() as any).stream(namespacedName(id, event), payload, options);
-    },
-
-    onStream(event: string, streamHandlers: unknown): () => void {
-      return deferToHost((host) =>
-        (host as any).onStream(namespacedName(id, event), streamHandlers),
-      );
-    },
-
-    resumeStream(event: string, streamId: string, options?: { lastKnownSeq?: number }): unknown {
-      return (requireHost() as any).resumeStream(namespacedName(id, event), streamId, options);
-    },
-
-    onRequest(event: string, handler: unknown): () => void {
-      return deferToHost((host) => (host as any).onRequest(namespacedName(id, event), handler));
-    },
-
     onIncoming: (handler: IncomingHook) =>
       void (userIncoming = once('onIncoming', userIncoming, handler)),
     onOutgoing: (handler: IncomingHook) =>
@@ -199,8 +163,6 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     ensureConnected: () => helpers.ensureConnected(),
     getState: () => helpers.getState(),
   };
-
-  const instance: PluginInstance<TApi> = def.setup(socket as unknown as PluginSocket<P>);
 
   function dispatch(name: string, payload: unknown): void {
     const set = handlers.get(name);
@@ -218,7 +180,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     if (disposed) return;
     disposed = true;
     try {
-      instance.dispose?.();
+      instance?.dispose?.();
     } catch (error) {
       report(error);
     }
@@ -228,8 +190,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     id,
 
     install(hostSocket) {
-      host = hostSocket;
-      for (const apply of deferredToHost) apply(hostSocket);
+      // Primitives install before plugins, so their augmenters are ready here.
+      // Graft the scope-aware verbs on, then run setup with the full socket.
+      applyAugmenters(hostSocket, socket as unknown as MessagingObject, scope);
+      instance = def.setup(socket as unknown as PluginSocket<P>);
       if (instance.api) registerPlugin(hostSocket, id, instance.api);
     },
 
