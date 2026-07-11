@@ -160,7 +160,7 @@ h.intercept((ctx, frame) => {
   }
 });
 
-h.outgoing((ctx, frame) => {
+h.onOutgoing((ctx, frame) => {
   // The outgoing-hook ctx is resolved per send: it is the sending connection's
   // ctx for a direct ctx.send, but undefined for a broadcast (no one connection
   // owns it). Only the connection-scoped sends carry a platform, so only those

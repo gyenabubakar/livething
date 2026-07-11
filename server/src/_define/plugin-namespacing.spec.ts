@@ -453,7 +453,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
 
   it('namespaces ctx.send from a plugin outgoing hook', () => {
     const h = define({ scoped: true, capabilities: [emits({ 'own-event': t<{}>() })] });
-    h.outgoing((ctx: any) => {
+    h.onOutgoing((ctx: any) => {
       ctx.send('own-event', {});
     });
     const go = h.on('go', { input: v.object({}), run() {} });
@@ -471,7 +471,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
   it('passes a nullish outgoing-hook ctx through without proxying (broadcast safety)', () => {
     const h = define({ scoped: true });
     let received: any = 'unset';
-    h.outgoing((ctx: any) => {
+    h.onOutgoing((ctx: any) => {
       received = ctx;
     });
     const go = h.on('go', { input: v.object({}), run() {} });

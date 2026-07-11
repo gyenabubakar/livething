@@ -303,7 +303,7 @@ describe('plugin() — host-traffic observation', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() }), intercepts()] });
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
-    h.outgoing(() => {});
+    h.onOutgoing(() => {});
     return plugin('acme:obs', {
       handler: h.assemble(beat),
       observesHostTraffic: observes,

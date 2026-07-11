@@ -1459,9 +1459,9 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   /**
    * Inspect every outgoing frame before it is serialized. Return a value to
    * rewrite the payload, or nothing to observe. The event is locked. One
-   * `outgoing` hook per server.
+   * `onOutgoing` hook per server.
    */
-  outgoing(
+  onOutgoing(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       frame: OutgoingFrame<PluginIdsOf<TSlots>>,
@@ -1847,8 +1847,8 @@ export function define(config: any): Base<any, any, any, any> {
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));
     },
-    outgoing(handler: (ctx: any, frame: OutgoingFrame) => unknown | void) {
-      registerOnce('outgoing', outgoingHookFactory(handler));
+    onOutgoing(handler: (ctx: any, frame: OutgoingFrame) => unknown | void) {
+      registerOnce('onOutgoing', outgoingHookFactory(handler));
     },
     replay(hooks: CustomReplayHooks) {
       let build: ReplayCustomCapability['__buildCustomReplay'] | undefined;

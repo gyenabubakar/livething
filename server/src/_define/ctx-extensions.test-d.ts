@@ -74,7 +74,7 @@ ownerBase.intercept((ctx, frame) => {
   }
 });
 
-ownerBase.outgoing((ctx, frame) => {
+ownerBase.onOutgoing((ctx, frame) => {
   void ctx;
   if (frame.owner.kind === 'plugin') {
     expectTypeOf(frame.owner.id).toEqualTypeOf<'acme:a' | 'acme:c'>();
