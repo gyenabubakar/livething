@@ -52,6 +52,9 @@ expectTypeOf<ChatSocket['onOpen']>().toBeFunction();
 expectTypeOf<ChatSocket['onClose']>().toBeFunction();
 expectTypeOf<ChatSocket['generateId']>().toBeFunction();
 expectTypeOf<ChatSocket['hasPrimitive']>().toBeFunction();
+// The connection state is a reactive store — read now or subscribe to changes.
+expectTypeOf<ChatSocket['state']['get']>().toBeFunction();
+expectTypeOf<ChatSocket['state']['subscribe']>().toBeFunction();
 
 // A plugin with no contract (observe-only) has the taps and tools but none of the
 // typed verbs.

@@ -350,6 +350,8 @@ export class WSKitSocket {
 
       getState: () => this._state,
 
+      state: this.state,
+
       hasPrimitive: (tag) => this._knownTags.has(tag),
 
       ensureConnected: () => this._ensureConnected(),

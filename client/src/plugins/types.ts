@@ -46,9 +46,14 @@ export interface PluginDef<P extends SocketContract, TApi> {
   id: string;
 
   /**
-   * Primitives the host must register for this plugin to work — e.g.
-   * `[requestResponse]` for a plugin that makes requests. Checked when the socket
-   * is built; a missing one throws with a message naming what to add.
+   * Primitives the host must register for this plugin to work. Any scoped verb
+   * that comes from a primitive needs its primitive listed here: `request` needs
+   * `requestResponse`, `stream`/`onStream`/`resumeStream` need `stream`,
+   * `channel` needs `channels`, `onRequest` needs `serverRequest`. The scoped
+   * socket types these verbs from the plugin's contract, not from this list, so
+   * calling one whose primitive is neither listed here nor registered by the app
+   * fails at runtime — list it here and a missing one is caught when the socket
+   * is built, with a message naming what to add.
    */
   dependencies?: readonly PrimitiveFactory[];
 

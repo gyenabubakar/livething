@@ -1,4 +1,5 @@
 import type { WireMessage } from '~/internal/runtime.ts';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { ChannelMessaging } from '~/primitives/channels/types.ts';
 import type { ServerRequestTypeFn } from '~/primitives/server-request/types.ts';
@@ -56,8 +57,13 @@ export interface PluginBase {
   /** Open the connection now if it's lazy and not yet connected. */
   ensureConnected(): void;
 
-  /** The current connection state. */
-  getState(): ConnectionState;
+  /**
+   * The connection state as a store — the same one the app socket exposes. Read
+   * the current value with `state.get()`, or `state.subscribe(cb)` to react to
+   * every change (`'connecting'`, `'open'`, `'reconnecting'`, `'closed'`), so a
+   * plugin can surface live connection status to its own consumers.
+   */
+  state: ReadableStore<ConnectionState>;
 }
 
 /** `{}` unless `TMap` has at least one key — so an empty section adds no method. */

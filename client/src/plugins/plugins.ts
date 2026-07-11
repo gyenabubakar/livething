@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
-import { namespacedName } from '~/internal/namespace.ts';
+import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
@@ -164,7 +164,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     generateId: (prefix?: string) => helpers.generateId(prefix),
     hasPrimitive: (tag: string) => helpers.hasPrimitive(tag),
     ensureConnected: () => helpers.ensureConnected(),
-    getState: () => helpers.getState(),
+    state: helpers.state,
   };
 
   function dispatch(name: string, payload: unknown): void {
@@ -177,6 +177,13 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         report(error);
       }
     }
+  }
+
+  // Frames a plugin returns from onOpen/onReconnect carry plain names, like send();
+  // stamp each with the plugin's namespace so it lands in the plugin's own space.
+  function namespaceFrames(frames: WireMessage[] | void): WireMessage[] | null {
+    if (!frames) return null;
+    return frames.map((frame) => ({ ...frame, event: namespacedName(id, frame.event) }));
   }
 
   function runDispose(): void {
@@ -224,7 +231,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onOpen() {
       if (!userOpen) return null;
       try {
-        return userOpen() ?? null;
+        return namespaceFrames(userOpen());
       } catch (error) {
         report(error);
         return null;
@@ -234,14 +241,15 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onReconnect() {
       if (!userReconnect) return null;
       try {
-        return userReconnect() ?? null;
+        return namespaceFrames(userReconnect());
       } catch (error) {
         report(error);
         return null;
       }
     },
 
-    onClose(code, reason, intentional) {
+    onClose(...args) {
+      const [code, reason, intentional, suspended] = args;
       if (userClose) {
         try {
           userClose(code, reason);
@@ -249,11 +257,14 @@ function createPluginRuntime<P extends SocketContract, TApi>(
           report(error);
         }
       }
+      // A platform suspend pauses the session and resumes it as the same socket,
+      // so it must not dispose — even though the socket goes to 'closed'.
+      if (suspended) return;
       if (intentional) {
         runDispose();
       } else {
         // An unexpected drop settles by the next microtask: dispose only if it
-        // ends 'closed' (finished for good), not 'reconnecting' or 'suspended'.
+        // ends 'closed' (finished for good), not while a reconnect is in flight.
         queueMicrotask(() => {
           if (helpers.getState() === 'closed') runDispose();
         });
@@ -300,6 +311,15 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
   ): PluginFactory<TApi, TId, P> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
+
+    // `::` separates the id from the name on the wire, so an id that contains it
+    // would make one plugin's prefix a prefix of another's — and swallow its
+    // frames. Ids follow the `vendor:name` convention (a single colon).
+    if (id.includes(NAMESPACE_DELIMITER)) {
+      throw new WSKitConfigError(
+        `[wskit] plugin id '${id}' must not contain '${NAMESPACE_DELIMITER}' — use a single colon, like 'vendor:name'.`,
+      );
+    }
 
     const factory = Object.assign(
       (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {

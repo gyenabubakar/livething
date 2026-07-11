@@ -1,6 +1,8 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { environment } from '~/environment.ts';
 import { plugin } from '~/plugins/plugins.ts';
+import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { serverRequest } from '~/primitives/server-request/index.ts';
@@ -316,7 +318,7 @@ describe('generic taps and lifecycle', () => {
     expect(events).toContain('__other:plugin::ping');
   });
 
-  it('onOpen frames are sent on connect', () => {
+  it('onOpen frames are sent on connect, stamped with the plugin namespace', () => {
     const Greeter = plugin()({
       id: 'acme:greeter',
       setup(socket) {
@@ -326,7 +328,10 @@ describe('generic taps and lifecycle', () => {
     });
 
     const { ws } = build(Greeter());
-    expect(ws.sentFrames().some((f) => f.event === 'hello')).toBe(true);
+    // Plain name in, `__acme:greeter::hello` out — same scoping as send().
+    expect(ws.sentFrames().some((f) => f.event === 'hello')).toBe(false);
+    const frame = ws.sentFrames().find((f) => f.event === '__acme:greeter::hello');
+    expect(frame?.payload).toEqual({ v: 1 });
   });
 
   it('reports a throwing handler and keeps the pipeline alive', () => {
@@ -401,6 +406,33 @@ describe('dispose', () => {
 
     expect(dispose).toHaveBeenCalledTimes(1);
   });
+
+  it('does not run on a platform suspend, which resumes the same session', async () => {
+    vi.useFakeTimers();
+    const dispose = vi.fn();
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
+
+    const control: { setVisible?: (visible: boolean) => void } = {};
+    const env = environment({
+      onVisibilityChange(cb) {
+        control.setVisible = cb;
+        return () => {};
+      },
+      onNetworkChange() {
+        return () => {};
+      },
+    });
+
+    const { socket } = build(Chat(), platform({ environment: env, backgroundDisconnectMs: 1000 }));
+    control.setVisible?.(false);
+    vi.advanceTimersByTime(1000); // backgrounded long enough → the socket suspends
+    await Promise.resolve();
+
+    // A suspend settles on 'closed' but is meant to resume, so the plugin lives on.
+    expect(socket.state.get()).toBe('closed');
+    expect(dispose).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });
 
 describe('guards', () => {
@@ -414,5 +446,31 @@ describe('guards', () => {
       },
     });
     expect(() => build(Chat())).toThrow(/onIncoming\(\) twice/);
+  });
+
+  it('throws when the id contains the :: delimiter', () => {
+    // `::` separates id from name on the wire, so an id holding it would let one
+    // plugin's prefix swallow another's frames.
+    expect(() => plugin()({ id: 'acme::chat', setup: () => ({}) })).toThrow(/must not contain/);
+  });
+});
+
+describe('scoped tools', () => {
+  it('exposes the reactive connection-state store', () => {
+    const seen: string[] = [];
+    const Watcher = plugin()({
+      id: 'acme:watcher',
+      setup(socket) {
+        socket.state.subscribe(() => seen.push(socket.state.get()));
+        return {};
+      },
+    });
+
+    const { socket } = build(Watcher());
+    socket.disconnect();
+
+    // The plugin saw the live transitions through to the final close.
+    expect(seen).toContain('open');
+    expect(seen.at(-1)).toBe('closed');
   });
 });

@@ -1,4 +1,5 @@
 import type { SocketConfig } from '~/internal/config.ts';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectionState } from '~/types.ts';
 
@@ -240,6 +241,9 @@ export interface PrimitiveHelpers {
 
   /** The current connection state. */
   getState(): ConnectionState;
+
+  /** The connection state as a store, for reacting to changes over time. */
+  state: ReadableStore<ConnectionState>;
 
   /** Whether a primitive with this `_tag` is installed (e.g. `'keepalive'`). */
   hasPrimitive(tag: string): boolean;
