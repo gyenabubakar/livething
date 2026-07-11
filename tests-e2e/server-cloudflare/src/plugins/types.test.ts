@@ -124,7 +124,9 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
     }>();
   });
   it('exposes the plugin emit under its prefixed name', () => {
-    expectTypeOf<PluginsClient['incoming']['__e2e:feed::pong']>().toEqualTypeOf<{ note: string }>();
+    expectTypeOf<PluginsClient['incoming']['__e2e:feed::welcome']>().toEqualTypeOf<{
+      name: string;
+    }>();
   });
   it('exposes all three plugin stream kinds under prefixed names', () => {
     // Both durable kinds surface as 'persistent' on the client; plain is 'ephemeral'.

@@ -29,9 +29,11 @@ expectTypeOf<Parameters<ChatSocket['send']>[1]>().toEqualTypeOf<{ on: boolean }>
 expectTypeOf<ChatSocket['request']>().toBeFunction();
 expectTypeOf<ReturnType<ChatSocket['request']>>().toEqualTypeOf<Promise<{ id: string }>>();
 
-// Typed channel handle.
+// Typed channel handle — the full channel surface (subscribe + scoped verbs).
 expectTypeOf<ChatSocket['channel']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['channel']>[0]>().toEqualTypeOf<'room'>();
+expectTypeOf<ReturnType<ChatSocket['channel']>>().toHaveProperty('subscribe');
+expectTypeOf<ReturnType<ChatSocket['channel']>>().toHaveProperty('on');
 
 // Typed streams.
 expectTypeOf<ChatSocket['stream']>().toBeFunction();

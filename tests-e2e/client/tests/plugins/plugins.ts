@@ -26,8 +26,8 @@ interface Contract extends SocketContract {
     // Plugin-owned emit, namespaced by the `__<id>::` wire prefix. The outgoing
     // hook stamps `hooked: true` on it.
     '__e2e:drizzle::drizzle-ready': { tables: string[]; hooked?: boolean };
-    // The Feed plugin's own emit, sent in reply to its `ping` incoming handler.
-    '__e2e:feed::pong': { note: string };
+    // The Feed plugin's own emit, sent in reply to its `hello` incoming handler.
+    '__e2e:feed::welcome': { name: string };
   };
   outgoing: {
     'insert-record': { name: string; value: string };
@@ -35,7 +35,7 @@ interface Contract extends SocketContract {
     'get-message-count': Record<string, never>;
     'get-outgoing-count': Record<string, never>;
     // Client → Feed plugin incoming handler.
-    '__e2e:feed::ping': { note: string };
+    '__e2e:feed::hello': { name: string };
   };
   requests: {
     // Client → Feed plugin request, plugin returns the response.
@@ -66,7 +66,7 @@ export function setup(): void {
     <button data-testid="outgoing-count">outgoing-count</button>
     <button data-testid="stream-conn-id">stream-conn-id</button>
     <button data-testid="stream-feed">stream-feed</button>
-    <button data-testid="feed-ping">feed-ping</button>
+    <button data-testid="feed-hello">feed-hello</button>
     <button data-testid="feed-echo">feed-echo</button>
     <button data-testid="stream-feed-plain">stream-feed-plain</button>
     <button data-testid="stream-feed-recorded">stream-feed-recorded</button>
@@ -80,7 +80,7 @@ export function setup(): void {
     <span data-testid="outgoing-count-result"></span>
     <span data-testid="stream-ids"></span>
     <span data-testid="feed-rows"></span>
-    <span data-testid="feed-pong"></span>
+    <span data-testid="feed-welcome"></span>
     <span data-testid="feed-echo-result"></span>
     <span data-testid="feed-plain-rows"></span>
     <span data-testid="feed-recorded-rows"></span>
@@ -124,8 +124,8 @@ export function setup(): void {
     el('outgoing-count-result').textContent = String(data.count);
   });
   // Plugin-owned emit sent in reply to the plugin's own incoming handler.
-  socket.on('__e2e:feed::pong', (data) => {
-    el('feed-pong').textContent = data.note;
+  socket.on('__e2e:feed::welcome', (data) => {
+    el('feed-welcome').textContent = data.name;
   });
 
   const streamIds: string[] = [];
@@ -167,8 +167,8 @@ export function setup(): void {
   });
 
   // Client → plugin incoming event; the plugin replies with its own emit.
-  button('feed-ping', () => {
-    socket.send('__e2e:feed::ping', { note: 'hi' });
+  button('feed-hello', () => {
+    socket.send('__e2e:feed::hello', { name: 'alice' });
   });
 
   // Client → plugin request; the plugin returns the response.

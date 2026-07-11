@@ -1,5 +1,6 @@
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { Messaging } from '~/messaging.ts';
+import type { ChannelMessaging } from '~/primitives/channels/types.ts';
 import type { ServerRequestTypeFn } from '~/primitives/server-request/types.ts';
 import type { StreamTypeFn } from '~/primitives/stream/types.ts';
 import type { Apply } from '~/primitives/types.ts';
@@ -10,9 +11,20 @@ import type {
   OutgoingOf,
   RequestMethod,
   RequestsOf,
-  ScopedApi,
   SocketContract,
 } from '~/types.ts';
+
+/**
+ * The plugin's `channel(name)` — the same rich channel handle the top-level
+ * socket gives (subscribe, members, presence, and the scoped verbs), typed from
+ * the plugin's own channels, and only present when the plugin declares channels.
+ */
+type PluginChannels<P extends SocketContract> =
+  ChannelsOf<P> extends infer C extends Record<string, unknown>
+    ? keyof C extends never
+      ? {}
+      : { channel<K extends keyof C & string>(name: K): ChannelMessaging<C[K]> }
+    : {};
 
 /**
  * The parts of the plugin socket that are always there, whatever the plugin's
@@ -63,6 +75,6 @@ type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   Messaging<IncomingOf<P> & object, OutgoingOf<P> & object> &
   WhenPresent<RequestsOf<P>, RequestMethod<P, 'request'>> &
-  WhenPresent<ChannelsOf<P>, ScopedApi<P, 'channels', 'channel'>> &
+  PluginChannels<P> &
   Apply<StreamTypeFn, P> &
   Apply<ServerRequestTypeFn, P>;

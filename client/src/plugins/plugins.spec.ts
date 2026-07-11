@@ -138,6 +138,26 @@ describe('scoped receive — on()', () => {
     expect(chatSaw).not.toHaveBeenCalled();
   });
 
+  it('receives namespaced ping/pong events without confusing them for the heartbeat', () => {
+    const seen: string[] = [];
+    const Heartbeat = plugin<{ incoming: { ping: {}; pong: {} } }>({
+      id: 'acme:hb',
+      setup(socket) {
+        socket.on('ping', () => seen.push('ping'));
+        socket.on('pong', () => seen.push('pong'));
+        return {};
+      },
+    });
+
+    const { ws } = build(Heartbeat());
+    // Bare `ping`/`pong` are the heartbeat control frames, but under a namespace
+    // they are ordinary plugin events — the `::` keeps them apart.
+    ws.emit({ event: '__acme:hb::ping', payload: {} });
+    ws.emit({ event: '__acme:hb::pong', payload: {} });
+
+    expect(seen).toEqual(['ping', 'pong']);
+  });
+
   it('stops delivering after the returned unsubscribe is called', () => {
     const seen: { text: string }[] = [];
     const Chat = plugin<ChatWire, { off: () => void }>({

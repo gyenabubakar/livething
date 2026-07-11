@@ -22,7 +22,7 @@ const h = define({
     stream(),
     requests(),
     channels(),
-    emits({ pong: t<{ note: string }>() }),
+    emits({ welcome: t<{ name: string }>() }),
   ],
 });
 
@@ -36,10 +36,10 @@ room.subscribe((ctx) => {
 });
 
 // Client → plugin incoming event, plugin emits back.
-const ping = h.on('ping', {
-  input: v.object({ note: v.string() }),
+const hello = h.on('hello', {
+  input: v.object({ name: v.string() }),
   run(ctx, payload) {
-    ctx.send('pong', { note: payload.note });
+    ctx.send('welcome', { name: payload.name });
   },
 });
 
@@ -94,5 +94,5 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble(ping, echo, feed, feedPlain, feedRecorded, room),
+  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room),
 });
