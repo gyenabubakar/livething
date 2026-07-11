@@ -371,9 +371,8 @@ export function createEngineAccess(
     setScheduledService: (service) => {
       core.scheduledService = service;
     },
-    setInterceptRuntime: (runIntercepts, frameMatch) => {
+    setInterceptRuntime: (runIntercepts) => {
       core.runIntercepts = runIntercepts;
-      core.frameMatch = frameMatch;
     },
     setChannelService: (service) => {
       core.channelService = service;

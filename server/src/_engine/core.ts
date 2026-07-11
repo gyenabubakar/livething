@@ -76,7 +76,6 @@ export class EngineCore {
   persistenceService?: FeatureSlots.PersistenceService;
   scheduledService?: FeatureSlots.ScheduledService;
   runIntercepts?: FeatureSlots.RunIntercepts;
-  frameMatch?: FeatureSlots.FrameMatch;
   channelService?: FeatureSlots.ChannelService;
   channelContext?: FeatureSlots.ChannelContext;
   inboxService?: FeatureSlots.InboxService;

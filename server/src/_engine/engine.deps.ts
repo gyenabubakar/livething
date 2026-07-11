@@ -50,7 +50,6 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     connections: core.connections,
     tagMembers: core.tagMembers,
     buildTagsApi: core.buildTagsApi,
-    frameMatch: core.frameMatch,
     channelContext: core.channelContext,
     ...commonDeps(core),
   });

@@ -1,5 +1,6 @@
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
+import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -118,17 +119,11 @@ export function buildConnectionContext(
     },
 
     matches(key: string, frame: InterceptFrame) {
-      if (!deps.frameMatch) {
-        throw new Error('[wskit] ctx.matches(...) requires the intercepts() capability.');
-      }
-      return deps.frameMatch.matches(deps.compiled, key, frame);
+      return frameMatches(deps.compiled, key, frame);
     },
 
     unsafeCast(key: string, frame: InterceptFrame) {
-      if (!deps.frameMatch) {
-        throw new Error('[wskit] ctx.unsafeCast(...) requires the intercepts() capability.');
-      }
-      return deps.frameMatch.unsafeCast(deps.compiled, key, frame);
+      return frameUnsafeCast(deps.compiled, key, frame);
     },
   };
 

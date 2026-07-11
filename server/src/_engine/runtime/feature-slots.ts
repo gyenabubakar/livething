@@ -164,15 +164,6 @@ export type RunIntercepts = (
 ) => Promise<InterceptFrame>;
 
 /**
- * The frame matchers behind `ctx.matches` / `ctx.unsafeCast`. Set by the
- * `intercepts()` capability; the ctx methods throw without it.
- */
-export interface FrameMatch {
-  matches(compiled: any, key: string, frame: InterceptFrame): boolean;
-  unsafeCast(compiled: any, key: string, frame: InterceptFrame): InterceptFrame;
-}
-
-/**
  * The channel subscribe/leave/kick runtime. Set by the `channels()` capability,
  * so a handler without it never pulls the membership-protocol engine, the
  * subscribe/unsubscribe frame handlers, or the member-sync code. Each method

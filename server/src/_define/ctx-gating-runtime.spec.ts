@@ -93,6 +93,25 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     expect('latency' in ctx).toBe(false);
     expect('quality' in ctx).toBe(false);
     expect('plugin' in ctx).toBe(false);
+    // matches / unsafeCast are core, not gated — they ride on every ctx.
+    expect('matches' in ctx).toBe(true);
+    expect('unsafeCast' in ctx).toBe(true);
+  });
+
+  it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
+    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+
+    const frame = {
+      event: 'probe',
+      payload: {},
+      kind: 'incoming' as const,
+      routing: {},
+      owner: { kind: 'app' as const },
+    };
+
+    expect(() => ctx.matches('probe', frame)).not.toThrow();
+    expect(ctx.matches('probe', frame)).toBe(true);
+    expect(ctx.unsafeCast('probe', frame)).toBe(frame);
   });
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {

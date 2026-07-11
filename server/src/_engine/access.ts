@@ -793,16 +793,14 @@ export interface EngineAccess {
   setScheduledService(service: FeatureSlots.ScheduledService): void;
 
   /**
-   * Register the intercept pipeline runner and the `ctx.matches` / `unsafeCast`
-   * frame matchers. Set by the `intercepts()` capability so a handler without it
-   * skips the intercept block and never bundles the pipeline.
+   * Register the intercept pipeline runner. Set by the `intercepts()` capability
+   * so a handler without it skips the intercept block and never bundles the
+   * pipeline. The `ctx.matches` / `ctx.unsafeCast` frame matchers are core and
+   * always present, so they are not registered here.
    *
    * @internal
    */
-  setInterceptRuntime(
-    runIntercepts: FeatureSlots.RunIntercepts,
-    frameMatch: FeatureSlots.FrameMatch,
-  ): void;
+  setInterceptRuntime(runIntercepts: FeatureSlots.RunIntercepts): void;
 
   /**
    * Register the channel subscribe/leave/kick runtime. Set by the `channels()`
