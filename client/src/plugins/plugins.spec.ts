@@ -9,8 +9,29 @@ import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
+// A host contract shaped like `InferClient` output: the app's own `welcome`, plus
+// every plugin namespace these tests register. A plugin now requires its namespace
+// to be present in the socket's contract, so the shared build() contract carries
+// all of them (a superset satisfies each plugin's own requirement).
 interface AppContract {
-  incoming: { welcome: { name: string } };
+  incoming: {
+    welcome: { name: string };
+    '__acme:chat::message': { text: string };
+    '__acme:hb::ping': {};
+    '__acme:hb::pong': {};
+  };
+  outgoing: {
+    '__acme:chat::typing': { on: boolean };
+  };
+  requests: {
+    '__acme:chat::send-message': { payload: { text: string }; response: { id: string } };
+  };
+  serverRequests: {
+    '__acme:feed::ping': { payload: { at: number }; response: { pong: boolean } };
+  };
+  streams: {
+    '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } };
+  };
 }
 
 interface ChatWire {
@@ -24,7 +45,10 @@ function build<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<AppContract, P>
 ) {
   const socket = client<AppContract>()(connect('wss://test'), ...primitives);
-  socket.connect();
+  // Inside this generic helper the claimed-namespace strip stays deferred on the
+  // abstract P, so connect() isn't visible on the computed type; it always exists
+  // on the base socket. Call sites use concrete primitives and see the full type.
+  (socket as { connect(): void }).connect();
   const ws = MockWebSocket.last();
   ws.open();
   return { socket, ws };

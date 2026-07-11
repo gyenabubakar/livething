@@ -11,7 +11,8 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 // owns its namespace: a raw top-level listener for a plugin frame never fires.
 
 // The plugin's slice of the wire, in plain names. It matches the server plugin's
-// contract; a full-stack app could derive this from the server with PluginSlice.
+// contract; a full-stack app could derive this from the server with
+// InferPluginClient.
 interface FeedWire {
   incoming: { welcome: { name: string } };
   outgoing: { hello: { name: string } };
@@ -22,6 +23,24 @@ interface FeedWire {
     'feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
   channels: { room: { incoming: { joined: { who: string } } } };
+}
+
+// The app's contract as `InferClient` produces it: the plugin's names under their
+// `__e2e:feed::` wire prefix. Registering the plugin requires these to be present,
+// then the framework strips them from the top-level socket and re-exposes them
+// scoped inside the plugin.
+interface FeedHost {
+  incoming: { '__e2e:feed::welcome': { name: string } };
+  outgoing: { '__e2e:feed::hello': { name: string } };
+  requests: {
+    '__e2e:feed::echo': { payload: { text: string }; response: { echoed: string } };
+  };
+  streams: {
+    '__e2e:feed::feed': { payload: { from: number }; chunk: { row: number } };
+    '__e2e:feed::feed-plain': { payload: Record<string, never>; chunk: { n: number } };
+    '__e2e:feed::feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
+  };
+  channels: { '__e2e:feed::room': { incoming: { joined: { who: string } } } };
 }
 
 interface FeedApi {
@@ -83,10 +102,10 @@ export function setup(): void {
     <span data-testid="joined"></span>
   `);
 
-  // The app has no top-level names of its own — the plugin owns everything under
-  // its namespace. The empty `channels` section satisfies the channels()
-  // primitive, which the plugin depends on (as do requestResponse and stream).
-  const socket = client<{ channels: {} }>()(
+  // The app's only names are the plugin's, under its namespace. The contract
+  // declares them (as InferClient would), which registering the plugin requires;
+  // the plugin then owns them and the top-level socket exposes none.
+  const socket = client<FeedHost>()(
     connect(wsUrl('plugins')),
     requestResponse(),
     stream(),

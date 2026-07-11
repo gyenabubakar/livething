@@ -74,3 +74,37 @@ export type TopLevelContract<TContract extends SocketContract, TClaimed extends 
   channels: DropClaimed<ChannelsOf<TContract>, TClaimed>;
   errors: DropClaimed<ErrorsOf<TContract>, TClaimed>;
 };
+
+/** Re-add the `__<TId>::` prefix to every key of `TMap` — the inverse of PickNamespace. */
+type PrefixKeys<TId extends string, TMap> = {
+  [K in keyof TMap & string as `__${TId}::${K}`]: TMap[K];
+};
+
+/**
+ * One section of a plugin's requirement: the prefixed map under `TSection`, or
+ * nothing when the plugin declares no names there. Omitting empty sections means a
+ * plugin only demands the sections it actually uses, so a socket contract missing
+ * an unrelated section still satisfies it.
+ */
+type RequiredSection<TId extends string, TSection extends string, TMap> = keyof TMap extends never
+  ? {}
+  : { [K in TSection]: PrefixKeys<TId, TMap> };
+
+/**
+ * What a registered plugin requires its socket's contract to contain: every one of
+ * the plugin's names back under its `__<id>::` wire prefix. `client()` checks the
+ * socket contract against this (through each primitive's `_requires`), so
+ * registering a plugin onto a contract that doesn't declare its namespace is a
+ * type error. A plugin with no contract requires nothing.
+ */
+export type NamespacedContract<P extends SocketContract, TId extends string> = RequiredSection<
+  TId,
+  'incoming',
+  IncomingOf<P>
+> &
+  RequiredSection<TId, 'outgoing', OutgoingOf<P>> &
+  RequiredSection<TId, 'requests', RequestsOf<P>> &
+  RequiredSection<TId, 'serverRequests', ServerRequestsOf<P>> &
+  RequiredSection<TId, 'streams', StreamsOf<P>> &
+  RequiredSection<TId, 'channels', ChannelsOf<P>> &
+  RequiredSection<TId, 'errors', ErrorsOf<P>>;

@@ -85,3 +85,19 @@ bare.on('__acme:chat::message', (data) =>
   expectTypeOf(data).toEqualTypeOf<{ id: string; text: string }>(),
 );
 bare.on('__acme:presence::here', (data) => expectTypeOf(data).toEqualTypeOf<{ who: string }>());
+
+// Register-time matching: a plugin can only be registered onto a socket whose
+// contract declares its namespace. A contract missing `__acme:chat::*` rejects it.
+// (The requirement failure lands on the whole call, so the directive sits above it.)
+interface NoChatContract {
+  incoming: { 'app-notice': { text: string } };
+}
+// @ts-expect-error — NoChatContract has no __acme:chat:: names, so Chat can't register
+client<NoChatContract>()(connect('wss://example.com'), requestResponse(), Chat());
+
+// A contract that DOES declare the namespace accepts it.
+client<HostContract>()(connect('wss://example.com'), requestResponse(), Chat());
+
+// An observe-only plugin (no contract) requires nothing and registers anywhere.
+const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
+client<NoChatContract>()(connect('wss://example.com'), Watcher());

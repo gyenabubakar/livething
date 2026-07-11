@@ -21,6 +21,7 @@ import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
+import type { InferPluginClient } from '~/_define/plugin.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,31 @@ expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['payload']>().toEqualTy
 expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['response']>().toEqualTypeOf<{
   ok: boolean;
 }>();
+
+// ---------------------------------------------------------------------------
+// InferPluginClient — a plugin author derives the client-side contract from the
+// server plugin, in the client's perspective with PLAIN (un-prefixed) names.
+// ---------------------------------------------------------------------------
+type LeakWire = InferPluginClient<typeof LeakPlugin>;
+// server emit -> client incoming; server on -> client outgoing; plain names.
+expectTypeOf<LeakWire['incoming']>().toEqualTypeOf<{ 'pl-out': { a: number } }>();
+expectTypeOf<LeakWire['outgoing']>().toHaveProperty('pl-in');
+expectTypeOf<LeakWire['outgoing']>().toHaveProperty('pl-also-in');
+// Never prefixed, and never leaks the server-perspective direction.
+expectTypeOf<LeakWire['incoming']>().not.toHaveProperty('__acme:leak::pl-out');
+expectTypeOf<LeakWire['incoming']>().not.toHaveProperty('pl-in');
+
+// Accepts the capability the factory returns, too, not only the factory.
+type LeakWireFromCap = InferPluginClient<ReturnType<typeof LeakPlugin>>;
+expectTypeOf<LeakWireFromCap['incoming']>().toEqualTypeOf<{ 'pl-out': { a: number } }>();
+
+// A plugin channel comes through under its plain family name, flipped to the
+// client view, its inner events unprefixed — exactly a client channel contract.
+type ChWire = InferPluginClient<typeof ChPlugin>;
+expectTypeOf<ChWire['channels']>().toHaveProperty('fam');
+expectTypeOf<ChWire['channels']>().not.toHaveProperty('__acme:chan::fam');
+expectTypeOf<ChWire['channels']['fam']['incoming']>().toHaveProperty('fam-tick');
+expectTypeOf<ChWire['channels']['fam']['outgoing']>().toHaveProperty('fam-ping');
 
 // ---------------------------------------------------------------------------
 // dependsOn — host-owned engine factories only. A behavior capability the

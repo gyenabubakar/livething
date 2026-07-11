@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
+import type { NamespacedContract } from '~/plugins/contract.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
@@ -62,10 +63,13 @@ export interface PluginDef<P extends SocketContract, TApi> {
  * What `plugin()` returns. Call it to register the plugin (pass the result to
  * `client()`), and call `.use(socket)` to get its API from a socket it was
  * registered on. `TId` carries the plugin's id as a literal so the app socket
- * knows which namespace this plugin claims.
+ * knows which namespace this plugin claims, and `P` becomes the primitive's
+ * `_requires` so `client()` rejects a socket whose contract lacks that namespace.
  */
-export interface PluginFactory<TApi, TId extends string = string> {
-  (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } };
+export interface PluginFactory<TApi, TId extends string = string, P extends SocketContract = {}> {
+  (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
+    readonly _plugin: { readonly id: TId };
+  };
 
   /** The plugin's id — its namespace and log label. */
   readonly id: TId;

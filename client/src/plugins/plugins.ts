@@ -5,6 +5,7 @@ import { namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
+import type { NamespacedContract } from '~/plugins/contract.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
   PluginDef,
@@ -296,12 +297,14 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 export function plugin<P extends SocketContract = {}, TApi = void>() {
   return function define<const TId extends string>(
     def: PluginDef<P, TApi> & { id: TId },
-  ): PluginFactory<TApi, TId> {
+  ): PluginFactory<TApi, TId, P> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
 
     const factory = Object.assign(
-      (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } } => ({
+      (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
+        readonly _plugin: { readonly id: TId };
+      } => ({
         _tag: id,
         _plugin: { id },
         dependencies,

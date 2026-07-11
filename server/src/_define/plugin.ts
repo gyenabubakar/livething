@@ -5,6 +5,7 @@ import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
 import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/capability.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { ClientPluginContract } from '~/infer-client.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
@@ -214,6 +215,41 @@ export interface PluginCapability<
 export type GrantableCapability = AnyCapability & {
   readonly __requiresHostGrant?: never;
 };
+
+/**
+ * The client-side contract for a server plugin — its own events, requests,
+ * streams, and channels flipped into the client's perspective, with plain names.
+ * A client plugin author passes this to `plugin<...>()` instead of hand-writing
+ * the contract, so the two halves stay in step:
+ *
+ * ```ts
+ * // server plugin
+ * export const Presence = plugin('acme:presence', { handler, api });
+ *
+ * // client plugin — derive the contract from the server plugin
+ * import type { InferPluginClient } from '@wskit/server/plugin';
+ * import { Presence } from './server-plugin';
+ *
+ * type PresenceWire = InferPluginClient<typeof Presence>;
+ * const PresenceClient = plugin<PresenceWire, PresenceApi>()({
+ *   id: 'acme:presence',
+ *   setup(socket) { ... },
+ * });
+ * ```
+ *
+ * Accepts either the plugin factory (`typeof Presence`) or the capability it
+ * returns (`ReturnType<typeof Presence>`).
+ */
+export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
+  string,
+  infer TContract,
+  unknown,
+  boolean
+>
+  ? ClientPluginContract<TContract>
+  : TPlugin extends PluginCapability<string, infer TContract, unknown, boolean>
+    ? ClientPluginContract<TContract>
+    : never;
 
 /** Build the primitive whose `__setup` registers the plugin's API factory with the engine. */
 function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {

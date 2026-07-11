@@ -180,23 +180,34 @@ type PrefixKeys<TId extends string, TMap> = {
 };
 
 /**
- * One plugin turned into the client's perspective, with every name carrying the
- * `__<id>::` wire prefix. The plugin's scoped contract is stored in server
- * perspective under `__contract`; each surface is flipped the same way the
- * top-level client view flips it (server `outgoing` → client `incoming`, server
- * `incoming` → client `outgoing`) and its keys are prefixed. Each field holds
- * only the plugin's prefixed entries so it can be merged into the matching
- * top-level client map. A channel is addressed by its prefixed family name; the
- * channel's inner events stay scoped to that channel and are not prefixed.
+ * One plugin's scoped contract flipped into the client's perspective, with plain
+ * names (no `__<id>::` prefix). The plugin's contract is stored in server
+ * perspective under `__contract`; each surface is flipped the way the top-level
+ * client view flips it (server `outgoing` → client `incoming`, server `incoming`
+ * → client `outgoing`). This is the shape a client plugin declares as its own
+ * contract, so a plugin author reads it with `InferPluginClient`.
+ */
+export type ClientPluginContract<TContract> = {
+  incoming: Slot<TContract, 'outgoing'>;
+  outgoing: Slot<TContract, 'incoming'>;
+  requests: Slot<TContract, 'requests'>;
+  serverRequests: Slot<TContract, 'serverRequests'>;
+  streams: ClientStreams<TContract>;
+  channels: ClientChannelMap<Slot<TContract, 'channels'>>;
+  errors: Slot<TContract, 'errors'>;
+};
+
+/**
+ * The same flip as {@link ClientPluginContract}, but with every name carrying the
+ * `__<id>::` wire prefix so it can be merged into the top-level client maps. A
+ * channel is addressed by its prefixed family name; the channel's inner events
+ * stay scoped to that channel and are not prefixed.
  */
 type ClientPluginProjection<TId extends string, TContract> = {
-  incoming: PrefixKeys<TId, Slot<TContract, 'outgoing'>>;
-  outgoing: PrefixKeys<TId, Slot<TContract, 'incoming'>>;
-  requests: PrefixKeys<TId, Slot<TContract, 'requests'>>;
-  serverRequests: PrefixKeys<TId, Slot<TContract, 'serverRequests'>>;
-  streams: PrefixKeys<TId, ClientStreams<TContract>>;
-  channels: PrefixKeys<TId, ClientChannelMap<Slot<TContract, 'channels'>>>;
-  errors: PrefixKeys<TId, Slot<TContract, 'errors'>>;
+  [TSection in keyof ClientPluginContract<TContract>]: PrefixKeys<
+    TId,
+    ClientPluginContract<TContract>[TSection]
+  >;
 };
 
 /**
