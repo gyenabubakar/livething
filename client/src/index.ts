@@ -28,7 +28,7 @@ export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
 export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
 export { plugin } from '~/plugins/index.ts';
-export type { PluginDef, PluginHooks, PluginFactory } from '~/plugins/index.ts';
+export type { PluginDef, PluginHooks, PluginTools, PluginFactory } from '~/plugins/index.ts';
 
 export { channels } from '~/primitives/channels/index.ts';
 export type {

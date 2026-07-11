@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { SendResult, WireMessage } from '~/internal/runtime.ts';
+import type { SendOptions } from '~/messaging.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { ConnectionState } from '~/types.ts';
 
@@ -14,9 +15,11 @@ export type PrimitiveFactory = {
 };
 
 /**
- * The hooks a plugin can register in `setup`. They follow the same lifecycle as
- * a built-in primitive. Each hook can only be set once — registering the same
- * one twice throws, so a plugin can't accidentally overwrite its own handler.
+ * The lifecycle callbacks a plugin registers in `setup`. They follow the same
+ * lifecycle as a built-in primitive. Each hook can only be set once — registering
+ * the same one twice throws, so a plugin can't accidentally overwrite its own
+ * handler. These only register callbacks that fire later; to read state or ask
+ * the kernel to do something now, use {@link PluginTools} (the third `setup` arg).
  */
 export interface PluginHooks {
   /** See an incoming message. Return it (maybe changed) to pass on; throw `Block` to drop. */
@@ -33,12 +36,36 @@ export interface PluginHooks {
 
   /** Runs when the socket closes, with the close code and reason. */
   onClose(handler: (code: number, reason: string) => void): void;
+}
 
+/**
+ * The things a plugin can call right now in `setup` — reading state or asking
+ * the kernel to act. Unlike {@link PluginHooks}, none of these register a
+ * callback: you call one and get an answer (or an effect) back. Handed to
+ * `setup` as its third argument, so a plugin that only wires hooks can leave it
+ * out.
+ */
+export interface PluginTools {
   /** Make a unique id, sharing the kernel's counter so ids never clash. */
   generateId(prefix?: string): string;
 
   /** The current connection state. */
   getState(): ConnectionState;
+
+  /** Send a message the normal way (`onOutgoing` → fallback → wire). */
+  send(message: WireMessage, options?: SendOptions): SendResult;
+
+  /**
+   * Send straight to the wire, skipping `onOutgoing` so a hook can't loop back on
+   * its own frame.
+   */
+  rawSend(message: WireMessage): SendResult;
+
+  /** Whether a primitive with this `_tag` is installed (e.g. `'keepalive'`). */
+  hasPrimitive(tag: string): boolean;
+
+  /** Open the connection now if it's lazy and not yet connected. */
+  ensureConnected(): void;
 }
 
 /** What you pass to `plugin()`. */
@@ -70,8 +97,12 @@ export interface PluginDef<TArgs, TApi> {
   /** Primitives this plugin needs registered — asserted and ordered before it. */
   dependencies?: readonly PrimitiveFactory[];
 
-  /** Wire up the hooks and return a factory for the plugin's per-socket API. */
-  setup(args: TArgs, hooks: PluginHooks): (socket: any) => TApi;
+  /**
+   * Wire up the hooks and return a factory for the plugin's per-socket API.
+   * `hooks` registers lifecycle callbacks; `tools` reads state or drives the
+   * kernel now. A plugin that only wires hooks can leave `tools` out.
+   */
+  setup(args: TArgs, hooks: PluginHooks, tools: PluginTools): (socket: any) => TApi;
 }
 
 /**

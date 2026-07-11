@@ -2,7 +2,13 @@
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
-import type { PluginDef, PluginFactory, PluginHooks, PrimitiveFactory } from '~/plugins/types.ts';
+import type {
+  PluginDef,
+  PluginFactory,
+  PluginHooks,
+  PluginTools,
+  PrimitiveFactory,
+} from '~/plugins/types.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
@@ -162,11 +168,18 @@ export function plugin<TArgs = void, TApi = unknown>(
           onOpen: (handler) => void (open = once('onOpen', open, handler)),
           onReconnect: (handler) => void (reconnect = once('onReconnect', reconnect, handler)),
           onClose: (handler) => void (close = once('onClose', close, handler)),
-          generateId: (prefix) => helpers.generateId(prefix),
-          getState: () => helpers.getState(),
         };
 
-        const build = def.setup(args, hooks);
+        const tools: PluginTools = {
+          generateId: (prefix) => helpers.generateId(prefix),
+          getState: () => helpers.getState(),
+          send: (message, options) => helpers.send(message, options),
+          rawSend: (message) => helpers.rawSend(message),
+          hasPrimitive: (tag) => helpers.hasPrimitive(tag),
+          ensureConnected: () => helpers.ensureConnected(),
+        };
+
+        const build = def.setup(args, hooks, tools);
 
         return {
           id: registrationId ? `${def.id}#${registrationId}` : def.id,

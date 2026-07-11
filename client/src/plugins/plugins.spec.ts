@@ -5,6 +5,7 @@ import { plugin } from '~/plugins/plugins.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PluginTools } from '~/plugins/index.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
@@ -102,20 +103,112 @@ describe('plugin() definition', () => {
     expect(() => client<C>()(connect('wss://test'), Twice())).toThrow(/onIncoming\(\) twice/);
   });
 
-  it('exposes generateId and getState inside setup hooks', () => {
+  it('exposes generateId and getState on the tools argument', () => {
     const captured: { id?: string; state?: string } = {};
     const Probe = plugin({
       id: 'test:probe',
       key: Symbol('test:probe'),
-      setup(_args, hooks) {
-        captured.id = hooks.generateId('p');
-        captured.state = hooks.getState();
+      setup(_args, _hooks, tools) {
+        captured.id = tools.generateId('p');
+        captured.state = tools.getState();
         return () => ({});
       },
     });
     client<C>()(connect('wss://test'), Probe());
     expect(captured.id).toMatch(/^p-.+-\d+$/);
     expect(captured.state).toBe('closed');
+  });
+
+  it('exposes hasPrimitive on the tools argument', () => {
+    let sawReconnection: boolean | undefined;
+    let sawKeepalive: boolean | undefined;
+    const Probe = plugin({
+      id: 'test:has-primitive',
+      key: Symbol('test:has-primitive'),
+      dependencies: [reconnection],
+      setup(_args, _hooks, tools) {
+        sawReconnection = tools.hasPrimitive('reconnection');
+        sawKeepalive = tools.hasPrimitive('keepalive');
+        return () => ({});
+      },
+    });
+    client<C>()(connect('wss://test'), reconnection(), Probe());
+    expect(sawReconnection).toBe(true);
+    // keepalive was never installed — the false branch must report false too.
+    expect(sawKeepalive).toBe(false);
+  });
+
+  it('send() routes a frame through the outgoing pipeline onto the wire', () => {
+    let tools!: PluginTools;
+    const Sender = plugin({
+      id: 'test:sender',
+      key: Symbol('test:sender'),
+      setup(_args, _hooks, t) {
+        tools = t;
+        return () => ({});
+      },
+    });
+    const socket = client<C>()(connect('wss://test'), Sender());
+    socket.connect();
+    MockWebSocket.last().open();
+
+    tools.send({ event: 'typing', payload: { channelId: 'x' } });
+
+    const frame = MockWebSocket.last()
+      .sentFrames()
+      .find((f) => f.event === 'typing');
+    expect(frame).toBeDefined();
+    expect(frame.payload).toEqual({ channelId: 'x' });
+  });
+
+  it('rawSend() reaches the wire but skips the outgoing pipeline, while send() runs it', () => {
+    const seenByOutgoing: string[] = [];
+    let tools!: PluginTools;
+    const Raw = plugin({
+      id: 'test:raw',
+      key: Symbol('test:raw'),
+      setup(_args, hooks, t) {
+        tools = t;
+        hooks.onOutgoing((message) => {
+          seenByOutgoing.push(message.event);
+          return message;
+        });
+        return () => ({});
+      },
+    });
+    const socket = client<C>()(connect('wss://test'), Raw());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    tools.send({ event: 'typing', payload: { channelId: 'a' } });
+    tools.rawSend({ event: 'typing', payload: { channelId: 'b' } });
+
+    // Only the send() frame passes through onOutgoing; rawSend() bypasses it so a
+    // hook that itself calls rawSend can't loop back into its own pipeline.
+    expect(seenByOutgoing).toEqual(['typing']);
+    // Both frames still land on the wire.
+    expect(ws.sentFrames().filter((f) => f.event === 'typing')).toHaveLength(2);
+  });
+
+  it('ensureConnected() opens a lazy socket that has not connected yet', () => {
+    let tools!: PluginTools;
+    const Opener = plugin({
+      id: 'test:opener',
+      key: Symbol('test:opener'),
+      setup(_args, _hooks, t) {
+        tools = t;
+        return () => ({});
+      },
+    });
+    client<C>()(connect('wss://test', { lazy: true }), Opener());
+
+    // A lazy socket connects on demand, so nothing is open yet.
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    tools.ensureConnected();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
 
