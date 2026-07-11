@@ -1,5 +1,4 @@
 import type { WireMessage } from '~/internal/runtime.ts';
-import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type {
   ChannelsOf,
@@ -42,8 +41,8 @@ export interface PluginBase {
   /** Open the connection now if it's lazy and not yet connected. */
   ensureConnected(): void;
 
-  /** The connection state as a store: read it with `state.get()` or watch it with `state.subscribe(...)`. */
-  readonly state: ReadableStore<ConnectionState>;
+  /** The current connection state. */
+  getState(): ConnectionState;
 }
 
 /** `{}` unless `TMap` has at least one key — so an empty section adds no method. */

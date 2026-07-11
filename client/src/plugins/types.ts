@@ -1,12 +1,11 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
-import type { SendResult, WireMessage } from '~/internal/runtime.ts';
-import type { SendOptions } from '~/messaging.ts';
+/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
+import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
-import type { ConnectionState } from '~/types.ts';
+import type { SocketContract } from '~/types.ts';
 
 /**
- * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [channels]`.
- * The static `tag` is required: dependency resolution reads it without running the
+ * A primitive factory you can name as a plugin dependency, e.g.
+ * `dependencies: [requestResponse]`. The static `tag` is read without running the
  * factory, so a factory that needs options can't throw or fire side effects here.
  */
 export type PrimitiveFactory = {
@@ -15,105 +14,61 @@ export type PrimitiveFactory = {
 };
 
 /**
- * The lifecycle callbacks a plugin registers in `setup`. They follow the same
- * lifecycle as a built-in primitive. Each hook can only be set once — registering
- * the same one twice throws, so a plugin can't accidentally overwrite its own
- * handler. These only register callbacks that fire later; to read state or ask
- * the kernel to do something now, use {@link PluginTools} (the third `setup` arg).
+ * What a plugin's `setup` returns. Both fields are optional: a plugin that only
+ * taps the pipeline needs neither, one with an API sets `api`, one holding
+ * resources sets `dispose`.
  */
-export interface PluginHooks {
-  /** See an incoming message. Return it (maybe changed) to pass on; throw `Block` to drop. */
-  onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
-
-  /** See an outgoing message. Return it (maybe changed) to send; throw `Block` to cancel. */
-  onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
-
-  /** Runs on every open. Return `{ event, payload }[]` to send right away. */
-  onOpen(handler: () => WireMessage[] | void): void;
-
-  /** Runs only on reconnects. Same return as `onOpen`. */
-  onReconnect(handler: () => WireMessage[] | void): void;
-
-  /** Runs when the socket closes, with the close code and reason. */
-  onClose(handler: (code: number, reason: string) => void): void;
-}
-
-/**
- * The things a plugin can call right now in `setup` — reading state or asking
- * the kernel to act. Unlike {@link PluginHooks}, none of these register a
- * callback: you call one and get an answer (or an effect) back. Handed to
- * `setup` as its third argument, so a plugin that only wires hooks can leave it
- * out.
- */
-export interface PluginTools {
-  /** Make a unique id, sharing the kernel's counter so ids never clash. */
-  generateId(prefix?: string): string;
-
-  /** The current connection state. */
-  getState(): ConnectionState;
-
-  /** Send a message the normal way (`onOutgoing` → fallback → wire). */
-  send(message: WireMessage, options?: SendOptions): SendResult;
+export interface PluginInstance<TApi = void> {
+  /**
+   * Builds the object reached with `Plugin.use(socket)`. It runs once, the first
+   * time `use()` is called, and the same object is returned after. Omit it for a
+   * plugin that only observes or acts through hooks.
+   */
+  api?: () => TApi;
 
   /**
-   * Send straight to the wire, skipping `onOutgoing` so a hook can't loop back on
-   * its own frame.
+   * Runs once when the socket is finished for good — reconnection has been given
+   * up, or the app closed the socket on purpose. It does NOT run on a normal drop
+   * that will reconnect. Use it to release timers or other outside resources; a
+   * plugin holding only in-memory state doesn't need it.
    */
-  rawSend(message: WireMessage): SendResult;
-
-  /** Whether a primitive with this `_tag` is installed (e.g. `'keepalive'`). */
-  hasPrimitive(tag: string): boolean;
-
-  /** Open the connection now if it's lazy and not yet connected. */
-  ensureConnected(): void;
+  dispose?: () => void;
 }
 
 /** What you pass to `plugin()`. */
-export interface PluginDef<TArgs, TApi> {
+export interface PluginDef<P extends SocketContract, TApi> {
   /**
-   * A human-readable name shown in logs and errors. A namespaced form like
-   * `'acme:metrics'` is recommended to avoid clashing with primitive names.
-   * This is NOT what uniquely identifies a plugin — that's `key` (+ `registrationId`).
-   * Two different plugins sharing the same `id` only produces a warning.
+   * The plugin's namespace and log label. It owns every `__<id>::…` name on the
+   * wire, so no two plugins on one socket may share an `id`. A namespaced form
+   * like `'acme:chat'` is the convention.
    */
   id: string;
 
   /**
-   * A `Symbol` that uniquely identifies this plugin. The socket uses it to
-   * store and look up the plugin's API. The same plugin can't be registered
-   * twice on one socket unless it also provides a `registrationId` (see below).
+   * Primitives the host must register for this plugin to work — e.g.
+   * `[requestResponse]` for a plugin that makes requests. Checked when the socket
+   * is built; a missing one throws with a message naming what to add.
    */
-  key: symbol;
-
-  /**
-   * Makes the plugin repeatable. Given the args the caller passes, return a
-   * stable string that identifies this particular instance, so the same plugin
-   * can be registered more than once (e.g. two analytics configs). Two
-   * registrations with the same computed id throw; different ids are kept as
-   * separate instances. Leave this out for a one-per-socket (singleton) plugin.
-   */
-  registrationId?: (args: TArgs) => string;
-
-  /** Primitives this plugin needs registered — asserted and ordered before it. */
   dependencies?: readonly PrimitiveFactory[];
 
   /**
-   * Wire up the hooks and return a factory for the plugin's per-socket API.
-   * `hooks` registers lifecycle callbacks; `tools` reads state or drives the
-   * kernel now. A plugin that only wires hooks can leave `tools` out.
+   * Wire up handlers and hooks on the scoped socket, then return the plugin's API
+   * and cleanup. It runs once, when the socket is built.
    */
-  setup(args: TArgs, hooks: PluginHooks, tools: PluginTools): (socket: any) => TApi;
+  setup(socket: PluginSocket<P>): PluginInstance<TApi>;
 }
 
 /**
- * What `plugin()` returns. Call it with args to register the plugin (passed
- * alongside primitives to `client()`), and call `.use(socket)` to get its API
- * from a socket it was registered on. For a repeatable plugin, pass the
- * `registrationId` to `.use()` to pick a specific instance.
+ * What `plugin()` returns. Call it to register the plugin (pass the result to
+ * `client()`), and call `.use(socket)` to get its API from a socket it was
+ * registered on.
  */
-export interface PluginFactory<TArgs, TApi> {
-  (args: TArgs): Primitive<EmptyTypeFn>;
+export interface PluginFactory<TApi> {
+  (): Primitive<EmptyTypeFn>;
 
-  /** Get this plugin's API for a socket it was registered on. */
-  use(socket: object, registrationId?: string): TApi;
+  /** The plugin's id — its namespace and log label. */
+  readonly id: string;
+
+  /** Get this plugin's API from a socket it was registered on. */
+  use(socket: object): TApi;
 }

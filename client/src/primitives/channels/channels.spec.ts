@@ -997,6 +997,15 @@ interface PluginChannelC {
   };
 }
 
+// A plugin owns its `__id::` channels, so they are not on the top-level typed
+// socket. The channels primitive still routes them at runtime, so these tests
+// reach the channel by name the way a plugin's scoped socket does.
+type PluginRoomHandle = {
+  on(event: 'joined', handler: (data: { who: string }) => void): () => void;
+  subscribe(): Promise<void>;
+};
+type ChannelByName = (name: string) => PluginRoomHandle;
+
 describe('plugin-channel namespace delivery (A3)', () => {
   function buildPlugin() {
     const socket = client<PluginChannelC>()(connect('wss://test'), channels());
@@ -1008,7 +1017,7 @@ describe('plugin-channel namespace delivery (A3)', () => {
 
   it("delivers a plugin channel's __id::-prefixed event under its bare contract name", async () => {
     const { socket, ws } = buildPlugin();
-    const room = socket.channel('__e2e:feed::room');
+    const room = (socket.channel as unknown as ChannelByName)('__e2e:feed::room');
     const seen: { who: string }[] = [];
     room.on('joined', (data) => seen.push(data));
 
@@ -1030,7 +1039,7 @@ describe('plugin-channel namespace delivery (A3)', () => {
 
   it("only strips the channel's own prefix — a foreign-prefixed event is not delivered as the bare name", async () => {
     const { socket, ws } = buildPlugin();
-    const room = socket.channel('__e2e:feed::room');
+    const room = (socket.channel as unknown as ChannelByName)('__e2e:feed::room');
     const joined = vi.fn();
     room.on('joined', joined);
 

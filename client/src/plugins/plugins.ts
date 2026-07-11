@@ -1,75 +1,61 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
+import { namespacedName, parseNamespaced } from '~/internal/namespace.ts';
+import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
   PluginDef,
   PluginFactory,
-  PluginHooks,
-  PluginTools,
+  PluginInstance,
   PrimitiveFactory,
 } from '~/plugins/types.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
+import type { SocketContract } from '~/types.ts';
 
 /**
  * Read a dependency's tag from the factory's static `tag` without running it.
- * Calling a configured factory with no args could throw or fire side effects,
- * so a dependency must expose `tag`. A bad dependency is caught here, when the
- * plugin is defined, not at runtime.
+ * Calling a configured factory with no args could throw or fire side effects, so
+ * a dependency must expose `tag`. A bad dependency is caught here, when the plugin
+ * is defined, not at runtime.
  */
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
   throw new WSKitConfigError(
-    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [channels, stream]).`,
+    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [requestResponse, channels]).`,
   );
 }
 
 /**
- * Plugin APIs per socket, built on first `use()`. Keyed by the plugin's `key`,
- * then by `registrationId` (`undefined` for a one-instance plugin), so a
- * repeatable plugin keeps each instance separate. Held in a module-scoped
- * WeakMap rather than on the socket so the core socket carries no plugin code —
- * it's only here when `plugin()` is in the bundle. Keyed weakly by socket, so a
- * dropped socket takes its plugin entries with it.
+ * Plugin APIs per socket, built on first `use()`. Keyed by the plugin's `id`.
+ * Held in a module-scoped WeakMap rather than on the socket so the core socket
+ * carries no plugin code — it's only here when `plugin()` is in the bundle. Keyed
+ * weakly by socket, so a dropped socket takes its plugin entries with it.
  */
 type PluginResult = { ok: true; api: unknown } | { ok: false; error: unknown };
-type PluginEntry = { build: (socket: WSKitSocket) => unknown; result?: PluginResult };
-const pluginRegistries = new WeakMap<object, Map<symbol, Map<string | undefined, PluginEntry>>>();
+type PluginEntry = { build: () => unknown; result?: PluginResult };
+const pluginRegistries = new WeakMap<object, Map<string, PluginEntry>>();
 
-function registerPlugin(
-  socket: WSKitSocket,
-  entry: {
-    key: symbol;
-    registrationId: string | undefined;
-    build: (socket: WSKitSocket) => unknown;
-  },
-): void {
-  let byKey = pluginRegistries.get(socket);
-  if (!byKey) {
-    byKey = new Map();
-    pluginRegistries.set(socket, byKey);
+function registerPlugin(socket: WSKitSocket, id: string, build: () => unknown): void {
+  let byId = pluginRegistries.get(socket);
+  if (!byId) {
+    byId = new Map();
+    pluginRegistries.set(socket, byId);
   }
-  let byRegistration = byKey.get(entry.key);
-  if (!byRegistration) {
-    byRegistration = new Map();
-    byKey.set(entry.key, byRegistration);
-  }
-  byRegistration.set(entry.registrationId, { build: entry.build });
+  byId.set(id, { build });
 }
 
-function usePlugin(socket: object, key: symbol, registrationId: string | undefined): unknown {
-  const entry = pluginRegistries.get(socket)?.get(key)?.get(registrationId);
+function usePlugin(socket: object, id: string): unknown {
+  const entry = pluginRegistries.get(socket)?.get(id);
   if (!entry) {
     throw new WSKitConfigError(
-      registrationId === undefined
-        ? '[wskit] this plugin is not registered on this socket. Pass it to client().'
-        : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
+      `[wskit] plugin '${id}' is not registered on this socket, or it exposes no API. Pass it to client().`,
     );
   }
   if (!entry.result) {
     try {
-      entry.result = { ok: true, api: entry.build(socket as WSKitSocket) };
+      entry.result = { ok: true, api: entry.build() };
     } catch (error) {
       entry.result = { ok: false, error };
     }
@@ -78,169 +64,245 @@ function usePlugin(socket: object, key: symbol, registrationId: string | undefin
   return entry.result.api;
 }
 
+type IncomingHook = (message: WireMessage) => WireMessage | void;
+type OpenHook = () => WireMessage[] | void;
+type CloseHook = (code: number, reason: string) => void;
+
 /**
- * Define a reusable client feature. Unlike built-in primitives, a plugin can't
- * add methods directly to the socket — its API is accessed via `Plugin.use(socket)`,
- * which keeps TypeScript inference fast. It can still hook into the message pipeline
- * and lifecycle events. The client `plugin` mirrors the server's, minus server-only
- * features (scheduling, migrations).
+ * A plugin only owns plain top-level frames in its namespace. A frame carrying a
+ * channel, correlationId, or streamId belongs to the channels, requestResponse,
+ * or stream primitive — those run before the plugin and handle it — so the plugin
+ * leaves it alone even when the name is in the plugin's namespace.
+ */
+function ownsFrame(message: WireMessage): boolean {
+  const envelope = message.__wskit;
+  return !envelope?.channel && !envelope?.correlationId && !envelope?.streamId;
+}
+
+/**
+ * Build the runtime for one registered plugin: the scoped socket its `setup`
+ * sees, the handler registry its `on(...)` fills, and the pipeline hooks that
+ * route its namespace to it and run its cleanup.
+ */
+function createPluginRuntime<P extends SocketContract, TApi>(
+  id: string,
+  def: PluginDef<P, TApi>,
+  helpers: PrimitiveHelpers,
+): PrimitiveRuntime {
+  const handlers = new Map<string, Set<(data: unknown) => void>>();
+  let host: WSKitSocket | null = null;
+  let disposed = false;
+
+  let userIncoming: IncomingHook | null = null;
+  let userOutgoing: IncomingHook | null = null;
+  let userOpen: OpenHook | null = null;
+  let userReconnect: OpenHook | null = null;
+  let userClose: CloseHook | null = null;
+
+  function once<T>(name: string, current: T | null, handler: T): T {
+    if (current) {
+      throw new WSKitConfigError(
+        `[wskit] plugin '${id}' registered ${name}() twice — use a single callback.`,
+      );
+    }
+    return handler;
+  }
+
+  function requireHost(): WSKitSocket {
+    if (!host) {
+      throw new WSKitConfigError(`[wskit] plugin '${id}' used the socket before it was ready.`);
+    }
+    return host;
+  }
+
+  function report(error: unknown): void {
+    helpers.log.report(error);
+  }
+
+  // The scoped socket. Names are plain here; the plugin's namespace is added on
+  // the way out and stripped on the way in, so the plugin never writes `__id::`.
+  const socket = {
+    on(event: string, handler: (data: unknown) => void): () => void {
+      let set = handlers.get(event);
+      if (!set) {
+        set = new Set();
+        handlers.set(event, set);
+      }
+      set.add(handler);
+      return () => {
+        set.delete(handler);
+        if (set.size === 0) handlers.delete(event);
+      };
+    },
+
+    send(event: string, payload: unknown, options?: { ttl?: number }): boolean {
+      const result = helpers.send({ event: namespacedName(id, event), payload }, options);
+      return result === 'sent' || result === 'buffered';
+    },
+
+    request(event: string, payload: unknown, options?: { timeout?: number }): Promise<unknown> {
+      return (requireHost() as any).request(namespacedName(id, event), payload, options);
+    },
+
+    channel(name: string): unknown {
+      return (requireHost() as any).channel(namespacedName(id, name));
+    },
+
+    onIncoming: (handler: IncomingHook) =>
+      void (userIncoming = once('onIncoming', userIncoming, handler)),
+    onOutgoing: (handler: IncomingHook) =>
+      void (userOutgoing = once('onOutgoing', userOutgoing, handler)),
+    onOpen: (handler: OpenHook) => void (userOpen = once('onOpen', userOpen, handler)),
+    onReconnect: (handler: OpenHook) =>
+      void (userReconnect = once('onReconnect', userReconnect, handler)),
+    onClose: (handler: CloseHook) => void (userClose = once('onClose', userClose, handler)),
+
+    generateId: (prefix?: string) => helpers.generateId(prefix),
+    hasPrimitive: (tag: string) => helpers.hasPrimitive(tag),
+    ensureConnected: () => helpers.ensureConnected(),
+    getState: () => helpers.getState(),
+  };
+
+  const instance: PluginInstance<TApi> = def.setup(socket as unknown as PluginSocket<P>);
+
+  function dispatch(name: string, payload: unknown): void {
+    const set = handlers.get(name);
+    if (!set) return;
+    for (const handler of set) {
+      try {
+        handler(payload);
+      } catch (error) {
+        report(error);
+      }
+    }
+  }
+
+  function runDispose(): void {
+    if (disposed) return;
+    disposed = true;
+    try {
+      instance.dispose?.();
+    } catch (error) {
+      report(error);
+    }
+  }
+
+  return {
+    id,
+
+    install(hostSocket) {
+      host = hostSocket;
+      if (instance.api) registerPlugin(hostSocket, id, instance.api);
+    },
+
+    onIncoming(message) {
+      let current = message;
+      if (userIncoming) {
+        const run = userIncoming;
+        const result = runMessageHook((m) => run(m) ?? m, current, report);
+        if (result === null) return null;
+        current = result;
+      }
+      const parsed = parseNamespaced(current.event);
+      if (parsed && parsed.id === id && ownsFrame(current)) {
+        dispatch(parsed.name, current.payload);
+        return null;
+      }
+      return current;
+    },
+
+    onOutgoing(message) {
+      if (!userOutgoing) return message;
+      const run = userOutgoing;
+      return runMessageHook((m) => run(m) ?? m, message, report);
+    },
+
+    onOpen() {
+      if (!userOpen) return null;
+      try {
+        return userOpen() ?? null;
+      } catch (error) {
+        report(error);
+        return null;
+      }
+    },
+
+    onReconnect() {
+      if (!userReconnect) return null;
+      try {
+        return userReconnect() ?? null;
+      } catch (error) {
+        report(error);
+        return null;
+      }
+    },
+
+    onClose(code, reason, intentional) {
+      if (userClose) {
+        try {
+          userClose(code, reason);
+        } catch (error) {
+          report(error);
+        }
+      }
+      // An intentional close is the app finishing for good. A transient drop
+      // (intentional false) may reconnect, so it must not dispose; a platform
+      // suspend is never an intentional close, so it's covered here too.
+      if (intentional) runDispose();
+    },
+
+    onReconnectFailed() {
+      runDispose();
+    },
+  };
+}
+
+/**
+ * Define a reusable client feature that owns a namespace on the socket. Its
+ * `setup` gets a scoped socket with the same verbs as the app socket — `on`,
+ * `send`, `request`, `channel` — typed to the plugin's own contract and scoped to
+ * its `id`, so you use plain names. Unlike a built-in primitive, a plugin adds
+ * nothing to the socket's type; its API is reached with `Plugin.use(socket)`,
+ * which keeps TypeScript fast.
  *
  * ```ts
- * const KEY = Symbol('acme:metrics');
- *
- * const Metrics = plugin<{ sampleRate?: number }>({
- *   id: 'acme:metrics',
- *   key: KEY,
- *   setup(args, hooks) {
- *     const counts = new Map<string, number>();
- *     hooks.onIncoming((message) => {
- *       counts.set(message.event, (counts.get(message.event) ?? 0) + 1);
- *       return message;
- *     });
- *     return () => ({ count: (event: string) => counts.get(event) ?? 0 });
+ * const Chat = plugin<ChatContract, ChatApi>({
+ *   id: 'acme:chat',
+ *   dependencies: [requestResponse],
+ *   setup(socket) {
+ *     const inbox: Message[] = [];
+ *     socket.on('message', (m) => inbox.push(m));
+ *     return {
+ *       api: () => ({
+ *         history: () => inbox.slice(),
+ *         send: (text: string) => socket.request('send-message', { text }),
+ *       }),
+ *     };
  *   },
  * });
  *
- * const socket = client<MySocket>()(
- *    connect('wss://...'),
- *    Metrics({ sampleRate: 0.5 })
- * );
- *
- * const metrics = Metrics.use(socket);
- * ```
- *
- * Add `registrationId` to make a plugin repeatable — register it more than once
- * and pick an instance with `.use(socket, registrationId)`:
- *
- * ```ts
- * const ANALYTICS = Symbol('acme:analytics');
- *
- * const Analytics = plugin<{ tracker: string }>({
- *   id: 'acme:analytics',
- *   key: ANALYTICS,
- *   registrationId: (args) => args.tracker,   // one instance per tracker
- *   setup(args) {
- *     return () => ({ tracker: args.tracker });
- *   },
- * });
- *
- * const socket = client<MySocket>()(
- *    connect('wss://...'),
- *    Analytics({ tracker: 'ga' }),
- *    Analytics({ tracker: 'mixpanel' }),
- * );
- *
- * Analytics.use(socket, 'ga').tracker;        // → 'ga'
- * Analytics.use(socket, 'mixpanel').tracker;  // → 'mixpanel'
+ * const socket = client<AppContract>()(connect('wss://...'), requestResponse(), Chat());
+ * const chat = Chat.use(socket);
  * ```
  */
-export function plugin<TArgs = void, TApi = unknown>(
-  def: PluginDef<TArgs, TApi>,
-): PluginFactory<TArgs, TApi> {
+export function plugin<P extends SocketContract = {}, TApi = void>(
+  def: PluginDef<P, TApi>,
+): PluginFactory<TApi> {
   const dependencies = def.dependencies?.map(resolveTag);
+  const { id } = def;
 
-  const factory = ((args: TArgs): Primitive<EmptyTypeFn> => {
-    const registrationId = def.registrationId?.(args);
-
-    return {
-      _tag: def.id,
-      _plugin: { key: def.key, id: def.id, registrationId },
+  const factory = Object.assign(
+    (): Primitive<EmptyTypeFn> => ({
+      _tag: id,
+      _plugin: { id },
       dependencies,
-      setup(helpers) {
-        let incoming: ((message: WireMessage) => WireMessage | void) | null = null;
-        let outgoing: ((message: WireMessage) => WireMessage | void) | null = null;
-        let open: (() => WireMessage[] | void) | null = null;
-        let reconnect: (() => WireMessage[] | void) | null = null;
-        let close: ((code: number, reason: string) => void) | null = null;
-
-        function once<T>(name: string, current: T | null, handler: T): T {
-          if (current) {
-            throw new WSKitConfigError(
-              `[wskit] plugin '${def.id}' registered ${name}() twice — use a single callback.`,
-            );
-          }
-          return handler;
-        }
-
-        const hooks: PluginHooks = {
-          onIncoming: (handler) => void (incoming = once('onIncoming', incoming, handler)),
-          onOutgoing: (handler) => void (outgoing = once('onOutgoing', outgoing, handler)),
-          onOpen: (handler) => void (open = once('onOpen', open, handler)),
-          onReconnect: (handler) => void (reconnect = once('onReconnect', reconnect, handler)),
-          onClose: (handler) => void (close = once('onClose', close, handler)),
-        };
-
-        const tools: PluginTools = {
-          generateId: (prefix) => helpers.generateId(prefix),
-          getState: () => helpers.getState(),
-          send: (message, options) => helpers.send(message, options),
-          rawSend: (message) => helpers.rawSend(message),
-          hasPrimitive: (tag) => helpers.hasPrimitive(tag),
-          ensureConnected: () => helpers.ensureConnected(),
-        };
-
-        const build = def.setup(args, hooks, tools);
-
-        return {
-          id: registrationId ? `${def.id}#${registrationId}` : def.id,
-
-          install: (socket) => registerPlugin(socket, { key: def.key, registrationId, build }),
-
-          onIncoming: (message) => {
-            if (!incoming) return message;
-            const run = incoming;
-            return runMessageHook(
-              (m) => run(m) ?? m,
-              message,
-              (error) => helpers.log.report(error),
-            );
-          },
-
-          onOutgoing: (message) => {
-            if (!outgoing) return message;
-            const run = outgoing;
-            return runMessageHook(
-              (m) => run(m) ?? m,
-              message,
-              (error) => helpers.log.report(error),
-            );
-          },
-
-          onOpen: () => {
-            if (!open) return null;
-            try {
-              return open() ?? null;
-            } catch (error) {
-              helpers.log.report(error);
-              return null;
-            }
-          },
-
-          onReconnect: () => {
-            if (!reconnect) return null;
-            try {
-              return reconnect() ?? null;
-            } catch (error) {
-              helpers.log.report(error);
-              return null;
-            }
-          },
-
-          onClose: (code, reason) => {
-            if (!close) return;
-            try {
-              close(code, reason);
-            } catch (error) {
-              helpers.log.report(error);
-            }
-          },
-        };
-      },
-    };
-  }) as PluginFactory<TArgs, TApi>;
-
-  factory.use = (socket: object, registrationId?: string): TApi =>
-    usePlugin(socket, def.key, registrationId) as TApi;
+      setup: (helpers) => createPluginRuntime(id, def, helpers),
+    }),
+    {
+      id,
+      use: (socket: object): TApi => usePlugin(socket, id) as TApi,
+    },
+  );
 
   return factory;
 }

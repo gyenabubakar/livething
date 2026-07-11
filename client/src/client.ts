@@ -4,6 +4,7 @@ import { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
+import type { TopLevelContract } from '~/plugins/contract.ts';
 import type {
   ApplyPrimitives,
   Primitive,
@@ -13,6 +14,37 @@ import type {
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { SocketContract } from '~/types.ts';
+
+/**
+ * The app socket type, built over the contract with every plugin-owned name
+ * removed (see {@link TopLevelContract}). Plugin names are reachable only through
+ * their plugin's API, never the top-level socket. `TopLevelContract` is applied
+ * once here so the inner helpers don't recompute it.
+ */
+/**
+ * Assert a stripped contract still satisfies `SocketContract`. For a concrete
+ * contract this is identity (no widening), so `on`/`send` stay strict; it only
+ * exists to satisfy `Socket`'s constraint for a still-generic contract.
+ */
+type AsSocketContract<T> = T extends SocketContract ? T : SocketContract;
+
+type AppSocketFor<
+  C,
+  TPrimitives extends readonly Primitive<any, any>[],
+> = WithMissingPrimitiveStubs<
+  WithChannelPrimitiveSurface<
+    Socket<AsSocketContract<C>> & ApplyPrimitives<TPrimitives, C>,
+    C,
+    TPrimitives
+  >,
+  C,
+  TPrimitives
+>;
+
+export type AppSocket<
+  TContract extends SocketContract,
+  TPrimitives extends readonly Primitive<any, any>[],
+> = AppSocketFor<TopLevelContract<TContract>, TPrimitives>;
 
 /**
  * Build a typed socket. You call it in two steps: first pick the contract, then
@@ -36,27 +68,11 @@ export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): WithMissingPrimitiveStubs<
-    WithChannelPrimitiveSurface<
-      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
-      TContract,
-      TPrimitives
-    >,
-    TContract,
-    TPrimitives
-  > {
+  ): AppSocket<TContract, TPrimitives> {
     return buildSocket(
       connectDescriptor,
       primitives as readonly Primitive[],
-    ) as unknown as WithMissingPrimitiveStubs<
-      WithChannelPrimitiveSurface<
-        Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
-        TContract,
-        TPrimitives
-      >,
-      TContract,
-      TPrimitives
-    >;
+    ) as unknown as AppSocket<TContract, TPrimitives>;
   };
 }
 
@@ -72,7 +88,7 @@ function buildSocket(
   ];
 
   assertNoDuplicateTags(primitiveSpecs);
-  assertUniquePluginIdentity(pluginSpecs);
+  assertUniquePluginIds(pluginSpecs);
   assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
 
   // Primitives run first, in dependency order; plugins run after, in
@@ -118,43 +134,20 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
 }
 
 /**
- * Plugins are de-duplicated by `key` plus optional `registrationId`, not by
- * their human-readable `id`. Registering the same plugin twice (or two instances
- * with the same `registrationId`) throws. Two different plugins that share an
- * `id` only warn, since the `id` is just a log label.
+ * A plugin's `id` is the namespace it owns on the wire, so no two plugins on one
+ * socket may share it. Registering the same plugin (or any two plugins with the
+ * same id) twice throws.
  */
-function assertUniquePluginIdentity(pluginSpecs: readonly Primitive[]): void {
-  const registrationsByKey = new Map<symbol, Set<string | undefined>>();
-  const keysById = new Map<string, Set<symbol>>();
-
+function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
+  const seen = new Set<string>();
   for (const spec of pluginSpecs) {
-    const { key, id, registrationId } = spec._plugin!;
-
-    let registrations = registrationsByKey.get(key);
-    if (!registrations) {
-      registrations = new Set();
-      registrationsByKey.set(key, registrations);
-    }
-    if (registrations.has(registrationId)) {
+    const { id } = spec._plugin!;
+    if (seen.has(id)) {
       throw new WSKitConfigError(
-        registrationId === undefined
-          ? `[wskit] plugin '${id}' is registered more than once. Add a registrationId to allow multiple instances.`
-          : `[wskit] plugin '${id}' is registered twice with the same registrationId '${registrationId}'.`,
+        `[wskit] plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
-    registrations.add(registrationId);
-
-    let keys = keysById.get(id);
-    if (!keys) {
-      keys = new Set();
-      keysById.set(id, keys);
-    }
-    keys.add(key);
-    if (keys.size === 2) {
-      console.warn(
-        `[wskit] two different plugins share the id '${id}'. Ids show up in logs — consider a unique colon-form id.`,
-      );
-    }
+    seen.add(id);
   }
 }
 

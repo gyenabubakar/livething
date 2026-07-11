@@ -66,13 +66,11 @@ export interface Primitive<
   readonly _tag: string;
   /**
    * Set by `plugin()` — marks this as a plugin, not a built-in primitive.
-   * Plugins are tracked by `key` + `registrationId` and always run after all
-   * primitives.
+   * Plugins are tracked by their `id` (which is also the namespace they own) and
+   * always run after all primitives.
    */
   readonly _plugin?: {
-    readonly key: symbol;
     readonly id: string;
-    readonly registrationId?: string;
   };
   /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
