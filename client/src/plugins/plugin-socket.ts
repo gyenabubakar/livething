@@ -1,5 +1,8 @@
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { Messaging } from '~/messaging.ts';
+import type { ServerRequestTypeFn } from '~/primitives/server-request/types.ts';
+import type { StreamTypeFn } from '~/primitives/stream/types.ts';
+import type { Apply } from '~/primitives/types.ts';
 import type {
   ChannelsOf,
   ConnectionState,
@@ -50,13 +53,16 @@ type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 
 /**
  * The socket a plugin's `setup` receives. It has the same verbs as the app socket
- * — `on`, `send`, `request`, `channel` — but typed to the plugin's own contract
- * and scoped to its namespace: you use plain names and the socket writes
- * `__<id>::<name>` on the wire for you. A verb only appears when the contract has
- * that section, so a plugin with no requests has no `request`. On top of the
- * verbs it always has the raw taps and tools from {@link PluginBase}.
+ * — `on`, `send`, `request`, `channel`, `stream`, `onStream`, `resumeStream`,
+ * `onRequest` — but typed to the plugin's own contract and scoped to its
+ * namespace: you use plain names and the socket writes `__<id>::<name>` on the
+ * wire for you. A verb only appears when the contract has that section, so a
+ * plugin with no requests has no `request`. On top of the verbs it always has the
+ * raw taps and tools from {@link PluginBase}.
  */
 export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   Messaging<IncomingOf<P> & object, OutgoingOf<P> & object> &
   WhenPresent<RequestsOf<P>, RequestMethod<P, 'request'>> &
-  WhenPresent<ChannelsOf<P>, ScopedApi<P, 'channels', 'channel'>>;
+  WhenPresent<ChannelsOf<P>, ScopedApi<P, 'channels', 'channel'>> &
+  Apply<StreamTypeFn, P> &
+  Apply<ServerRequestTypeFn, P>;

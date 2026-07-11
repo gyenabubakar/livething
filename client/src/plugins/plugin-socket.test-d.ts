@@ -7,6 +7,8 @@ interface ChatContract {
   outgoing: { typing: { on: boolean } };
   requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
   channels: { room: { incoming: { reaction: { emoji: string } } } };
+  streams: { feed: { payload: { from: number }; chunk: { row: number } } };
+  serverRequests: { ping: { payload: { at: number }; response: { pong: boolean } } };
 }
 
 type ChatSocket = PluginSocket<ChatContract>;
@@ -31,6 +33,16 @@ expectTypeOf<ReturnType<ChatSocket['request']>>().toEqualTypeOf<Promise<{ id: st
 expectTypeOf<ChatSocket['channel']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['channel']>[0]>().toEqualTypeOf<'room'>();
 
+// Typed streams.
+expectTypeOf<ChatSocket['stream']>().toBeFunction();
+expectTypeOf<Parameters<ChatSocket['stream']>[0]>().toEqualTypeOf<'feed'>();
+expectTypeOf<ChatSocket['onStream']>().toBeFunction();
+expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
+
+// Typed server→client request handler.
+expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
+expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
+
 // The always-present taps and tools are there too.
 expectTypeOf<ChatSocket['onIncoming']>().toBeFunction();
 expectTypeOf<ChatSocket['onOutgoing']>().toBeFunction();
@@ -48,10 +60,14 @@ expectTypeOf<PlainSocket>().not.toHaveProperty('on');
 expectTypeOf<PlainSocket>().not.toHaveProperty('send');
 expectTypeOf<PlainSocket>().not.toHaveProperty('request');
 expectTypeOf<PlainSocket>().not.toHaveProperty('channel');
+expectTypeOf<PlainSocket>().not.toHaveProperty('stream');
+expectTypeOf<PlainSocket>().not.toHaveProperty('onRequest');
 
-// A plugin that only receives (incoming, no requests/channels) has `on` but not
-// `request` or `channel`.
+// A plugin that only receives (incoming, no requests/channels/streams) has `on`
+// but none of the other verbs.
 type ReceiveOnly = PluginSocket<{ incoming: { tick: { n: number } } }>;
 expectTypeOf<ReceiveOnly['on']>().toBeFunction();
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('request');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('channel');
+expectTypeOf<ReceiveOnly>().not.toHaveProperty('stream');
+expectTypeOf<ReceiveOnly>().not.toHaveProperty('onRequest');

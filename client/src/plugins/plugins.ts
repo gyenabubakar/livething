@@ -90,6 +90,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   helpers: PrimitiveHelpers,
 ): PrimitiveRuntime {
   const handlers = new Map<string, Set<(data: unknown) => void>>();
+  // Registrations that need the host socket (onStream, onRequest) are made during
+  // setup, before the host is bound, so they wait here and run at install.
+  const deferredToHost: ((host: WSKitSocket) => void)[] = [];
   let host: WSKitSocket | null = null;
   let disposed = false;
 
@@ -113,6 +116,22 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       throw new WSKitConfigError(`[wskit] plugin '${id}' used the socket before it was ready.`);
     }
     return host;
+  }
+
+  // Register a host-dependent call. If the host is already bound, run it now;
+  // otherwise wait for install. The returned unsubscribe works either way.
+  function deferToHost(run: (host: WSKitSocket) => () => void): () => void {
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    function apply(hostSocket: WSKitSocket): void {
+      if (!cancelled) off = run(hostSocket);
+    }
+    if (host) apply(host);
+    else deferredToHost.push(apply);
+    return () => {
+      cancelled = true;
+      off?.();
+    };
   }
 
   function report(error: unknown): void {
@@ -146,6 +165,24 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     channel(name: string): unknown {
       return (requireHost() as any).channel(namespacedName(id, name));
+    },
+
+    stream(event: string, payload: unknown, options?: { streamId?: string }): Promise<unknown> {
+      return (requireHost() as any).stream(namespacedName(id, event), payload, options);
+    },
+
+    onStream(event: string, streamHandlers: unknown): () => void {
+      return deferToHost((host) =>
+        (host as any).onStream(namespacedName(id, event), streamHandlers),
+      );
+    },
+
+    resumeStream(event: string, streamId: string, options?: { lastKnownSeq?: number }): unknown {
+      return (requireHost() as any).resumeStream(namespacedName(id, event), streamId, options);
+    },
+
+    onRequest(event: string, handler: unknown): () => void {
+      return deferToHost((host) => (host as any).onRequest(namespacedName(id, event), handler));
     },
 
     onIncoming: (handler: IncomingHook) =>
@@ -192,6 +229,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     install(hostSocket) {
       host = hostSocket;
+      for (const apply of deferredToHost) apply(hostSocket);
       if (instance.api) registerPlugin(hostSocket, id, instance.api);
     },
 

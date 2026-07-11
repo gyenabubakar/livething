@@ -2,6 +2,8 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
+import { serverRequest } from '~/primitives/server-request/index.ts';
+import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
@@ -198,6 +200,52 @@ describe('scoped send — send() and request()', () => {
     });
 
     await expect(pending).resolves.toEqual({ id: 'm1' });
+  });
+});
+
+interface FeedWire {
+  streams: { feed: { payload: { from: number }; chunk: { row: number } } };
+  serverRequests: { ping: { payload: { at: number }; response: { pong: boolean } } };
+}
+
+describe('scoped stream and onRequest', () => {
+  it('stream() prefixes the trigger event on the wire', async () => {
+    const Feed = plugin<FeedWire, { start: () => Promise<unknown> }>({
+      id: 'acme:feed',
+      dependencies: [stream],
+      setup(socket) {
+        return { api: () => ({ start: () => socket.stream('feed', { from: 0 }) }) };
+      },
+    });
+
+    const { socket, ws } = build(stream(), Feed());
+    void Feed.use(socket).start();
+
+    await expect
+      .poll(() => ws.sentFrames().some((f) => f.event === '__acme:feed::feed'))
+      .toBe(true);
+  });
+
+  it('onRequest() answers a namespaced server request', async () => {
+    const Feed = plugin<FeedWire>({
+      id: 'acme:feed',
+      dependencies: [serverRequest],
+      setup(socket) {
+        socket.onRequest('ping', () => ({ pong: true }));
+        return {};
+      },
+    });
+
+    const { ws } = build(serverRequest(), Feed());
+    ws.emit({
+      event: '__acme:feed::ping',
+      payload: { at: 1 },
+      __wskit: { correlationId: 'p1', source: 'server' },
+    });
+
+    await expect
+      .poll(() => ws.sentFrames().find((f) => f.__wskit?.correlationId === 'p1')?.payload)
+      .toEqual({ pong: true });
   });
 });
 
