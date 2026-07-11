@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
-import { namespacedName, parseNamespaced } from '~/internal/namespace.ts';
+import { namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
@@ -127,6 +127,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     prefixName: (name) => namespacedName(id, name),
   };
 
+  const ownPrefix = namespacedName(id, '');
+
   // The scoped socket's own surface. Plain names are used here; `send` adds the
   // prefix on the way out and the pipeline hook strips it on the way in. The rest
   // of the verbs are grafted on by applyAugmenters at install.
@@ -205,9 +207,8 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         if (result === null) return null;
         current = result;
       }
-      const parsed = parseNamespaced(current.event);
-      if (parsed && parsed.id === id && ownsFrame(current)) {
-        dispatch(parsed.name, current.payload);
+      if (current.event.startsWith(ownPrefix) && ownsFrame(current)) {
+        dispatch(current.event.slice(ownPrefix.length), current.payload);
         return null;
       }
       return current;
@@ -247,14 +248,15 @@ function createPluginRuntime<P extends SocketContract, TApi>(
           report(error);
         }
       }
-      // An intentional close is the app finishing for good. A transient drop
-      // (intentional false) may reconnect, so it must not dispose; a platform
-      // suspend is never an intentional close, so it's covered here too.
-      if (intentional) runDispose();
-    },
-
-    onReconnectFailed() {
-      runDispose();
+      if (intentional) {
+        runDispose();
+      } else {
+        // An unexpected drop settles by the next microtask: dispose only if it
+        // ends 'closed' (finished for good), not 'reconnecting' or 'suspended'.
+        queueMicrotask(() => {
+          if (helpers.getState() === 'closed') runDispose();
+        });
+      }
     },
   };
 }
@@ -267,8 +269,12 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * nothing to the socket's type; its API is reached with `Plugin.use(socket)`,
  * which keeps TypeScript fast.
  *
+ * You call it in two steps, like `client()`: first the contract and api types,
+ * then the definition. The `id` is inferred as a literal from the second call, so
+ * the app socket knows which namespace this plugin claims.
+ *
  * ```ts
- * const Chat = plugin<ChatContract, ChatApi>({
+ * const Chat = plugin<ChatContract, ChatApi>()({
  *   id: 'acme:chat',
  *   dependencies: [requestResponse],
  *   setup(socket) {
@@ -287,26 +293,26 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * const chat = Chat.use(socket);
  * ```
  */
-export function plugin<
-  P extends SocketContract = {},
-  TApi = void,
-  const TId extends string = string,
->(def: PluginDef<P, TApi> & { id: TId }): PluginFactory<TApi, TId> {
-  const dependencies = def.dependencies?.map(resolveTag);
-  const id: TId = def.id;
+export function plugin<P extends SocketContract = {}, TApi = void>() {
+  return function define<const TId extends string>(
+    def: PluginDef<P, TApi> & { id: TId },
+  ): PluginFactory<TApi, TId> {
+    const dependencies = def.dependencies?.map(resolveTag);
+    const id = def.id;
 
-  const factory = Object.assign(
-    (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } } => ({
-      _tag: id,
-      _plugin: { id },
-      dependencies,
-      setup: (helpers) => createPluginRuntime(id, def, helpers),
-    }),
-    {
-      id,
-      use: (socket: object): TApi => usePlugin(socket, id) as TApi,
-    },
-  );
+    const factory = Object.assign(
+      (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } } => ({
+        _tag: id,
+        _plugin: { id },
+        dependencies,
+        setup: (helpers) => createPluginRuntime(id, def, helpers),
+      }),
+      {
+        id,
+        use: (socket: object): TApi => usePlugin(socket, id) as TApi,
+      },
+    );
 
-  return factory;
+    return factory;
+  };
 }

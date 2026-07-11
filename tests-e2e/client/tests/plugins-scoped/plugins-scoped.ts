@@ -34,7 +34,7 @@ interface FeedApi {
   joinRoom(onJoined: (who: string) => void): Promise<void>;
 }
 
-const Feed = plugin<FeedWire, FeedApi>({
+const Feed = plugin<FeedWire, FeedApi>()({
   id: 'e2e:feed',
   dependencies: [requestResponse, stream, channels],
   setup(socket) {

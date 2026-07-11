@@ -30,7 +30,7 @@ describe('Plugin.use — a failed API build is not retried', () => {
     const builder = vi.fn(() => {
       throw new Error('build failed');
     });
-    const Failing = plugin<{}, unknown>({
+    const Failing = plugin<{}, unknown>()({
       id: 'acme:failing',
       setup: () => ({ api: builder }),
     });
@@ -45,7 +45,7 @@ describe('Plugin.use — a failed API build is not retried', () => {
 
 describe('Plugin.use — not registered', () => {
   it('throws when the plugin was never passed to client()', () => {
-    const Chat = plugin<{}, { ok: true }>({
+    const Chat = plugin<{}, { ok: true }>()({
       id: 'acme:chat',
       setup: () => ({ api: () => ({ ok: true }) }),
     });
@@ -57,7 +57,7 @@ describe('Plugin.use — not registered', () => {
   });
 
   it('throws for an observe-only plugin that exposes no API', () => {
-    const Watcher = plugin({ id: 'acme:watcher', setup: () => ({}) });
+    const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 
     const socket = buildSocket(Watcher());
 

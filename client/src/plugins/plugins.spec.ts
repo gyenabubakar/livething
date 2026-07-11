@@ -1,6 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
+import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { serverRequest } from '~/primitives/server-request/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
@@ -40,7 +41,7 @@ afterEach(() => {
 describe('plugin() registration and API', () => {
   it('exposes the API through Plugin.use, built once and reused', () => {
     let builds = 0;
-    const Counter = plugin<{}, { count: () => number }>({
+    const Counter = plugin<{}, { count: () => number }>()({
       id: 'acme:counter',
       setup() {
         builds += 1;
@@ -60,14 +61,14 @@ describe('plugin() registration and API', () => {
   });
 
   it('throws when a plugin is registered twice (its id owns a namespace)', () => {
-    const Chat = plugin({ id: 'acme:chat', setup: () => ({}) });
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({}) });
     expect(() => client<AppContract>()(connect('wss://test'), Chat(), Chat())).toThrow(
       /registered more than once/,
     );
   });
 
   it('throws at build when a declared dependency is missing', () => {
-    const Chat = plugin<ChatWire>({
+    const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
       dependencies: [requestResponse],
       setup: () => ({}),
@@ -81,7 +82,7 @@ describe('plugin() registration and API', () => {
 describe('scoped receive — on()', () => {
   it('delivers a namespaced server frame to a bare-name handler', () => {
     const seen: { text: string }[] = [];
-    const Chat = plugin<ChatWire>({
+    const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
       setup(socket) {
         socket.on('message', (m) => seen.push(m));
@@ -97,7 +98,7 @@ describe('scoped receive — on()', () => {
 
   it('owns its whole namespace — the app never sees a plugin frame', () => {
     const appSaw = vi.fn();
-    const Chat = plugin<ChatWire>({
+    const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
       setup(socket) {
         socket.on('message', () => {});
@@ -119,7 +120,7 @@ describe('scoped receive — on()', () => {
 
   it('leaves another plugin id and plain app frames alone', () => {
     const chatSaw = vi.fn();
-    const Chat = plugin<ChatWire>({
+    const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
       setup(socket) {
         socket.on('message', chatSaw);
@@ -140,7 +141,7 @@ describe('scoped receive — on()', () => {
 
   it('receives namespaced ping/pong events without confusing them for the heartbeat', () => {
     const seen: string[] = [];
-    const Heartbeat = plugin<{ incoming: { ping: {}; pong: {} } }>({
+    const Heartbeat = plugin<{ incoming: { ping: {}; pong: {} } }>()({
       id: 'acme:hb',
       setup(socket) {
         socket.on('ping', () => seen.push('ping'));
@@ -160,7 +161,7 @@ describe('scoped receive — on()', () => {
 
   it('stops delivering after the returned unsubscribe is called', () => {
     const seen: { text: string }[] = [];
-    const Chat = plugin<ChatWire, { off: () => void }>({
+    const Chat = plugin<ChatWire, { off: () => void }>()({
       id: 'acme:chat',
       setup(socket) {
         const off = socket.on('message', (m) => seen.push(m));
@@ -179,7 +180,7 @@ describe('scoped receive — on()', () => {
 
 describe('scoped send — send() and request()', () => {
   it('send() prefixes the event with the plugin namespace on the wire', () => {
-    const Chat = plugin<ChatWire, { startTyping: () => boolean }>({
+    const Chat = plugin<ChatWire, { startTyping: () => boolean }>()({
       id: 'acme:chat',
       setup(socket) {
         return { api: () => ({ startTyping: () => socket.send('typing', { on: true }) }) };
@@ -195,7 +196,7 @@ describe('scoped send — send() and request()', () => {
   });
 
   it('request() prefixes the event and resolves with the reply', async () => {
-    const Chat = plugin<ChatWire, { send: (text: string) => Promise<{ id: string }> }>({
+    const Chat = plugin<ChatWire, { send: (text: string) => Promise<{ id: string }> }>()({
       id: 'acme:chat',
       dependencies: [requestResponse],
       setup(socket) {
@@ -230,7 +231,7 @@ interface FeedWire {
 
 describe('scoped stream and onRequest', () => {
   it('stream() prefixes the trigger event on the wire', async () => {
-    const Feed = plugin<FeedWire, { start: () => Promise<unknown> }>({
+    const Feed = plugin<FeedWire, { start: () => Promise<unknown> }>()({
       id: 'acme:feed',
       dependencies: [stream],
       setup(socket) {
@@ -247,7 +248,7 @@ describe('scoped stream and onRequest', () => {
   });
 
   it('onRequest() answers a namespaced server request', async () => {
-    const Feed = plugin<FeedWire>({
+    const Feed = plugin<FeedWire>()({
       id: 'acme:feed',
       dependencies: [serverRequest],
       setup(socket) {
@@ -272,7 +273,7 @@ describe('scoped stream and onRequest', () => {
 describe('generic taps and lifecycle', () => {
   it('onIncoming sees every frame, including other namespaces', () => {
     const events: string[] = [];
-    const Watcher = plugin({
+    const Watcher = plugin()({
       id: 'acme:watcher',
       setup(socket) {
         socket.onIncoming((frame) => {
@@ -292,7 +293,7 @@ describe('generic taps and lifecycle', () => {
   });
 
   it('onOpen frames are sent on connect', () => {
-    const Greeter = plugin({
+    const Greeter = plugin()({
       id: 'acme:greeter',
       setup(socket) {
         socket.onOpen(() => [{ event: 'hello', payload: { v: 1 } }]);
@@ -307,7 +308,7 @@ describe('generic taps and lifecycle', () => {
   it('reports a throwing handler and keeps the pipeline alive', () => {
     const errors: unknown[] = [];
     const later = vi.fn();
-    const Chat = plugin<ChatWire>({
+    const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
       setup(socket) {
         socket.on('message', () => {
@@ -332,7 +333,7 @@ describe('generic taps and lifecycle', () => {
 describe('dispose', () => {
   it('runs on an intentional disconnect', () => {
     const dispose = vi.fn();
-    const Chat = plugin({ id: 'acme:chat', setup: () => ({ dispose }) });
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
 
     const { socket } = build(Chat());
     socket.disconnect();
@@ -340,19 +341,35 @@ describe('dispose', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('does not run on a transient drop that may reconnect', () => {
+  it('does not run on a drop that will reconnect', async () => {
+    vi.useFakeTimers();
     const dispose = vi.fn();
-    const Chat = plugin({ id: 'acme:chat', setup: () => ({ dispose }) });
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
 
-    const { ws } = build(Chat());
+    const { socket, ws } = build(Chat(), reconnection());
     ws.serverClose(1006, 'network');
+    expect(socket.state.get()).toBe('reconnecting');
 
+    await vi.advanceTimersByTimeAsync(0);
     expect(dispose).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('runs on a terminal drop when nothing will reconnect', async () => {
+    const dispose = vi.fn();
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
+
+    const { socket, ws } = build(Chat());
+    ws.serverClose(1006, 'network');
+    expect(socket.state.get()).toBe('closed');
+
+    await Promise.resolve();
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it('runs at most once', () => {
     const dispose = vi.fn();
-    const Chat = plugin({ id: 'acme:chat', setup: () => ({ dispose }) });
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
 
     const { socket } = build(Chat());
     socket.disconnect();
@@ -364,7 +381,7 @@ describe('dispose', () => {
 
 describe('guards', () => {
   it('throws when a hook is registered twice', () => {
-    const Chat = plugin({
+    const Chat = plugin()({
       id: 'acme:chat',
       setup(socket) {
         socket.onIncoming((m) => m);
