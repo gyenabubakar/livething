@@ -61,13 +61,14 @@ export interface PluginDef<P extends SocketContract, TApi> {
 /**
  * What `plugin()` returns. Call it to register the plugin (pass the result to
  * `client()`), and call `.use(socket)` to get its API from a socket it was
- * registered on.
+ * registered on. `TId` carries the plugin's id as a literal so the app socket
+ * knows which namespace this plugin claims.
  */
-export interface PluginFactory<TApi> {
-  (): Primitive<EmptyTypeFn>;
+export interface PluginFactory<TApi, TId extends string = string> {
+  (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } };
 
   /** The plugin's id — its namespace and log label. */
-  readonly id: string;
+  readonly id: TId;
 
   /** Get this plugin's API from a socket it was registered on. */
   use(socket: object): TApi;

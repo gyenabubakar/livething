@@ -48,29 +48,37 @@ expectTypeOf<ChatSlice['errors']>().toEqualTypeOf<{ 'rate-limited': { retryIn: n
 // The plugin's slice never keeps the app's own names.
 expectTypeOf<keyof ChatSlice['incoming']>().toEqualTypeOf<'message' | 'typing'>();
 
-type AppOnly = TopLevelContract<HostContract>;
-
-// The top-level contract keeps the app's names and drops every plugin name.
-expectTypeOf<AppOnly['incoming']>().toEqualTypeOf<{ 'app-notice': { text: string } }>();
-expectTypeOf<AppOnly['outgoing']>().toEqualTypeOf<{ 'app-ping': { at: number } }>();
-expectTypeOf<AppOnly['requests']>().toEqualTypeOf<{
+// When 'acme:chat' is claimed, the top-level contract keeps the app's names and
+// drops that plugin's names.
+type ChatClaimed = TopLevelContract<HostContract, 'acme:chat'>;
+expectTypeOf<ChatClaimed['incoming']>().toEqualTypeOf<{ 'app-notice': { text: string } }>();
+expectTypeOf<ChatClaimed['outgoing']>().toEqualTypeOf<{ 'app-ping': { at: number } }>();
+expectTypeOf<ChatClaimed['requests']>().toEqualTypeOf<{
   'app-balance': { payload: { user: string }; response: { balance: number } };
 }>();
-expectTypeOf<AppOnly['channels']>().toEqualTypeOf<{
+expectTypeOf<ChatClaimed['channels']>().toEqualTypeOf<{
   'app-lobby': { incoming: { hello: { name: string } } };
 }>();
-expectTypeOf<AppOnly['errors']>().toEqualTypeOf<{ forbidden: { reason: string } }>();
+expectTypeOf<ChatClaimed['errors']>().toEqualTypeOf<{ forbidden: { reason: string } }>();
+expectTypeOf<keyof ChatClaimed['incoming']>().toEqualTypeOf<'app-notice'>();
 
-// No plugin name survives at the top level.
-expectTypeOf<keyof AppOnly['incoming']>().toEqualTypeOf<'app-notice'>();
+// With no plugin claimed (the default), NOTHING is dropped — a prefix nobody owns
+// stays reachable at the top level, exactly as before plugins existed.
+type NoneClaimed = TopLevelContract<HostContract>;
+expectTypeOf<keyof NoneClaimed['incoming']>().toEqualTypeOf<
+  'app-notice' | '__acme:chat::message' | '__acme:chat::typing'
+>();
+expectTypeOf<keyof NoneClaimed['channels']>().toEqualTypeOf<'app-lobby' | '__acme:chat::room'>();
 
-// A contract with no plugin names is left whole at the top level and yields an
-// empty slice for any id.
+// A different plugin's claim leaves acme:chat's names in place.
+type OtherClaimed = TopLevelContract<HostContract, 'acme:other'>;
+expectTypeOf<keyof OtherClaimed['incoming']>().toEqualTypeOf<
+  'app-notice' | '__acme:chat::message' | '__acme:chat::typing'
+>();
+
+// PluginSlice still pulls one plugin's names out for any id.
 interface PlainContract {
   incoming: { tick: { n: number } };
   outgoing: { pong: {} };
 }
-expectTypeOf<TopLevelContract<PlainContract>['incoming']>().toEqualTypeOf<{
-  tick: { n: number };
-}>();
 expectTypeOf<PluginSlice<PlainContract, 'acme:chat'>['incoming']>().toEqualTypeOf<{}>();

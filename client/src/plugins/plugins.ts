@@ -285,14 +285,16 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * const chat = Chat.use(socket);
  * ```
  */
-export function plugin<P extends SocketContract = {}, TApi = void>(
-  def: PluginDef<P, TApi>,
-): PluginFactory<TApi> {
+export function plugin<
+  P extends SocketContract = {},
+  TApi = void,
+  const TId extends string = string,
+>(def: PluginDef<P, TApi> & { id: TId }): PluginFactory<TApi, TId> {
   const dependencies = def.dependencies?.map(resolveTag);
-  const { id } = def;
+  const id: TId = def.id;
 
   const factory = Object.assign(
-    (): Primitive<EmptyTypeFn> => ({
+    (): Primitive<EmptyTypeFn> & { readonly _plugin: { readonly id: TId } } => ({
       _tag: id,
       _plugin: { id },
       dependencies,

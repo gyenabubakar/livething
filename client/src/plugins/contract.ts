@@ -26,9 +26,17 @@ type PickNamespace<TId extends string, TMap> = {
   [K in keyof TMap & string as K extends `__${TId}::${infer Name}` ? Name : never]: TMap[K];
 };
 
-/** Drop every key that belongs to any plugin (any `__<id>::<name>`), keeping the rest. */
-type DropNamespaces<TMap> = {
-  [K in keyof TMap & string as K extends `__${string}::${string}` ? never : K]: TMap[K];
+/**
+ * Drop the keys that belong to a claimed plugin namespace (an id in `TClaimed`),
+ * keeping the rest. A prefix nobody claims is left in place, so the app can still
+ * reach it directly the way it did before any plugin existed.
+ */
+type DropClaimed<TMap, TClaimed extends string> = {
+  [K in keyof TMap & string as K extends `__${infer TId}::${string}`
+    ? TId extends TClaimed
+      ? never
+      : K
+    : K]: TMap[K];
 };
 
 /**
@@ -50,17 +58,19 @@ export type PluginSlice<TContract extends SocketContract, TId extends string> = 
 };
 
 /**
- * A full socket contract with every plugin-owned name removed. This is what the
- * top-level socket is typed against, so `socket.on('__acme:chat::message')` is a
- * type error — those names belong to their plugin, reached through the plugin's
- * own API, not the socket.
+ * A socket contract with the names of every *claimed* plugin removed — the plugin
+ * ids in `TClaimed`. This is what the top-level socket is typed against, so once a
+ * plugin claims `acme:chat`, `socket.on('__acme:chat::message')` is a type error;
+ * those names are reached through the plugin's own API. A prefix no registered
+ * plugin claims is left in place, so it stays reachable as before. With no plugins
+ * (`TClaimed` = `never`) nothing is removed.
  */
-export type TopLevelContract<TContract extends SocketContract> = {
-  incoming: DropNamespaces<IncomingOf<TContract>>;
-  outgoing: DropNamespaces<OutgoingOf<TContract>>;
-  requests: DropNamespaces<RequestsOf<TContract>>;
-  serverRequests: DropNamespaces<ServerRequestsOf<TContract>>;
-  streams: DropNamespaces<StreamsOf<TContract>>;
-  channels: DropNamespaces<ChannelsOf<TContract>>;
-  errors: DropNamespaces<ErrorsOf<TContract>>;
+export type TopLevelContract<TContract extends SocketContract, TClaimed extends string = never> = {
+  incoming: DropClaimed<IncomingOf<TContract>, TClaimed>;
+  outgoing: DropClaimed<OutgoingOf<TContract>, TClaimed>;
+  requests: DropClaimed<RequestsOf<TContract>, TClaimed>;
+  serverRequests: DropClaimed<ServerRequestsOf<TContract>, TClaimed>;
+  streams: DropClaimed<StreamsOf<TContract>, TClaimed>;
+  channels: DropClaimed<ChannelsOf<TContract>, TClaimed>;
+  errors: DropClaimed<ErrorsOf<TContract>, TClaimed>;
 };

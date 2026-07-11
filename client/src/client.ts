@@ -16,17 +16,24 @@ import type { Socket } from '~/socket/api.ts';
 import type { SocketContract } from '~/types.ts';
 
 /**
- * The app socket type, built over the contract with every plugin-owned name
- * removed (see {@link TopLevelContract}). Plugin names are reachable only through
- * their plugin's API, never the top-level socket. `TopLevelContract` is applied
- * once here so the inner helpers don't recompute it.
- */
-/**
  * Assert a stripped contract still satisfies `SocketContract`. For a concrete
  * contract this is identity (no widening), so `on`/`send` stay strict; it only
  * exists to satisfy `Socket`'s constraint for a still-generic contract.
  */
 type AsSocketContract<T> = T extends SocketContract ? T : SocketContract;
+
+/**
+ * The plugin ids claimed by the registered primitives — a plugin carries its id
+ * as a literal on `_plugin`. A non-plugin primitive contributes `never`, so this
+ * is the union of just the claimed namespaces.
+ */
+type ClaimedIds<TPrimitives extends readonly unknown[]> = {
+  [I in keyof TPrimitives]: TPrimitives[I] extends {
+    readonly _plugin: { readonly id: infer TId extends string };
+  }
+    ? TId
+    : never;
+}[number];
 
 type AppSocketFor<
   C,
@@ -41,10 +48,16 @@ type AppSocketFor<
   TPrimitives
 >;
 
+/**
+ * The app socket type, built over the contract with every *claimed* plugin name
+ * removed (see {@link TopLevelContract}). A claimed name is reachable only through
+ * its plugin's API; an unclaimed prefix stays on the top-level socket. The strip
+ * is applied once here so the inner helpers don't recompute it.
+ */
 export type AppSocket<
   TContract extends SocketContract,
   TPrimitives extends readonly Primitive<any, any>[],
-> = AppSocketFor<TopLevelContract<TContract>, TPrimitives>;
+> = AppSocketFor<TopLevelContract<TContract, ClaimedIds<TPrimitives>>, TPrimitives>;
 
 /**
  * Build a typed socket. You call it in two steps: first pick the contract, then
