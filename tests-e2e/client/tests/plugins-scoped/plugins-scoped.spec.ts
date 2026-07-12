@@ -64,6 +64,16 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
   });
 
+  test('scoped stream nudge reaches the server (nudge event is namespaced)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-nudge-${testInfo.testId}`);
+    await page.getByTestId('nudge').click();
+    // The server registers the nudge under `__e2e:feed::boost`; the nudge only
+    // resolves ('ok') if the client sent that namespaced event, not a bare `boost`.
+    await expect.poll(async () => page.getByTestId('nudge-result').textContent()).toBe('ok');
+  });
+
   test('scoped channel subscribe rejection surfaces the plain plugin error code', async ({
     page,
   }, testInfo) => {

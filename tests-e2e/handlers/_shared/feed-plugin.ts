@@ -102,6 +102,21 @@ const feed = h.resumableStream('feed', {
   },
 });
 
+// A slow plain stream with a declared nudge. The client sends `boost` mid-stream;
+// the server registers the nudge under `__e2e:feed::boost`, so the nudge only
+// validates if the client namespaced the nudge event like its trigger.
+const nudgeable = h.stream('nudgeable', {
+  input: v.object({}),
+  chunk: t<{ n: number }>(),
+  nudges: { boost: v.object({ amount: v.number() }) },
+  async *run(ctx) {
+    for (let i = 1; i <= 20; i += 1) {
+      ctx.stream.nudges(yield { n: i });
+      await new Promise((r) => setTimeout(r, 30));
+    }
+  },
+});
+
 // Plain (ephemeral) stream.
 const feedPlain = h.stream('feed-plain', {
   input: v.object({}),
@@ -130,5 +145,15 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room, roomChat, thread),
+  handler: h.assemble(
+    hello,
+    echo,
+    feed,
+    nudgeable,
+    feedPlain,
+    feedRecorded,
+    room,
+    roomChat,
+    thread,
+  ),
 });

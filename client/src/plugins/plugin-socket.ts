@@ -37,10 +37,18 @@ type PluginChannels<P extends SocketContract> =
  * work), and small tools that read state or ask the socket to act now.
  */
 export interface PluginBase {
-  /** See every incoming frame. Return it (maybe changed) to pass it on; throw `Block` to drop it. */
+  /**
+   * See incoming frames in this plugin's namespace. Return one (maybe changed) to
+   * pass it on; throw `Block` to drop it. Wrap the plugin in `observeHost(...)` to
+   * see the whole app's frames instead of only its own.
+   */
   onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
 
-  /** See every outgoing frame. Return it (maybe changed) to send it; throw `Block` to cancel it. */
+  /**
+   * See outgoing frames in this plugin's namespace. Return one (maybe changed) to
+   * send it; throw `Block` to cancel it. Wrap the plugin in `observeHost(...)` to
+   * see the whole app's frames instead of only its own.
+   */
   onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
 
   /** Runs on every open (first connect and reconnects). Return frames to send right away. */

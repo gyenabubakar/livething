@@ -1,5 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
@@ -202,7 +203,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           let result: SendResult;
           try {
             result = helpers.rawSend({
-              event,
+              // A plugin stream's nudge event needs the same `__id::` prefix its
+              // trigger carries (the server registers nudges under it); derive it
+              // from the stream's own namespaced event. A plain app stream gets ''.
+              event: namespacePrefixOf(state.event) + event,
               payload,
               __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
             });

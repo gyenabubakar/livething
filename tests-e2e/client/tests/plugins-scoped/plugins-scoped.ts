@@ -20,6 +20,11 @@ interface FeedWire {
   requests: { echo: { payload: { text: string }; response: { echoed: string } } };
   streams: {
     feed: { payload: { from: number }; chunk: { row: number } };
+    nudgeable: {
+      payload: Record<string, never>;
+      chunk: { n: number };
+      nudges: { boost: { amount: number } };
+    };
     'feed-plain': { payload: Record<string, never>; chunk: { n: number } };
     'feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
@@ -44,6 +49,11 @@ interface FeedHost {
   };
   streams: {
     '__e2e:feed::feed': { payload: { from: number }; chunk: { row: number } };
+    '__e2e:feed::nudgeable': {
+      payload: Record<string, never>;
+      chunk: { n: number };
+      nudges: { boost: { amount: number } };
+    };
     '__e2e:feed::feed-plain': { payload: Record<string, never>; chunk: { n: number } };
     '__e2e:feed::feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
@@ -63,6 +73,7 @@ interface FeedApi {
   streamFeed(): Promise<StreamHandle<{ row: number }>>;
   streamPlain(): Promise<StreamHandle<{ n: number }>>;
   streamRecorded(): Promise<StreamHandle<{ n: number }>>;
+  boost(): Promise<string>;
   joinRoom(onJoined: (who: string) => void): Promise<void>;
   onSaid(cb: (text: string) => void): void;
   chat(text: string): void;
@@ -92,6 +103,21 @@ const Feed = plugin<FeedWire, FeedApi>()({
         streamFeed: () => socket.stream('feed', { from: 0 }, { streamId: 'scoped-feed' }),
         streamPlain: () => socket.stream('feed-plain', {}),
         streamRecorded: () => socket.stream('feed-recorded', {}, { streamId: 'scoped-rec' }),
+        // Trigger the slow stream, wait for the first chunk so it's live, then
+        // nudge it. The nudge only resolves if its event reached the server's
+        // registered `__e2e:feed::boost` — i.e. the plugin namespaced it.
+        boost: async () => {
+          const handle = await socket.stream('nudgeable', {});
+          await handle[Symbol.asyncIterator]().next();
+          try {
+            await handle.nudge('boost', { amount: 2 });
+            return 'ok';
+          } catch (error) {
+            return error instanceof WSKitError ? error.code : String(error);
+          } finally {
+            handle.cancel();
+          }
+        },
         joinRoom: (onJoined) => {
           joinedCbs.add(onJoined);
           return room.subscribe();
@@ -120,6 +146,7 @@ export function setup(): void {
     <button data-testid="stream-feed">stream-feed</button>
     <button data-testid="stream-plain">stream-plain</button>
     <button data-testid="stream-recorded">stream-recorded</button>
+    <button data-testid="nudge">nudge</button>
     <button data-testid="join-room">join-room</button>
     <button data-testid="join-room-fail">join-room-fail</button>
     <button data-testid="chat">chat</button>
@@ -132,6 +159,7 @@ export function setup(): void {
     <span data-testid="feed-rows"></span>
     <span data-testid="plain-rows"></span>
     <span data-testid="recorded-rows"></span>
+    <span data-testid="nudge-result"></span>
     <span data-testid="joined"></span>
     <span data-testid="subscribe-error"></span>
     <span data-testid="said"></span>
@@ -194,6 +222,9 @@ export function setup(): void {
   button('stream-feed', () => drain(feed.streamFeed(), 'feed-rows'));
   button('stream-plain', () => drain(feed.streamPlain(), 'plain-rows'));
   button('stream-recorded', () => drain(feed.streamRecorded(), 'recorded-rows'));
+  button('nudge', async () => {
+    el('nudge-result').textContent = await feed.boost();
+  });
   button('join-room', () => {
     feed.onSaid((text) => {
       el('said').textContent = text;

@@ -445,6 +445,59 @@ describe('scoped stream and onRequest', () => {
       expect(error.detail).toEqual({ why: 'closed' });
     });
   });
+
+  it('a plugin stream nudge sends the namespaced event', async () => {
+    interface Wire {
+      streams: {
+        feed: {
+          payload: { from: number };
+          chunk: { row: number };
+          nudges: { boost: { amount: number } };
+        };
+      };
+    }
+    interface Host {
+      streams: {
+        '__acme:feed::feed': {
+          payload: { from: number };
+          chunk: { row: number };
+          nudges: { boost: { amount: number } };
+        };
+      };
+    }
+
+    const Feed = plugin<
+      Wire,
+      { start: () => Promise<StreamHandle<{ row: number }, { boost: { amount: number } }>> }
+    >()({
+      id: 'acme:feed',
+      dependencies: [stream],
+      setup(socket) {
+        return {
+          api: () => ({
+            start: () => socket.stream('feed', { from: 0 }, { streamId: 'nudge-sc' }),
+          }),
+        };
+      },
+    });
+
+    const socket = client<Host>()(connect('wss://test'), stream(), Feed());
+    (socket as { connect(): void }).connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const starting = Feed.use(socket).start();
+    ws.emit({ event: '__streamOk__', payload: {}, __wskit: { streamId: 'nudge-sc' } });
+    const handle = await starting;
+
+    void handle.nudge('boost', { amount: 2 });
+
+    // The nudge event carries the plugin's `__acme:feed::` prefix, like its trigger,
+    // so the server finds it among the stream's registered nudges.
+    const frame = ws.sentFrames().at(-1);
+    expect(frame?.event).toBe('__acme:feed::boost');
+    expect(frame?.__wskit?.streamId).toBe('nudge-sc');
+  });
 });
 
 interface ThreadWire {
