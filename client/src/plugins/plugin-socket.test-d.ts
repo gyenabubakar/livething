@@ -1,5 +1,6 @@
 // Type-only checks for the plugin socket. tsc checks these; vitest never runs them.
 import { expectTypeOf } from 'vitest';
+import type { WSKitError } from '@wskit/core';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 
 interface ChatContract {
@@ -60,12 +61,13 @@ expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
 expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
 
-// Typed scoped errors — a discriminated union over the plugin's declared codes.
+// Typed scoped errors — a union of real WSKitError instances over the plugin's
+// declared codes, so `err.matches(...)` / `instanceof` work and `switch (err.code)`
+// narrows `err.detail`, exactly like the app's top-level onError.
 expectTypeOf<ChatSocket['onError']>().toBeFunction();
-expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeOf<{
-  code: 'room-full';
-  detail: { limit: number };
-}>();
+expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeOf<
+  WSKitError<'room-full', { limit: number }>
+>();
 
 // The always-present taps and tools are there too.
 expectTypeOf<ChatSocket['onIncoming']>().toBeFunction();

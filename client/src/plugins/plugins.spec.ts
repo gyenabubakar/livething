@@ -1,3 +1,4 @@
+import { WSKitError } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
@@ -11,6 +12,7 @@ import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { StreamHandle } from '~/types.ts';
 
 // A host contract shaped like `InferClient` output: the app's own `welcome`, plus
 // every plugin namespace these tests register. A plugin now requires its namespace
@@ -33,7 +35,7 @@ interface AppContract {
     '__acme:feed::ping': { payload: { at: number }; response: { pong: boolean } };
   };
   streams: {
-    '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } };
+    '__acme:feed::feed': { payload: { from: number }; chunk: { row: number }; kind: 'persistent' };
   };
   channels: {
     '__acme:chat::thread': { addressing: 'dynamic'; incoming: { post: { text: string } } };
@@ -258,7 +260,7 @@ describe('scoped send — send() and request()', () => {
 });
 
 interface FeedWire {
-  streams: { feed: { payload: { from: number }; chunk: { row: number } } };
+  streams: { feed: { payload: { from: number }; chunk: { row: number }; kind: 'persistent' } };
   serverRequests: { ping: { payload: { at: number }; response: { pong: boolean } } };
 }
 
@@ -300,6 +302,72 @@ describe('scoped stream and onRequest', () => {
     await expect
       .poll(() => ws.sentFrames().find((f) => f.__wskit?.correlationId === 'p1')?.payload)
       .toEqual({ pong: true });
+  });
+
+  it('onStream() subscribes under the namespace and routes namespaced broadcast chunks', () => {
+    const chunks: [unknown, string][] = [];
+    const ends: string[] = [];
+    const Feed = plugin<FeedWire>()({
+      id: 'acme:feed',
+      dependencies: [stream],
+      setup(socket) {
+        socket.onStream('feed', {
+          onChunk: (chunk, id) => chunks.push([chunk, id]),
+          onEnd: (id) => ends.push(id),
+        });
+        return {};
+      },
+    });
+
+    const { ws } = build(stream(), Feed());
+    // The server pushes the broadcast under the plugin's wire name; onStream
+    // registered for `__acme:feed::feed`, so the scoped handler sees it.
+    ws.emit({
+      event: '__acme:feed::feed',
+      payload: { row: 1 },
+      __wskit: { streamId: 'bs1', seq: 1 },
+    });
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 'bs1', eventName: '__acme:feed::feed', seq: 5 },
+    });
+
+    expect(chunks).toEqual([[{ row: 1 }, 'bs1']]);
+    expect(ends).toEqual(['bs1']);
+  });
+
+  it('resumeStream() resumes a namespaced durable stream and replays its chunks', async () => {
+    const Feed = plugin<FeedWire, { resume: () => StreamHandle<{ row: number }> }>()({
+      id: 'acme:feed',
+      dependencies: [stream],
+      setup(socket) {
+        return {
+          api: () => ({ resume: () => socket.resumeStream('feed', 'feed-1', { lastKnownSeq: 0 }) }),
+        };
+      },
+    });
+
+    const { socket, ws } = build(stream(), Feed());
+    const handle = Feed.use(socket).resume();
+
+    // The resume frame is a reserved control frame keyed by streamId; chunks then
+    // arrive on the plugin's wire event and replay into the returned handle.
+    expect(ws.sentFrames().at(-1)).toEqual({
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { streamId: 'feed-1' },
+    });
+    ws.emit({
+      event: '__acme:feed::feed',
+      payload: { row: 1 },
+      __wskit: { streamId: 'feed-1', seq: 1 },
+    });
+    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-1' } });
+
+    const rows: { row: number }[] = [];
+    for await (const chunk of handle) rows.push(chunk);
+    expect(rows).toEqual([{ row: 1 }]);
   });
 });
 
@@ -355,8 +423,8 @@ describe('scoped channels — dynamic families', () => {
 });
 
 describe('scoped errors — onError()', () => {
-  it('delivers a namespaced unsolicited error to a typed handler', () => {
-    const seen: { code: string; detail: unknown }[] = [];
+  it('delivers a namespaced unsolicited error as a real WSKitError with the plain code', () => {
+    const seen: WSKitError[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
       setup(socket) {
@@ -371,11 +439,16 @@ describe('scoped errors — onError()', () => {
       payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
     });
 
-    // Plain code, typed detail — the `__acme:chat::` prefix is stripped.
-    expect(seen).toEqual([{ code: 'room-full', detail: { limit: 5 } }]);
+    // A real WSKitError instance (so `.matches()` / `instanceof` work), with the
+    // `__acme:chat::` prefix stripped and the typed detail intact.
+    expect(seen).toHaveLength(1);
+    const [error] = seen;
+    expect(error).toBeInstanceOf(WSKitError);
+    expect(error?.code).toBe('room-full');
+    expect(error?.detail).toEqual({ limit: 5 });
   });
 
-  it('bubbles to the app onError when the plugin registered no handler', () => {
+  it('surfaces an unhandled namespaced error to the app onError, keeping the namespaced code', () => {
     const appErrors: unknown[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
@@ -389,7 +462,11 @@ describe('scoped errors — onError()', () => {
       payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
     });
 
+    // The plugin owns the frame, so with no scoped handler it goes to the app's
+    // onError catch-all as a WSKitError — the namespaced code keeps it unambiguous.
     expect(appErrors).toHaveLength(1);
+    expect(appErrors[0]).toBeInstanceOf(WSKitError);
+    expect((appErrors[0] as WSKitError).code).toBe('__acme:chat::room-full');
   });
 });
 
@@ -560,6 +637,75 @@ describe('dispose', () => {
     expect(dispose).not.toHaveBeenCalled();
     // onClose still fires, flagged as a suspend so a handler can tell it apart.
     expect(onClose).toHaveBeenCalledWith(true);
+    vi.useRealTimers();
+  });
+
+  it('does not run on a lazy socket idle-close, which reopens on demand', () => {
+    vi.useFakeTimers();
+    const dispose = vi.fn();
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
+
+    const socket = client<AppContract>()(
+      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      Chat(),
+    );
+    socket.connect();
+    MockWebSocket.last().open();
+
+    // No consumers → the idle timer closes the transport. A lazy socket reopens on
+    // the next use, so this close is not "finished for good" and must not dispose.
+    vi.advanceTimersByTime(1000);
+    expect(socket.state.get()).toBe('closed');
+    expect(dispose).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('a plugin listener holds a lazy socket open past the idle window', () => {
+    vi.useFakeTimers();
+    const Chat = plugin<ChatWire>()({
+      id: 'acme:chat',
+      setup(socket) {
+        socket.on('message', () => undefined);
+        return {};
+      },
+    });
+
+    const socket = client<AppContract>()(
+      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      Chat(),
+    );
+    socket.connect();
+    MockWebSocket.last().open();
+
+    // The plugin's `on('message')` counts as a consumer, like the top-level `on`,
+    // so a receive-only plugin keeps the lazy socket open.
+    vi.advanceTimersByTime(1000);
+    expect(socket.state.get()).toBe('open');
+    vi.useRealTimers();
+  });
+
+  it('runs once reconnection is exhausted', async () => {
+    vi.useFakeTimers();
+    const dispose = vi.fn();
+    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
+
+    const socket = client<AppContract>()(
+      connect('wss://test'),
+      reconnection({ maxAttempts: 1 }),
+      Chat(),
+    );
+    socket.connect();
+    MockWebSocket.last().open();
+
+    MockWebSocket.last().serverClose(1006, 'drop'); // first drop → schedules a retry
+    vi.advanceTimersByTime(2000);
+    expect(MockWebSocket.instances).toHaveLength(2); // the retry socket opened
+
+    MockWebSocket.last().serverClose(1006, 'drop'); // retry fails → exhausted → closed
+    expect(socket.state.get()).toBe('closed');
+
+    await Promise.resolve(); // let the dispose microtask observe the final state
+    expect(dispose).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 });

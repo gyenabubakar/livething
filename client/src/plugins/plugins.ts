@@ -1,8 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
+import { toWSKitError } from '~/internal/error-frame.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
+import type { WSKitError } from '@wskit/core';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
@@ -92,7 +94,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 ): PrimitiveRuntime {
   const id = def.id;
   const handlers = new Map<string, Set<(data: unknown) => void>>();
-  const errorHandlers = new Set<(error: { code: string; detail: unknown }) => void>();
+  const errorHandlers = new Set<(error: WSKitError) => void>();
   let disposed = false;
   let instance: PluginInstance<TApi> | null = null;
 
@@ -149,15 +151,22 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   // of the verbs are grafted on by applyAugmenters at install.
   const socket = {
     on(event: string, handler: (data: unknown) => void): () => void {
+      // Hold the socket open while listening, like the top-level `on`, so a lazy
+      // socket a receive-only plugin drives doesn't idle-close out from under it.
+      helpers.lazyAcquire();
       let set = handlers.get(event);
       if (!set) {
         set = new Set();
         handlers.set(event, set);
       }
       set.add(handler);
+      let released = false;
       return () => {
+        if (released) return;
+        released = true;
         set.delete(handler);
         if (set.size === 0) handlers.delete(event);
+        helpers.lazyRelease();
       };
     },
 
@@ -175,7 +184,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       void (userReconnect = once('onReconnect', userReconnect, handler)),
     onClose: (handler: CloseHook) => void (userClose = once('onClose', userClose, handler)),
 
-    onError(handler: (error: { code: string; detail: unknown }) => void): () => void {
+    onError(handler: (error: WSKitError) => void): () => void {
       errorHandlers.add(handler);
       return () => errorHandlers.delete(handler);
     },
@@ -226,7 +235,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     return false;
   }
 
-  function dispatchError(error: { code: string; detail: unknown }): void {
+  function dispatchError(error: WSKitError): void {
     for (const handler of errorHandlers) {
       try {
         handler(error);
@@ -240,16 +249,24 @@ function createPluginRuntime<P extends SocketContract, TApi>(
    * A server-pushed error in this plugin's namespace arrives as an `__error__`
    * frame whose `code` reads `__<id>::<name>`. An error tied to a request or
    * stream is already claimed by that primitive before the plugin sees it, so one
-   * reaching here is unsolicited. Claim it only when a handler is registered;
-   * otherwise leave it for the app's top-level onError, unchanged.
+   * reaching here is unsolicited. The plugin owns its whole namespace, errors
+   * included, so it always claims one: a scoped handler gets it with the prefix
+   * stripped; with no handler it surfaces through the reported-error path (the
+   * app's onError catch-all) rather than leaking into the app as a normal frame.
    */
   function claimError(message: WireMessage): boolean {
-    if (message.event !== '__error__' || errorHandlers.size === 0 || !ownsFrame(message)) {
-      return false;
-    }
+    if (message.event !== '__error__' || !ownsFrame(message)) return false;
     const payload = message.payload as { code?: unknown; detail?: unknown } | null;
     if (typeof payload?.code !== 'string' || !payload.code.startsWith(ownPrefix)) return false;
-    dispatchError({ code: payload.code.slice(ownPrefix.length), detail: payload.detail });
+    if (errorHandlers.size > 0) {
+      // Same reconstruction the top-level onError uses; hand over the plain code.
+      dispatchError(
+        toWSKitError({ code: payload.code.slice(ownPrefix.length), detail: payload.detail }),
+      );
+    } else {
+      // Keep the namespaced code here so it stays unambiguous at the app level.
+      report(toWSKitError(message.payload));
+    }
     return true;
   }
 
@@ -328,6 +345,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       // A platform suspend pauses the session and resumes it as the same socket,
       // so it must not dispose — even though the socket goes to 'closed'.
       if (suspended) return;
+      // A lazy socket reopens on demand, so no close is ever "finished for good":
+      // disposing on one would tear the plugin down while it's still usable, then
+      // keep delivering to a disposed plugin after the next reopen.
+      if (helpers.config.lazy) return;
       if (intentional) {
         runDispose();
       } else {

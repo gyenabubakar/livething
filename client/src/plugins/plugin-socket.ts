@@ -1,3 +1,4 @@
+import type { WSKitError } from '@wskit/core';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
@@ -77,11 +78,15 @@ export interface PluginBase {
 type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 
 /**
- * A typed union of the plugin's declared errors: `{ code: 'room-full'; detail: … }
- * | …`, one member per declared error code. What an `onError` handler receives.
+ * A typed union of the plugin's declared errors as real `WSKitError` instances,
+ * one member per declared error code — `WSKitError<'room-full', { limit: number }>
+ * | …`. What an `onError` handler receives, so `err.matches(...)` /
+ * `err instanceof WSKitError` work and `switch (err.code)` types `err.detail` per
+ * case, exactly like the app's top-level `onError`. The code is the plain name;
+ * the framework strips the plugin's `__<id>::` prefix before handing it over.
  */
 type PluginError<P extends SocketContract> = {
-  [K in keyof ErrorsOf<P> & string]: { code: K; detail: ErrorsOf<P>[K] };
+  [K in keyof ErrorsOf<P> & string]: WSKitError<K, ErrorsOf<P>[K]>;
 }[keyof ErrorsOf<P> & string];
 
 /**
