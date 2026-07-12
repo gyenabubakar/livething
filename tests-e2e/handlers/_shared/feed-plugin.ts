@@ -35,6 +35,17 @@ room.subscribe((ctx) => {
   ctx.channel.broadcast('joined', { who: ctx.id }, { excludeSelf: false });
 });
 
+// Client → plugin-owned DYNAMIC channel family: subscribing to `thread:<id>`
+// broadcasts a `posted` naming the concrete thread, so the client can prove it
+// addressed a specific member — not one shared channel.
+const thread = h.channel(['thread', 'thread:{id}'], {
+  outgoing: { emits: { posted: t<{ thread: string }>() } },
+});
+
+thread.subscribe((ctx) => {
+  ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { excludeSelf: false });
+});
+
 // Client → plugin incoming event, plugin emits back.
 const hello = h.on('hello', {
   input: v.object({ name: v.string() }),
@@ -94,5 +105,5 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room),
+  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room, thread),
 });

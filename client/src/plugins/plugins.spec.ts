@@ -2,6 +2,7 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
 import { observeHost, plugin } from '~/plugins/plugins.ts';
+import { channels } from '~/primitives/channels/channels.ts';
 import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
@@ -33,6 +34,9 @@ interface AppContract {
   };
   streams: {
     '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } };
+  };
+  channels: {
+    '__acme:chat::thread': { addressing: 'dynamic'; incoming: { post: { text: string } } };
   };
   errors: {
     '__acme:chat::room-full': { limit: number };
@@ -299,6 +303,57 @@ describe('scoped stream and onRequest', () => {
   });
 });
 
+interface ThreadWire {
+  channels: { thread: { addressing: 'dynamic'; incoming: { post: { text: string } } } };
+}
+
+describe('scoped channels — dynamic families', () => {
+  it('round-trips a family member under the namespace, surfacing plain names', async () => {
+    const posts: string[] = [];
+    const subscribed: string[] = [];
+    const Chat = plugin<ThreadWire, { open: () => Promise<void>; rooms: () => string[] }>()({
+      id: 'acme:chat',
+      dependencies: [channels],
+      setup(socket) {
+        const family = socket.channel.family('thread');
+        family.onSubscribed((name) => subscribed.push(name));
+        const one = socket.channel('thread', 'thread:1');
+        one.on('post', (m) => posts.push(m.text));
+        return { api: () => ({ open: () => one.subscribe(), rooms: () => family.list() }) };
+      },
+    });
+
+    const { socket, ws } = build(channels(), Chat());
+    const api = Chat.use(socket);
+    const pending = api.open();
+
+    // The family KEY carries the plugin namespace; the concrete member name is a
+    // runtime value matched against the family pattern, so it stays as written.
+    const sub = ws.sentFrames().find((f) => f.event === '__subscribe__');
+    expect(sub?.__wskit?.channelFamily).toBe('__acme:chat::thread');
+    expect(sub?.__wskit?.channel).toBe('thread:1');
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+    });
+    await pending;
+
+    // The server sends a plugin channel's child event namespaced; the namespace
+    // sits on the family key, so it's stripped back to the bare `post`.
+    ws.emit({
+      event: '__acme:chat::post',
+      payload: { text: 'hi' },
+      __wskit: { channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+    });
+
+    expect(posts).toEqual(['hi']);
+    expect(subscribed).toEqual(['thread:1']);
+    expect(api.rooms()).toEqual(['thread:1']);
+  });
+});
+
 describe('scoped errors — onError()', () => {
   it('delivers a namespaced unsolicited error to a typed handler', () => {
     const seen: { code: string; detail: unknown }[] = [];
@@ -526,6 +581,20 @@ describe('guards', () => {
     // `::` separates id from name on the wire, so an id holding it would let one
     // plugin's prefix swallow another's frames.
     expect(() => plugin()({ id: 'acme::chat', setup: () => ({}) })).toThrow(/must not contain/);
+  });
+
+  it('throws a clear error when a used verb’s primitive is not registered', () => {
+    // The contract types `request`, but neither the plugin's dependencies nor the
+    // app registered requestResponse — calling it names what to add.
+    const Chat = plugin<ChatWire, { go: () => Promise<{ id: string }> }>()({
+      id: 'acme:chat',
+      setup(socket) {
+        return { api: () => ({ go: () => socket.request('send-message', { text: 'x' }) }) };
+      },
+    });
+
+    const { socket } = build(Chat());
+    expect(() => Chat.use(socket).go()).toThrow(/requestResponse primitive isn't registered/);
   });
 });
 

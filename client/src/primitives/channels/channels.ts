@@ -10,7 +10,7 @@ import {
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
-import type { MessagingObject } from '~/internal/scoped.ts';
+import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type {
   ChannelsOptions,
@@ -26,14 +26,21 @@ const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
  * channel travels as `__<id>::<room>` and its emits as `__<id>::<event>`, but
  * the client contract registers each handler under the bare `<event>` — so an
  * event sharing the channel's `__<id>::` prefix is delivered under its short
- * name. A non-plugin channel (no `__<id>::` prefix) and any event that doesn't
- * carry the channel's own prefix pass through untouched.
+ * name. The namespace sits on the channel name for a static channel, but on the
+ * family KEY for a dynamic member (whose channel name is a plain instance value),
+ * so the prefix comes from the family key when there is one. A non-plugin channel
+ * and any event that doesn't carry the prefix pass through untouched.
  */
-function channelEventName(channelName: string, event: string): string {
-  if (!channelName.startsWith('__')) return event;
-  const delimAt = channelName.indexOf('::');
+function channelEventName(
+  channelName: string,
+  familyKey: string | undefined,
+  event: string,
+): string {
+  const source = familyKey ?? channelName;
+  if (!source.startsWith('__')) return event;
+  const delimAt = source.indexOf('::');
   if (delimAt < 0) return event;
-  const prefix = channelName.slice(0, delimAt + 2);
+  const prefix = source.slice(0, delimAt + 2);
   return event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
@@ -47,6 +54,30 @@ function readMember(
     connectionId: fields.connectionId,
     meta: fields.meta as Record<string, unknown> | undefined,
   };
+}
+
+/** The host `channel` method: a fixed/dynamic getter plus `.family`. */
+type HostChannel = {
+  (nameOrFamily: string, name?: string): MessagingObject;
+  family(familyKey: string): FamilyHandle;
+};
+
+/**
+ * Wrap the host `channel` method for a plugin scope. A plugin owns its namespace,
+ * so the static channel name and the dynamic family KEY are prefixed with
+ * `__<id>::` on the way to the wire. A family's concrete member name is a runtime
+ * value the server matches against the (un-prefixed) family pattern, so it is left
+ * as the plugin wrote it — which also means the family handle already surfaces
+ * plain member names, with nothing to strip.
+ */
+function scopedChannelMethod(channel: HostChannel, scope: ScopeInfo): HostChannel {
+  function scoped(nameOrFamily: string, name?: string): MessagingObject {
+    return name === undefined
+      ? channel(scopedName(scope, nameOrFamily))
+      : channel(scopedName(scope, nameOrFamily), name);
+  }
+  scoped.family = (familyKey: string): FamilyHandle => channel.family(scopedName(scope, familyKey));
+  return scoped;
 }
 
 /**
@@ -259,7 +290,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
 
-              const event = channelEventName(name, message.event);
+              const event = channelEventName(name, familyKey, message.event);
               if (helpers.config.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
 
               state.dispatch(event, message.payload);
@@ -451,7 +482,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // channels don't nest, so it gets no `channel` here.
           getAugmenters(installedSocket).push((messaging, scope) => {
             if (!scope.prefixName) return;
-            messaging.channel = (name: string) => channel(scopedName(scope, name));
+            messaging.channel = scopedChannelMethod(channel, scope);
           });
         },
       };

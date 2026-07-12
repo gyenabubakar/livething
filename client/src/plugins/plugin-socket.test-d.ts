@@ -6,7 +6,10 @@ interface ChatContract {
   incoming: { message: { id: string; text: string } };
   outgoing: { typing: { on: boolean } };
   requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
-  channels: { room: { incoming: { reaction: { emoji: string } } } };
+  channels: {
+    room: { incoming: { reaction: { emoji: string } } }; // static channel
+    thread: { addressing: 'dynamic'; incoming: { post: { text: string } } }; // dynamic family
+  };
   streams: { feed: { payload: { from: number }; chunk: { row: number } } };
   serverRequests: { ping: { payload: { at: number }; response: { pong: boolean } } };
   errors: { 'room-full': { limit: number } };
@@ -30,11 +33,22 @@ expectTypeOf<Parameters<ChatSocket['send']>[1]>().toEqualTypeOf<{ on: boolean }>
 expectTypeOf<ChatSocket['request']>().toBeFunction();
 expectTypeOf<ReturnType<ChatSocket['request']>>().toEqualTypeOf<Promise<{ id: string }>>();
 
-// Typed channel handle — the full channel surface (subscribe + scoped verbs).
-expectTypeOf<ChatSocket['channel']>().toBeFunction();
-expectTypeOf<Parameters<ChatSocket['channel']>[0]>().toEqualTypeOf<'room'>();
-expectTypeOf<ReturnType<ChatSocket['channel']>>().toHaveProperty('subscribe');
-expectTypeOf<ReturnType<ChatSocket['channel']>>().toHaveProperty('on');
+// Typed channel — all three forms, like the top-level socket.
+declare const chat: ChatSocket;
+// A static channel by name.
+expectTypeOf(chat.channel('room')).toHaveProperty('subscribe');
+expectTypeOf(chat.channel('room')).toHaveProperty('on');
+// A dynamic-family member: channel(family, name).
+expectTypeOf(chat.channel('thread', 'thread:1')).toHaveProperty('subscribe');
+// The whole family handle, for watching every member.
+expectTypeOf(chat.channel.family('thread')).toHaveProperty('list');
+expectTypeOf(chat.channel.family('thread')).toHaveProperty('onSubscribed');
+// @ts-expect-error — a dynamic family needs a member name, not the one-arg form
+chat.channel('thread');
+// @ts-expect-error — a static channel takes no member name
+chat.channel('room', 'x');
+// @ts-expect-error — family() only addresses a dynamic family, not a static channel
+chat.channel.family('room');
 
 // Typed streams.
 expectTypeOf<ChatSocket['stream']>().toBeFunction();

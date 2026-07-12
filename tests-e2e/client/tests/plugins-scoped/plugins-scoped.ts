@@ -22,7 +22,10 @@ interface FeedWire {
     'feed-plain': { payload: Record<string, never>; chunk: { n: number } };
     'feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
-  channels: { room: { incoming: { joined: { who: string } } } };
+  channels: {
+    room: { incoming: { joined: { who: string } } };
+    thread: { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
+  };
 }
 
 // The app's contract as `InferClient` produces it: the plugin's names under their
@@ -40,7 +43,10 @@ interface FeedHost {
     '__e2e:feed::feed-plain': { payload: Record<string, never>; chunk: { n: number } };
     '__e2e:feed::feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
-  channels: { '__e2e:feed::room': { incoming: { joined: { who: string } } } };
+  channels: {
+    '__e2e:feed::room': { incoming: { joined: { who: string } } };
+    '__e2e:feed::thread': { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
+  };
 }
 
 interface FeedApi {
@@ -51,6 +57,7 @@ interface FeedApi {
   streamPlain(): Promise<StreamHandle<{ n: number }>>;
   streamRecorded(): Promise<StreamHandle<{ n: number }>>;
   joinRoom(onJoined: (who: string) => void): Promise<void>;
+  joinThread(id: string, onPosted: (thread: string) => void): Promise<void>;
 }
 
 const Feed = plugin<FeedWire, FeedApi>()({
@@ -78,6 +85,12 @@ const Feed = plugin<FeedWire, FeedApi>()({
           joinedCbs.add(onJoined);
           return room.subscribe();
         },
+        // A dynamic-family member: `thread:<id>` under the plugin namespace.
+        joinThread: (id, onPosted) => {
+          const t = socket.channel('thread', `thread:${id}`);
+          t.on('posted', (m) => onPosted(m.thread));
+          return t.subscribe();
+        },
       }),
     };
   },
@@ -92,6 +105,7 @@ export function setup(): void {
     <button data-testid="stream-plain">stream-plain</button>
     <button data-testid="stream-recorded">stream-recorded</button>
     <button data-testid="join-room">join-room</button>
+    <button data-testid="join-thread">join-thread</button>
     <span data-testid="status"></span>
     <span data-testid="welcome"></span>
     <span data-testid="raw-welcome"></span>
@@ -100,6 +114,7 @@ export function setup(): void {
     <span data-testid="plain-rows"></span>
     <span data-testid="recorded-rows"></span>
     <span data-testid="joined"></span>
+    <span data-testid="posted"></span>
   `);
 
   // The app's only names are the plugin's, under its namespace. The contract
@@ -154,6 +169,12 @@ export function setup(): void {
   button('join-room', () =>
     feed.joinRoom((who) => {
       el('joined').textContent = who ? 'joined' : '';
+    }),
+  );
+  button('join-thread', () =>
+    // Join one specific thread; the server echoes back the concrete member it saw.
+    feed.joinThread('general', (thread) => {
+      el('posted').textContent = thread.endsWith('thread:general') ? 'general' : thread;
     }),
   );
 

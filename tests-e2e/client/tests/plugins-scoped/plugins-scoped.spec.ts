@@ -53,4 +53,12 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await page.getByTestId('join-room').click();
     await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
   });
+
+  test('scoped dynamic-family channel addresses a specific member', async ({ page }, testInfo) => {
+    await open(page, `sc-thread-${testInfo.testId}`);
+    await page.getByTestId('join-thread').click();
+    // The server echoes the concrete member it saw — proving thread:general was
+    // addressed, not one shared channel.
+    await expect.poll(async () => page.getByTestId('posted').textContent()).toBe('general');
+  });
 });

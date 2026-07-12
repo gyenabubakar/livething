@@ -1,7 +1,7 @@
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
-import type { ChannelMessaging } from '~/primitives/channels/types.ts';
+import type { ChannelMethod } from '~/primitives/channels/types.ts';
 import type { ServerRequestTypeFn } from '~/primitives/server-request/types.ts';
 import type { StreamTypeFn } from '~/primitives/stream/types.ts';
 import type { Apply } from '~/primitives/types.ts';
@@ -17,15 +17,17 @@ import type {
 } from '~/types.ts';
 
 /**
- * The plugin's `channel(name)` — the same rich channel handle the top-level
- * socket gives (subscribe, members, presence, and the scoped verbs), typed from
- * the plugin's own channels, and only present when the plugin declares channels.
+ * The plugin's `channel` — the same three forms the top-level socket has,
+ * (`channel(name)`, `channel(family, name)`, and `channel.family(family)`), typed
+ * from the plugin's own channels and only present when it declares channels. The
+ * plugin uses plain names; the framework prefixes them with its namespace on the
+ * wire, so a plugin can own dynamic families (rooms) just like the app can.
  */
 type PluginChannels<P extends SocketContract> =
   ChannelsOf<P> extends infer C extends Record<string, unknown>
     ? keyof C extends never
       ? {}
-      : { channel<K extends keyof C & string>(name: K): ChannelMessaging<C[K]> }
+      : { channel: ChannelMethod<C> }
     : {};
 
 /**

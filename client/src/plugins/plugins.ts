@@ -115,6 +115,20 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     helpers.log.report(error);
   }
 
+  // A verb that comes from a primitive the app didn't register is absent at
+  // runtime. Seed a clear thrower so calling it names the primitive to add,
+  // instead of a bare "x is not a function"; applyAugmenters overwrites the ones
+  // whose primitive IS registered. The throwers hold no primitive code, so they
+  // don't affect tree-shaking.
+  function missing(verb: string, primitive: string): () => never {
+    return () => {
+      throw new WSKitConfigError(
+        `[wskit] plugin '${id}' used socket.${verb}(), but the ${primitive} primitive isn't registered. ` +
+          `List ${primitive} in the plugin's dependencies and register ${primitive}() in client().`,
+      );
+    };
+  }
+
   /*
    * The plugin's scope. `markers` is empty — a plugin isn't a channel, so its
    * frames carry no channel marker — and `prefixName` adds the `__<id>::` prefix.
@@ -170,6 +184,15 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     hasPrimitive: (tag: string) => helpers.hasPrimitive(tag),
     ensureConnected: () => helpers.ensureConnected(),
     state: helpers.state,
+
+    // Primitive-backed verbs: clear throwers until applyAugmenters replaces the
+    // ones whose primitive is registered.
+    request: missing('request', 'requestResponse'),
+    stream: missing('stream', 'stream'),
+    onStream: missing('onStream', 'stream'),
+    resumeStream: missing('resumeStream', 'stream'),
+    onRequest: missing('onRequest', 'serverRequest'),
+    channel: missing('channel', 'channels'),
   };
 
   function dispatch(name: string, payload: unknown): void {

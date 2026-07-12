@@ -52,10 +52,12 @@ export interface SocketContractBrand<TContract extends SocketContract> {
 }
 
 /**
- * Every error the contract declares — the framework's built-in errors plus your
- * server's and any plugins' — as a discriminated union of `WSKitError`, each typed
- * to its own code and detail. `onError` hands you this, so `switch (err.code)`
- * types `err.detail` per case.
+ * Every error the contract's `errors` section declares, as a discriminated union
+ * of `WSKitError`, each typed to its own code and detail. `onError` hands you this,
+ * so `switch (err.code)` types `err.detail` per case. A contract from `InferClient`
+ * already folds in the framework's built-in errors alongside your server's and any
+ * plugins'; a hand-written contract only carries what it declares, so a built-in
+ * code can still arrive at runtime — keep a `default`.
  */
 export type ContractError<TContract extends SocketContract> = {
   [TCode in keyof ErrorsOf<TContract> & string]: WSKitError<TCode, ErrorsOf<TContract>[TCode]>;

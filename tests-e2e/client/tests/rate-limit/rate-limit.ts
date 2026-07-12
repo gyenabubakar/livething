@@ -1,5 +1,5 @@
 import { client, connect, requestResponse } from '@wskit/client';
-import type { WSKitError } from '@wskit/client/errors';
+import { WSKitError } from '@wskit/client/errors';
 import type { RateLimitClient } from '@wskit/tests-e2e-handlers/rate-limit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -25,7 +25,8 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  socket.onError((err: WSKitError) => {
+  socket.onError((err) => {
+    if (!(err instanceof WSKitError)) return;
     el('error-code').textContent = errorCode(err);
     const detail = err.detail as { retryAfter?: number } | undefined;
     if (typeof detail?.retryAfter === 'number') {

@@ -1,5 +1,5 @@
 import { client, connect } from '@wskit/client';
-import type { WSKitError } from '@wskit/client/errors';
+import { WSKitError } from '@wskit/client/errors';
 import type { ErrorsFactoryClient } from '@wskit/tests-e2e-handlers/errors-factory';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -26,7 +26,8 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  socket.onError((err: WSKitError) => {
+  socket.onError((err) => {
+    if (!(err instanceof WSKitError)) return;
     el('error-code').textContent = errorCode(err);
     el('error-result').textContent = `${err.code}:${JSON.stringify(err.detail ?? {})}`;
   });
