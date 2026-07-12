@@ -1,5 +1,5 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
@@ -81,7 +81,10 @@ export function requestResponse(
             reject: (reason) => {
               clearTimeout(timer);
               done();
-              reject(reason);
+              // A plugin request's server error arrives namespaced (`__id::code`);
+              // strip it back to the plain code the plugin declared. A plain app
+              // event, a built-in code, or a Timeout/Disconnected passes through.
+              reject(unscopeErrorCode(event, reason));
             },
           });
 

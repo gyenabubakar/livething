@@ -12,3 +12,15 @@ export const NAMESPACE_DELIMITER = '::';
 export function namespacedName(id: string, name: string): string {
   return `__${id}${NAMESPACE_DELIMITER}${name}`;
 }
+
+/**
+ * The `__<id>::` prefix of a framework-namespaced wire name, or `''` when the
+ * name carries none (a plain app name). Used to strip a plugin's namespace back
+ * off an inbound name — a channel's child event, or an error code carried on a
+ * request/stream reply — so the plugin sees the plain name it wrote.
+ */
+export function namespacePrefixOf(name: string): string {
+  if (!name.startsWith('__')) return '';
+  const delimAt = name.indexOf(NAMESPACE_DELIMITER);
+  return delimAt < 0 ? '' : name.slice(0, delimAt + NAMESPACE_DELIMITER.length);
+}

@@ -369,6 +369,82 @@ describe('scoped stream and onRequest', () => {
     for await (const chunk of handle) rows.push(chunk);
     expect(rows).toEqual([{ row: 1 }]);
   });
+
+  it('a plugin request rejection surfaces the plain error code', async () => {
+    const Chat = plugin<
+      {
+        requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
+        errors: { 'room-full': { limit: number } };
+      },
+      { send: () => Promise<{ id: string }> }
+    >()({
+      id: 'acme:chat',
+      dependencies: [requestResponse],
+      setup(socket) {
+        return { api: () => ({ send: () => socket.request('send-message', { text: 'hi' }) }) };
+      },
+    });
+
+    const { socket, ws } = build(requestResponse(), Chat());
+    const pending = Chat.use(socket).send();
+
+    const req = ws.sentFrames().find((f) => f.event === '__acme:chat::send-message');
+    const correlationId = req?.__wskit?.correlationId as string;
+    // The server sends a plugin error with its namespaced wire code.
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
+      __wskit: { correlationId },
+    });
+
+    // The plugin author works in plain names, so the rejection carries `room-full`.
+    await expect(pending).rejects.toBeInstanceOf(WSKitError);
+    await pending.catch((error: WSKitError) => {
+      expect(error.code).toBe('room-full');
+      expect(error.detail).toEqual({ limit: 5 });
+    });
+  });
+
+  it('a plugin stream error surfaces the plain error code', async () => {
+    interface Wire {
+      streams: { feed: { payload: { from: number }; chunk: { row: number } } };
+      errors: { 'feed-gone': { why: string } };
+    }
+    interface Host {
+      streams: { '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } } };
+      errors: { '__acme:feed::feed-gone': { why: string } };
+    }
+
+    const Feed = plugin<Wire, { start: () => Promise<StreamHandle<{ row: number }>> }>()({
+      id: 'acme:feed',
+      dependencies: [stream],
+      setup(socket) {
+        return {
+          api: () => ({ start: () => socket.stream('feed', { from: 0 }, { streamId: 'sc-err' }) }),
+        };
+      },
+    });
+
+    const socket = client<Host>()(connect('wss://test'), stream(), Feed());
+    (socket as { connect(): void }).connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const starting = Feed.use(socket).start();
+    // A stream error before it starts rejects the trigger; the code is namespaced
+    // on the wire and must reach the plugin author stripped to `feed-gone`.
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:feed::feed-gone', detail: { why: 'closed' } },
+      __wskit: { streamId: 'sc-err' },
+    });
+
+    await expect(starting).rejects.toBeInstanceOf(WSKitError);
+    await starting.catch((error: WSKitError) => {
+      expect(error.code).toBe('feed-gone');
+      expect(error.detail).toEqual({ why: 'closed' });
+    });
+  });
 });
 
 interface ThreadWire {

@@ -1,9 +1,14 @@
-import { define, emits, t } from '@wskit/server';
+import { define, emits, errors, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { error } from '@wskit/server/errors';
 import { plugin } from '@wskit/server/plugin';
 import { requests } from '@wskit/server/requests';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
+
+// A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
+// the client plugin must hand it back to the app author as the plain `room-full`.
+const RoomFull = error('room-full', v.object({ limit: v.number() }));
 
 // A pure-wskit plugin (no DO adapter) that OWNS every client-facing wire
 // surface a plugin can: an incoming handler, a client→server request, and all
@@ -22,6 +27,7 @@ const h = define({
     stream(),
     requests(),
     channels(),
+    errors([RoomFull]),
     emits({ welcome: t<{ name: string }>() }),
   ],
 });
@@ -64,10 +70,13 @@ const hello = h.on('hello', {
   },
 });
 
-// Client → plugin request, plugin returns a response.
+// Client → plugin request, plugin returns a response — or throws its declared
+// error on a magic input, to prove the request rejection reaches the client with
+// the plain code, not the namespaced wire code.
 const echo = h.request('echo', {
   input: v.object({ text: v.string() }),
   run(_ctx, payload) {
+    if (payload.text === 'boom') throw RoomFull({ limit: 5 });
     return { echoed: payload.text };
   },
 });

@@ -32,6 +32,12 @@ export interface PluginInstance<TApi = void> {
    * up, or the app closed the socket on purpose. It does NOT run on a normal drop
    * that will reconnect. Use it to release timers or other outside resources; a
    * plugin holding only in-memory state doesn't need it.
+   *
+   * A lazy socket is the exception: it reopens on demand, so no close is ever
+   * final and `dispose` does not run automatically — an idle-close and an explicit
+   * `disconnect()` are indistinguishable, and both may reopen. On a lazy socket,
+   * tie cleanup to your own listeners (the unsubscribe an `on(...)` returns), not
+   * to `dispose`.
    */
   dispose?: () => void;
 }

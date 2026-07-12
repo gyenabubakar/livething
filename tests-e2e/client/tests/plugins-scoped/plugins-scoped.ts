@@ -1,4 +1,5 @@
 import { channels, client, connect, plugin, requestResponse, stream } from '@wskit/client';
+import { WSKitError } from '@wskit/client/errors';
 import type { StreamHandle } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -115,6 +116,7 @@ export function setup(): void {
     <button data-testid="connect">connect</button>
     <button data-testid="hello">hello</button>
     <button data-testid="echo">echo</button>
+    <button data-testid="echo-fail">echo-fail</button>
     <button data-testid="stream-feed">stream-feed</button>
     <button data-testid="stream-plain">stream-plain</button>
     <button data-testid="stream-recorded">stream-recorded</button>
@@ -125,6 +127,7 @@ export function setup(): void {
     <span data-testid="welcome"></span>
     <span data-testid="raw-welcome"></span>
     <span data-testid="echo-result"></span>
+    <span data-testid="echo-error"></span>
     <span data-testid="feed-rows"></span>
     <span data-testid="plain-rows"></span>
     <span data-testid="recorded-rows"></span>
@@ -178,6 +181,13 @@ export function setup(): void {
   button('echo', async () => {
     const res = await feed.echo('hello');
     el('echo-result').textContent = res.echoed;
+  });
+  // The server throws its declared `room-full` on this input; the rejection must
+  // reach the app as the plain `room-full`, not the namespaced wire code.
+  button('echo-fail', () => {
+    void feed.echo('boom').catch((error: unknown) => {
+      el('echo-error').textContent = error instanceof WSKitError ? error.code : String(error);
+    });
   });
   button('stream-feed', () => drain(feed.streamFeed(), 'feed-rows'));
   button('stream-plain', () => drain(feed.streamPlain(), 'plain-rows'));

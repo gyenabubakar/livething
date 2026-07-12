@@ -1,5 +1,5 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
@@ -469,7 +469,19 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
             case '__error__': {
               if (envelope?.correlationId !== undefined) return message;
-              const error = toWSKitError(message.payload);
+              // A plugin stream's server error arrives namespaced (`__id::code`);
+              // strip it back to the plain code using the stream's own namespaced
+              // event, wherever that stream is tracked. Built-in codes (e.g.
+              // `stream-aborted`) don't carry the prefix and pass through unchanged.
+              const streamEvent =
+                triggers.get(streamId)?.event ??
+                streams.get(streamId)?.event ??
+                broadcastRuns.get(streamId)?.event ??
+                envelope?.eventName;
+              const error = unscopeErrorCode(
+                streamEvent,
+                toWSKitError(message.payload),
+              ) as WSKitError;
               // A non-terminal error (a rejected nudge) settles its nudge() Promise
               // and leaves the stream running.
               if (envelope?.streamTerminated === false) {

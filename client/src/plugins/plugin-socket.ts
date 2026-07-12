@@ -80,10 +80,10 @@ type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 /**
  * A typed union of the plugin's declared errors as real `WSKitError` instances,
  * one member per declared error code — `WSKitError<'room-full', { limit: number }>
- * | …`. What an `onError` handler receives, so `err.matches(...)` /
- * `err instanceof WSKitError` work and `switch (err.code)` types `err.detail` per
- * case, exactly like the app's top-level `onError`. The code is the plain name;
- * the framework strips the plugin's `__<id>::` prefix before handing it over.
+ * | …`. What an `onError` handler receives: `switch (err.code)` types `err.detail`
+ * per case. It is a real `WSKitError` instance (so `err instanceof WSKitError`
+ * holds), carrying the plain name — the framework strips the plugin's `__<id>::`
+ * prefix before handing it over.
  */
 type PluginError<P extends SocketContract> = {
   [K in keyof ErrorsOf<P> & string]: WSKitError<K, ErrorsOf<P>[K]>;

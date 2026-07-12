@@ -1,5 +1,6 @@
 import { ChannelNotSubscribed } from '@wskit/core';
 import { Disconnected } from '~/errors.ts';
+import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
@@ -32,10 +33,7 @@ export interface ChannelContext {
  * else the channel name; it is `''` for a non-plugin channel or one with no `::`.
  */
 export function channelEventPrefix(channelName: string, familyKey: string | undefined): string {
-  const source = familyKey ?? channelName;
-  if (!source.startsWith('__')) return '';
-  const delimAt = source.indexOf('::');
-  return delimAt < 0 ? '' : source.slice(0, delimAt + 2);
+  return namespacePrefixOf(familyKey ?? channelName);
 }
 
 /** The routing fields (`__wskit`) that identify this channel on outgoing frames. */

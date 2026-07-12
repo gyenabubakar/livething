@@ -30,6 +30,16 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await expect.poll(async () => page.getByTestId('echo-result').textContent()).toBe('hello');
   });
 
+  test('scoped request rejection surfaces the plain plugin error code', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-echo-fail-${testInfo.testId}`);
+    await page.getByTestId('echo-fail').click();
+    // The server throws `__e2e:feed::room-full`; the client plugin strips the
+    // namespace so the app author catches the plain `room-full`.
+    await expect.poll(async () => page.getByTestId('echo-error').textContent()).toBe('room-full');
+  });
+
   test('scoped durable stream delivers chunks over the wire', async ({ page }, testInfo) => {
     await open(page, `sc-feed-${testInfo.testId}`);
     await page.getByTestId('stream-feed').click();
