@@ -121,6 +121,7 @@ export function setup(): void {
     <button data-testid="stream-plain">stream-plain</button>
     <button data-testid="stream-recorded">stream-recorded</button>
     <button data-testid="join-room">join-room</button>
+    <button data-testid="join-room-fail">join-room-fail</button>
     <button data-testid="chat">chat</button>
     <button data-testid="join-thread">join-thread</button>
     <span data-testid="status"></span>
@@ -132,6 +133,7 @@ export function setup(): void {
     <span data-testid="plain-rows"></span>
     <span data-testid="recorded-rows"></span>
     <span data-testid="joined"></span>
+    <span data-testid="subscribe-error"></span>
     <span data-testid="said"></span>
     <span data-testid="posted"></span>
   `);
@@ -199,6 +201,16 @@ export function setup(): void {
     return feed.joinRoom((who) => {
       el('joined').textContent = who ? 'joined' : '';
     });
+  });
+  // The server's channel `check` throws its declared `room-full` for a blocked
+  // user; the subscribe rejection must carry the plain code, not the namespaced one.
+  button('join-room-fail', () => {
+    void feed
+      .joinRoom(() => undefined)
+      .catch((error: unknown) => {
+        el('subscribe-error').textContent =
+          error instanceof WSKitError ? error.code : String(error);
+      });
   });
   // Send on the plugin channel; the server echoes it back as `said`, which only
   // arrives if the outgoing `chat` reached the server's namespaced handler.

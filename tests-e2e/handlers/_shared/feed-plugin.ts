@@ -38,6 +38,12 @@ const h = define({
 // just the incoming ones the server broadcasts).
 const room = h.channel('room', {
   outgoing: { emits: { joined: t<{ who: string }>(), said: t<{ text: string }>() } },
+  // A declared error thrown from a channel lifecycle handler leaves the server
+  // namespaced (`__e2e:feed::room-full`); the client plugin must reject the
+  // subscribe with the plain `room-full`.
+  check(ctx) {
+    if ((ctx.meta as { username?: string }).username === 'blocked') throw RoomFull({ limit: 5 });
+  },
 });
 
 room.subscribe((ctx) => {

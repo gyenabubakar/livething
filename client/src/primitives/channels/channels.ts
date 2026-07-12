@@ -1,6 +1,6 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import {
@@ -10,6 +10,7 @@ import {
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
+import type { WSKitError } from '@wskit/core';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
@@ -275,7 +276,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               if (wskit?.correlationId !== undefined) return message;
               // A stream error carries a streamId and belongs to the stream primitive.
               if (wskit?.streamId !== undefined) return message;
-              state.fireSubscriptionFailed(toWSKitError(message.payload));
+              // A plugin channel's error arrives namespaced (`__id::code`); strip it
+              // back to the plain code the plugin declared, keyed by the channel's
+              // namespaced name/family — the same source the incoming event strip uses.
+              const error = unscopeErrorCode(
+                familyKey ?? name,
+                toWSKitError(message.payload),
+              ) as WSKitError;
+              state.fireSubscriptionFailed(error);
               return null;
             }
 

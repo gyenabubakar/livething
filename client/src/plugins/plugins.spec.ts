@@ -585,6 +585,46 @@ describe('scoped channels — dynamic families', () => {
       channelFamily: '__acme:chat::thread',
     });
   });
+
+  it('a plugin channel subscribe rejection surfaces the plain error code', async () => {
+    interface Wire {
+      channels: { room: { incoming: { joined: { who: string } } } };
+      errors: { 'room-locked': { reason: string } };
+    }
+    interface Host {
+      channels: { '__acme:chat::room': { incoming: { joined: { who: string } } } };
+      errors: { '__acme:chat::room-locked': { reason: string } };
+    }
+
+    const Chat = plugin<Wire, { join: () => Promise<void> }>()({
+      id: 'acme:chat',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        return { api: () => ({ join: () => room.subscribe() }) };
+      },
+    });
+
+    const socket = client<Host>()(connect('wss://test'), channels(), Chat());
+    (socket as { connect(): void }).connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const pending = Chat.use(socket).join();
+
+    // The server rejects the subscribe with its namespaced error code.
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::room-locked', detail: { reason: 'full' } },
+      __wskit: { channel: '__acme:chat::room' },
+    });
+
+    // The plugin author works in plain names, so the rejection carries `room-locked`.
+    await expect(pending).rejects.toBeInstanceOf(WSKitError);
+    await pending.catch((error: WSKitError) => {
+      expect(error.code).toBe('room-locked');
+      expect(error.detail).toEqual({ reason: 'full' });
+    });
+  });
 });
 
 describe('scoped errors — onError()', () => {

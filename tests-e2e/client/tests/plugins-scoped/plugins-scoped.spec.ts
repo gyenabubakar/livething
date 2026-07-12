@@ -5,8 +5,8 @@ import type { Page } from '@playwright/test';
 // PLUGIN (the scoped model). Proves the scoped socket round-trips every verb over
 // the real wire under the plugin's namespace, and that the plugin owns that
 // namespace — a raw top-level listener for a plugin frame never fires.
-async function open(page: Page, room: string): Promise<void> {
-  await page.goto(`/tests/plugins-scoped/index.html?room=${room}&username=alice`);
+async function open(page: Page, room: string, username = 'alice'): Promise<void> {
+  await page.goto(`/tests/plugins-scoped/index.html?room=${room}&username=${username}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('open');
@@ -62,6 +62,18 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await open(page, `sc-room-${testInfo.testId}`);
     await page.getByTestId('join-room').click();
     await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
+  });
+
+  test('scoped channel subscribe rejection surfaces the plain plugin error code', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-locked-${testInfo.testId}`, 'blocked');
+    await page.getByTestId('join-room-fail').click();
+    // The server's channel `check` throws `__e2e:feed::room-full`; the client
+    // plugin strips the namespace so the app catches the plain `room-full`.
+    await expect
+      .poll(async () => page.getByTestId('subscribe-error').textContent())
+      .toBe('room-full');
   });
 
   test('scoped channel send reaches the server (outgoing child event is namespaced)', async ({

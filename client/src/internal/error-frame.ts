@@ -11,16 +11,17 @@ export function toWSKitError(payload: unknown): WSKitError {
 /**
  * Strip a plugin's namespace off an error's code so the plugin author sees the
  * plain name they declared. A server-sent error for a plugin carries the
- * namespaced wire code (`__<id>::room-full`), and a request/stream reply is
- * claimed by its primitive before the plugin can restrip it — so we strip here,
- * using the prefix of the operation's own namespaced `event`. A non-namespaced
- * event (a plain app operation), a non-`WSKitError`, or a code from a different
+ * namespaced wire code (`__<id>::room-full`), and a request/stream/channel reply
+ * is claimed by its primitive before the plugin can restrip it — so we strip
+ * here, using the prefix of the operation's own namespaced name (`source`: a
+ * request/stream event, or a channel's name / family key). A non-namespaced
+ * source (a plain app operation), a non-`WSKitError`, or a code from a different
  * namespace (e.g. a built-in) is returned untouched — mirroring the scoped
  * `onError` path so both directions of a plugin's errors read in plain names.
  */
-export function unscopeErrorCode(event: string | undefined, error: unknown): unknown {
-  if (event === undefined || !(error instanceof WSKitError)) return error;
-  const prefix = namespacePrefixOf(event);
+export function unscopeErrorCode(source: string | undefined, error: unknown): unknown {
+  if (source === undefined || !(error instanceof WSKitError)) return error;
+  const prefix = namespacePrefixOf(source);
   return prefix && error.code.startsWith(prefix)
     ? new WSKitError(error.code.slice(prefix.length), error.detail)
     : error;
