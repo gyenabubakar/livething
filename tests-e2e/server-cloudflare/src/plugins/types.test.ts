@@ -143,6 +143,19 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
       PluginsClient['streams']['__e2e:feed::feed-recorded']['kind']
     >().toEqualTypeOf<'persistent'>();
   });
+
+  it('exposes a plugin stream nudge under a plain nested key, not a prefixed one', () => {
+    // The stream KEY is namespaced (`__e2e:feed::nudgeable`), but its nested nudge
+    // key stays plain — nudges live inside the stream, not as top-level wire events.
+    // The `__id::` prefix is added on the wire at send time (the scoped socket), so
+    // the contract keeps the plain name the plugin author declared and calls.
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::nudgeable']['nudges']['boost']
+    >().toEqualTypeOf<{ amount: number }>();
+    expectTypeOf<PluginsClient['streams']['__e2e:feed::nudgeable']['nudges']>().not.toHaveProperty(
+      '__e2e:feed::boost',
+    );
+  });
 });
 
 describe('PluginsClient — Drizzle plugin (prefixed __id:: names, top-level)', () => {
