@@ -96,10 +96,8 @@ inferHost.on('host-probe', {
 // Gap 3 — a plain plugin's events fold into the host's TOP-LEVEL client maps
 // under their `__<id>::` wire-prefixed names, flipped into the client view. The
 // client carries no `plugins` key; short names never appear; a made-up prefixed
-// name is rejected. (No channel here on purpose — a channel-bearing scoped
-// handler degrades its captured contract to `any`, which would mask the
-// per-name discrimination this gap proves; the channel itself is covered by
-// gap 4 below.)
+// name is rejected. (No channel here — this gap isolates top-level name
+// discrimination; a plugin channel is covered by gap 4 below.)
 // ---------------------------------------------------------------------------
 const leakScoped = define({
   scoped: true,

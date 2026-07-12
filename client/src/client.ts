@@ -35,6 +35,17 @@ type ClaimedIds<TPrimitives extends readonly unknown[]> = {
     : never;
 }[number];
 
+/**
+ * Reject a plugin that declared `observesHostTraffic: true` but wasn't wrapped in
+ * `observeHost(...)`: its `__requiresHostGrant` brand is a string, not assignable
+ * to the `never` this demands, so the bare argument is a type error.
+ * `observeHost(...)` strips the brand. Every other primitive has no such brand and
+ * passes untouched.
+ */
+type GrantGate<TPrimitives extends readonly unknown[]> = {
+  [I in keyof TPrimitives]: { readonly __requiresHostGrant?: never };
+};
+
 type AppSocketFor<
   C,
   TPrimitives extends readonly Primitive<any, any>[],
@@ -80,7 +91,9 @@ export type AppSocket<
 export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
-    ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
+    ...primitives: [...TPrimitives] &
+      ValidatePrimitives<TContract, TPrimitives> &
+      GrantGate<TPrimitives>
   ): AppSocket<TContract, TPrimitives> {
     return buildSocket(
       connectDescriptor,
@@ -102,6 +115,7 @@ function buildSocket(
 
   assertNoDuplicateTags(primitiveSpecs);
   assertUniquePluginIds(pluginSpecs);
+  assertHostObservationGranted(pluginSpecs);
   assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
 
   // Primitives run first, in dependency order; plugins run after, in
@@ -174,6 +188,33 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
         );
       }
     }
+  }
+}
+
+/**
+ * Backstop the compile gate: a plugin that opted into host observation but was
+ * registered without `observeHost(...)` throws a clear build error. Covers the
+ * case where `observesHostTraffic` is a non-literal boolean (the type widens, so
+ * the brand never fires). When a grant is present, warn once that the plugin can
+ * see the app's frames.
+ */
+function assertHostObservationGranted(pluginSpecs: readonly Primitive[]): void {
+  for (const spec of pluginSpecs) {
+    const grant = spec as Primitive & {
+      __observesHostTraffic?: boolean;
+      __hostObservationGranted?: boolean;
+    };
+    if (!grant.__observesHostTraffic) continue;
+    const { id } = spec._plugin!;
+    if (!grant.__hostObservationGranted) {
+      throw new WSKitConfigError(
+        `[wskit] plugin '${id}' observes host traffic but was registered without observeHost(...). ` +
+          `Wrap it as observeHost(${id}()) in client() to grant the privilege.`,
+      );
+    }
+    console.warn(
+      `[wskit] plugin "${id}" is granted host-traffic observation (its onIncoming/onOutgoing see the app's frames)`,
+    );
   }
 }
 

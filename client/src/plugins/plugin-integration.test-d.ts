@@ -4,7 +4,7 @@
 // namespace. tsc checks these; vitest never runs them.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { plugin } from '~/plugins/plugins.ts';
+import { observeHost, plugin } from '~/plugins/plugins.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { expectTypeOf } from 'vitest';
 
@@ -101,3 +101,10 @@ client<HostContract>()(connect('wss://example.com'), requestResponse(), Chat());
 // An observe-only plugin (no contract) requires nothing and registers anywhere.
 const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 client<NoChatContract>()(connect('wss://example.com'), Watcher());
+
+// A host-observing plugin can't be registered bare — it must be granted.
+const Logger = plugin()({ id: 'acme:logger', observesHostTraffic: true, setup: () => ({}) });
+// @ts-expect-error — observesHostTraffic: true needs observeHost(...) to register
+client<NoChatContract>()(connect('wss://example.com'), Logger());
+// Wrapping it in observeHost(...) grants the privilege and it registers.
+client<NoChatContract>()(connect('wss://example.com'), observeHost(Logger()));

@@ -9,6 +9,7 @@ interface ChatContract {
   channels: { room: { incoming: { reaction: { emoji: string } } } };
   streams: { feed: { payload: { from: number }; chunk: { row: number } } };
   serverRequests: { ping: { payload: { at: number }; response: { pong: boolean } } };
+  errors: { 'room-full': { limit: number } };
 }
 
 type ChatSocket = PluginSocket<ChatContract>;
@@ -45,6 +46,13 @@ expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
 expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
 
+// Typed scoped errors — a discriminated union over the plugin's declared codes.
+expectTypeOf<ChatSocket['onError']>().toBeFunction();
+expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeOf<{
+  code: 'room-full';
+  detail: { limit: number };
+}>();
+
 // The always-present taps and tools are there too.
 expectTypeOf<ChatSocket['onIncoming']>().toBeFunction();
 expectTypeOf<ChatSocket['onOutgoing']>().toBeFunction();
@@ -67,6 +75,7 @@ expectTypeOf<PlainSocket>().not.toHaveProperty('request');
 expectTypeOf<PlainSocket>().not.toHaveProperty('channel');
 expectTypeOf<PlainSocket>().not.toHaveProperty('stream');
 expectTypeOf<PlainSocket>().not.toHaveProperty('onRequest');
+expectTypeOf<PlainSocket>().not.toHaveProperty('onError');
 
 // A plugin that only receives (incoming, no requests/channels/streams) has `on`
 // but none of the other verbs.

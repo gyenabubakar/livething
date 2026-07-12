@@ -58,6 +58,16 @@ export interface PluginDef<P extends SocketContract, TApi> {
   dependencies?: readonly PrimitiveFactory[];
 
   /**
+   * Let this plugin's `onIncoming`/`onOutgoing` taps see the whole app's frames,
+   * not just its own namespace. Off by default (least privilege): a plugin
+   * observes only its own traffic. When set to the literal `true`, registering the
+   * plugin bare is a type error — the app must wrap it in `observeHost(...)` to
+   * grant the privilege on purpose. A plugin never sees another plugin's frames
+   * unless this is on.
+   */
+  observesHostTraffic?: boolean;
+
+  /**
    * Wire up handlers and hooks on the scoped socket, then return the plugin's API
    * and cleanup. It runs once, when the socket is built.
    */
@@ -71,9 +81,27 @@ export interface PluginDef<P extends SocketContract, TApi> {
  * knows which namespace this plugin claims, and `P` becomes the primitive's
  * `_requires` so `client()` rejects a socket whose contract lacks that namespace.
  */
-export interface PluginFactory<TApi, TId extends string = string, P extends SocketContract = {}> {
+export interface PluginFactory<
+  TApi,
+  TId extends string = string,
+  P extends SocketContract = {},
+  TObservesHost extends boolean = false,
+> {
   (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
     readonly _plugin: { readonly id: TId };
+    /** Whether the plugin opted its taps into observing host traffic. @internal */
+    readonly __observesHostTraffic: boolean;
+    /** Set once `observeHost(...)` wraps this plugin; the runtime grant gate reads it. @internal */
+    readonly __hostObservationGranted?: boolean;
+    /**
+     * Phantom brand present only when `observesHostTraffic` is the literal `true`
+     * and the plugin has not been wrapped by `observeHost(...)`. `client()`'s
+     * argument type rejects it, so a bare registration is a compile error;
+     * `observeHost(...)` strips it. Never set at runtime. @internal
+     */
+    readonly __requiresHostGrant?: [TObservesHost] extends [true]
+      ? 'This plugin observes host traffic — wrap it in observeHost(...) to grant the privilege.'
+      : never;
   };
 
   /** The plugin's id — its namespace and log label. */

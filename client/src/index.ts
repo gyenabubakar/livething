@@ -27,7 +27,7 @@ export type { InterceptFn } from '~/primitives/intercept.ts';
 export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
 export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
-export { plugin } from '~/plugins/index.ts';
+export { plugin, observeHost } from '~/plugins/index.ts';
 export type {
   PluginDef,
   PluginInstance,

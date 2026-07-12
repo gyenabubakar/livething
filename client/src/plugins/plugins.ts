@@ -5,7 +5,6 @@ import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
-import type { NamespacedContract } from '~/plugins/contract.ts';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type {
   PluginDef,
@@ -13,7 +12,6 @@ import type {
   PluginInstance,
   PrimitiveFactory,
 } from '~/plugins/types.ts';
-import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 import type { SocketContract } from '~/types.ts';
 
@@ -69,7 +67,7 @@ function usePlugin(socket: object, id: string): unknown {
 
 type IncomingHook = (message: WireMessage) => WireMessage | void;
 type OpenHook = () => WireMessage[] | void;
-type CloseHook = (code: number, reason: string) => void;
+type CloseHook = (code: number, reason: string, suspended: boolean) => void;
 
 /**
  * A plugin only owns plain top-level frames in its namespace. A frame carrying a
@@ -88,11 +86,13 @@ function ownsFrame(message: WireMessage): boolean {
  * route its namespace to it and run its cleanup.
  */
 function createPluginRuntime<P extends SocketContract, TApi>(
-  id: string,
   def: PluginDef<P, TApi>,
   helpers: PrimitiveHelpers,
+  observing: boolean,
 ): PrimitiveRuntime {
+  const id = def.id;
   const handlers = new Map<string, Set<(data: unknown) => void>>();
+  const errorHandlers = new Set<(error: { code: string; detail: unknown }) => void>();
   let disposed = false;
   let instance: PluginInstance<TApi> | null = null;
 
@@ -161,6 +161,11 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       void (userReconnect = once('onReconnect', userReconnect, handler)),
     onClose: (handler: CloseHook) => void (userClose = once('onClose', userClose, handler)),
 
+    onError(handler: (error: { code: string; detail: unknown }) => void): () => void {
+      errorHandlers.add(handler);
+      return () => errorHandlers.delete(handler);
+    },
+
     generateId: (prefix?: string) => helpers.generateId(prefix),
     hasPrimitive: (tag: string) => helpers.hasPrimitive(tag),
     ensureConnected: () => helpers.ensureConnected(),
@@ -186,6 +191,45 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     return frames.map((frame) => ({ ...frame, event: namespacedName(id, frame.event) }));
   }
 
+  // Whether a frame belongs to this plugin's namespace: a `__<id>::` event, or an
+  // error frame whose code is namespaced. Raw taps see only these unless the
+  // plugin was granted host observation.
+  function inNamespace(message: WireMessage): boolean {
+    if (message.event.startsWith(ownPrefix)) return true;
+    if (message.event === '__error__') {
+      const code = (message.payload as { code?: unknown } | null)?.code;
+      return typeof code === 'string' && code.startsWith(ownPrefix);
+    }
+    return false;
+  }
+
+  function dispatchError(error: { code: string; detail: unknown }): void {
+    for (const handler of errorHandlers) {
+      try {
+        handler(error);
+      } catch (e) {
+        report(e);
+      }
+    }
+  }
+
+  /*
+   * A server-pushed error in this plugin's namespace arrives as an `__error__`
+   * frame whose `code` reads `__<id>::<name>`. An error tied to a request or
+   * stream is already claimed by that primitive before the plugin sees it, so one
+   * reaching here is unsolicited. Claim it only when a handler is registered;
+   * otherwise leave it for the app's top-level onError, unchanged.
+   */
+  function claimError(message: WireMessage): boolean {
+    if (message.event !== '__error__' || errorHandlers.size === 0 || !ownsFrame(message)) {
+      return false;
+    }
+    const payload = message.payload as { code?: unknown; detail?: unknown } | null;
+    if (typeof payload?.code !== 'string' || !payload.code.startsWith(ownPrefix)) return false;
+    dispatchError({ code: payload.code.slice(ownPrefix.length), detail: payload.detail });
+    return true;
+  }
+
   function runDispose(): void {
     if (disposed) return;
     disposed = true;
@@ -209,7 +253,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     onIncoming(message) {
       let current = message;
-      if (userIncoming) {
+      if (userIncoming && (observing || inNamespace(current))) {
         const run = userIncoming;
         const result = runMessageHook((m) => run(m) ?? m, current, report);
         if (result === null) return null;
@@ -219,11 +263,12 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         dispatch(current.event.slice(ownPrefix.length), current.payload);
         return null;
       }
+      if (claimError(current)) return null;
       return current;
     },
 
     onOutgoing(message) {
-      if (!userOutgoing) return message;
+      if (!userOutgoing || !(observing || inNamespace(message))) return message;
       const run = userOutgoing;
       return runMessageHook((m) => run(m) ?? m, message, report);
     },
@@ -252,7 +297,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       const [code, reason, intentional, suspended] = args;
       if (userClose) {
         try {
-          userClose(code, reason);
+          userClose(code, reason, !!suspended);
         } catch (error) {
           report(error);
         }
@@ -306,11 +351,12 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * ```
  */
 export function plugin<P extends SocketContract = {}, TApi = void>() {
-  return function define<const TId extends string>(
-    def: PluginDef<P, TApi> & { id: TId },
-  ): PluginFactory<TApi, TId, P> {
+  return function define<const TId extends string, const TObservesHost extends boolean = false>(
+    def: PluginDef<P, TApi> & { id: TId; observesHostTraffic?: TObservesHost },
+  ): PluginFactory<TApi, TId, P, TObservesHost> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
+    const observesHostTraffic = def.observesHostTraffic === true;
 
     // `::` separates the id from the name on the wire, so an id that contains it
     // would make one plugin's prefix a prefix of another's — and swallow its
@@ -322,20 +368,52 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
     }
 
     const factory = Object.assign(
-      (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
-        readonly _plugin: { readonly id: TId };
-      } => ({
-        _tag: id,
-        _plugin: { id },
-        dependencies,
-        setup: (helpers) => createPluginRuntime(id, def, helpers),
-      }),
+      () => {
+        // Build the spec first so `setup` can read the grant flag that
+        // observeHost(...) sets on this exact object, before buildSocket runs it.
+        const spec = {
+          _tag: id,
+          _plugin: { id },
+          __observesHostTraffic: observesHostTraffic,
+          dependencies,
+          setup: (helpers: PrimitiveHelpers) =>
+            createPluginRuntime(
+              def,
+              helpers,
+              observesHostTraffic &&
+                (spec as { __hostObservationGranted?: boolean }).__hostObservationGranted === true,
+            ),
+        };
+        return spec;
+      },
       {
         id,
         use: (socket: object): TApi => usePlugin(socket, id) as TApi,
       },
-    );
+    ) as unknown as PluginFactory<TApi, TId, P, TObservesHost>;
 
     return factory;
+  };
+}
+
+/**
+ * Grant a plugin that declared `observesHostTraffic: true` the right to see the
+ * whole app's frames in its `onIncoming`/`onOutgoing` taps. Wrap the registered
+ * plugin where you pass it to `client()`:
+ *
+ * ```ts
+ * client<AppContract>()(connect('wss://...'), observeHost(Logger()));
+ * ```
+ *
+ * Without the wrap, registering such a plugin is a type error — the grant is
+ * explicit so host-wide observation is always visible at the call site. A plugin
+ * that does not observe host traffic never needs this.
+ */
+export function observeHost<TSpec extends { readonly _plugin: { readonly id: string } }>(
+  granted: TSpec,
+): Omit<TSpec, '__requiresHostGrant'> & { readonly __hostObservationGranted: true } {
+  (granted as { __hostObservationGranted?: boolean }).__hostObservationGranted = true;
+  return granted as unknown as Omit<TSpec, '__requiresHostGrant'> & {
+    readonly __hostObservationGranted: true;
   };
 }

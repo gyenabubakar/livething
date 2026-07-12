@@ -8,6 +8,7 @@ import type { Apply } from '~/primitives/types.ts';
 import type {
   ChannelsOf,
   ConnectionState,
+  ErrorsOf,
   IncomingOf,
   OutgoingOf,
   RequestMethod,
@@ -45,8 +46,12 @@ export interface PluginBase {
   /** Runs only on reconnects. Return frames to send right away. */
   onReconnect(handler: () => WireMessage[] | void): void;
 
-  /** Runs on every close, with the close code and reason. */
-  onClose(handler: (code: number, reason: string) => void): void;
+  /**
+   * Runs on every close, with the close code and reason. `suspended` is `true`
+   * for a platform pause that will resume the same session (not a real end), so a
+   * handler can skip teardown it should only do on a true close.
+   */
+  onClose(handler: (code: number, reason: string, suspended: boolean) => void): void;
 
   /** Make a unique id that shares the socket's counter, so it never clashes. */
   generateId(prefix?: string): string;
@@ -70,6 +75,24 @@ export interface PluginBase {
 type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 
 /**
+ * A typed union of the plugin's declared errors: `{ code: 'room-full'; detail: … }
+ * | …`, one member per declared error code. What an `onError` handler receives.
+ */
+type PluginError<P extends SocketContract> = {
+  [K in keyof ErrorsOf<P> & string]: { code: K; detail: ErrorsOf<P>[K] };
+}[keyof ErrorsOf<P> & string];
+
+/**
+ * A plugin with declared errors gets `onError`, which sees the server-pushed
+ * errors in its namespace that no request or stream claimed. Present only when the
+ * plugin declares an `errors` section.
+ */
+type PluginErrorHandling<P extends SocketContract> = WhenPresent<
+  ErrorsOf<P>,
+  { onError(handler: (error: PluginError<P>) => void): () => void }
+>;
+
+/**
  * The socket a plugin's `setup` receives. It has the same verbs as the app socket
  * — `on`, `send`, `request`, `channel`, `stream`, `onStream`, `resumeStream`,
  * `onRequest` — but typed to the plugin's own contract and scoped to its
@@ -82,5 +105,6 @@ export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   Messaging<IncomingOf<P> & object, OutgoingOf<P> & object> &
   WhenPresent<RequestsOf<P>, RequestMethod<P, 'request'>> &
   PluginChannels<P> &
+  PluginErrorHandling<P> &
   Apply<StreamTypeFn, P> &
   Apply<ServerRequestTypeFn, P>;

@@ -1,7 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
-import { plugin } from '~/plugins/plugins.ts';
+import { observeHost, plugin } from '~/plugins/plugins.ts';
 import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
@@ -33,6 +33,9 @@ interface AppContract {
   };
   streams: {
     '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } };
+  };
+  errors: {
+    '__acme:chat::room-full': { limit: number };
   };
 }
 
@@ -296,8 +299,69 @@ describe('scoped stream and onRequest', () => {
   });
 });
 
+describe('scoped errors — onError()', () => {
+  it('delivers a namespaced unsolicited error to a typed handler', () => {
+    const seen: { code: string; detail: unknown }[] = [];
+    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
+      id: 'acme:chat',
+      setup(socket) {
+        socket.onError((e) => seen.push(e));
+        return {};
+      },
+    });
+
+    const { ws } = build(Chat());
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
+    });
+
+    // Plain code, typed detail — the `__acme:chat::` prefix is stripped.
+    expect(seen).toEqual([{ code: 'room-full', detail: { limit: 5 } }]);
+  });
+
+  it('bubbles to the app onError when the plugin registered no handler', () => {
+    const appErrors: unknown[] = [];
+    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
+      id: 'acme:chat',
+      setup: () => ({}),
+    });
+
+    const { socket, ws } = build(Chat());
+    socket.onError((e) => appErrors.push(e));
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
+    });
+
+    expect(appErrors).toHaveLength(1);
+  });
+});
+
 describe('generic taps and lifecycle', () => {
-  it('onIncoming sees every frame, including other namespaces', () => {
+  it('a host-observing plugin sees every frame, including other namespaces', () => {
+    const events: string[] = [];
+    const Watcher = plugin()({
+      id: 'acme:watcher',
+      observesHostTraffic: true,
+      setup(socket) {
+        socket.onIncoming((frame) => {
+          events.push(frame.event);
+          return frame;
+        });
+        return {};
+      },
+    });
+
+    const { ws } = build(observeHost(Watcher()));
+    ws.emit({ event: 'welcome', payload: { name: 'a' } });
+    ws.emit({ event: '__other:plugin::ping', payload: {} });
+
+    expect(events).toContain('welcome');
+    expect(events).toContain('__other:plugin::ping');
+  });
+
+  it('a plain plugin only taps its own namespace', () => {
     const events: string[] = [];
     const Watcher = plugin()({
       id: 'acme:watcher',
@@ -313,9 +377,10 @@ describe('generic taps and lifecycle', () => {
     const { ws } = build(Watcher());
     ws.emit({ event: 'welcome', payload: { name: 'a' } });
     ws.emit({ event: '__other:plugin::ping', payload: {} });
+    ws.emit({ event: '__acme:watcher::tick', payload: {} });
 
-    expect(events).toContain('welcome');
-    expect(events).toContain('__other:plugin::ping');
+    // Only its own frame; the app's and another plugin's are invisible to it.
+    expect(events).toEqual(['__acme:watcher::tick']);
   });
 
   it('onOpen frames are sent on connect, stamped with the plugin namespace', () => {
@@ -410,7 +475,14 @@ describe('dispose', () => {
   it('does not run on a platform suspend, which resumes the same session', async () => {
     vi.useFakeTimers();
     const dispose = vi.fn();
-    const Chat = plugin()({ id: 'acme:chat', setup: () => ({ dispose }) });
+    const onClose = vi.fn();
+    const Chat = plugin()({
+      id: 'acme:chat',
+      setup(socket) {
+        socket.onClose((_code, _reason, suspended) => onClose(suspended));
+        return { dispose };
+      },
+    });
 
     const control: { setVisible?: (visible: boolean) => void } = {};
     const env = environment({
@@ -431,6 +503,8 @@ describe('dispose', () => {
     // A suspend settles on 'closed' but is meant to resume, so the plugin lives on.
     expect(socket.state.get()).toBe('closed');
     expect(dispose).not.toHaveBeenCalled();
+    // onClose still fires, flagged as a suspend so a handler can tell it apart.
+    expect(onClose).toHaveBeenCalledWith(true);
     vi.useRealTimers();
   });
 });
