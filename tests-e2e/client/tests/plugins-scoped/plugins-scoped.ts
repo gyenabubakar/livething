@@ -23,7 +23,10 @@ interface FeedWire {
     'feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
   channels: {
-    room: { incoming: { joined: { who: string } } };
+    room: {
+      outgoing: { chat: { text: string } };
+      incoming: { joined: { who: string }; said: { text: string } };
+    };
     thread: { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
   };
 }
@@ -44,7 +47,10 @@ interface FeedHost {
     '__e2e:feed::feed-recorded': { payload: Record<string, never>; chunk: { n: number } };
   };
   channels: {
-    '__e2e:feed::room': { incoming: { joined: { who: string } } };
+    '__e2e:feed::room': {
+      outgoing: { chat: { text: string } };
+      incoming: { joined: { who: string }; said: { text: string } };
+    };
     '__e2e:feed::thread': { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
   };
 }
@@ -57,6 +63,8 @@ interface FeedApi {
   streamPlain(): Promise<StreamHandle<{ n: number }>>;
   streamRecorded(): Promise<StreamHandle<{ n: number }>>;
   joinRoom(onJoined: (who: string) => void): Promise<void>;
+  onSaid(cb: (text: string) => void): void;
+  chat(text: string): void;
   joinThread(id: string, onPosted: (thread: string) => void): Promise<void>;
 }
 
@@ -66,12 +74,14 @@ const Feed = plugin<FeedWire, FeedApi>()({
   setup(socket) {
     const welcomeCbs = new Set<(name: string) => void>();
     const joinedCbs = new Set<(who: string) => void>();
+    const saidCbs = new Set<(text: string) => void>();
 
     // Scoped receive: `welcome` arrives on the wire as `__e2e:feed::welcome`.
     socket.on('welcome', (m) => welcomeCbs.forEach((cb) => cb(m.name)));
 
     const room = socket.channel('room');
     room.on('joined', (m) => joinedCbs.forEach((cb) => cb(m.who)));
+    room.on('said', (m) => saidCbs.forEach((cb) => cb(m.text)));
 
     return {
       api: () => ({
@@ -85,6 +95,10 @@ const Feed = plugin<FeedWire, FeedApi>()({
           joinedCbs.add(onJoined);
           return room.subscribe();
         },
+        onSaid: (cb) => void saidCbs.add(cb),
+        // Send on the plugin channel: `chat` must go out as `__e2e:feed::chat`
+        // (namespaced) so the server's channel handler receives it.
+        chat: (text) => void room.send('chat', { text }),
         // A dynamic-family member: `thread:<id>` under the plugin namespace.
         joinThread: (id, onPosted) => {
           const t = socket.channel('thread', `thread:${id}`);
@@ -105,6 +119,7 @@ export function setup(): void {
     <button data-testid="stream-plain">stream-plain</button>
     <button data-testid="stream-recorded">stream-recorded</button>
     <button data-testid="join-room">join-room</button>
+    <button data-testid="chat">chat</button>
     <button data-testid="join-thread">join-thread</button>
     <span data-testid="status"></span>
     <span data-testid="welcome"></span>
@@ -114,6 +129,7 @@ export function setup(): void {
     <span data-testid="plain-rows"></span>
     <span data-testid="recorded-rows"></span>
     <span data-testid="joined"></span>
+    <span data-testid="said"></span>
     <span data-testid="posted"></span>
   `);
 
@@ -166,11 +182,17 @@ export function setup(): void {
   button('stream-feed', () => drain(feed.streamFeed(), 'feed-rows'));
   button('stream-plain', () => drain(feed.streamPlain(), 'plain-rows'));
   button('stream-recorded', () => drain(feed.streamRecorded(), 'recorded-rows'));
-  button('join-room', () =>
-    feed.joinRoom((who) => {
+  button('join-room', () => {
+    feed.onSaid((text) => {
+      el('said').textContent = text;
+    });
+    return feed.joinRoom((who) => {
       el('joined').textContent = who ? 'joined' : '';
-    }),
-  );
+    });
+  });
+  // Send on the plugin channel; the server echoes it back as `said`, which only
+  // arrives if the outgoing `chat` reached the server's namespaced handler.
+  button('chat', () => feed.chat('hey room'));
   button('join-thread', () =>
     // Join one specific thread; the server echoes back the concrete member it saw.
     feed.joinThread('general', (thread) => {

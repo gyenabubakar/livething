@@ -420,6 +420,95 @@ describe('scoped channels — dynamic families', () => {
     expect(subscribed).toEqual(['thread:1']);
     expect(api.rooms()).toEqual(['thread:1']);
   });
+
+  it('namespaces a plugin channel outgoing child events (static and dynamic)', async () => {
+    interface Wire {
+      channels: {
+        room: { outgoing: { chat: { text: string } }; incoming: { said: { text: string } } };
+        thread: {
+          addressing: 'dynamic';
+          outgoing: { say: { text: string } };
+          incoming: { posted: { text: string } };
+        };
+      };
+    }
+    interface Host {
+      channels: {
+        '__acme:chat::room': {
+          outgoing: { chat: { text: string } };
+          incoming: { said: { text: string } };
+        };
+        '__acme:chat::thread': {
+          addressing: 'dynamic';
+          outgoing: { say: { text: string } };
+          incoming: { posted: { text: string } };
+        };
+      };
+    }
+
+    type ChatApi = {
+      joinRoom: () => Promise<void>;
+      chat: (text: string) => void;
+      joinThread: () => Promise<void>;
+      say: (text: string) => void;
+    };
+
+    const Chat = plugin<Wire, ChatApi>()({
+      id: 'acme:chat',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        const thread = socket.channel('thread', 'thread:1');
+        return {
+          api: () => ({
+            joinRoom: () => room.subscribe(),
+            chat: (text) => void room.send('chat', { text }),
+            joinThread: () => thread.subscribe(),
+            say: (text) => void thread.send('say', { text }),
+          }),
+        };
+      },
+    });
+
+    const socket = client<Host>()(connect('wss://test'), channels(), Chat());
+    (socket as { connect(): void }).connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const api = Chat.use(socket);
+
+    const roomSub = api.joinRoom();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__acme:chat::room' },
+    });
+    await roomSub;
+
+    const threadSub = api.joinThread();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'thread:1', channelFamily: '__acme:chat::thread' },
+    });
+    await threadSub;
+
+    api.chat('hi');
+    api.say('yo');
+
+    // Static channel: the child event is namespaced, matching what the server
+    // registers, and the channel name is namespaced in the marker.
+    const chat = ws.sentFrames().find((f) => (f.payload as { text?: string })?.text === 'hi');
+    expect(chat?.event).toBe('__acme:chat::chat');
+    expect(chat?.__wskit?.channel).toBe('__acme:chat::room');
+
+    // Dynamic member: child event namespaced, family key namespaced, instance plain.
+    const say = ws.sentFrames().find((f) => (f.payload as { text?: string })?.text === 'yo');
+    expect(say?.event).toBe('__acme:chat::say');
+    expect(say?.__wskit).toMatchObject({
+      channel: 'thread:1',
+      channelFamily: '__acme:chat::thread',
+    });
+  });
 });
 
 describe('scoped errors — onError()', () => {

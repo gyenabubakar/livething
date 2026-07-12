@@ -26,13 +26,23 @@ const h = define({
   ],
 });
 
-// Client → plugin-owned channel: subscribing broadcasts a `joined` event back.
+// Client → plugin-owned channel: subscribing broadcasts a `joined` event back,
+// and sending `chat` on the channel echoes a `said` back — this proves a client
+// can SEND on a plugin channel (outgoing child events must be namespaced too, not
+// just the incoming ones the server broadcasts).
 const room = h.channel('room', {
-  outgoing: { emits: { joined: t<{ who: string }>() } },
+  outgoing: { emits: { joined: t<{ who: string }>(), said: t<{ text: string }>() } },
 });
 
 room.subscribe((ctx) => {
   ctx.channel.broadcast('joined', { who: ctx.id }, { excludeSelf: false });
+});
+
+const roomChat = room.on('chat', {
+  input: v.object({ text: v.string() }),
+  run(ctx, payload) {
+    ctx.channel.broadcast('said', { text: payload.text }, { excludeSelf: false });
+  },
 });
 
 // Client → plugin-owned DYNAMIC channel family: subscribing to `thread:<id>`
@@ -105,5 +115,5 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room, thread),
+  handler: h.assemble(hello, echo, feed, feedPlain, feedRecorded, room, roomChat, thread),
 });

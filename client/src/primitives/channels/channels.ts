@@ -6,6 +6,7 @@ import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import {
   buildChannelMessaging,
   buildFamilyHandle,
+  channelEventPrefix,
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
@@ -36,12 +37,8 @@ function channelEventName(
   familyKey: string | undefined,
   event: string,
 ): string {
-  const source = familyKey ?? channelName;
-  if (!source.startsWith('__')) return event;
-  const delimAt = source.indexOf('::');
-  if (delimAt < 0) return event;
-  const prefix = source.slice(0, delimAt + 2);
-  return event.startsWith(prefix) ? event.slice(prefix.length) : event;
+  const prefix = channelEventPrefix(channelName, familyKey);
+  return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
 /** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */

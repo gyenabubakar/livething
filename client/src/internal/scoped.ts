@@ -23,10 +23,11 @@ export interface ScopeInfo {
   markers(): ScopeMarkers;
 
   /**
-   * Rewrite an event, request, or channel name for the wire. A channel omits this
-   * (it scopes by markers, so the name stays bare), while a plugin uses it to add
-   * its `__<id>::` prefix. Every augmenter runs a name through {@link scopedName}
-   * so both kinds of scope are handled the same way.
+   * Rewrite an event, request, or channel name for the wire. A plugin uses it to
+   * add its `__<id>::` prefix; a plain app channel omits it (it scopes by markers,
+   * so the name stays bare), while a plugin-owned channel carries it so its child
+   * events are namespaced too. Every augmenter runs a name through {@link scopedName}
+   * so all scopes are handled the same way.
    */
   prefixName?(name: string): string;
 

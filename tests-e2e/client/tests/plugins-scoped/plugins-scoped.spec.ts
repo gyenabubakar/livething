@@ -54,6 +54,19 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
   });
 
+  test('scoped channel send reaches the server (outgoing child event is namespaced)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-chat-${testInfo.testId}`);
+    await page.getByTestId('join-room').click();
+    await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
+    // Send on the plugin channel; the server's `chat` handler echoes `said` back.
+    // If the outgoing `chat` were not namespaced, the server would never match it
+    // and `said` would never arrive.
+    await page.getByTestId('chat').click();
+    await expect.poll(async () => page.getByTestId('said').textContent()).toBe('hey room');
+  });
+
   test('scoped dynamic-family channel addresses a specific member', async ({ page }, testInfo) => {
     await open(page, `sc-thread-${testInfo.testId}`);
     await page.getByTestId('join-thread').click();
