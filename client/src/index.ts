@@ -69,7 +69,7 @@ export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/in
 export { CloseCodes } from '@wskit/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
-export type { Socket, SocketConnection } from '~/socket/api.ts';
+export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
 export type { Messaging, SendOptions } from '~/messaging.ts';
 export type {

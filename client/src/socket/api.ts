@@ -2,7 +2,7 @@ import type { WSKitError } from '@wskit/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
-import type { ConnectionState, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
+import type { ConnectionState, ErrorsOf, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
 
 /**
  * The connection methods every socket has, no matter the contract. The typed
@@ -31,10 +31,6 @@ export interface SocketConnection {
   onReconnectFailed(callback: () => void): () => void;
   /** Runs on every close. */
   onClose(callback: (event: CloseEvent) => void): () => void;
-  /** Runs on a WebSocket-level error. */
-  onError(callback: (error: Event) => void): () => void;
-  /** Runs on a typed server error that no request or stream claimed. */
-  onError(callback: (error: WSKitError) => void): () => void;
 
   /** Turn console logging on or off at runtime. */
   setDebug(enabled: boolean): void;
@@ -56,10 +52,29 @@ export interface SocketContractBrand<TContract extends SocketContract> {
 }
 
 /**
+ * Every error the contract declares — the framework's built-in errors plus your
+ * server's and any plugins' — as a discriminated union of `WSKitError`, each typed
+ * to its own code and detail. `onError` hands you this, so `switch (err.code)`
+ * types `err.detail` per case.
+ */
+export type ContractError<TContract extends SocketContract> = {
+  [TCode in keyof ErrorsOf<TContract> & string]: WSKitError<TCode, ErrorsOf<TContract>[TCode]>;
+}[keyof ErrorsOf<TContract> & string];
+
+/**
  * The socket type you work with: the connection methods plus typed `on()` and
  * `send()` for your contract. Primitives add their own methods on top through
  * `client()`.
  */
 export type Socket<TContract extends SocketContract = SocketContract> = SocketConnection &
   Messaging<IncomingOf<TContract> & object, OutgoingOf<TContract> & object> &
-  SocketContractBrand<TContract>;
+  SocketContractBrand<TContract> & {
+    /**
+     * Runs on a server error that no request or stream claimed, typed to the
+     * contract's errors. Narrow with `err instanceof WSKitError` — the other case
+     * is a transport-level `Event` — then `switch (err.code)` for a typed
+     * `err.detail`. A code the contract doesn't declare is still possible at
+     * runtime (a server the client's types don't match), so keep a `default`.
+     */
+    onError(callback: (error: ContractError<TContract> | Event) => void): () => void;
+  };

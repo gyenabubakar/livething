@@ -1,12 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type test file */
 // Type-only checks for the primitives. tsc checks these; vitest never runs them.
+import { WSKitError } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { serialization } from '~/primitives/serialization/index.ts';
-import type { WSKitError } from '@wskit/core';
 
 interface C {
   incoming: { message: { text: string } };
+  errors: { 'room-full': { limit: number } };
 }
 
 serialization({
@@ -29,11 +30,15 @@ serialization({
 
 const socket = client<C>()(connect('wss://example.com'));
 
-socket.onError((error: Event) => {
-  void error.type;
-});
-
-socket.onError((err: WSKitError) => {
-  const _code: string = err.code;
-  void _code;
+socket.onError((error) => {
+  // The transport-error case is a raw Event.
+  if (!(error instanceof WSKitError)) {
+    void error.type;
+    return;
+  }
+  // Narrowed to the contract's errors: switching on the code types the detail.
+  if (error.code === 'room-full') {
+    const _limit: number = error.detail.limit;
+    void _limit;
+  }
 });
