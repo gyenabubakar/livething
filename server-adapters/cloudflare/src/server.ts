@@ -22,13 +22,6 @@ export class WSKitAdmin extends RpcTarget {
   constructor(api: Record<string, unknown>) {
     super();
     this.#api = api;
-    // Expose the app's own api methods over the stub, unless they collide with a
-    // built-in below (built-ins win).
-    for (const [key, value] of Object.entries(api)) {
-      if (typeof value === 'function' && !(key in WSKitAdmin.prototype)) {
-        (this as Record<string, unknown>)[key] = value;
-      }
-    }
   }
 
   #call<T>(op: string, args: unknown[]): T {
@@ -54,6 +47,26 @@ export class WSKitAdmin extends RpcTarget {
   getConnections(): unknown[] {
     return this.#call('getConnections', []);
   }
+}
+
+/**
+ * Wrap an `Engine.admin()` result in a `WSKitAdmin`. The app's own api methods
+ * go on a per-call subclass prototype — Cloudflare RPC only exposes methods
+ * found on the prototype chain, not own properties — and a method that collides
+ * with a built-in is dropped, so built-ins always win.
+ */
+export function buildAdmin(api: Record<string, unknown>): WSKitAdmin {
+  const devMethods = Object.entries(api).filter(
+    ([key, value]) => typeof value === 'function' && !(key in WSKitAdmin.prototype),
+  );
+  if (devMethods.length === 0) return new WSKitAdmin(api);
+
+  const Extended = class extends WSKitAdmin {};
+  const proto = Extended.prototype as unknown as Record<string, unknown>;
+  for (const [key, value] of devMethods) {
+    proto[key] = value;
+  }
+  return new Extended(api);
 }
 
 /**
@@ -333,7 +346,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
             this.engine.handleHibernationWake(ws);
           }
         }
-        return new WSKitAdmin(this.engine.admin());
+        return buildAdmin(this.engine.admin());
       }
     };
   },
