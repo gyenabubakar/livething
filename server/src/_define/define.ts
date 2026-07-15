@@ -1497,18 +1497,6 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
     AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
     TApi
   >;
-  /**
-   * Migration overload — accepts handlers passed as loose varargs. Prefer the
-   * `{ handlers: [...] }` config form above; this signature is removed once every
-   * call site has moved over.
-   */
-  assemble<const THandlers extends readonly AssembleInput[]>(
-    ...handlers: THandlers
-  ): ServerDefinition<
-    readonly Primitive[],
-    BuildContract<MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
-    AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>
-  >;
 }
 
 /** A value `assemble(...)` accepts — a handler, never a capability. */
@@ -1894,18 +1882,12 @@ export function define(config: any): Base<any, any, any, any> {
       }
       registerOnce('replay', build(hooks));
     },
-    assemble(...args: readonly unknown[]) {
-      // Accept both the `{ handlers, api }` config form and the legacy variadic
-      // form. A config object is the sole argument and carries a `handlers`
-      // array; handler primitives never do, so this is unambiguous.
-      const first = args[0] as
-        | { handlers?: readonly Contribution[]; api?: (ctx: unknown) => unknown }
-        | undefined;
-      const isConfig = args.length === 1 && !!first && Array.isArray(first.handlers);
-      const items: readonly Contribution[] = isConfig
-        ? (first!.handlers as readonly Contribution[])
-        : (args as readonly Contribution[]);
-      const api = isConfig ? first!.api : undefined;
+    assemble(assembleConfig: {
+      handlers: readonly Contribution[];
+      api?: (ctx: unknown) => unknown;
+    }) {
+      const items = assembleConfig.handlers;
+      const api = assembleConfig.api;
       if (api && !config.scoped) {
         throw new Error(
           '[wskit] assemble({ api }) at the top level is the admin surface, which is not ' +
