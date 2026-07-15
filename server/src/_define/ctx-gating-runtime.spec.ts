@@ -63,7 +63,7 @@ function probeServer(base: any, ...extra: unknown[]): ProbeServer {
       slot.fn?.(ctx);
     },
   });
-  return { def: base.assemble(probe, ...extra) as ServerDefinition, slot };
+  return { def: base.assemble({ handlers: [probe, ...extra] }) as ServerDefinition, slot };
 }
 
 /** Boot the engine, open one connection, route a `probe` frame, return its ctx. */
@@ -149,7 +149,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     const ph = define({ scoped: true, capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
-      handler: ph.assemble(beat),
+      handler: ph.assemble({ handlers: [beat] }),
       api: () => ({ tag: 'presence-api' }),
     });
 

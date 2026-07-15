@@ -25,7 +25,7 @@ describe('stream() capability', () => {
         for (let i = 0; i < input.count; i += 1) yield { index: i };
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble(handleFeed));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleFeed] }));
     expect(compiled.streams.has('feed')).toBe(true);
   });
 
@@ -35,7 +35,7 @@ describe('stream() capability', () => {
       nudges: { cancel: null, 'speed-up': v.object({ factor: v.number() }) },
       async *run() {},
     });
-    const primitive = streamPrimitive(base.assemble(handle).primitives);
+    const primitive = streamPrimitive(base.assemble({ handlers: [handle] }).primitives);
     const names = primitive.stream.nudges.map((n: { event: string }) => n.event).sort();
     expect(names).toEqual(['cancel', 'speed-up']);
   });
@@ -50,7 +50,7 @@ describe('stream() capability', () => {
         seen = got.map((n) => n.event);
       },
     });
-    const primitive = streamPrimitive(base.assemble(handle).primitives);
+    const primitive = streamPrimitive(base.assemble({ handlers: [handle] }).primitives);
     const ctx: any = { nudges: (value: unknown) => (Array.isArray(value) ? value : []) };
     const iterator = primitive.generator(ctx, {});
     await iterator.next();
@@ -70,6 +70,8 @@ describe('stream() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [stream()] });
     const asStream = base.stream('shared', { async *run() {} });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
-    expect(() => base.assemble(asStream, asEvent)).toThrow(/Event name 'shared' is bound by both/);
+    expect(() => base.assemble({ handlers: [asStream, asEvent] })).toThrow(
+      /Event name 'shared' is bound by both/,
+    );
   });
 });

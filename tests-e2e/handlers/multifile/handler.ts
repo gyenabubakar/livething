@@ -12,6 +12,6 @@ base.onConnect((ctx) => {
   ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
 });
 
-export const multifileHandler = base.assemble(handleSendRoomMessage);
+export const multifileHandler = base.assemble({ handlers: [handleSendRoomMessage] });
 
 export type MultifileClient = InferClient<typeof multifileHandler>;

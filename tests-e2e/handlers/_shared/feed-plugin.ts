@@ -145,15 +145,7 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble(
-    hello,
-    echo,
-    feed,
-    nudgeable,
-    feedPlain,
-    feedRecorded,
-    room,
-    roomChat,
-    thread,
-  ),
+  handler: h.assemble({
+    handlers: [hello, echo, feed, nudgeable, feedPlain, feedRecorded, room, roomChat, thread],
+  }),
 });

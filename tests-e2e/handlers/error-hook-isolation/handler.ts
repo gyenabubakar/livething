@@ -26,6 +26,6 @@ const handleDoRequest = base.request('do-request', {
   },
 });
 
-export const errorHookIsolationHandler = base.assemble(handleDoRequest);
+export const errorHookIsolationHandler = base.assemble({ handlers: [handleDoRequest] });
 
 export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationHandler>;

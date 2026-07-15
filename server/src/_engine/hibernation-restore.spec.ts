@@ -97,7 +97,7 @@ function buildEngine(storage: { sql: SQLProvider; kv: KVProvider }): Engine {
       ctx.channel.broadcast('room-message', { text: payload.text });
     },
   });
-  const handler = base.assemble(shout);
+  const handler = base.assemble({ handlers: [shout] });
 
   let engine!: Engine;
   const server = adapter({

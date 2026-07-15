@@ -149,16 +149,18 @@ const handleServerDrop = base.on('server-drop', {
   },
 });
 
-export const streamDurableHandler = base.assemble(
-  handleCountTokens,
-  handlePaginate,
-  handlePaginateBare,
-  handleAttemptStream,
-  handleBufferFullDemo,
-  handlePrimitiveRecorded,
-  handleCountTokensNudged,
-  handlePaginateNudged,
-  handleServerDrop,
-);
+export const streamDurableHandler = base.assemble({
+  handlers: [
+    handleCountTokens,
+    handlePaginate,
+    handlePaginateBare,
+    handleAttemptStream,
+    handleBufferFullDemo,
+    handlePrimitiveRecorded,
+    handleCountTokensNudged,
+    handlePaginateNudged,
+    handleServerDrop,
+  ],
+});
 
 export type StreamDurableClient = InferClient<typeof streamDurableHandler>;

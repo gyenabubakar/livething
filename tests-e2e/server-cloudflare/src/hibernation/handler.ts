@@ -134,15 +134,17 @@ const handleBroadcastToRoom = room.on('broadcast-to-room', {
   },
 });
 
-export const hibernationHandler = base.assemble(
-  handleSaveNote,
-  handleGetNotes,
-  handleTagSelf,
-  handleSendToTag,
-  handleGetRoomMembers,
-  handleProbeConn,
-  handleSlowStream,
-  handleBroadcastToRoom,
-);
+export const hibernationHandler = base.assemble({
+  handlers: [
+    handleSaveNote,
+    handleGetNotes,
+    handleTagSelf,
+    handleSendToTag,
+    handleGetRoomMembers,
+    handleProbeConn,
+    handleSlowStream,
+    handleBroadcastToRoom,
+  ],
+});
 
 export type HibernationClient = InferClient<typeof hibernationHandler>;

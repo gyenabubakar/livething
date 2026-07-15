@@ -123,14 +123,16 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const staticVsFamilyIsolationHandler = base.assemble(
-  handleTagSelf,
-  handleObserveStatic,
-  handleObserveFamily,
-  handleKickStatic,
-  handleKickFamily,
-  handleSendInGeneral,
-  handleSendInRoom,
-);
+export const staticVsFamilyIsolationHandler = base.assemble({
+  handlers: [
+    handleTagSelf,
+    handleObserveStatic,
+    handleObserveFamily,
+    handleKickStatic,
+    handleKickFamily,
+    handleSendInGeneral,
+    handleSendInRoom,
+  ],
+});
 
 export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationHandler>;

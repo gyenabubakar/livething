@@ -57,10 +57,8 @@ const handleStartRoomStream = room.stream('start-room-stream', {
   },
 });
 
-export const streamBroadcastHandler = base.assemble(
-  handleStartBroadcast,
-  handleStartRoomBroadcast,
-  handleStartRoomStream,
-);
+export const streamBroadcastHandler = base.assemble({
+  handlers: [handleStartBroadcast, handleStartRoomBroadcast, handleStartRoomStream],
+});
 
 export type StreamBroadcastClient = InferClient<typeof streamBroadcastHandler>;

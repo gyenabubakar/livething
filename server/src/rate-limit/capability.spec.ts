@@ -16,7 +16,7 @@ describe('rateLimit() capability', () => {
       env: t<Record<string, never>>(),
       capabilities: [rateLimit({ max: 100 })],
     });
-    expect(interceptCount(base.assemble())).toBe(1);
+    expect(interceptCount(base.assemble({ handlers: [] }))).toBe(1);
   });
 
   it('installs the intercept from a per-handler override with no global default', () => {
@@ -26,7 +26,7 @@ describe('rateLimit() capability', () => {
       rateLimit: { enabled: true, max: 1, windowMs: 10_000 },
       run() {},
     });
-    expect(interceptCount(base.assemble(handler))).toBe(1);
+    expect(interceptCount(base.assemble({ handlers: [handler] }))).toBe(1);
   });
 
   it('collects a per-handler override from a request as well as an on handler', () => {
@@ -41,7 +41,7 @@ describe('rateLimit() capability', () => {
         return {};
       },
     });
-    expect(interceptCount(base.assemble(ask))).toBe(1);
+    expect(interceptCount(base.assemble({ handlers: [ask] }))).toBe(1);
   });
 
   it('still installs the intercept when a global rule is set and one handler disables its limit', () => {
@@ -54,13 +54,13 @@ describe('rateLimit() capability', () => {
       rateLimit: { enabled: false },
       run() {},
     });
-    expect(interceptCount(base.assemble(free))).toBe(1);
+    expect(interceptCount(base.assemble({ handlers: [free] }))).toBe(1);
   });
 
   it('adds no rate-limit intercept when the capability has no global rule and no overrides', () => {
     const base = define({ env: t<Record<string, never>>(), capabilities: [rateLimit()] });
     const handler = base.on('plain', { input: v.object({}), run() {} });
-    expect(interceptCount(base.assemble(handler))).toBe(0);
+    expect(interceptCount(base.assemble({ handlers: [handler] }))).toBe(0);
   });
 
   it('throws at assemble when a handler smuggles a rateLimit override past the type gate without the capability', () => {
@@ -73,7 +73,7 @@ describe('rateLimit() capability', () => {
       ...({ rateLimit: { enabled: true, max: 1 } } as object),
       run() {},
     });
-    expect(() => base.assemble(handler)).toThrow(
+    expect(() => base.assemble({ handlers: [handler] })).toThrow(
       /per-handler rateLimit override needs the rateLimit\(\) capability/,
     );
   });
@@ -83,6 +83,6 @@ describe('rateLimit() capability', () => {
       env: t<Record<string, never>>(),
       capabilities: [rateLimit({ max: 10 }), rateLimit({ max: 20 })],
     });
-    expect(() => base.assemble()).toThrow(/rateLimit\(\) is listed more than once/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/rateLimit\(\) is listed more than once/);
   });
 });

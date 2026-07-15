@@ -30,6 +30,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { connectionId: ctx.id });
 });
 
-export const heartbeatHibernationHandler = base.assemble();
+export const heartbeatHibernationHandler = base.assemble({ handlers: [] });
 
 export type HeartbeatHibernationClient = InferClient<typeof heartbeatHibernationHandler>;

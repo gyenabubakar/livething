@@ -118,14 +118,16 @@ export const handleAskBacklog = base.on('ask-backlog', {
 
 // Both channels carry the `inbox: true` / no-flag client-contract shape needed
 // for `InferClient` to type the receipts surface only where it applies.
-export const inboxHandleHandler = base.assemble(
-  handleServerDrop,
-  handleSendRoomMsg,
-  handleSendPlainMsg,
-  handleAskHandle,
-  handleAskBacklog,
-  chat,
-  plain,
-);
+export const inboxHandleHandler = base.assemble({
+  handlers: [
+    handleServerDrop,
+    handleSendRoomMsg,
+    handleSendPlainMsg,
+    handleAskHandle,
+    handleAskBacklog,
+    chat,
+    plain,
+  ],
+});
 
 export type InboxHandleClient = InferClient<typeof inboxHandleHandler>;

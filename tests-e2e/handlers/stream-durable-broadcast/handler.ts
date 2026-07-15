@@ -81,11 +81,8 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
   },
 });
 
-export const streamDurableBroadcastHandler = base.assemble(
-  handleFeed,
-  handlePaginate,
-  handleAttemptBroadcast,
-  handleFeedNudged,
-);
+export const streamDurableBroadcastHandler = base.assemble({
+  handlers: [handleFeed, handlePaginate, handleAttemptBroadcast, handleFeedNudged],
+});
 
 export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastHandler>;

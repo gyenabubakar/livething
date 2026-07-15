@@ -216,20 +216,22 @@ export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
   },
 });
 
-export const replayHandler = base.assemble(
-  handleSendMsg,
-  handleSendCursor,
-  handleRequestHistory,
-  handleGetToken,
-  handleTriggerBadReplay,
-  handleInjectFamilyReplay,
-  handleTriggerBigIntReplay,
-  handleServerDrop,
-  handleStartTinyStream,
-  handleSendRoomMsg,
-  handleRequestRoomHistory,
-  handleFamsSendRoomMsg,
-  handleOptoutSendRoomMsg,
-);
+export const replayHandler = base.assemble({
+  handlers: [
+    handleSendMsg,
+    handleSendCursor,
+    handleRequestHistory,
+    handleGetToken,
+    handleTriggerBadReplay,
+    handleInjectFamilyReplay,
+    handleTriggerBigIntReplay,
+    handleServerDrop,
+    handleStartTinyStream,
+    handleSendRoomMsg,
+    handleRequestRoomHistory,
+    handleFamsSendRoomMsg,
+    handleOptoutSendRoomMsg,
+  ],
+});
 
 export type ReplayClient = InferClient<typeof replayHandler>;

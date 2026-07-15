@@ -82,14 +82,16 @@ const handleDoServerClose = base.on('do-server-close', {
   },
 });
 
-export const ctxSendHandler = base.assemble(
-  handleDoBroadcast,
-  handleDoBroadcastExcludeSelf,
-  handleDoSendTo,
-  handleDoSendToEmpty,
-  handleDoSendToConnection,
-  handleWhoAmI,
-  handleDoServerClose,
-);
+export const ctxSendHandler = base.assemble({
+  handlers: [
+    handleDoBroadcast,
+    handleDoBroadcastExcludeSelf,
+    handleDoSendTo,
+    handleDoSendToEmpty,
+    handleDoSendToConnection,
+    handleWhoAmI,
+    handleDoServerClose,
+  ],
+});
 
 export type CtxSendClient = InferClient<typeof ctxSendHandler>;

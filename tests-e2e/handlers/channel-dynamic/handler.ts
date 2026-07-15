@@ -139,14 +139,16 @@ const protoProbe = base.channel(['proto-probe', 'proto:{id}'], {
   },
 });
 
-export const channelDynamicHandler = base.assemble(
-  handleTopOnlyAction,
-  handleTriggerServerSubscribeDynamic,
-  handleSendMessage,
-  handleEchoName,
-  handleTriggerManualValidation,
-  handleTriggerScopedError,
-  protoProbe,
-);
+export const channelDynamicHandler = base.assemble({
+  handlers: [
+    handleTopOnlyAction,
+    handleTriggerServerSubscribeDynamic,
+    handleSendMessage,
+    handleEchoName,
+    handleTriggerManualValidation,
+    handleTriggerScopedError,
+    protoProbe,
+  ],
+});
 
 export type ChannelDynamicClient = InferClient<typeof channelDynamicHandler>;

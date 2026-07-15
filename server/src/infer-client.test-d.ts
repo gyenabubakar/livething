@@ -43,7 +43,9 @@ const reqChannel = reqBase.channel(['room', 'room:{id}'], {
 });
 const reqChannelHandler = reqChannel.on('ping', { run() {} });
 
-const reqDef = reqBase.assemble(reqBase.on('noop', { run() {} }), reqChannelHandler);
+const reqDef = reqBase.assemble({
+  handlers: [reqBase.on('noop', { run() {} }), reqChannelHandler],
+});
 type ReqClient = InferClient<typeof reqDef>;
 
 expectTypeOf<ReqClient['serverRequests']['ask']>().toEqualTypeOf<{
@@ -96,7 +98,7 @@ const recorded = streamBase.recordedStream('record', {
   run: async function* () {},
 });
 
-const streamDef = streamBase.assemble(plainStream, resumable, recorded);
+const streamDef = streamBase.assemble({ handlers: [plainStream, resumable, recorded] });
 type StreamClient = InferClient<typeof streamDef>;
 
 // A plain stream is ephemeral and carries no cursor (tidied away).

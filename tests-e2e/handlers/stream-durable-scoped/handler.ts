@@ -162,17 +162,19 @@ const handleHistoryNudged = rooms.recordedStream('history-nudged', {
   },
 });
 
-export const streamDurableScopedHandler = base.assemble(
-  handleStartConcurrent,
-  handleShortWindow,
-  handleShortRetention,
-  handleBoomMid,
-  handleKeepRunningFeed,
-  handlePaginate,
-  handleHistory,
-  handlePausedFeed,
-  handleChannelTokens,
-  handleHistoryNudged,
-);
+export const streamDurableScopedHandler = base.assemble({
+  handlers: [
+    handleStartConcurrent,
+    handleShortWindow,
+    handleShortRetention,
+    handleBoomMid,
+    handleKeepRunningFeed,
+    handlePaginate,
+    handleHistory,
+    handlePausedFeed,
+    handleChannelTokens,
+    handleHistoryNudged,
+  ],
+});
 
 export type StreamDurableScopedClient = InferClient<typeof streamDurableScopedHandler>;

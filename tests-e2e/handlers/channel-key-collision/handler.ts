@@ -46,11 +46,8 @@ const handleBroadcastB = base.on('broadcast-b', {
   },
 });
 
-export const channelKeyCollisionHandler = base.assemble(
-  handleBroadcastA,
-  handleBroadcastB,
-  rooms,
-  roomsPrivate,
-);
+export const channelKeyCollisionHandler = base.assemble({
+  handlers: [handleBroadcastA, handleBroadcastB, rooms, roomsPrivate],
+});
 
 export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionHandler>;

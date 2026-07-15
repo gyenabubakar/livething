@@ -66,6 +66,8 @@ export const handleSendRoomMsg = gapRoom.on('send-room-msg', {
   },
 });
 
-export const replayGapHandler = base.assemble(handleSendMsg, handleServerDrop, handleSendRoomMsg);
+export const replayGapHandler = base.assemble({
+  handlers: [handleSendMsg, handleServerDrop, handleSendRoomMsg],
+});
 
 export type ReplayGapClient = InferClient<typeof replayGapHandler>;

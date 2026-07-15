@@ -68,10 +68,8 @@ const handleTriggerTimeout = broadcastRequestContract.on('trigger-timeout', {
   },
 });
 
-export const broadcastRequestHandler = broadcastRequestContract.assemble(
-  lobby,
-  handleTrigger,
-  handleTriggerTimeout,
-);
+export const broadcastRequestHandler = broadcastRequestContract.assemble({
+  handlers: [lobby, handleTrigger, handleTriggerTimeout],
+});
 
 export type BroadcastRequestClient = InferClient<typeof broadcastRequestHandler>;

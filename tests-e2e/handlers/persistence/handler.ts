@@ -159,15 +159,17 @@ const capacityRoom = base.channel('capacity-room', {
   },
 });
 
-export const persistenceHandler = base.assemble(
-  handleRemoveMember,
-  handleBan,
-  handleServerDrop,
-  handleRecordExec,
-  handleReadExecCount,
-  handleSendMessage,
-  typingIndicator,
-  capacityRoom,
-);
+export const persistenceHandler = base.assemble({
+  handlers: [
+    handleRemoveMember,
+    handleBan,
+    handleServerDrop,
+    handleRecordExec,
+    handleReadExecCount,
+    handleSendMessage,
+    typingIndicator,
+    capacityRoom,
+  ],
+});
 
 export type PersistenceClient = InferClient<typeof persistenceHandler>;

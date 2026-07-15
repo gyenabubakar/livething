@@ -21,14 +21,14 @@ describe('recordedStream() capability', () => {
         yield { token: 'a' };
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble(handle));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handle] }));
     expect(compiled.recordedStreams.has('tokens')).toBe(true);
   });
 
   it('requires the persistence() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [recordedStream()] });
     const handle = base.recordedStream('t', { async *run() {} });
-    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
+    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
   });
 
   it('throws when base.recordedStream() is used without the capability', () => {

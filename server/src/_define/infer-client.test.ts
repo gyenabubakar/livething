@@ -38,7 +38,7 @@ const handleAnything = base.on('anything', {
   run() {},
 });
 
-const handler = base.assemble(handleEcho, handleAnything, handleGetTime);
+const handler = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
 type C = InferClient<typeof handler>;
 
 describe('InferClient for define()', () => {

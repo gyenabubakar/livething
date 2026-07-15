@@ -46,7 +46,7 @@ function buildPresence() {
     },
   });
   return plugin('acme:presence', {
-    handler: h.assemble(heartbeat, whoIsHere),
+    handler: h.assemble({ handlers: [heartbeat, whoIsHere] }),
     api: (ctx) => ({
       announce() {
         ctx.send('user-online', { id: ctx.id });
@@ -81,7 +81,7 @@ describe('plugin() — scoped handler + manifest', () => {
 
   it('assembles into a host and compiles with the namespaced events', () => {
     const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
-    const compiled = compileHandlerDefinition(base.assemble());
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
     expect(compiled.requests.has('__acme:presence::who-is-here')).toBe(true);
   });
@@ -89,19 +89,21 @@ describe('plugin() — scoped handler + manifest', () => {
   it('does not collide with a host event of the same short name', () => {
     const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
     const hostHeartbeat = base.on('heartbeat', { input: v.object({}), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble(hostHeartbeat));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [hostHeartbeat] }));
     expect(compiled.incoming.has('heartbeat')).toBe(true);
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
   });
 
   it('throws on an invalid plugin id', () => {
     const h = define({ scoped: true });
-    expect(() => plugin('NotValid', { handler: h.assemble() })).toThrow(/is invalid/);
+    expect(() => plugin('NotValid', { handler: h.assemble({ handlers: [] }) })).toThrow(
+      /is invalid/,
+    );
   });
 
   it('throws when the handler was not built with scoped define', () => {
     const h = define({ env: t<Env>() });
-    expect(() => plugin('acme:presence', { handler: h.assemble() as any })).toThrow(
+    expect(() => plugin('acme:presence', { handler: h.assemble({ handlers: [] }) as any })).toThrow(
       /must be built with define\(\{ scoped: true \}\)/,
     );
   });
@@ -109,7 +111,7 @@ describe('plugin() — scoped handler + manifest', () => {
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
     const h = define({ scoped: true });
     h.onConnect(() => {});
-    const { __primitives } = plugin('acme:presence', { handler: h.assemble() })();
+    const { __primitives } = plugin('acme:presence', { handler: h.assemble({ handlers: [] }) })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
     const registerPluginLifecycle = vi.fn();
     connectPrimitive.__setup({ registerPluginLifecycle });
@@ -133,21 +135,21 @@ describe('plugin() — scoped handler + manifest', () => {
   it('lets two plugins coexist without their namespaced surfaces colliding', () => {
     const a = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const aHandler = a.on('tick', { input: v.object({}), run() {} });
-    const PluginA = plugin('acme:a', { handler: a.assemble(aHandler) });
+    const PluginA = plugin('acme:a', { handler: a.assemble({ handlers: [aHandler] }) });
 
     const b = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const bHandler = b.on('tick', { input: v.object({}), run() {} });
-    const PluginB = plugin('acme:b', { handler: b.assemble(bHandler) });
+    const PluginB = plugin('acme:b', { handler: b.assemble({ handlers: [bHandler] }) });
 
     const base = define({ env: t<Env>(), capabilities: [PluginA(), PluginB()] });
-    const compiled = compileHandlerDefinition(base.assemble());
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:a::tick')).toBe(true);
     expect(compiled.incoming.has('__acme:b::tick')).toBe(true);
   });
 
   it('routes a namespaced frame to the plugin handler through real dispatch', async () => {
     const base = define({ env: t<Env>(), capabilities: [buildPresence()()] });
-    const compiled = compileHandlerDefinition(base.assemble());
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
 
     const send = vi.fn(() => true);
     const connection = { id: 'conn_1' } as any;
@@ -188,7 +190,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble(tick),
+      handler: h.assemble({ handlers: [tick] }),
       dependsOn: [persistence, keepalive],
     });
     const base = define({
@@ -199,51 +201,57 @@ describe('plugin() — scoped handler + manifest', () => {
         Dep(),
       ],
     });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('throws at assemble() when the same plugin id is listed twice, even with no api or handlers', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
-    const P = plugin('acme:dup', { handler: h.assemble() });
+    const P = plugin('acme:dup', { handler: h.assemble({ handlers: [] }) });
     const base = define({ env: t<Env>(), capabilities: [P(), P()] });
-    expect(() => base.assemble()).toThrow(/listed more than once/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
   it('throws at assemble() when two different plugins share an id', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const First = plugin('acme:same', { handler: h.assemble(tick) });
-    const Second = plugin('acme:same', { handler: h.assemble(tick) });
+    const First = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
+    const Second = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
     const base = define({ env: t<Env>(), capabilities: [First(), Second()] });
-    expect(() => base.assemble()).toThrow(/listed more than once/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
   it('throws at assemble() when a dependsOn prerequisite is missing', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble(tick),
+      handler: h.assemble({ handlers: [tick] }),
       dependsOn: [persistence, keepalive],
     });
     const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
-    expect(() => base.assemble()).toThrow(/the host does not list/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('does not satisfy a host dependency with a different host capability', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [persistence] });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble({ handlers: [tick] }),
+      dependsOn: [persistence],
+    });
     // dedup() is a host engine too, but a different one — it must NOT count as persistence().
     const base = define({ env: t<Env>(), capabilities: [dedup(), Dep()] });
-    expect(() => base.assemble()).toThrow(/the host does not list/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('satisfies a host dependency when that capability is listed', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [persistence] });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble({ handlers: [tick] }),
+      dependsOn: [persistence],
+    });
     const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
   it("auto-derives a host persistence dependency from a plugin's own durable stream", () => {
@@ -257,28 +265,28 @@ describe('plugin() — scoped handler + manifest', () => {
     });
     // No dependsOn — the persistence requirement is inferred from the durable
     // stream the plugin owns.
-    const Dep = plugin('acme:dep', { handler: h.assemble(feed) });
+    const Dep = plugin('acme:dep', { handler: h.assemble({ handlers: [feed] }) });
     const without = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => without.assemble()).toThrow(/the host does not list/);
+    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
     const withPersistence = define({
       env: t<Env>(),
       capabilities: [persistence(), resumableStream(), Dep()],
     });
-    expect(() => withPersistence.assemble()).not.toThrow();
+    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('auto-derives persistence from a plugin durable stream nested in a plugin channel', () => {
     const h = define({ scoped: true, capabilities: [channels(), recordedStream()] });
     const rooms = h.channel('rooms', {});
     const feed = rooms.recordedStream('paginate', { async *run() {} } as any);
-    const Dep = plugin('acme:roomfeed', { handler: h.assemble(feed) });
+    const Dep = plugin('acme:roomfeed', { handler: h.assemble({ handlers: [feed] }) });
     const without = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
-    expect(() => without.assemble()).toThrow(/the host does not list/);
+    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
     const withPersistence = define({
       env: t<Env>(),
       capabilities: [persistence(), channels(), recordedStream(), Dep()],
     });
-    expect(() => withPersistence.assemble()).not.toThrow();
+    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('auto-derives persistence from a plugin persistent tag group', () => {
@@ -286,30 +294,36 @@ describe('plugin() — scoped handler + manifest', () => {
       scoped: true,
       capabilities: [tags((_e, p) => [p('favorite', t<string>())])],
     });
-    const Dep = plugin('acme:tagger', { handler: h.assemble() });
+    const Dep = plugin('acme:tagger', { handler: h.assemble({ handlers: [] }) });
     const without = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => without.assemble()).toThrow(/the host does not list/);
+    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
     const withPersistence = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
-    expect(() => withPersistence.assemble()).not.toThrow();
+    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble({ handlers: [tick] }),
+      dependsOn: [keepalive],
+    });
     const base = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => base.assemble()).toThrow(/the host does not list/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('satisfies a keepalive dependency when keepalive(...) is listed', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const Dep = plugin('acme:dep', { handler: h.assemble(tick), dependsOn: [keepalive] });
+    const Dep = plugin('acme:dep', {
+      handler: h.assemble({ handlers: [tick] }),
+      dependsOn: [keepalive],
+    });
     const base = define({
       env: t<Env>(),
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Dep()],
     });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 });
 
@@ -321,7 +335,7 @@ describe('plugin() — host-traffic observation', () => {
     h.intercept(() => {});
     h.onOutgoing(() => {});
     return plugin('acme:obs', {
-      handler: h.assemble(beat),
+      handler: h.assemble({ handlers: [beat] }),
       observesHostTraffic: observes,
     });
   }
@@ -347,7 +361,7 @@ describe('plugin() — host-traffic observation', () => {
   it('assemble() throws if an observing plugin is listed without observeHost(...)', () => {
     const Obs = buildObserver(true);
     const base = define({ env: t<Env>(), capabilities: [Obs()] });
-    expect(() => base.assemble()).toThrowError(/observeHost/);
+    expect(() => base.assemble({ handlers: [] })).toThrowError(/observeHost/);
   });
 
   it('assemble() passes and warns once when wrapped in observeHost(...)', () => {
@@ -357,7 +371,7 @@ describe('plugin() — host-traffic observation', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
     try {
       const base = define({ env: t<Env>(), capabilities: [observeHost(Obs())] });
-      expect(() => base.assemble()).not.toThrow();
+      expect(() => base.assemble({ handlers: [] })).not.toThrow();
     } finally {
       spy.mockRestore();
     }
@@ -377,7 +391,7 @@ describe('plugin() — host-traffic observation', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
     try {
       const base = define({ env: t<Env>(), capabilities: [Plain()] });
-      expect(() => base.assemble()).not.toThrow();
+      expect(() => base.assemble({ handlers: [] })).not.toThrow();
     } finally {
       spy.mockRestore();
     }

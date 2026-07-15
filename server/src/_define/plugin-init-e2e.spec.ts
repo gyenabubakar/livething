@@ -43,13 +43,15 @@ describe('plugin init — onion order end-to-end', () => {
       trace.push('plugin');
     });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
-    const Plug = plugin('acme:boot', { handler: ph.assemble(beat) });
+    const Plug = plugin('acme:boot', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Plug()] });
     base.onInit(() => {
       trace.push('app');
     });
-    const handler = base.assemble(base.on('noop', { input: v.object({}), run() {} }));
+    const handler = base.assemble({
+      handlers: [base.on('noop', { input: v.object({}), run() {} })],
+    });
 
     const engine = buildEngine(handler);
     await engine.initialize();
@@ -62,14 +64,14 @@ describe('plugin init — onion order end-to-end', () => {
       scoped: true,
       capabilities: [tags((ephemeral) => [ephemeral('plugin-role', t<string>())])],
     });
-    const Plug = plugin('acme:tags', { handler: ph.assemble() });
+    const Plug = plugin('acme:tags', { handler: ph.assemble({ handlers: [] }) });
 
     const base = define({
       env: t<{}>(),
       capabilities: [tags((ephemeral) => [ephemeral('host-role', t<string>())]), Plug()],
     });
 
-    const engine = buildEngine(base.assemble());
+    const engine = buildEngine(base.assemble({ handlers: [] }));
     await expect(engine.initialize()).resolves.toBeUndefined();
   });
 });

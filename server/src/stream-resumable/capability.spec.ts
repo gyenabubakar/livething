@@ -22,14 +22,14 @@ describe('resumableStream() capability', () => {
         yield ctx.stream.withCursor({ row: start + 1 }, { row: start + 1 });
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble(handle));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handle] }));
     expect(compiled.resumableStreams.has('paginate')).toBe(true);
   });
 
   it('requires the persistence() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
     const handle = base.resumableStream('p', { async *run() {} });
-    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
+    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
   });
 
   it('rejects keep-running without broadcast', () => {
@@ -51,7 +51,7 @@ describe('resumableStream() capability', () => {
       },
     });
     const primitive = base
-      .assemble(handle)
+      .assemble({ handlers: [handle] })
       .primitives.find((p) => p.__wskit === 'resumable-stream-generate') as any;
 
     const ctx: any = {

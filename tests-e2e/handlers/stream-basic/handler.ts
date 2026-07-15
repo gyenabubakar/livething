@@ -85,13 +85,15 @@ const handleStartEmpty = base.stream('start-empty', {
   async *run() {},
 });
 
-export const streamBasicHandler = base.assemble(
-  handleStartTokens,
-  handleStartBoom,
-  handleStartBoomImmediate,
-  handleStartTypedError,
-  handleStartCancelObserve,
-  handleStartEmpty,
-);
+export const streamBasicHandler = base.assemble({
+  handlers: [
+    handleStartTokens,
+    handleStartBoom,
+    handleStartBoomImmediate,
+    handleStartTypedError,
+    handleStartCancelObserve,
+    handleStartEmpty,
+  ],
+});
 
 export type StreamBasicClient = InferClient<typeof streamBasicHandler>;

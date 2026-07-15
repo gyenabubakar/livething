@@ -135,15 +135,17 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const typedTagsHandler = base.assemble(
-  handleAddTag,
-  handleRemoveTag,
-  handleListMyTags,
-  handleFanOutToTag,
-  handleCountByTag,
-  handleGroupStats,
-  handleKickByTag,
-  handleSendInRoom,
-);
+export const typedTagsHandler = base.assemble({
+  handlers: [
+    handleAddTag,
+    handleRemoveTag,
+    handleListMyTags,
+    handleFanOutToTag,
+    handleCountByTag,
+    handleGroupStats,
+    handleKickByTag,
+    handleSendInRoom,
+  ],
+});
 
 export type TypedTagsClient = InferClient<typeof typedTagsHandler>;

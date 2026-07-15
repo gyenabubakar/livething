@@ -76,6 +76,8 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
   },
 });
 
-export const streamNudgesHandler = base.assemble(handlePause, handleStartNudgeStream);
+export const streamNudgesHandler = base.assemble({
+  handlers: [handlePause, handleStartNudgeStream],
+});
 
 export type StreamNudgesClient = InferClient<typeof streamNudgesHandler>;

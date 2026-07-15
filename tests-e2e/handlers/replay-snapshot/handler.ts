@@ -128,13 +128,15 @@ export const handleUpdateRoomDoc = snapshotRoom.on('update-room-doc', {
   },
 });
 
-export const replaySnapshotHandler = base.assemble(
-  handleUpdateDoc,
-  handleDeleteDoc,
-  handleIncrementCounter,
-  handleBurstCounter,
-  handleServerDrop,
-  handleUpdateRoomDoc,
-);
+export const replaySnapshotHandler = base.assemble({
+  handlers: [
+    handleUpdateDoc,
+    handleDeleteDoc,
+    handleIncrementCounter,
+    handleBurstCounter,
+    handleServerDrop,
+    handleUpdateRoomDoc,
+  ],
+});
 
 export type ReplaySnapshotClient = InferClient<typeof replaySnapshotHandler>;

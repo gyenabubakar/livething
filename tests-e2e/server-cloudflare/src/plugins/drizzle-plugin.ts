@@ -300,22 +300,24 @@ const taskWithData = h.scheduled('drizzle-task-with-data', {
 });
 
 export const Drizzle = plugin('e2e:drizzle', {
-  handler: h.assemble(
-    triggerDenied,
-    triggerError,
-    triggerVacuum,
-    triggerEvery,
-    triggerFlaky,
-    triggerAlwaysFail,
-    triggerQueryDlq,
-    triggerTaskWithData,
-    vacuum,
-    everyTick,
-    flaky,
-    alwaysFail,
-    queryDlq,
-    taskWithData,
-  ),
+  handler: h.assemble({
+    handlers: [
+      triggerDenied,
+      triggerError,
+      triggerVacuum,
+      triggerEvery,
+      triggerFlaky,
+      triggerAlwaysFail,
+      triggerQueryDlq,
+      triggerTaskWithData,
+      vacuum,
+      everyTick,
+      flaky,
+      alwaysFail,
+      queryDlq,
+      taskWithData,
+    ],
+  }),
   observesHostTraffic: true,
   api: (ctx) => {
     const db = getDb(ctx.platform as Platform);

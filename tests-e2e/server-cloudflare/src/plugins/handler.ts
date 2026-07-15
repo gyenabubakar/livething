@@ -186,21 +186,23 @@ const handleStreamThrowOnCancel = base.stream('stream-throw-on-cancel', {
   },
 });
 
-export const pluginsHandler = base.assemble(
-  handleInsert,
-  handleGetAll,
-  handleGetRecord,
-  handleDelete,
-  handleCount,
-  handleMessageCount,
-  handleOutgoingCount,
-  handleDisconnectCount,
-  handleGeneratedId,
-  handleLastState,
-  handleShutdownCount,
-  handleRewriteProbe,
-  handleStreamConnectionId,
-  handleStreamThrowOnCancel,
-);
+export const pluginsHandler = base.assemble({
+  handlers: [
+    handleInsert,
+    handleGetAll,
+    handleGetRecord,
+    handleDelete,
+    handleCount,
+    handleMessageCount,
+    handleOutgoingCount,
+    handleDisconnectCount,
+    handleGeneratedId,
+    handleLastState,
+    handleShutdownCount,
+    handleRewriteProbe,
+    handleStreamConnectionId,
+    handleStreamThrowOnCancel,
+  ],
+});
 
 export type PluginsClient = InferClient<typeof pluginsHandler>;

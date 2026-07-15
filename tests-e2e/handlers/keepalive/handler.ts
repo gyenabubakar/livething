@@ -14,6 +14,6 @@ const base = define({
   ],
 });
 
-export const keepaliveHandler = base.assemble();
+export const keepaliveHandler = base.assemble({ handlers: [] });
 
 export type KeepaliveClient = InferClient<typeof keepaliveHandler>;

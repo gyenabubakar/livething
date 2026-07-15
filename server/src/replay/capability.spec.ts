@@ -22,7 +22,7 @@ describe('replay capabilities', () => {
       env: t<Env>(),
       capabilities: [...replayReady(), replay.history({ retention: { maxAgeMs: 60_000 } })],
     });
-    const handler = base.assemble();
+    const handler = base.assemble({ handlers: [] });
     const primitive = handler.primitives.find((p) => p.__wskit === 'replay') as unknown as
       | ReplayPrimitive
       | undefined;
@@ -36,20 +36,20 @@ describe('replay capabilities', () => {
       capabilities: [...replayReady(), replay.snapshot({})],
     });
     const primitive = base
-      .assemble()
+      .assemble({ handlers: [] })
       .primitives.find((p) => p.__wskit === 'replay') as unknown as ReplayPrimitive;
     expect(primitive.options.type).toBe('snapshot');
   });
 
   it('refuses to boot built-in replay without dedup and persistent sequence', () => {
     const base = define({ env: t<Env>(), capabilities: [replay.history()] });
-    expect(() => compileHandlerDefinition(base.assemble())).toThrow(/replay/);
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).toThrow(/replay/);
   });
 
   it('registers a custom replay strategy with replay.custom() and base.replay()', () => {
     const base = define({ env: t<Env>(), capabilities: [replay.custom()] });
     base.replay({ replay() {} });
-    const handler = base.assemble();
+    const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
   });
 
@@ -79,7 +79,7 @@ describe('replay capabilities', () => {
       env: t<Env>(),
       capabilities: [...replayReady(), replay.history(), replay.snapshot()],
     });
-    expect(() => base.assemble()).toThrow(/more than once/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/more than once/);
   });
 
   it('throws when built-in history replay and custom base.replay() are both configured', () => {
@@ -88,7 +88,7 @@ describe('replay capabilities', () => {
       capabilities: [...replayReady(), replay.history(), replay.custom()],
     });
     base.replay({ replay() {} });
-    expect(() => base.assemble()).toThrow(/both/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/both/);
   });
 
   it('throws when built-in snapshot replay and custom base.replay() are both configured', () => {
@@ -97,6 +97,6 @@ describe('replay capabilities', () => {
       capabilities: [...replayReady(), replay.snapshot(), replay.custom()],
     });
     base.replay({ replay() {} });
-    expect(() => base.assemble()).toThrow(/both/);
+    expect(() => base.assemble({ handlers: [] })).toThrow(/both/);
   });
 });

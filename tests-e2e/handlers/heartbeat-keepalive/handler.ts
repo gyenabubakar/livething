@@ -24,6 +24,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { latency: ctx.latency, quality: ctx.quality });
 });
 
-export const heartbeatKeepaliveHandler = base.assemble();
+export const heartbeatKeepaliveHandler = base.assemble({ handlers: [] });
 
 export type HeartbeatKeepaliveClient = InferClient<typeof heartbeatKeepaliveHandler>;

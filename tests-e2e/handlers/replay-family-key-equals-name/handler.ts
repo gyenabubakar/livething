@@ -30,6 +30,6 @@ const handleSendBatch = rooms.on('send-batch', {
   },
 });
 
-export const replayFamilyKeyEqualsNameHandler = base.assemble(handleSendBatch);
+export const replayFamilyKeyEqualsNameHandler = base.assemble({ handlers: [handleSendBatch] });
 
 export type ReplayFamilyKeyEqualsNameClient = InferClient<typeof replayFamilyKeyEqualsNameHandler>;

@@ -68,6 +68,6 @@ const handleSlowSignal = base.stream('slow-signal', {
   },
 });
 
-export const streamSignalHandler = base.assemble(handleSlowSignal);
+export const streamSignalHandler = base.assemble({ handlers: [handleSlowSignal] });
 
 export type StreamSignalClient = InferClient<typeof streamSignalHandler>;

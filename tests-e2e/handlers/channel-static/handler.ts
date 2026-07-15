@@ -144,14 +144,16 @@ const handleRoom2SendMessage = room2.on('send-message', {
   },
 });
 
-export const channelStaticHandler = base.assemble(
-  handleTagSelf,
-  handleKickByTag,
-  handleTriggerServerSubscribe,
-  handleRoomSendMessage,
-  handleRoomBadBroadcast,
-  handleRoomStream,
-  handleRoom2SendMessage,
-);
+export const channelStaticHandler = base.assemble({
+  handlers: [
+    handleTagSelf,
+    handleKickByTag,
+    handleTriggerServerSubscribe,
+    handleRoomSendMessage,
+    handleRoomBadBroadcast,
+    handleRoomStream,
+    handleRoom2SendMessage,
+  ],
+});
 
 export type ChannelStaticClient = InferClient<typeof channelStaticHandler>;

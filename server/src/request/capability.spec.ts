@@ -25,7 +25,7 @@ describe('requests() capability — client to server', () => {
         return { now: 'noon' };
       },
     });
-    const handler = base.assemble(handleGetTime);
+    const handler = base.assemble({ handlers: [handleGetTime] });
     const compiled = compileHandlerDefinition(handler);
     expect(compiled.requests.has('get-time')).toBe(true);
 
@@ -40,7 +40,7 @@ describe('requests() capability — client to server', () => {
       run() {},
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleNoReply).primitives).handler(
+    await requestPrimitive(base.assemble({ handlers: [handleNoReply] }).primitives).handler(
       { respond } as never,
       {},
     );
@@ -55,7 +55,10 @@ describe('requests() capability — client to server', () => {
       },
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleCount).primitives).handler({ respond } as never, {});
+    await requestPrimitive(base.assemble({ handlers: [handleCount] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
     expect(respond).toHaveBeenCalledWith(0);
   });
 
@@ -67,7 +70,10 @@ describe('requests() capability — client to server', () => {
       },
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleFind).primitives).handler({ respond } as never, {});
+    await requestPrimitive(base.assemble({ handlers: [handleFind] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
     expect(respond).toHaveBeenCalledWith(null);
   });
 

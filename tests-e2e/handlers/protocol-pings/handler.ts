@@ -8,6 +8,6 @@ const base = define({
   capabilities: [],
 });
 
-export const protocolPingsHandler = base.assemble();
+export const protocolPingsHandler = base.assemble({ handlers: [] });
 
 export type ProtocolPingsClient = InferClient<typeof protocolPingsHandler>;

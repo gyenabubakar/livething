@@ -64,10 +64,10 @@ describe('plugin onPing / onPong', () => {
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPing(() => void seen.push('ping'));
     ph.onPong(() => void seen.push('pong'));
-    const Probe = plugin('acme:probe', { handler: ph.assemble(beat) });
+    const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Probe()] });
-    const conn = await openConnection(buildEngine(base.assemble()));
+    const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('ping');
     await conn.handleMessage('pong');
@@ -80,10 +80,10 @@ describe('plugin onPing / onPong', () => {
     const ph = define({ scoped: true });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPong((ctx: any) => void (scopedId = ctx.id));
-    const Probe = plugin('acme:probe', { handler: ph.assemble(beat) });
+    const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Probe()] });
-    const conn = await openConnection(buildEngine(base.assemble()));
+    const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('pong');
 
@@ -95,14 +95,14 @@ describe('plugin onPing / onPong', () => {
     const ph = define({ scoped: true });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPong(() => void order.push('plugin'));
-    const Probe = plugin('acme:probe', { handler: ph.assemble(beat) });
+    const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({
       env: t<{}>(),
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Probe()],
     });
     base.onPong(() => void order.push('app'));
-    const conn = await openConnection(buildEngine(base.assemble()));
+    const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('pong');
 
@@ -118,11 +118,11 @@ describe('plugin onPing / onPong', () => {
     ph.onPing(() => {
       throw new Error('plugin ping hook failed');
     });
-    const Probe = plugin('acme:probe', { handler: ph.assemble(beat) });
+    const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Probe()] });
     base.onPing(() => void order.push('app'));
-    const conn = await openConnection(buildEngine(base.assemble()));
+    const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('ping');
 

@@ -83,11 +83,8 @@ export const handleAskCursor = chat.on('ask-cursor', {
 // The channel object `chat` carries the `inbox: true` / `readReceipts: true`
 // client-contract flags, so it is passed to `assemble` for `InferClient` to
 // expose receiversOf (inbox) and markAsRead/readersOf (readReceipts).
-export const receiptsHandler = base.assemble(
-  handleServerDrop,
-  handleSendRoomMsg,
-  handleAskCursor,
-  chat,
-);
+export const receiptsHandler = base.assemble({
+  handlers: [handleServerDrop, handleSendRoomMsg, handleAskCursor, chat],
+});
 
 export type ReceiptsClient = InferClient<typeof receiptsHandler>;

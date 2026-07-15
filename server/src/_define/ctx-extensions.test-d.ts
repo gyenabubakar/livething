@@ -55,10 +55,14 @@ lifecycleBase.onShutdown((ctx) => {
 // Gap 7 — `frame.owner.id` typed to the union of registered plugin ids.
 // ---------------------------------------------------------------------------
 const scopedA = define({ scoped: true, capabilities: [emits({ a: t<{}>() })] });
-const PluginA = plugin('acme:a', { handler: scopedA.assemble(scopedA.on('a-in', { run() {} })) });
+const PluginA = plugin('acme:a', {
+  handler: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
+});
 
 const scopedC = define({ scoped: true, capabilities: [emits({ c: t<{}>() })] });
-const PluginC = plugin('acme:c', { handler: scopedC.assemble(scopedC.on('c-in', { run() {} })) });
+const PluginC = plugin('acme:c', {
+  handler: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
+});
 
 const ownerBase = define({ env: t<{}>(), capabilities: [PluginA(), PluginC(), intercepts()] });
 

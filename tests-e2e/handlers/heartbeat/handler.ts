@@ -26,7 +26,7 @@ probe.onPong((ctx) => {
   ctx.send('plugin-pong-seen', { connectionId: ctx.id });
 });
 
-const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble() });
+const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble({ handlers: [] }) });
 
 /**
  * A server with no `keepalive()`. It proves the heartbeat hooks are free: the
@@ -54,6 +54,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { connectionId: ctx.id });
 });
 
-export const heartbeatHandler = base.assemble();
+export const heartbeatHandler = base.assemble({ handlers: [] });
 
 export type HeartbeatClient = InferClient<typeof heartbeatHandler>;

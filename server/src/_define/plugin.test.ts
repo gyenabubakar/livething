@@ -29,7 +29,7 @@ const h = define({
 const heartbeat = h.on('heartbeat', { input: v.object({}), run() {} });
 
 const Presence = plugin('acme:presence', {
-  handler: h.assemble(heartbeat),
+  handler: h.assemble({ handlers: [heartbeat] }),
   api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
 });
 
@@ -70,11 +70,11 @@ describe('plugin typing', () => {
       run: () => ({ users: [] as string[] }),
     });
     const P = plugin('acme:presence', {
-      handler: ph.assemble(beat, who),
+      handler: ph.assemble({ handlers: [beat, who] }),
       api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
     });
     const app = define({ env: t<Env>(), capabilities: [P()] });
-    const handler = app.assemble();
+    const handler = app.assemble({ handlers: [] });
     type C = InferClient<typeof handler>;
     expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
     expectTypeOf<C['outgoing']>().toHaveProperty('__acme:presence::heartbeat');
@@ -92,9 +92,9 @@ describe('plugin typing', () => {
     const ticks = ph.stream('ticks', { input: v.object({}), async *run() {} });
     const room = ph.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
     room.on('say', { input: v.object({}), run() {} });
-    const P = plugin('acme:feed', { handler: ph.assemble(ticks, room) });
+    const P = plugin('acme:feed', { handler: ph.assemble({ handlers: [ticks, room] }) });
     const app = define({ env: t<Env>(), capabilities: [P()] });
-    const feedHandler = app.assemble();
+    const feedHandler = app.assemble({ handlers: [] });
     type C = InferClient<typeof feedHandler>;
     expectTypeOf<C['streams']>().toHaveProperty('__acme:feed::ticks');
     expectTypeOf<C['channels']>().toHaveProperty('__acme:feed::room');
@@ -128,7 +128,7 @@ describe('plugin host-observation compile gate', () => {
   const obsHandler = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
   const beat = obsHandler.on('tick', { input: v.object({}), run() {} });
   const Observer = plugin('acme:obs', {
-    handler: obsHandler.assemble(beat),
+    handler: obsHandler.assemble({ handlers: [beat] }),
     observesHostTraffic: true,
   });
 

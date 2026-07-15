@@ -73,15 +73,17 @@ const handleGetChannelInfo = room.request('get-channel-info', {
   },
 });
 
-export const requestHandler = requestContract.assemble(
-  handleGetTime,
-  handleNoResponse,
-  handleDoubleResponse,
-  handleStrictEcho,
-  handleThrowingRequest,
-  handleEchoAnything,
-  handleHang,
-  handleGetChannelInfo,
-);
+export const requestHandler = requestContract.assemble({
+  handlers: [
+    handleGetTime,
+    handleNoResponse,
+    handleDoubleResponse,
+    handleStrictEcho,
+    handleThrowingRequest,
+    handleEchoAnything,
+    handleHang,
+    handleGetChannelInfo,
+  ],
+});
 
 export type RequestClient = InferClient<typeof requestHandler>;

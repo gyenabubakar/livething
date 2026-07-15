@@ -40,7 +40,7 @@ const scopedHandler = scopedBase.on('beat', {
 });
 
 const ApiPlugin = plugin('acme:presence', {
-  handler: scopedBase.assemble(scopedHandler),
+  handler: scopedBase.assemble({ handlers: [scopedHandler] }),
   api: (ctx) => {
     // The declared emit with the right payload is allowed.
     ctx.send('p-online', { id: ctx.id });
@@ -71,7 +71,7 @@ const inferHandler = inferBase.on('x', {
   },
 });
 const InferApiPlugin = plugin('acme:infer', {
-  handler: inferBase.assemble(inferHandler),
+  handler: inferBase.assemble({ handlers: [inferHandler] }),
   api: (ctx) => {
     void ctx;
     return { foo: 1, bar: () => 'x' };
@@ -108,7 +108,7 @@ const leakOn = leakScoped.on('pl-in', { input: v.object({ a: v.number() }), run(
 const leakReq = leakScoped.on('pl-also-in', { run() {} });
 
 const LeakPlugin = plugin('acme:leak', {
-  handler: leakScoped.assemble(leakOn, leakReq),
+  handler: leakScoped.assemble({ handlers: [leakOn, leakReq] }),
   api: (ctx) => {
     void ctx;
     return {};
@@ -120,7 +120,7 @@ const leakHost = define({
   capabilities: [emits({ 'host-out': t<{ h: number }>() }), LeakPlugin()],
 });
 const leakHostOn = leakHost.on('host-in', { input: v.object({ h: v.number() }), run() {} });
-const leakHostDef = leakHost.assemble(leakHostOn);
+const leakHostDef = leakHost.assemble({ handlers: [leakHostOn] });
 type LeakClient = InferClient<typeof leakHostDef>;
 
 // The host's own names are present at the top level (discrimination guard so the
@@ -163,10 +163,13 @@ const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   },
 });
 const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
-const ChPlugin = plugin('acme:chan', { handler: chScoped.assemble(chFamHandler), api: () => ({}) });
+const ChPlugin = plugin('acme:chan', {
+  handler: chScoped.assemble({ handlers: [chFamHandler] }),
+  api: () => ({}),
+});
 
 const chHost = define({ env: t<{}>(), capabilities: [ChPlugin()] });
-const chHostDef = chHost.assemble(chHost.on('host-noop', { run() {} }));
+const chHostDef = chHost.assemble({ handlers: [chHost.on('host-noop', { run() {} })] });
 type ChClient = InferClient<typeof chHostDef>;
 
 // The short family name never appears; the prefixed one is the address.
@@ -222,22 +225,22 @@ expectTypeOf<ChWire['channels']['fam']['outgoing']>().toHaveProperty('fam-ping')
 // ---------------------------------------------------------------------------
 const depScoped = define({ scoped: true });
 const DepPlugin = plugin('acme:dep', {
-  handler: depScoped.assemble(depScoped.on('noop', { run() {} })),
+  handler: depScoped.assemble({ handlers: [depScoped.on('noop', { run() {} })] }),
 });
 
 const depHost = define({ scoped: true });
 // A host-owned engine factory is accepted.
 plugin('acme:ok', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
   dependsOn: [persistence],
 });
 plugin('acme:behavior', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
   // @ts-expect-error — requests is a behavior capability a plugin owns itself, not a dependsOn target.
   dependsOn: [requests],
 });
 plugin('acme:bad', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
   // @ts-expect-error — a plugin factory is not a valid dependsOn target.
   dependsOn: [DepPlugin],
 });

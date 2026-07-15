@@ -25,22 +25,22 @@ describe('errors() duplicate error-code build guard', () => {
 
   it('throws at assemble() when two errors() capabilities share a code', () => {
     const base = define({ env: t<Env>(), capabilities: [errors([NotFound]), errors([Forbidden])] });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
 
     const dup = define({
       env: t<Env>(),
       capabilities: [errors([NotFound]), errors([NotFoundAgain])],
     });
-    expect(() => dup.assemble()).toThrow(/duplicate error code "not-found"/);
+    expect(() => dup.assemble({ handlers: [] })).toThrow(/duplicate error code "not-found"/);
   });
 
   it('does not false-positive across plugin and host code boundaries', () => {
     const h = define({ scoped: true, capabilities: [errors([NotFound])] });
-    const Denied = plugin('acme:denied', { handler: h.assemble() });
+    const Denied = plugin('acme:denied', { handler: h.assemble({ handlers: [] }) });
 
     // host declares its own 'not-found' while the plugin namespaces its code to
     // '__acme:denied::not-found' — distinct wire codes, so no collision.
     const base = define({ env: t<Env>(), capabilities: [errors([NotFound]), Denied()] });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 });

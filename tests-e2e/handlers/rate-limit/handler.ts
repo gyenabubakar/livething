@@ -123,16 +123,18 @@ const handleBeta = tightRoom.on('beta', {
   },
 });
 
-export const rateLimitHandler = base.assemble(
-  handleTick,
-  handleExpensive,
-  handleSharedTick,
-  handleEchoReq,
-  handleInheritSend,
-  handleNoLimitSend,
-  handleChatter,
-  handleAlpha,
-  handleBeta,
-);
+export const rateLimitHandler = base.assemble({
+  handlers: [
+    handleTick,
+    handleExpensive,
+    handleSharedTick,
+    handleEchoReq,
+    handleInheritSend,
+    handleNoLimitSend,
+    handleChatter,
+    handleAlpha,
+    handleBeta,
+  ],
+});
 
 export type RateLimitClient = InferClient<typeof rateLimitHandler>;

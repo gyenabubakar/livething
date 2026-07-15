@@ -72,6 +72,8 @@ const handleTriggerError = base.on('trigger-error', {
   },
 });
 
-export const lifecycleHooksHandler = base.assemble(handleBadEvent, handleTriggerError);
+export const lifecycleHooksHandler = base.assemble({
+  handlers: [handleBadEvent, handleTriggerError],
+});
 
 export type LifecycleHooksClient = InferClient<typeof lifecycleHooksHandler>;

@@ -65,12 +65,14 @@ const handleGetByTag = base.on('get-by-tag', {
   },
 });
 
-export const ctxTagsHandler = base.assemble(
-  handleTagSelf,
-  handleUntagSelf,
-  handleGetMyTags,
-  handleGetConnectionInfo,
-  handleGetByTag,
-);
+export const ctxTagsHandler = base.assemble({
+  handlers: [
+    handleTagSelf,
+    handleUntagSelf,
+    handleGetMyTags,
+    handleGetConnectionInfo,
+    handleGetByTag,
+  ],
+});
 
 export type CtxTagsClient = InferClient<typeof ctxTagsHandler>;

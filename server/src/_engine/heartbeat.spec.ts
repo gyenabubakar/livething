@@ -94,7 +94,7 @@ function buildEngine(options: ServerOptions = {}): Engine {
   if (options.onPong) base.onPong(options.onPong);
 
   const noop = base.on('noop', { run() {} });
-  const handler = base.assemble(noop);
+  const handler = base.assemble({ handlers: [noop] });
 
   let engine!: Engine;
   const server = adapter({

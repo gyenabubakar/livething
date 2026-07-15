@@ -72,7 +72,7 @@ describe('tags typing', () => {
   });
 
   it('keeps tags out of the client contract', () => {
-    const handler = base.assemble(base.on('act', { run() {} }));
+    const handler = base.assemble({ handlers: [base.on('act', { run() {} })] });
     type C = InferClient<typeof handler>;
     expectTypeOf<keyof C>().not.toEqualTypeOf<'ephemeralTags' | 'persistentTags'>();
     // @ts-expect-error tags are server-only and never appear on the client contract

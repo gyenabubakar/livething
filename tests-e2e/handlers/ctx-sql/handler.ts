@@ -168,18 +168,20 @@ const handleReadEnvProbe = base.on('read-env-probe', {
   },
 });
 
-export const ctxSqlHandler = base.assemble(
-  handleSaveNote,
-  handleGetNotes,
-  handleSqlOneProbe,
-  handleSqlRawProbe,
-  handleSqlReuseProbe,
-  handleSqlOneEmptyProbe,
-  handleSqlTxCommitProbe,
-  handleSqlTxRollbackProbe,
-  handleSqlOneMultiProbe,
-  handleConnectionsSnapshotProbe,
-  handleReadEnvProbe,
-);
+export const ctxSqlHandler = base.assemble({
+  handlers: [
+    handleSaveNote,
+    handleGetNotes,
+    handleSqlOneProbe,
+    handleSqlRawProbe,
+    handleSqlReuseProbe,
+    handleSqlOneEmptyProbe,
+    handleSqlTxCommitProbe,
+    handleSqlTxRollbackProbe,
+    handleSqlOneMultiProbe,
+    handleConnectionsSnapshotProbe,
+    handleReadEnvProbe,
+  ],
+});
 
 export type CtxSqlClient = InferClient<typeof ctxSqlHandler>;

@@ -261,14 +261,16 @@ const handleGetRoomConfirmedCount = customRoom.on('get-room-confirmed-count', {
   },
 });
 
-export const replayCustomHandler = base.assemble(
-  handleAddNote,
-  handleQueryBadReplayLog,
-  handleGetConfirmedCount,
-  handleAddRoomNote,
-  handleQueryRoomReplayEvents,
-  handleRoomStream,
-  handleGetRoomConfirmedCount,
-);
+export const replayCustomHandler = base.assemble({
+  handlers: [
+    handleAddNote,
+    handleQueryBadReplayLog,
+    handleGetConfirmedCount,
+    handleAddRoomNote,
+    handleQueryRoomReplayEvents,
+    handleRoomStream,
+    handleGetRoomConfirmedCount,
+  ],
+});
 
 export type ReplayCustomClient = InferClient<typeof replayCustomHandler>;

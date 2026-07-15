@@ -52,6 +52,8 @@ privateChannel.replay({
   },
 });
 
-export const replayMembershipGateHandler = base.assemble(handleSendBeacon, handleSendSecret);
+export const replayMembershipGateHandler = base.assemble({
+  handlers: [handleSendBeacon, handleSendSecret],
+});
 
 export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateHandler>;

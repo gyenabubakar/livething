@@ -140,7 +140,9 @@ const tinyBase = define({
   env: t<Record<string, unknown>>(),
   capabilities: [emits({ notify: EmptyOut })],
 });
-const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
+const tinyHandler = tinyBase.assemble({
+  handlers: [tinyBase.on('noop', { input: Empty, run() {} })],
+});
 
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
@@ -159,26 +161,28 @@ const mediumRooms = mediumBase.channel(['rooms', 'room:{id}'], {
   outgoing: { emits: { posted: TextOut } },
 });
 mediumRooms.on('post', { input: Text, run() {} });
-const mediumHandler = mediumBase.assemble(
-  mediumBase.on('join', { input: Empty, run() {} }),
-  mediumBase.on('leave', { input: Empty, run() {} }),
-  mediumBase.on('noop', { input: Empty, run() {} }),
-  mediumBase.request('whoami', {
-    input: Empty,
-    run(ctx) {
-      return { id: ctx.identity };
-    },
-  }),
-  mediumBase.stream('tail', {
-    input: Empty,
-    chunk: NumChunk,
-    async *run() {
-      yield { n: 1 };
-    },
-  }),
-  mediumLobby,
-  mediumRooms,
-);
+const mediumHandler = mediumBase.assemble({
+  handlers: [
+    mediumBase.on('join', { input: Empty, run() {} }),
+    mediumBase.on('leave', { input: Empty, run() {} }),
+    mediumBase.on('noop', { input: Empty, run() {} }),
+    mediumBase.request('whoami', {
+      input: Empty,
+      run(ctx) {
+        return { id: ctx.identity };
+      },
+    }),
+    mediumBase.stream('tail', {
+      input: Empty,
+      chunk: NumChunk,
+      async *run() {
+        yield { n: 1 };
+      },
+    }),
+    mediumLobby,
+    mediumRooms,
+  ],
+});
 
 function channelEmits(prefix: string) {
   return {
@@ -261,7 +265,7 @@ for (const n of [1, 2, 3, 4, 5]) {
   ch.on(`r${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
-const heavyHandler = heavyBase.assemble(...heavyHandlers);
+const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('engine.initialize — sql.exec round-trip budget', () => {
   it('tiny (no schema features): cold boot issues 0 exec calls', async () => {
@@ -382,7 +386,7 @@ describe('revalidate requires a persistent channel', () => {
   it('throws at boot when a non-persistent channel has a .revalidate() hook', async () => {
     const base = define({ env: t<Record<string, unknown>>(), capabilities: [channels()] });
     const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
-    const handler = base.assemble(room);
+    const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(
       /Channel "room" has a \.revalidate\(\) hook but is not persistent/,
@@ -395,7 +399,7 @@ describe('revalidate requires a persistent channel', () => {
       capabilities: [persistence(), channels()],
     });
     const room = base.channel('room', { ...channelOutgoing, persistent: false, revalidate() {} });
-    const handler = base.assemble(room);
+    const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(/is not persistent/);
   });
@@ -406,7 +410,7 @@ describe('revalidate requires a persistent channel', () => {
       capabilities: [persistence(), channels()],
     });
     const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
-    const handler = base.assemble(room);
+    const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
   });

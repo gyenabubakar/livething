@@ -10,6 +10,6 @@ const base = define({
   capabilities: [],
 });
 
-export const rejectHttpHandler = base.assemble();
+export const rejectHttpHandler = base.assemble({ handlers: [] });
 
 export type LifecycleHooksHttpRejectClient = InferClient<typeof rejectHttpHandler>;

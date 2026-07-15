@@ -38,10 +38,8 @@ const handleBroadcastIdentity = base.on('broadcast-identity', {
   },
 });
 
-export const ctxMetaHandler = base.assemble(
-  handleWhoAmI,
-  handleListMembers,
-  handleBroadcastIdentity,
-);
+export const ctxMetaHandler = base.assemble({
+  handlers: [handleWhoAmI, handleListMembers, handleBroadcastIdentity],
+});
 
 export type CtxMetaClient = InferClient<typeof ctxMetaHandler>;

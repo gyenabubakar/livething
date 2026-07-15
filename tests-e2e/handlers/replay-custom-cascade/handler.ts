@@ -106,6 +106,8 @@ const handleRoomSendNote = room.on('send-note', {
   },
 });
 
-export const replayCustomCascadeHandler = base.assemble(handleLobbySendNote, handleRoomSendNote);
+export const replayCustomCascadeHandler = base.assemble({
+  handlers: [handleLobbySendNote, handleRoomSendNote],
+});
 
 export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeHandler>;

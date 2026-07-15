@@ -50,6 +50,8 @@ export const handleSendRoomMsg = chat.on('send-room-msg', {
 
 // `chat` carries the `inbox: true` client-contract flag, so it is passed to
 // `assemble` for `InferClient` to expose the inbox surface (receivers/receiversOf).
-export const inboxGapHandler = base.assemble(handleServerDrop, handleSendRoomMsg, chat);
+export const inboxGapHandler = base.assemble({
+  handlers: [handleServerDrop, handleSendRoomMsg, chat],
+});
 
 export type InboxGapClient = InferClient<typeof inboxGapHandler>;

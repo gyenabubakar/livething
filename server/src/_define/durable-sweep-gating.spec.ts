@@ -16,14 +16,14 @@ function sweepCount(def: { primitives: readonly any[] }): number {
 describe('durable-stream retention sweep gating (Minor 1)', () => {
   it('does NOT install the sweep when a stream capability is listed but unused', () => {
     const base = define({ env: t<{}>(), capabilities: [persistence(), recordedStream()] });
-    const def = base.assemble(base.on('noop', { run() {} }));
+    const def = base.assemble({ handlers: [base.on('noop', { run() {} })] });
     expect(sweepCount(def)).toBe(0);
   });
 
   it('installs exactly one sweep when a top-level durable stream handler exists', () => {
     const base = define({ env: t<{}>(), capabilities: [persistence(), recordedStream()] });
     const h = base.recordedStream('history', { async *run() {} } as any);
-    const def = base.assemble(h);
+    const def = base.assemble({ handlers: [h] });
     expect(sweepCount(def)).toBe(1);
   });
 
@@ -34,7 +34,7 @@ describe('durable-stream retention sweep gating (Minor 1)', () => {
     });
     const rooms = base.channel('rooms', {});
     const h = rooms.recordedStream('paginate', { async *run() {} } as any);
-    const def = base.assemble(h);
+    const def = base.assemble({ handlers: [h] });
     expect(sweepCount(def)).toBe(1);
   });
 
@@ -45,7 +45,7 @@ describe('durable-stream retention sweep gating (Minor 1)', () => {
     });
     const r = base.resumableStream('rs', { async *run() {} } as any);
     const c = base.recordedStream('rc', { async *run() {} } as any);
-    const def = base.assemble(r, c);
+    const def = base.assemble({ handlers: [r, c] });
     expect(sweepCount(def)).toBe(1);
   });
 });

@@ -6,7 +6,7 @@ import { persistence } from './capability.ts';
 describe('persistence() capability', () => {
   it('adds the persistence primitive and the persistence feature flag', () => {
     const base = define({ env: t<Record<string, never>>(), capabilities: [persistence()] });
-    const handler = base.assemble();
+    const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'persistence')).toBe(true);
     expect(handler.__features?.has('persistence')).toBe(true);
   });

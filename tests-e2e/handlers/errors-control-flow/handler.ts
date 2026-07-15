@@ -120,15 +120,17 @@ const handleChatAlwaysDefer = chat.on('chat-always-defer', {
   },
 });
 
-export const errorsControlFlowHandler = base.assemble(
-  handleDoEcho,
-  handleBlockTest,
-  handleDeferTest,
-  handleAlwaysDefer,
-  handleManualValidation,
-  handleForceDisconnect,
-  handleStartDeferStream,
-  handleChatAlwaysDefer,
-);
+export const errorsControlFlowHandler = base.assemble({
+  handlers: [
+    handleDoEcho,
+    handleBlockTest,
+    handleDeferTest,
+    handleAlwaysDefer,
+    handleManualValidation,
+    handleForceDisconnect,
+    handleStartDeferStream,
+    handleChatAlwaysDefer,
+  ],
+});
 
 export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;

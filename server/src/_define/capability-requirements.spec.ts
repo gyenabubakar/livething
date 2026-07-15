@@ -17,14 +17,14 @@ describe('capability requirements — channel-nested + conditional', () => {
     const base = define({ env: t<object>(), capabilities: [channels(), recordedStream()] });
     const rooms = base.channel('rooms', {});
     const h = rooms.recordedStream('paginate', { async *run() {} } as any);
-    expect(() => base.assemble(h)).toThrow(/persistence/);
+    expect(() => base.assemble({ handlers: [h] })).toThrow(/persistence/);
   });
 
   it('a channel-nested resumableStream without persistence is a build error', () => {
     const base = define({ env: t<object>(), capabilities: [channels(), resumableStream()] });
     const rooms = base.channel('rooms', {});
     const h = rooms.resumableStream('paginate', { async *run() {} } as any);
-    expect(() => base.assemble(h)).toThrow(/persistence/);
+    expect(() => base.assemble({ handlers: [h] })).toThrow(/persistence/);
   });
 
   it('persistent tag groups need persistence; ephemeral-only does not', () => {
@@ -32,13 +32,13 @@ describe('capability requirements — channel-nested + conditional', () => {
       env: t<object>(),
       capabilities: [tags((_e, p) => [p('favorite', t<string>())])],
     });
-    expect(() => persistent.assemble()).toThrow(/persistence/);
+    expect(() => persistent.assemble({ handlers: [] })).toThrow(/persistence/);
 
     const ephemeral = define({
       env: t<object>(),
       capabilities: [tags((e) => [e('role', t<string>())])],
     });
-    expect(() => ephemeral.assemble()).not.toThrow();
+    expect(() => ephemeral.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('listing persistence() satisfies a channel-nested durable stream', () => {
@@ -48,6 +48,6 @@ describe('capability requirements — channel-nested + conditional', () => {
     });
     const rooms = base.channel('rooms', {});
     const h = rooms.recordedStream('paginate', { async *run() {} } as any);
-    expect(() => base.assemble(h)).not.toThrow();
+    expect(() => base.assemble({ handlers: [h] })).not.toThrow();
   });
 });

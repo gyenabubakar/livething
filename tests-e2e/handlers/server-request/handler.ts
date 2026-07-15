@@ -93,11 +93,8 @@ const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
   },
 });
 
-export const serverRequestHandler = serverRequestContract.assemble(
-  handleTrigger,
-  handleTriggerTimeout,
-  handleTriggerAck,
-  handleTriggerUndeclared,
-);
+export const serverRequestHandler = serverRequestContract.assemble({
+  handlers: [handleTrigger, handleTriggerTimeout, handleTriggerAck, handleTriggerUndeclared],
+});
 
 export type ServerRequestClient = InferClient<typeof serverRequestHandler>;

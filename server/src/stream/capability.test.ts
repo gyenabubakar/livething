@@ -38,7 +38,7 @@ const tokens = base.recordedStream('tokens', {
   },
 });
 
-const handler = base.assemble(feed, paginate, tokens);
+const handler = base.assemble({ handlers: [feed, paginate, tokens] });
 type C = InferClient<typeof handler>;
 
 describe('stream typing', () => {

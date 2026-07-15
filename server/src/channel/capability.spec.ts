@@ -26,7 +26,7 @@ describe('channels() capability', () => {
       outgoing: { emits: { joined: t<{ id: string }>() } },
     });
     const handleChat = lobby.on('chat', { input: v.object({ text: v.string() }), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble(handleChat));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleChat] }));
     const channel = compiled.channels.get('lobby');
     expect(channel?.incoming.has('chat')).toBe(true);
     expect(channel?.outgoing.has('joined')).toBe(true);
@@ -38,7 +38,7 @@ describe('channels() capability', () => {
       outgoing: { emits: { said: t<{ text: string }>() } },
     });
     const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble(handleSay));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleSay] }));
     expect(compiled.channelFamilies.has('rooms')).toBe(true);
   });
 
@@ -81,7 +81,7 @@ describe('channels() capability', () => {
     const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
     room.subscribe(() => {});
     const handleSay = room.on('say', { input: v.object({}), run() {} });
-    const primitive = channelPrimitive(base.assemble(handleSay).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
     const childKinds = primitive.primitives.map((p: { __wskit: string }) => p.__wskit);
     expect(childKinds).toContain('onSubscribe');
     expect(childKinds).toContain('incoming');
@@ -93,7 +93,7 @@ describe('channels() capability', () => {
       outgoing: { emits: { tick: t<{}>() } },
     });
     presence.subscribe(() => {});
-    const compiled = compileHandlerDefinition(base.assemble(presence));
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [presence] }));
     expect(compiled.channels.has('presence')).toBe(true);
   });
 
@@ -102,7 +102,7 @@ describe('channels() capability', () => {
     const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const channelCount = base
-      .assemble(room, handleSay)
+      .assemble({ handlers: [room, handleSay] })
       .primitives.filter((p) => p.__wskit === 'channel').length;
     expect(channelCount).toBe(1);
   });
@@ -117,7 +117,7 @@ describe('channels() capability', () => {
         seenFamily = ctx.channel.family;
       },
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const incoming = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'incoming' && p.event === 'say',
     );
@@ -140,7 +140,7 @@ describe('channels() capability', () => {
         seenCommit = result;
       },
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const checkChild = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'check');
     expect(checkChild.validator).toBeDefined();
     const result = await checkChild.handler({ channel: { scope: null } }, { token: 'x' });
@@ -159,7 +159,7 @@ describe('channels() capability', () => {
     const room = base.channel('room', {
       subscribe: v.object({ token: v.string() }),
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const checkChild = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'check');
     expect(checkChild).toBeDefined();
     expect(checkChild.validator).toBeDefined();
@@ -176,7 +176,7 @@ describe('channels() capability', () => {
         ran = true;
       },
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const child = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'revalidate');
     await child.handler({ channel: { scope: null } });
     expect(ran).toBe(true);
@@ -191,7 +191,7 @@ describe('channels() capability', () => {
         return { ok: true };
       },
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const requestChild = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'request' && p.event === 'info',
     );
@@ -209,7 +209,7 @@ describe('channels() capability', () => {
         yield { family: ctx.channel.family };
       },
     });
-    const primitive = channelPrimitive(base.assemble(room).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const streamChild = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) =>
         p.__wskit === 'stream-generate' && p.event === 'feed',

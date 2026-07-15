@@ -75,13 +75,15 @@ const handleSendRoomMessage = room.on('send-room-message', {
   },
 });
 
-export const ctxChannelsHandler = base.assemble(
-  handleGetMembers,
-  handleGetMemberId,
-  handleKickInChannel,
-  handleKickNonmember,
-  handleKickSelfByRef,
-  handleSendRoomMessage,
-);
+export const ctxChannelsHandler = base.assemble({
+  handlers: [
+    handleGetMembers,
+    handleGetMemberId,
+    handleKickInChannel,
+    handleKickNonmember,
+    handleKickSelfByRef,
+    handleSendRoomMessage,
+  ],
+});
 
 export type CtxChannelsClient = InferClient<typeof ctxChannelsHandler>;

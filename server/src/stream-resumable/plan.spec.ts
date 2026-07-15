@@ -19,7 +19,7 @@ describe('resumableStream build-time validation', () => {
         yield { idx: 1 };
       },
     });
-    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
+    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {
@@ -34,7 +34,7 @@ describe('resumableStream build-time validation', () => {
         yield { idx: 1 };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
   it('builds when declared inside a channel', () => {
@@ -50,7 +50,7 @@ describe('resumableStream build-time validation', () => {
         yield { idx: 1 };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
   // FLAGGED: the new API has no "declaration without a handler" state — a
@@ -98,6 +98,6 @@ describe('resumableStream build-time validation', () => {
         yield { idx: 1 };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 });

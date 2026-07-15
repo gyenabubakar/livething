@@ -122,13 +122,8 @@ const handleServerDrop = base.on('server-drop', {
   },
 });
 
-export const channelCheckCommitHandler = base.assemble(
-  handleRoomSend,
-  checkOnly,
-  commitOnly,
-  asyncCommit,
-  nonceRoom,
-  handleServerDrop,
-);
+export const channelCheckCommitHandler = base.assemble({
+  handlers: [handleRoomSend, checkOnly, commitOnly, asyncCommit, nonceRoom, handleServerDrop],
+});
 
 export type ChannelCheckCommitClient = InferClient<typeof channelCheckCommitHandler>;

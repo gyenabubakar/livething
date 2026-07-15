@@ -46,6 +46,8 @@ export const handleAskLastSeenMany = base.on('ask-last-seen-many', {
   },
 });
 
-export const lastSeenHandler = base.assemble(handleAskLastSeen, handleAskLastSeenMany);
+export const lastSeenHandler = base.assemble({
+  handlers: [handleAskLastSeen, handleAskLastSeenMany],
+});
 
 export type LastSeenClient = InferClient<typeof lastSeenHandler>;

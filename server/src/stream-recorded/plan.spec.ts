@@ -19,7 +19,7 @@ describe('recordedStream build-time validation', () => {
         yield { token: 'hi' };
       },
     });
-    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
+    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
   });
 
   it('builds when declared inside a channel', () => {
@@ -35,7 +35,7 @@ describe('recordedStream build-time validation', () => {
         yield { token: 'hi' };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {
@@ -50,7 +50,7 @@ describe('recordedStream build-time validation', () => {
         yield { token: 'hi' };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
   // FLAGGED: the new API has no "declaration without a handler" state — a
