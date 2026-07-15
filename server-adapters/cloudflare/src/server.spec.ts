@@ -13,6 +13,7 @@ afterAll(() => responseRestore.restore());
 
 vi.mock('cloudflare:workers', () => ({
   DurableObject: FakeDurableObjectBase,
+  RpcTarget: class RpcTargetFake {},
 }));
 
 type AdapterSetup = (
@@ -43,6 +44,15 @@ type DOInstance = {
   webSocketError(ws: WebSocket, err: unknown): Promise<void>;
   alarm(): Promise<void>;
   shutdown(): Promise<void>;
+  admin(): Promise<AdminSurface>;
+};
+
+type AdminSurface = {
+  broadcast(event: string, payload: unknown): void;
+  purgeIdentity(identity: string): Promise<void>;
+  closeConnections(filter?: { identity?: string }, code?: number, reason?: string): void;
+  getConnections(): unknown[];
+  [op: string]: unknown;
 };
 
 function buildClass(opts?: { hibernation?: boolean }) {
@@ -428,5 +438,66 @@ describe('engine wiring in the constructor', () => {
 
     expect(fake.calls.restoreHibernatedConnections).toHaveLength(0);
     expect(state.getWebSockets).not.toHaveBeenCalled();
+  });
+});
+
+describe('WSKitDurableObject admin()', () => {
+  async function adminOf(opts?: { hibernation?: boolean }) {
+    const Cls = buildClass(opts);
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'ws1' }]) });
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    return { admin: await instance.admin(), state };
+  }
+
+  it('built-in methods delegate to engine.admin()', async () => {
+    const { admin } = await adminOf();
+    admin.broadcast('evt', { n: 1 });
+    await admin.purgeIdentity('u1');
+    admin.closeConnections({ identity: 'u1' }, 4000, 'gone');
+
+    expect(fake.engine.admin).toHaveBeenCalledTimes(1);
+    expect(fake.adminApi.broadcast).toHaveBeenCalledWith('evt', { n: 1 });
+    expect(fake.adminApi.purgeIdentity).toHaveBeenCalledWith('u1');
+    expect(fake.adminApi.closeConnections).toHaveBeenCalledWith({ identity: 'u1' }, 4000, 'gone');
+  });
+
+  it("exposes the app's own api methods over the stub", async () => {
+    const evict = vi.fn();
+    fake = makeFakeEngine();
+    fake.adminApi.evict = evict; // a dev-defined api method
+    fake.setHibernation(false);
+    // Rebuild against this staged engine.
+    const Cls = server({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const admin = await instance.admin();
+    (admin.evict as (id: string) => void)('u9');
+    expect(evict).toHaveBeenCalledWith('u9');
+  });
+
+  it('a dev api method cannot shadow a built-in', async () => {
+    const rogue = vi.fn();
+    fake = makeFakeEngine();
+    fake.adminApi.broadcast = rogue; // tries to replace the built-in broadcast
+    fake.setHibernation(false);
+    const Cls = server({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const admin = await instance.admin();
+    admin.broadcast('evt', { n: 1 });
+    // The built-in still delegates to engine.admin().broadcast (the rogue value);
+    // what matters: broadcast is the prototype method, not an own dev override.
+    expect(Object.hasOwn(admin, 'broadcast')).toBe(false);
+    expect(rogue).toHaveBeenCalledWith('evt', { n: 1 });
+  });
+
+  it('wakes hibernated sockets before building the admin surface', async () => {
+    const { state } = await adminOf({ hibernation: true });
+    expect(state.getWebSockets).toHaveBeenCalled();
+    expect(fake.calls.handleHibernationWake).toContainEqual({ tag: 'ws1' });
   });
 });

@@ -156,6 +156,8 @@ export interface FakeEngine {
     handleClose: ReturnType<typeof vi.fn>;
     handleError: ReturnType<typeof vi.fn>;
   };
+  /** The object `engine.admin()` returns; tests add dev methods and assert delegation. */
+  adminApi: Record<string, unknown>;
 }
 
 export function makeFakeEngine(): FakeEngine {
@@ -173,6 +175,18 @@ export function makeFakeEngine(): FakeEngine {
 
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
   let hibernation = false;
+
+  // What engine.admin() returns: built-in ops (spied) plus non-function plumbing
+  // that WSKitAdmin should skip when exposing methods over the stub.
+  const adminApi: Record<string, unknown> = {
+    broadcast: vi.fn(),
+    purgeIdentity: vi.fn(async () => {}),
+    closeConnections: vi.fn(),
+    getConnections: vi.fn(() => []),
+    sql: {},
+    channels: { get: vi.fn() },
+    connectionCount: 0,
+  };
 
   const connectionHandle: FakeEngine['connectionHandle'] = {
     handleMessage: vi.fn(async () => {}),
@@ -210,6 +224,7 @@ export function makeFakeEngine(): FakeEngine {
     restoreHibernatedConnections: vi.fn((sockets: Iterable<unknown>) => {
       calls.restoreHibernatedConnections.push([...sockets]);
     }),
+    admin: vi.fn(() => adminApi),
   } as unknown as Engine;
 
   return {
@@ -222,6 +237,7 @@ export function makeFakeEngine(): FakeEngine {
       hibernation = enabled;
     },
     connectionHandle,
+    adminApi,
   };
 }
 

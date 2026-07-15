@@ -1,9 +1,60 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '@wskit/server/adapters';
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, RpcTarget } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
+
+/**
+ * The connectionless admin surface reached with `stub.admin()`. Extends
+ * `RpcTarget` so its methods are callable across the Worker→DO stub. The
+ * framework's built-in operations are declared here; the app's own `api`
+ * methods (authored on `assemble({ handlers, api })`) are attached per instance.
+ * Built-in names win — an app api method cannot shadow one.
+ *
+ * The dev `api` factory runs against the full connectionless context (channels,
+ * tags, sql, and the rest); those richer members are used inside your api
+ * methods, not surfaced directly over the stub.
+ */
+export class WSKitAdmin extends RpcTarget {
+  readonly #api: Record<string, unknown>;
+
+  constructor(api: Record<string, unknown>) {
+    super();
+    this.#api = api;
+    // Expose the app's own api methods over the stub, unless they collide with a
+    // built-in below (built-ins win).
+    for (const [key, value] of Object.entries(api)) {
+      if (typeof value === 'function' && !(key in WSKitAdmin.prototype)) {
+        (this as Record<string, unknown>)[key] = value;
+      }
+    }
+  }
+
+  #call<T>(op: string, args: unknown[]): T {
+    return (this.#api[op] as (...a: unknown[]) => T)(...args);
+  }
+
+  /** Broadcast an event to every live connection. */
+  broadcast(event: string, payload: unknown): void {
+    this.#call('broadcast', [event, payload]);
+  }
+
+  /** Drop a user everywhere: channels, durable rows, and their live sockets. */
+  purgeIdentity(identity: string): Promise<void> {
+    return this.#call('purgeIdentity', [identity]);
+  }
+
+  /** Close live connections — all of them, or only one identity's. */
+  closeConnections(filter?: { identity?: string }, code?: number, reason?: string): void {
+    this.#call('closeConnections', [filter, code, reason]);
+  }
+
+  /** A snapshot of every live connection. */
+  getConnections(): unknown[] {
+    return this.#call('getConnections', []);
+  }
+}
 
 /**
  * The instance shape of a `server()`-produced Durable Object.
@@ -15,6 +66,7 @@ import { createStorage, createTimers } from './providers/index.ts';
  */
 export interface WSKitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
   shutdown(): Promise<void>;
+  admin(): Promise<WSKitAdmin>;
 }
 
 /**
@@ -259,6 +311,25 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           }
         }
         await this.engine.handleShutdown();
+      }
+
+      /**
+       * The connectionless admin surface — reach it from your Worker as
+       * `stub.admin()` and call an operation on the result, e.g.
+       * `await stub.admin().purgeIdentity(userId)` from an auth webhook.
+       *
+       * Hibernated sockets are woken first (as in `shutdown()`) so an operation
+       * like `purgeIdentity` or `broadcast` reaches every connection, not just
+       * the ones already live on this instance.
+       */
+      async admin(): Promise<WSKitAdmin> {
+        await this.ready;
+        if (this.engine.usesHibernation()) {
+          for (const ws of this.ctx.getWebSockets()) {
+            this.engine.handleHibernationWake(ws);
+          }
+        }
+        return new WSKitAdmin(this.engine.admin());
       }
     };
   },
