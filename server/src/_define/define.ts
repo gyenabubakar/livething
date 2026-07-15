@@ -44,7 +44,11 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
-import { assertHostObservationGranted, assertPluginDependencies } from './plugin.ts';
+import {
+  assertHostObservationGranted,
+  assertPluginDependencies,
+  assertUniquePluginIds,
+} from './plugin.ts';
 import type {
   AppCtx,
   BroadcastRequestArm,
@@ -1870,6 +1874,7 @@ export function define(config: any): Base<any, any, any, any> {
       registerOnce('replay', build(hooks));
     },
     assemble(...items: readonly Contribution[]) {
+      assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertHostObservationGranted(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];

@@ -73,16 +73,15 @@ const PLUGIN_SURFACE_KEY = Symbol('pluginSurface');
 /**
  * Build the `ctx.plugin(id)` accessor for one connection context. It runs the
  * registered plugin's API factory against a plugin-scoped context (sends prefixed
- * with the plugin namespace) and caches the result per context so repeated calls
- * return the same API object.
+ * with the plugin namespace) and caches the result by id, so repeated calls in
+ * one context return the same API object and the factory runs at most once.
  */
 function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
   const base = baseCtx as Record<PropertyKey, unknown>;
   const pluginApiCache = new Map<string, unknown>();
   return {
-    plugin: (id: string, registrationId?: string) => {
-      const cacheKey = registrationId ? `${id}#${registrationId}` : id;
-      if (pluginApiCache.has(cacheKey)) return pluginApiCache.get(cacheKey);
+    plugin: (id: string) => {
+      if (pluginApiCache.has(id)) return pluginApiCache.get(id);
       const factory = engine.getPluginApiFactory(id);
       if (!factory) {
         throw new Error(
@@ -91,7 +90,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
         );
       }
       const api = factory(scopePluginContext(id, base));
-      pluginApiCache.set(cacheKey, api);
+      pluginApiCache.set(id, api);
       return api;
     },
   };
@@ -449,5 +448,26 @@ export function assertHostObservationGranted(
       `[wskit] plugin "${pluginCap.__pluginId}" is granted host-traffic observation ` +
         "(its intercept/outgoing see the app's frames)",
     );
+  }
+}
+
+/**
+ * A plugin's `id` is the namespace it owns on the wire, so no two plugins listed
+ * on one host may share it. This catches a duplicate id at `assemble()` — for
+ * every plugin, whether or not it declares an `api` or any handlers — with one
+ * clear message, instead of leaving it to a later, partial engine-boot check.
+ */
+export function assertUniquePluginIds(capabilities: readonly AnyCapability[]): void {
+  const seen = new Set<string>();
+  for (const cap of capabilities) {
+    const id = (cap as Partial<PluginCapability>).__pluginId;
+    if (id === undefined) continue;
+    if (seen.has(id)) {
+      throw new Error(
+        `[wskit] plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
+          'must be unique — list it once, or give the second one a different id.',
+      );
+    }
+    seen.add(id);
   }
 }

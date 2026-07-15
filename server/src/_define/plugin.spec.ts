@@ -202,6 +202,22 @@ describe('plugin() — scoped handler + manifest', () => {
     expect(() => base.assemble()).not.toThrow();
   });
 
+  it('throws at assemble() when the same plugin id is listed twice, even with no api or handlers', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const P = plugin('acme:dup', { handler: h.assemble() });
+    const base = define({ env: t<Env>(), capabilities: [P(), P()] });
+    expect(() => base.assemble()).toThrow(/listed more than once/);
+  });
+
+  it('throws at assemble() when two different plugins share an id', () => {
+    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const tick = h.on('tick', { input: v.object({}), run() {} });
+    const First = plugin('acme:same', { handler: h.assemble(tick) });
+    const Second = plugin('acme:same', { handler: h.assemble(tick) });
+    const base = define({ env: t<Env>(), capabilities: [First(), Second()] });
+    expect(() => base.assemble()).toThrow(/listed more than once/);
+  });
+
   it('throws at assemble() when a dependsOn prerequisite is missing', () => {
     const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });

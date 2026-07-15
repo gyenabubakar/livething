@@ -421,16 +421,13 @@ type PluginApiOf<TSlice> = TSlice extends { __api: infer TApi } ? TApi : unknown
 /** The `ctx.plugin(id)` surface — owned by `plugin(...)` capabilities. */
 export interface PluginCtx<TPlugins> {
   /**
-   * Reach a registered plugin's per-connection API by its id. The id is typed to
-   * the plugins actually listed, and the result is that plugin's `api` type. Pass
-   * an explicit type argument to override, or `registrationId` to select an
-   * instance when the same plugin is registered more than once.
+   * Reach a registered plugin's API by its id. The id is typed to the plugins
+   * actually listed, and the result is that plugin's `api` type — pass an explicit
+   * type argument to override. A plugin id is unique (one plugin per id), so the
+   * lookup is unambiguous; the API is built once per context and reused.
    */
-  plugin<TId extends keyof TPlugins & string>(
-    id: TId,
-    registrationId?: string,
-  ): PluginApiOf<TPlugins[TId]>;
-  plugin<TApi = unknown>(id: string, registrationId?: string): TApi;
+  plugin<TId extends keyof TPlugins & string>(id: TId): PluginApiOf<TPlugins[TId]>;
+  plugin<TApi = unknown>(id: string): TApi;
 }
 
 /** True when `T` is a non-empty record (the slot is actually declared). */

@@ -59,15 +59,6 @@ describe('plugin typing', () => {
     });
   });
 
-  it('accepts an optional registrationId on ctx.plugin', () => {
-    base.on('act', {
-      run(ctx) {
-        const api = ctx.plugin('acme:presence', 'second');
-        expectTypeOf(api).toEqualTypeOf<PresenceApi>();
-      },
-    });
-  });
-
   it('folds a plugin surface into the top-level client maps under __id:: names', () => {
     const ph = define({
       scoped: true,
