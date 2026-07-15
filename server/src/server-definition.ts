@@ -105,11 +105,15 @@ export interface ServerContract {
  *
  * @template TPrimitives - The frozen tuple of all registered primitives.
  * @template TContract - The client contract carried along with the built server.
+ * @template TScopedCtx - The `ctx` type a scoped handler's own handlers receive.
+ * @template TApi - The return type of the handler's `api` factory (the per-connection
+ *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
  */
 export interface ServerDefinition<
   TPrimitives extends readonly Primitive[] = readonly Primitive[],
   TContract extends ServerContract = ServerContract,
   TScopedCtx = unknown,
+  TApi = unknown,
 > {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
@@ -122,6 +126,14 @@ export interface ServerDefinition<
    * surface. Absent (`unknown`) on app servers.
    */
   readonly __scopedCtx?: TScopedCtx;
+  /**
+   * Type-only field — never set at runtime.
+   *
+   * A handler assembled with an `api` factory brands its definition with that
+   * factory's return type. `plugin(...)` reads this to type `ctx.plugin(id)`.
+   * Absent (`unknown`) when no `api` was given.
+   */
+  readonly __api?: TApi;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
   /**

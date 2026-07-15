@@ -1473,13 +1473,34 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   ): void;
 
   /**
-   * Collect every handler into the final server the platform adapter runs.
-   * Pass each `base.on(...)` (and, with their capabilities, `request` / `stream`
-   * / `channel` / `scheduled`) value. The upgrade hook, the lifecycle hooks, the
-   * intercept, and the listed capabilities are folded in automatically.
+   * Collect every handler into the final server the platform adapter runs. Pass
+   * the handlers as `{ handlers: [...] }` — each `base.on(...)` (and, with their
+   * capabilities, `request` / `stream` / `channel` / `scheduled`) value. The
+   * upgrade hook, the lifecycle hooks, the intercept, and the listed capabilities
+   * are folded in automatically.
+   *
+   * A scoped plugin handler (`define({ scoped: true })`) may also pass `api` —
+   * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
+   * is the plugin's own scoped ctx, the same one its handlers receive.
    *
    * Capabilities belong in `define({ capabilities: [...] })`, not here — passing
    * one is a type error.
+   */
+  assemble<const THandlers extends readonly AssembleInput[], TApi = void>(config: {
+    readonly handlers: THandlers;
+    readonly api?: (
+      ctx: AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
+    ) => TApi;
+  }): ServerDefinition<
+    readonly Primitive[],
+    BuildContract<MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
+    AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
+    TApi
+  >;
+  /**
+   * Migration overload — accepts handlers passed as loose varargs. Prefer the
+   * `{ handlers: [...] }` config form above; this signature is removed once every
+   * call site has moved over.
    */
   assemble<const THandlers extends readonly AssembleInput[]>(
     ...handlers: THandlers
@@ -1873,7 +1894,25 @@ export function define(config: any): Base<any, any, any, any> {
       }
       registerOnce('replay', build(hooks));
     },
-    assemble(...items: readonly Contribution[]) {
+    assemble(...args: readonly unknown[]) {
+      // Accept both the `{ handlers, api }` config form and the legacy variadic
+      // form. A config object is the sole argument and carries a `handlers`
+      // array; handler primitives never do, so this is unambiguous.
+      const first = args[0] as
+        | { handlers?: readonly Contribution[]; api?: (ctx: unknown) => unknown }
+        | undefined;
+      const isConfig = args.length === 1 && !!first && Array.isArray(first.handlers);
+      const items: readonly Contribution[] = isConfig
+        ? (first!.handlers as readonly Contribution[])
+        : (args as readonly Contribution[]);
+      const api = isConfig ? first!.api : undefined;
+      if (api && !config.scoped) {
+        throw new Error(
+          '[wskit] assemble({ api }) at the top level is the admin surface, which is not ' +
+            'available yet. For now, author an api only on a scoped plugin handler ' +
+            '(define({ scoped: true })), reached from the host via ctx.plugin(id).',
+        );
+      }
       assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertHostObservationGranted(config.capabilities ?? []);
@@ -2071,7 +2110,11 @@ export function define(config: any): Base<any, any, any, any> {
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
         ...(config.scoped
-          ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
+          ? {
+              __scoped: true as const,
+              __hostDependencies: Object.freeze(hostDependencies),
+              ...(api ? { __apiFactory: api } : {}),
+            }
           : {}),
       });
     },
