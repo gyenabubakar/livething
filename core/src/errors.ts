@@ -505,8 +505,9 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
  * - `'not-found'` — a `__resumeStream__` request named a stream id the server doesn't recognise.
  * - `'hibernation-wake'` — a non-durable stream was lost because the server
- *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
- *   hibernation). The wire-level connection is still alive; only the
+ *   dropped in-memory state on a runtime with hibernation (e.g. a Cloudflare
+ *   Durable Object waking from hibernation). Runtimes without hibernation never
+ *   emit this reason. The wire-level connection is still alive; only the
  *   in-flight stream is gone.
  * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
