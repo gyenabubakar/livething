@@ -3,6 +3,7 @@ import {
   deleteDurableMembership,
   hasDurableMembership,
   persistMembership,
+  purgeIdentity,
 } from '~/persistence/membership.ts';
 import { restorePersistentTags } from '~/persistence/rejoin.ts';
 import type { PersistenceService } from '~/_engine/runtime/feature-slots.ts';
@@ -18,4 +19,5 @@ export const persistenceService: PersistenceService = {
   hasDurableMembership,
   autoRejoinIdentity,
   restorePersistentTags,
+  purgeIdentity,
 };

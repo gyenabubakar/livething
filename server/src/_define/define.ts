@@ -22,6 +22,7 @@ import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 import type {
+  AdminContext,
   ConnectionInfo,
   ConnectionRef,
   InitContext,
@@ -1393,12 +1394,13 @@ export interface InterceptMethods<TSlots, TEnv, TMeta, TCaps extends readonly An
  * (`on`, the lifecycle hooks, `intercept`, `assemble`) plus any methods the
  * listed capabilities grant through their brands.
  */
-export type Base<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> = CoreBase<
+export type Base<
   TSlots,
   TEnv,
   TMeta,
-  TCaps
-> &
+  TCaps extends readonly AnyCapability[],
+  TScoped extends boolean = false,
+> = CoreBase<TSlots, TEnv, TMeta, TCaps, TScoped> &
   CapabilityMethods<TSlots, TEnv, TMeta, BrandsOf<TCaps>, TCaps>;
 
 /**
@@ -1411,7 +1413,13 @@ export type PluginIdsOf<TSlots> = keyof SlotOr<TSlots, 'plugins'> extends never
   : keyof SlotOr<TSlots, 'plugins'> & string;
 
 /** The methods present on every `base`, whatever capabilities are listed. */
-export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
+export interface CoreBase<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TScoped extends boolean = false,
+> {
   /**
    * Register a handler for one client→server event. The handler is an
    * exportable value — pass it to `assemble(...)`. Exactly one handler per event
@@ -1489,7 +1497,9 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
     readonly handlers: THandlers;
     readonly api?: (
-      ctx: AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
+      ctx: TScoped extends true
+        ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>
+        : AdminContext<TEnv, TMeta, unknown, MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
     ) => TApi;
   }): ServerDefinition<
     readonly Primitive[],
@@ -1686,8 +1696,8 @@ export function define<
   const TCaps extends readonly PluginSafeCapability[] = readonly [],
 >(
   config: ScopedDefineConfig<TMeta, TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps>;
-export function define(config: any): Base<any, any, any, any> {
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps, true>;
+export function define(config: any): any {
   const lifecyclePrimitives: Primitive[] = [];
   const seen = new Set<string>();
 
@@ -1888,13 +1898,6 @@ export function define(config: any): Base<any, any, any, any> {
     }) {
       const items = assembleConfig.handlers;
       const api = assembleConfig.api;
-      if (api && !config.scoped) {
-        throw new Error(
-          '[wskit] assemble({ api }) at the top level is the admin surface, which is not ' +
-            'available yet. For now, author an api only on a scoped plugin handler ' +
-            '(define({ scoped: true })), reached from the host via ctx.plugin(id).',
-        );
-      }
       assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertHostObservationGranted(config.capabilities ?? []);
@@ -2091,12 +2094,11 @@ export function define(config: any): Base<any, any, any, any> {
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
+        // The api factory rides along on both a scoped handler (read by plugin()
+        // for ctx.plugin(id)) and an app handler (read by Engine.admin()).
+        ...(api ? { __apiFactory: api } : {}),
         ...(config.scoped
-          ? {
-              __scoped: true as const,
-              __hostDependencies: Object.freeze(hostDependencies),
-              ...(api ? { __apiFactory: api } : {}),
-            }
+          ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
           : {}),
       });
     },

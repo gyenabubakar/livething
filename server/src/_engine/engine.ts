@@ -5,6 +5,7 @@ import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
+import { createAdminContext } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -214,5 +215,33 @@ export class Engine {
       connections: this.core.connections,
       ...EngineDeps.commonDeps(this.core),
     });
+  }
+
+  /**
+   * The connectionless admin surface, reached from outside the socket layer (an
+   * HTTP route, an auth webhook, a cron job). Returns the framework's built-in
+   * admin operations merged with the app's own `api` (authored on
+   * `assemble({ handlers, api })`). Built-ins are spread last, so they win on a
+   * name clash — a dev api method cannot shadow `broadcast`, `purgeIdentity`,
+   * and the rest.
+   */
+  admin(): Record<string, unknown> {
+    const core = this.core;
+    const ctx = createAdminContext({
+      connections: core.connections,
+      ...EngineDeps.commonDeps(core),
+      purgeIdentity: (identity) => {
+        const service = core.persistenceService;
+        if (!service) {
+          throw new Error(
+            '[wskit] admin().purgeIdentity() needs persistence. List persistence() on the ' +
+              'server to enable durable membership cleanup.',
+          );
+        }
+        return service.purgeIdentity(core, identity);
+      },
+    });
+    const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
+    return { ...(devApi as Record<string, unknown>), ...ctx };
   }
 }

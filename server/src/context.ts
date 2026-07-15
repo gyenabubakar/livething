@@ -938,3 +938,96 @@ export interface TaskContext<
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
 }
+
+/** The channel operations available connectionlessly from an admin context. */
+export interface AdminChannelHandle<Meta = Record<string, unknown>> {
+  /** Broadcast a channel event to its members. */
+  broadcast(event: string, payload: unknown): void;
+  /** Snapshot of the channel's members. */
+  members(): ConnectionInfo<Meta>[];
+  /** Remove a connection (or everyone holding a tag) from this channel. */
+  kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
+  /** Remove a durable membership by identity. */
+  removeMember(identity: string): Promise<void>;
+}
+
+/** Reach a channel by name from admin — the connectionless subset of `ctx.channels`. */
+export interface AdminChannels<Meta = Record<string, unknown>> {
+  /** A static channel by name. */
+  get(name: string): AdminChannelHandle<Meta>;
+  /** A dynamic channel by family key and instance name. */
+  get(family: string, instance: string): AdminChannelHandle<Meta>;
+}
+
+/**
+ * The context an admin operation runs against — reached with `service.admin()`.
+ *
+ * Admin operations run **outside** the socket layer: from an HTTP route, an auth
+ * webhook, or a cron job, where no client connection is in scope. So this
+ * context has no `id`, `send`, `meta`, or `close` — there is no "current
+ * connection" to act on. It exposes only engine-wide operations: broadcast to
+ * everyone, reach a channel by name, drop a user everywhere, and read storage.
+ *
+ * `tags` admin operations are not part of this context yet.
+ */
+export interface AdminContext<
+  Env = Record<string, unknown>,
+  Meta = Record<string, unknown>,
+  Platform = unknown,
+  TSlots = unknown,
+> {
+  /**
+   * Broadcast an event to every live connection. Typed against the server's
+   * `emits(...)` events, so a typo or wrong payload is a compile error.
+   */
+  broadcast<E extends keyof ShutdownOutgoing<TSlots> & string>(
+    event: E,
+    payload: ShutdownOutgoing<TSlots>[E],
+  ): void;
+
+  /** Reach a channel by name (or family + instance) to act on its members. */
+  channels: AdminChannels<Meta>;
+
+  /**
+   * Drop a user everywhere: leave every channel they belong to (live and
+   * durable), remove their persistent tags, and close every live socket they
+   * hold. The one call the auth-webhook case (`user.deleted`) needs.
+   */
+  purgeIdentity(identity: string): Promise<void>;
+
+  /**
+   * Close live connections. With no filter, closes every connection; with
+   * `{ identity }`, closes only that user's sockets.
+   */
+  closeConnections(filter?: { identity?: string }, code?: number, reason?: string): void;
+
+  /** Get a snapshot of every live connection. */
+  getConnections(): ConnectionInfo<Meta>[];
+
+  /** The total number of live WebSocket connections right now. */
+  connectionCount: number;
+
+  /** SQL database access for queries, migrations, and transactions. */
+  sql: SQLProvider;
+
+  /** Key-value storage for simple get/set/delete operations. */
+  kv: KVProvider;
+
+  /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
+  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+
+  /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
+
+  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
+  env: Env;
+
+  /** Structured logger — writes to the platform's logging system. */
+  log: Logger;
+
+  /** Keep the platform runtime alive until the promise resolves. */
+  waitUntil(promise: Promise<unknown>): void;
+
+  /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
+  platform: Platform;
+}

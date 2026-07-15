@@ -39,6 +39,13 @@ export class EngineCore {
   readonly primitives: readonly Primitive[];
   readonly compiled: EngineCompileTypes.CompiledServer;
 
+  /**
+   * The app's top-level `api` factory, authored on `assemble({ handlers, api })`.
+   * Reached connectionlessly through `Engine.admin()`. Undefined when no `api`
+   * was declared.
+   */
+  readonly adminApiFactory?: (ctx: unknown) => unknown;
+
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
   storage?: PublicApi.StorageProvider;
@@ -195,6 +202,7 @@ export class EngineCore {
 
     this.options = options;
     this.primitives = handler.primitives;
+    this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
     this.storage = options.storage;
     this.env = options.env;

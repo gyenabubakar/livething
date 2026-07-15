@@ -126,6 +126,7 @@ export interface PersistenceService {
     connection: RuntimeConnection,
   ): Promise<void>;
   restorePersistentTags(opts: any): void;
+  purgeIdentity(core: any, identity: string): Promise<void>;
 }
 
 /**
