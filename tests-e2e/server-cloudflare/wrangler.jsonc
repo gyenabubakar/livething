@@ -10,6 +10,7 @@
       { "name": "REPLAY_GAP_SERVER", "class_name": "ReplayGapServer" },
       { "name": "REPLAY_CUSTOM_SERVER", "class_name": "ReplayCustomServer" },
       { "name": "PLUGINS_SERVER", "class_name": "PluginsServer" },
+      { "name": "ADMIN_SERVER", "class_name": "AdminServer" },
       { "name": "REPLAY_SNAPSHOT_SERVER", "class_name": "ReplaySnapshotServer" },
       { "name": "HTTP_REJECT_SERVER", "class_name": "RejectHttpServer" },
       { "name": "INCOMING_SERVER", "class_name": "IncomingServer" },
@@ -183,6 +184,10 @@
     {
       "tag": "v14",
       "new_sqlite_classes": ["HeartbeatHibernationServer"],
+    },
+    {
+      "tag": "v15",
+      "new_sqlite_classes": ["AdminServer"],
     },
   ],
 }

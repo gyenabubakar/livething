@@ -3,6 +3,7 @@ export { ReplayGapServer } from './replay-gap.ts';
 export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
+export { AdminServer } from './admin.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
@@ -61,6 +62,7 @@ export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
+  '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
@@ -151,6 +153,26 @@ export default {
     if (url.pathname === '/ws/plugins/shutdown') {
       const id = env.PLUGINS_SERVER.idFromName(room);
       await env.PLUGINS_SERVER.get(id).shutdown();
+      return new Response(null, { status: 204 });
+    }
+
+    // Admin surface over the stub: a built-in op (purgeIdentity) and a
+    // dev-defined op (announce), both reached through stub.admin().
+    if (url.pathname === '/ws/admin/purge') {
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const identity = url.searchParams.get('identity') ?? '';
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      await admin.purgeIdentity(identity);
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/admin/announce') {
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const text = url.searchParams.get('text') ?? '';
+      const admin = (await env.ADMIN_SERVER.get(id).admin()) as unknown as {
+        announce(text: string): Promise<void>;
+      };
+      await admin.announce(text);
       return new Response(null, { status: 204 });
     }
 
