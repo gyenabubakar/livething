@@ -108,9 +108,6 @@ export async function purgeIdentity(core: EngineCore, identity: string): Promise
     PersistenceStorage.purgeTagsByIdentity(sql, identity);
   }
 
-  // Close every live socket the identity still holds — the memberships and
-  // durable rows are already gone, so this is the final step of "wipe them
-  // everywhere".
   for (const connection of core.connections.values()) {
     if (connection.identity === identity) {
       connection.descriptor.close(CloseCodes.NORMAL, 'identity purged');

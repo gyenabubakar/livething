@@ -489,8 +489,7 @@ describe('WSKitDurableObject admin()', () => {
     const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
     const admin = await instance.admin();
     admin.broadcast('evt', { n: 1 });
-    // The built-in still delegates to engine.admin().broadcast (the rogue value);
-    // what matters: broadcast is the prototype method, not an own dev override.
+    // broadcast stays the prototype method, never an own dev override.
     expect(Object.hasOwn(admin, 'broadcast')).toBe(false);
     expect(rogue).toHaveBeenCalledWith('evt', { n: 1 });
   });

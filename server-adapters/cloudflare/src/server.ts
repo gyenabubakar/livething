@@ -60,12 +60,16 @@ export class WSKitAdmin extends RpcTarget {
  * The instance shape of a `server()`-produced Durable Object.
  *
  * In addition to the standard Durable Object lifecycle methods, the instance
- * exposes `shutdown()` as an RPC method. Call `stub.shutdown()` from your
- * Worker to trigger every `onShutdown` hook and close every open WebSocket
- * connection gracefully — use it before a deploy or maintenance window.
+ * exposes two RPC methods. `stub.shutdown()` triggers every `onShutdown` hook
+ * and closes every open WebSocket gracefully — use it before a deploy or
+ * maintenance window. `stub.admin()` returns the connectionless admin surface,
+ * so `await stub.admin().purgeIdentity(userId)` reaches into the running server
+ * from a webhook or cron with no socket of its own.
  */
 export interface WSKitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
+  /** Gracefully drain the Durable Object: run `onShutdown`, close every socket. */
   shutdown(): Promise<void>;
+  /** The connectionless admin surface — `await stub.admin().purgeIdentity(id)`. */
   admin(): Promise<WSKitAdmin>;
 }
 

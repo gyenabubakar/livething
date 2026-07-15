@@ -2094,8 +2094,7 @@ export function define(config: any): any {
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
-        // The api factory rides along on both a scoped handler (read by plugin()
-        // for ctx.plugin(id)) and an app handler (read by Engine.admin()).
+        // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),
         ...(config.scoped
           ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
