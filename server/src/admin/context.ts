@@ -85,3 +85,22 @@ export function createAdminContext(
     platform: deps.platform,
   };
 }
+
+/**
+ * The admin **operations** `service.admin()` exposes — the whole-server actions,
+ * not the ctx plumbing (`sql`, `kv`, `schedule`, `env`, and the rest) the dev's
+ * `api` uses internally. Keeping that plumbing off the returned surface keeps it
+ * off the wire, where a stub adapter would otherwise promote its methods.
+ */
+export function adminBuiltIns(
+  ctx: PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+): Record<string, unknown> {
+  return {
+    broadcast: ctx.broadcast,
+    channels: ctx.channels,
+    purgeIdentity: ctx.purgeIdentity,
+    closeConnections: ctx.closeConnections,
+    getConnections: ctx.getConnections,
+    connectionCount: ctx.connectionCount,
+  };
+}

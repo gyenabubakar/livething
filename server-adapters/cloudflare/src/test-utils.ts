@@ -178,12 +178,12 @@ export function makeFakeEngine(): FakeEngine {
 
   // What engine.admin() returns: built-in ops (spied) plus non-function plumbing
   // that WSKitAdmin should skip when exposing methods over the stub.
+  // Mirrors Engine.admin(): the admin operations only, never the ctx plumbing.
   const adminApi: Record<string, unknown> = {
     broadcast: vi.fn(),
     purgeIdentity: vi.fn(async () => {}),
     closeConnections: vi.fn(),
     getConnections: vi.fn(() => []),
-    sql: {},
     channels: { get: vi.fn() },
     connectionCount: 0,
   };

@@ -1,4 +1,4 @@
-import { createAdminContext } from '~/admin/context.ts';
+import { adminBuiltIns, createAdminContext } from '~/admin/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { CreateAdminContextDeps } from '~/admin/context.ts';
 
@@ -99,5 +99,38 @@ describe('createAdminContext', () => {
     const ctx = createAdminContext(deps);
     expect(ctx.connectionCount).toBe(3);
     expect(ctx.getConnections().map((c) => c.identity)).toEqual(['alice', 'bob', 'alice']);
+  });
+});
+
+describe('adminBuiltIns', () => {
+  it('surfaces the admin operations but none of the ctx plumbing', () => {
+    const { deps } = makeDeps();
+    const keys = Object.keys(adminBuiltIns(createAdminContext(deps)));
+
+    expect(keys.sort()).toEqual(
+      [
+        'broadcast',
+        'channels',
+        'closeConnections',
+        'connectionCount',
+        'getConnections',
+        'purgeIdentity',
+      ].sort(),
+    );
+
+    // The plumbing the dev's api uses internally must never reach the returned
+    // surface — a stub adapter promotes its functions onto the wire otherwise.
+    for (const plumbing of [
+      'sql',
+      'kv',
+      'schedule',
+      'cancelScheduled',
+      'waitUntil',
+      'env',
+      'log',
+      'platform',
+    ]) {
+      expect(keys).not.toContain(plumbing);
+    }
   });
 });

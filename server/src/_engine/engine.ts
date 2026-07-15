@@ -5,7 +5,7 @@ import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
-import { createAdminContext } from '~/admin/context.ts';
+import { adminBuiltIns, createAdminContext } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -223,7 +223,8 @@ export class Engine {
    * admin operations merged with the app's own `api` (authored on
    * `assemble({ handlers, api })`). Built-ins are spread last, so they win on a
    * name clash — a dev api method cannot shadow `broadcast`, `purgeIdentity`,
-   * and the rest.
+   * and the rest. The dev's `api` factory sees the full ctx (storage, schedule,
+   * env, …), but only the operations are surfaced here, never that plumbing.
    */
   admin(): Record<string, unknown> {
     const core = this.core;
@@ -242,6 +243,6 @@ export class Engine {
       },
     });
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
-    return { ...(devApi as Record<string, unknown>), ...ctx };
+    return { ...(devApi as Record<string, unknown>), ...adminBuiltIns(ctx) };
   }
 }
