@@ -40,22 +40,24 @@ const scopedHandler = scopedBase.on('beat', {
 });
 
 const ApiPlugin = plugin('acme:presence', {
-  handler: scopedBase.assemble({ handlers: [scopedHandler] }),
-  api: (ctx) => {
-    // The declared emit with the right payload is allowed.
-    ctx.send('p-online', { id: ctx.id });
+  handler: scopedBase.assemble({
+    handlers: [scopedHandler],
+    api: (ctx) => {
+      // The declared emit with the right payload is allowed.
+      ctx.send('p-online', { id: ctx.id });
 
-    // @ts-expect-error — wrong payload shape for a declared emit
-    ctx.send('p-online', { id: 123 });
+      // @ts-expect-error — wrong payload shape for a declared emit
+      ctx.send('p-online', { id: 123 });
 
-    // @ts-expect-error — undeclared method does not exist on the scoped ctx
-    ctx.nope();
+      // @ts-expect-error — undeclared method does not exist on the scoped ctx
+      ctx.nope();
 
-    // The `scheduled()` capability arm is present because it was listed.
-    ctx.schedule('p-task', { time: 0 });
+      // The `scheduled()` capability arm is present because it was listed.
+      ctx.schedule('p-task', { time: 0 });
 
-    return { ok: true };
-  },
+      return { ok: true };
+    },
+  }),
 });
 void ApiPlugin;
 
@@ -71,11 +73,13 @@ const inferHandler = inferBase.on('x', {
   },
 });
 const InferApiPlugin = plugin('acme:infer', {
-  handler: inferBase.assemble({ handlers: [inferHandler] }),
-  api: (ctx) => {
-    void ctx;
-    return { foo: 1, bar: () => 'x' };
-  },
+  handler: inferBase.assemble({
+    handlers: [inferHandler],
+    api: (ctx) => {
+      void ctx;
+      return { foo: 1, bar: () => 'x' };
+    },
+  }),
 });
 
 const inferHost = define({ env: t<{}>(), capabilities: [InferApiPlugin()] });
@@ -108,11 +112,13 @@ const leakOn = leakScoped.on('pl-in', { input: v.object({ a: v.number() }), run(
 const leakReq = leakScoped.on('pl-also-in', { run() {} });
 
 const LeakPlugin = plugin('acme:leak', {
-  handler: leakScoped.assemble({ handlers: [leakOn, leakReq] }),
-  api: (ctx) => {
-    void ctx;
-    return {};
-  },
+  handler: leakScoped.assemble({
+    handlers: [leakOn, leakReq],
+    api: (ctx) => {
+      void ctx;
+      return {};
+    },
+  }),
 });
 
 const leakHost = define({
@@ -164,8 +170,7 @@ const chFam = chScoped.channel(['fam', 'fam:{id}'], {
 });
 const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
 const ChPlugin = plugin('acme:chan', {
-  handler: chScoped.assemble({ handlers: [chFamHandler] }),
-  api: () => ({}),
+  handler: chScoped.assemble({ handlers: [chFamHandler], api: () => ({}) }),
 });
 
 const chHost = define({ env: t<{}>(), capabilities: [ChPlugin()] });

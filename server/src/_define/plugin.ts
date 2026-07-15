@@ -115,12 +115,19 @@ function pluginSurfacePrimitive(): Primitive {
   };
 }
 
-/** The scoped-handler shape a plugin manifest accepts, carrying its own contract and ctx. */
-type ScopedHandler<TContract extends ServerContract, TScopedCtx = unknown> = ServerDefinition<
-  readonly Primitive[],
-  TContract,
-  TScopedCtx
-> & { readonly __scoped?: boolean };
+/**
+ * The scoped-handler shape a plugin manifest accepts, carrying its own contract,
+ * ctx, and — when the scoped `assemble({ handlers, api })` declared one — its api
+ * factory. `plugin(id, { handler })` reads the api off the handler, so the api is
+ * authored in one place next to the handlers it wraps.
+ */
+type ScopedHandler<
+  TContract extends ServerContract,
+  TScopedCtx = unknown,
+  TApi = unknown,
+> = ServerDefinition<readonly Primitive[], TContract, TScopedCtx, TApi> & {
+  readonly __scoped?: boolean;
+};
 
 /** The plain-object manifest passed to `plugin(id, ...)`. */
 export interface PluginManifest<
@@ -128,8 +135,12 @@ export interface PluginManifest<
   TApi = unknown,
   TScopedCtx = unknown,
 > {
-  /** The plugin's behavior — a scoped handler from `define({ scoped: true }).assemble(...)`. */
-  readonly handler: ScopedHandler<TContract, TScopedCtx>;
+  /**
+   * The plugin's behavior — a scoped handler from
+   * `define({ scoped: true }).assemble({ handlers, api })`. Any `api` the host
+   * reaches via `ctx.plugin(id)` is authored on that `assemble`, not here.
+   */
+  readonly handler: ScopedHandler<TContract, TScopedCtx, TApi>;
   /**
    * Host capability factories the host must list (e.g. `requests`, `persistence`).
    * A missing prerequisite is a build error. Only host capability factories are
@@ -138,12 +149,6 @@ export interface PluginManifest<
    * factories don't carry (they would always fail the check at runtime).
    */
   readonly dependsOn?: readonly HostCapabilityFactory[];
-  /**
-   * Per-connection API the host reaches via `ctx.plugin(id)`. Runs against the
-   * plugin's own scoped ctx — the same `ctx` the plugin's `h.on(...)` handlers
-   * receive, scoped to the plugin's capabilities and emits.
-   */
-  readonly api?: (ctx: TScopedCtx) => TApi;
   /**
    * Opt the plugin's `intercept`/`outgoing` hooks into seeing the host app's
    * frames, not just the plugin's own. Off by default (least privilege): a
@@ -332,10 +337,13 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
  *   run(ctx) { ctx.send('user-online', { id: ctx.id }); },
  * });
  *
- * export const Presence = plugin('acme:presence', {
- *   handler: h.assemble(heartbeat),
+ * // The api is authored on the scoped assemble, next to its handlers.
+ * const presence = h.assemble({
+ *   handlers: [heartbeat],
  *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.id }); } }),
  * });
+ *
+ * export const Presence = plugin('acme:presence', { handler: presence });
  *
  * // register it like any other capability — the factory is invoked
  * define({ capabilities: [Presence()] });
@@ -372,7 +380,9 @@ export function plugin<
     observesHostTraffic,
   );
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
-  if (manifest.api) primitives.push(pluginApiPrimitive(id, manifest.api));
+  const apiFactory = (manifest.handler as { __apiFactory?: (ctx: unknown) => unknown })
+    .__apiFactory;
+  if (apiFactory) primitives.push(pluginApiPrimitive(id, apiFactory));
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(
     primitives,

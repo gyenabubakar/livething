@@ -46,11 +46,13 @@ function buildPresence() {
     },
   });
   return plugin('acme:presence', {
-    handler: h.assemble({ handlers: [heartbeat, whoIsHere] }),
-    api: (ctx) => ({
-      announce() {
-        ctx.send('user-online', { id: ctx.id });
-      },
+    handler: h.assemble({
+      handlers: [heartbeat, whoIsHere],
+      api: (ctx) => ({
+        announce() {
+          ctx.send('user-online', { id: ctx.id });
+        },
+      }),
     }),
   });
 }

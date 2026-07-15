@@ -317,53 +317,54 @@ export const Drizzle = plugin('e2e:drizzle', {
       queryDlq,
       taskWithData,
     ],
+    api: (ctx) => {
+      const db = getDb(ctx.platform as Platform);
+      const state = getState(ctx.platform as Platform);
+      return {
+        insert(data: Omit<InsertRecord, 'id' | 'createdAt'>) {
+          const [row] = db.insert(records).values(data).returning().all();
+          return row!;
+        },
+        findAll() {
+          return db.select().from(records).orderBy(records.id).all();
+        },
+        findById(id: number) {
+          return db.select().from(records).where(eq(records.id, id)).get();
+        },
+        deleteById(id: number) {
+          const deleted = db.delete(records).where(eq(records.id, id)).returning().all();
+          return deleted.length > 0;
+        },
+        count() {
+          const [row] = db.select({ value: count() }).from(records).all();
+          return row?.value ?? 0;
+        },
+        getMessageCount() {
+          return state.messageCount;
+        },
+        getOutgoingCount() {
+          return state.outgoingCount;
+        },
+        getDisconnectCount() {
+          return state.disconnectCount;
+        },
+        getLastGeneratedId() {
+          return state.lastGeneratedId;
+        },
+        getLastState() {
+          return state.lastState;
+        },
+        getShutdownCount() {
+          return (
+            db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ??
+            0
+          );
+        },
+        getCurrentConnectionId() {
+          return ctx.id ?? null;
+        },
+      };
+    },
   }),
   observesHostTraffic: true,
-  api: (ctx) => {
-    const db = getDb(ctx.platform as Platform);
-    const state = getState(ctx.platform as Platform);
-    return {
-      insert(data: Omit<InsertRecord, 'id' | 'createdAt'>) {
-        const [row] = db.insert(records).values(data).returning().all();
-        return row!;
-      },
-      findAll() {
-        return db.select().from(records).orderBy(records.id).all();
-      },
-      findById(id: number) {
-        return db.select().from(records).where(eq(records.id, id)).get();
-      },
-      deleteById(id: number) {
-        const deleted = db.delete(records).where(eq(records.id, id)).returning().all();
-        return deleted.length > 0;
-      },
-      count() {
-        const [row] = db.select({ value: count() }).from(records).all();
-        return row?.value ?? 0;
-      },
-      getMessageCount() {
-        return state.messageCount;
-      },
-      getOutgoingCount() {
-        return state.outgoingCount;
-      },
-      getDisconnectCount() {
-        return state.disconnectCount;
-      },
-      getLastGeneratedId() {
-        return state.lastGeneratedId;
-      },
-      getLastState() {
-        return state.lastState;
-      },
-      getShutdownCount() {
-        return (
-          db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ?? 0
-        );
-      },
-      getCurrentConnectionId() {
-        return ctx.id ?? null;
-      },
-    };
-  },
 });

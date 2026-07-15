@@ -37,7 +37,7 @@ import type { Primitive } from '~/primitive.ts';
  *   capabilities: [emits({ message: Message })],
  * });
  * const handleSend = base.on('send', { input: Send, run() {} });
- * const chat = base.assemble(handleSend);
+ * const chat = base.assemble({ handlers: [handleSend] });
  *
  * type ChatClient = InferClient<typeof chat>;
  * // ChatClient.incoming.message   ← server-sent events

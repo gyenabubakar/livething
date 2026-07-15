@@ -149,8 +149,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     const ph = define({ scoped: true, capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
-      handler: ph.assemble({ handlers: [beat] }),
-      api: () => ({ tag: 'presence-api' }),
+      handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
     });
 
     const base = define({ env: t<{}>(), capabilities: [Presence()] });

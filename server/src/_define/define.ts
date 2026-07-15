@@ -1486,7 +1486,7 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
    * Capabilities belong in `define({ capabilities: [...] })`, not here — passing
    * one is a type error.
    */
-  assemble<const THandlers extends readonly AssembleInput[], TApi = void>(config: {
+  assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
     readonly handlers: THandlers;
     readonly api?: (
       ctx: AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
@@ -1683,7 +1683,7 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
  *   run(ctx, input) { ctx.send('welcome', { username: input.text }); },
  * });
  *
- * export const handler = base.assemble(handlePing);
+ * export const handler = base.assemble({ handlers: [handlePing] });
  * ```
  */
 export function define<

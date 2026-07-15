@@ -274,7 +274,7 @@ type PluginsFragmentOf<TContract> =
  *     ctx.send('chat-message', input);
  *   },
  * });
- * export const myServer = base.assemble(handleSend);
+ * export const myServer = base.assemble({ handlers: [handleSend] });
  *
  * export type MyClient = InferClient<typeof myServer>;
  *

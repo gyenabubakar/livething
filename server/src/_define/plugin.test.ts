@@ -29,8 +29,10 @@ const h = define({
 const heartbeat = h.on('heartbeat', { input: v.object({}), run() {} });
 
 const Presence = plugin('acme:presence', {
-  handler: h.assemble({ handlers: [heartbeat] }),
-  api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+  handler: h.assemble({
+    handlers: [heartbeat],
+    api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+  }),
 });
 
 const base = define({ env: t<Env>(), capabilities: [Presence()] });
@@ -70,8 +72,10 @@ describe('plugin typing', () => {
       run: () => ({ users: [] as string[] }),
     });
     const P = plugin('acme:presence', {
-      handler: ph.assemble({ handlers: [beat, who] }),
-      api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+      handler: ph.assemble({
+        handlers: [beat, who],
+        api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+      }),
     });
     const app = define({ env: t<Env>(), capabilities: [P()] });
     const handler = app.assemble({ handlers: [] });
