@@ -3,6 +3,7 @@ import {
   ackInboxRows,
   bumpInboxWatermark,
   clearInboxWatermarks,
+  countInboxRows,
   deleteInboxRowsForChannel,
   deleteInboxWatermarkForChannel,
   insertInboxRows,
@@ -66,15 +67,44 @@ export function fanOutToInbox(
   });
 
   if (config.retention) {
+    // Only a row-count cap (no age cap) can be proven satisfied from the count
+    // alone; an age cap still has to check timestamps every time.
+    const cap = config.retention.maxMessages;
+    const countGates = config.retention.maxAgeMs === undefined && cap !== undefined;
+
     for (const identity of identities) {
-      applyRetention(core, {
+      const key = memberCountKey(opts.channelName, opts.channelFamily, identity);
+      const cached = core.inboxMemberCounts.get(key);
+      const count =
+        cached === undefined
+          ? countInboxRows(sql, {
+              identity,
+              channelName: opts.channelName,
+              channelFamily: opts.channelFamily,
+            })
+          : cached + 1;
+      core.inboxMemberCounts.set(key, count);
+
+      if (countGates && count <= cap!) continue;
+
+      const evicted = applyRetention(core, {
         identity,
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
         config,
       });
+      if (countGates && evicted !== null) core.inboxMemberCounts.set(key, cap!);
     }
   }
+}
+
+/** Cache key for a member's per-channel inbox row count. */
+function memberCountKey(
+  channelName: string,
+  channelFamily: string | null,
+  identity: string,
+): string {
+  return `${channelName} ${channelFamily ?? ''} ${identity}`;
 }
 
 /**
@@ -179,8 +209,8 @@ function applyRetention(
     channelFamily: string | null;
     config: ResolvedInboxOptions;
   },
-): void {
-  if (!opts.config.retention) return;
+): number | null {
+  if (!opts.config.retention) return null;
   const { sql } = core.requireStorage();
   const evictedThrough = pruneInboxRetention(sql, {
     identity: opts.identity,
@@ -189,7 +219,7 @@ function applyRetention(
     retention: opts.config.retention,
     now: Date.now(),
   });
-  if (evictedThrough === null) return;
+  if (evictedThrough === null) return null;
 
   bumpInboxWatermark(sql, {
     identity: opts.identity,
@@ -197,4 +227,5 @@ function applyRetention(
     channelFamily: opts.channelFamily,
     evictedThroughSeq: evictedThrough,
   });
+  return evictedThrough;
 }

@@ -254,6 +254,9 @@ export interface DispatchIncomingOptions {
   payload: unknown;
   wskit: Protocol.WSKitProtocol | undefined;
   attempt?: number;
+  // The already-resolved scope from processTextMessage, so a channel frame isn't
+  // resolved twice. Omitted on a Defer retry, which re-resolves from scratch.
+  scope?: EngineRuntimeTypes.ResolvedChannel;
 }
 
 interface HandleDispatchErrorOptions {
@@ -292,15 +295,19 @@ export async function dispatchIncoming(
   if (connection.closing) return;
 
   let scope: EngineRuntimeTypes.ResolvedChannel;
-  try {
-    scope = resolveChannel(runtime.compiled, wskit);
-  } catch (error) {
-    await runtime.handleRuntimeError(connection, {
-      error,
-      event,
-      routing: routingFromWSKit(wskit),
-    });
-    return;
+  if (opts.scope) {
+    scope = opts.scope;
+  } else {
+    try {
+      scope = resolveChannel(runtime.compiled, wskit);
+    } catch (error) {
+      await runtime.handleRuntimeError(connection, {
+        error,
+        event,
+        routing: routingFromWSKit(wskit),
+      });
+      return;
+    }
   }
   if (
     scope.channelName &&
@@ -729,7 +736,9 @@ export async function processTextMessage(
 ): Promise<void> {
   const observed = { connectionId: connection.id, logger: runtime.logger };
 
-  await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
+  if (runtime.activityHooks.length > 0) {
+    await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
+  }
 
   // Ping and pong observers run in one order: the engine and capabilities first
   // (the engine's reply, `keepalive()`'s measurement), then plugins, then the
@@ -778,7 +787,9 @@ export async function processTextMessage(
 
   const event = (parsed as { event: string }).event;
 
-  await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
+  if (runtime.messageActivityHooks.length > 0) {
+    await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
+  }
 
   let wskit: Protocol.WSKitProtocol | undefined;
   try {
@@ -810,7 +821,7 @@ export async function processTextMessage(
 
     let frame: Protocol.UserEventFrame;
     try {
-      frame = v.parse(Protocol.UserEventFrameSchema, parsed);
+      frame = Protocol.parseUserEventFrame(parsed);
     } catch (error) {
       await runtime.handleRuntimeError(connection, {
         error: toValidationFailed(event, error),
@@ -991,7 +1002,14 @@ export async function processTextMessage(
       if (buffered) return;
     }
 
-    await dispatchIncoming(runtime, connection, { event, payload: frame.payload, wskit });
+    await dispatchIncoming(runtime, connection, {
+      event,
+      payload: frame.payload,
+      wskit,
+      // Reuse the scope resolved above; on a resolve failure pass none so
+      // dispatchIncoming re-resolves and routes the error.
+      scope: scopeError ? undefined : triggerScope,
+    });
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
       error,

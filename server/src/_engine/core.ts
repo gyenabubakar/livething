@@ -115,6 +115,26 @@ export class EngineCore {
   /** Channel keys that opted into read receipts via `readReceipts()`. */
   readonly readReceiptsChannels = new Set<string>();
 
+  /**
+   * In-memory mirror of each member's receipt cursors, keyed by channel and
+   * identity. Cursors are only ever advanced (never deleted), so this stays valid
+   * for the instance lifetime and lets an ack skip the read before its write. A
+   * hibernation wake starts empty and re-seeds from storage on first touch.
+   */
+  readonly inboxReceiptCursors = new Map<
+    string,
+    { receivedThrough: number; readThrough: number }
+  >();
+
+  /**
+   * In-memory count of each member's inbox rows, keyed by channel and identity.
+   * Seeded from storage on first touch and bumped as fan-out writes rows, so the
+   * per-member retention prune runs only when the row cap could be exceeded. An
+   * undercount just keeps a few rows past the cap until the next prune — never a
+   * dropped or duplicated delivery — so it is safe to skip precise invalidation.
+   */
+  readonly inboxMemberCounts = new Map<string, number>();
+
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {
     ephemeral: new Set<string>(),

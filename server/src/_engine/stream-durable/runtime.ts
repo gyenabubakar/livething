@@ -715,7 +715,14 @@ async function runGenerator(
         });
 
         if (def.maxChunks !== undefined) {
-          const count = Storage.countChunks(runtime.sql, identity, streamId);
+          // Seed from storage once (covers a resumed stream's existing rows),
+          // then count in memory instead of a COUNT(*) per chunk.
+          if (activeStream.recordedChunkCount === undefined) {
+            activeStream.recordedChunkCount = Storage.countChunks(runtime.sql, identity, streamId);
+          } else {
+            activeStream.recordedChunkCount += 1;
+          }
+          const count = activeStream.recordedChunkCount;
           if (count > def.maxChunks) {
             Storage.trimOldestChunks(runtime.sql, {
               identity,

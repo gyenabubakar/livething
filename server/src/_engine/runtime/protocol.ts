@@ -398,6 +398,106 @@ export const UserEventFrameSchema = v.strictObject({
   __wskit: v.optional(WSKitProtocolSchema),
 });
 
+const WSKIT_KEYS = new Set(Object.keys(WSKitProtocolSchema.entries));
+
+// The `__wskit` fields that are a bounded string, with each field's length cap.
+const WIRE_STRING_FIELDS: ReadonlyArray<[keyof WSKitProtocol, number]> = [
+  ['correlationId', WIRE_LIMITS.wireId],
+  ['channel', WIRE_LIMITS.channel],
+  ['streamId', WIRE_LIMITS.streamId],
+  ['streamNudgeId', WIRE_LIMITS.wireId],
+  ['eventName', WIRE_LIMITS.event],
+  ['messageId', WIRE_LIMITS.wireId],
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function withinWireLimit(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= max;
+}
+
+/**
+ * Validate a user-event frame directly, skipping valibot's per-field walk on the
+ * hot path. Returns the parsed frame, or `null` when the frame deviates in any
+ * way — the caller falls back to `v.parse(UserEventFrameSchema, …)` to raise the
+ * exact ValiError. Mirrors {@link WSKitProtocolSchema} exactly: the same
+ * wire-limit bounds, the `channelFamily` null default, and strict rejection of
+ * unknown keys.
+ */
+function fastParseUserEventFrame(input: unknown): UserEventFrame | null {
+  if (!isRecord(input)) return null;
+  for (const key in input) {
+    if (key !== 'event' && key !== 'payload' && key !== '__wskit') return null;
+  }
+  if (!withinWireLimit(input.event, WIRE_LIMITS.event)) return null;
+
+  if (input.__wskit === undefined) return { event: input.event, payload: input.payload };
+
+  const wskit = fastParseWSKit(input.__wskit);
+  if (wskit === null) return null;
+  return { event: input.event, payload: input.payload, __wskit: wskit };
+}
+
+function fastParseWSKit(input: unknown): WSKitProtocol | null {
+  if (!isRecord(input)) return null;
+  for (const key in input) {
+    if (!WSKIT_KEYS.has(key)) return null;
+  }
+
+  // `channelFamily` is nullish (always present, defaulting to null); the rest are
+  // optional and added only when the frame carries them.
+  const out: WSKitProtocol = { channelFamily: null };
+
+  for (const [key, max] of WIRE_STRING_FIELDS) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (!withinWireLimit(value, max)) return null;
+    (out as Record<string, unknown>)[key] = value;
+  }
+
+  if (input.source !== undefined) {
+    if (input.source !== 'server' && input.source !== 'client') return null;
+    out.source = input.source;
+  }
+  if (input.streamKind !== undefined) {
+    if (input.streamKind !== 'ephemeral' && input.streamKind !== 'persistent') return null;
+    out.streamKind = input.streamKind;
+  }
+  if (input.streamTerminated !== undefined) {
+    if (typeof input.streamTerminated !== 'boolean') return null;
+    out.streamTerminated = input.streamTerminated;
+  }
+  if (input.seq !== undefined) {
+    const seq = input.seq;
+    if (
+      typeof seq !== 'number' ||
+      !Number.isInteger(seq) ||
+      seq < 0 ||
+      seq > Number.MAX_SAFE_INTEGER
+    )
+      return null;
+    out.seq = seq;
+  }
+
+  if (input.channelFamily !== undefined && input.channelFamily !== null) {
+    if (!withinWireLimit(input.channelFamily, WIRE_LIMITS.channelFamily)) return null;
+    out.channelFamily = input.channelFamily;
+  }
+
+  return out;
+}
+
+/**
+ * Parse a user-event frame off the wire. Tries the direct validator first and
+ * falls back to valibot only when a frame is malformed, so an invalid frame
+ * still throws the same detailed `ValiError`.
+ */
+export function parseUserEventFrame(input: unknown): UserEventFrame {
+  return fastParseUserEventFrame(input) ?? v.parse(UserEventFrameSchema, input);
+}
+
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
 export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;

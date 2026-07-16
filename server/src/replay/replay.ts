@@ -13,6 +13,7 @@ import {
   readReplayContextScope,
   readReplayScope,
   readReplayWatermark,
+  ReplayPruneGate,
   replayScopeKey,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
@@ -188,6 +189,7 @@ class ReplayInstaller {
   private readonly channelKey: string | undefined;
   private readonly exclude: Set<string>;
   private readonly opts: ReplayOptions;
+  private readonly pruneGate = new ReplayPruneGate();
 
   constructor({ engine, channelKey, exclude, opts }: ReplayInstallerOptions) {
     this.engine = engine;
@@ -332,10 +334,18 @@ class ReplayInstaller {
     //
     // For the queued case the scope flusher calls `runPrune` itself once
     // the row is actually on disk, so we deliberately skip the prune here.
-    const queued = scope !== null && (this.opts.type ?? 'history') === 'snapshot';
+    const isHistory = (this.opts.type ?? 'history') === 'history';
+    const queued = scope !== null && !isHistory;
     if (!queued) {
-      pruneExpiredReplayRows(sql, retention, row?.createdAt ?? Date.now());
-      pruneReplayScopeRows(sql, retention, replayScope);
+      const stamp = row?.createdAt ?? Date.now();
+      if (isHistory) {
+        // History stores one new row per message, so the gate can count exactly
+        // and skip the prune whenever the store is under its caps.
+        this.pruneGate.prune(sql, { retention, scope: replayScope, stamp });
+      } else {
+        pruneExpiredReplayRows(sql, retention, stamp);
+        pruneReplayScopeRows(sql, retention, replayScope);
+      }
     }
   };
 

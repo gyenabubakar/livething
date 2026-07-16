@@ -5,6 +5,7 @@ import {
   isProtocolEventName,
   OUTGOING_PROTOCOL_EVENT_NAMES,
   OutgoingProtocolFrame,
+  parseUserEventFrame,
   UserEventFrameSchema,
   WSKitProtocolSchema,
 } from './protocol.ts';
@@ -223,4 +224,75 @@ describe('protocol event detection', () => {
     expect(isProtocolEventName('__e2e:feed::ping')).toBe(false);
     expect(isProtocolEventName('ping')).toBe(false);
   });
+});
+
+describe('parseUserEventFrame matches valibot exactly', () => {
+  const valid: unknown[] = [
+    { event: 'chat', payload: { text: 'hi' } },
+    { event: 'chat' },
+    { event: 'chat', payload: 'a string payload' },
+    { event: 'chat', payload: [1, 2, 3] },
+    { event: 'chat', payload: null },
+    { event: 'e', payload: {}, __wskit: {} },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1' } },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1', channelFamily: 'room' } },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1', channelFamily: null } },
+    { event: 'e', payload: {}, __wskit: { messageId: 'm1', seq: 0 } },
+    {
+      event: 'a'.repeat(ID_MAX),
+      payload: { a: 1 },
+      __wskit: {
+        correlationId: 'r1',
+        source: 'client',
+        channel: 'c'.repeat(CHANNEL_MAX),
+        channelFamily: 'fam',
+        streamId: 's1',
+        streamKind: 'persistent',
+        streamNudgeId: 'n1',
+        streamTerminated: false,
+        eventName: 'ev',
+        messageId: 'm1',
+        seq: 42,
+      },
+    },
+  ];
+
+  const invalid: unknown[] = [
+    null,
+    'not an object',
+    42,
+    [{ event: 'chat' }],
+    {},
+    { payload: {} },
+    { event: '' },
+    { event: 'a'.repeat(ID_MAX + 1) },
+    { event: 123 },
+    { event: 'chat', extra: 1 },
+    { event: 'chat', __wskit: 'nope' },
+    { event: 'chat', __wskit: ['nope'] },
+    { event: 'chat', __wskit: { unknownKey: 1 } },
+    { event: 'chat', __wskit: { channel: 'c'.repeat(CHANNEL_MAX + 1) } },
+    { event: 'chat', __wskit: { channel: '' } },
+    { event: 'chat', __wskit: { messageId: '' } },
+    { event: 'chat', __wskit: { channelFamily: '' } },
+    { event: 'chat', __wskit: { channelFamily: 'f'.repeat(ID_MAX + 1) } },
+    { event: 'chat', __wskit: { seq: -1 } },
+    { event: 'chat', __wskit: { seq: 1.5 } },
+    { event: 'chat', __wskit: { seq: '3' } },
+    { event: 'chat', __wskit: { source: 'nobody' } },
+    { event: 'chat', __wskit: { streamKind: 'weird' } },
+    { event: 'chat', __wskit: { streamTerminated: 'yes' } },
+  ];
+
+  it.each(valid.map((f, i) => [i, f]))('valid frame #%i parses identically', (_i, frame) => {
+    expect(parseUserEventFrame(frame)).toEqual(v.parse(UserEventFrameSchema, frame));
+  });
+
+  it.each(invalid.map((f, i) => [i, f]))(
+    'invalid frame #%i is rejected like valibot',
+    (_i, frame) => {
+      expect(v.safeParse(UserEventFrameSchema, frame).success).toBe(false);
+      expect(() => parseUserEventFrame(frame)).toThrow();
+    },
+  );
 });

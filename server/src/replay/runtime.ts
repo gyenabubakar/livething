@@ -699,6 +699,78 @@ export function pruneReplayScopeRows(
   );
 }
 
+/** Count the rows in one replay store (top-level or a single channel). */
+export function countReplayScopeRows(
+  sql: { exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null } },
+  scope: ReplayPayloadScope,
+): number {
+  const row = sql
+    .exec<{
+      n: number;
+    }>(`SELECT COUNT(*) AS n FROM __wskit_replay WHERE channel IS ? AND channelFamily IS ?`, scope.channel, scope.channelFamily)
+    .one();
+  return row ? Number(row.n) : 0;
+}
+
+/** The oldest `createdAt` across the whole replay table, or null when empty. */
+export function minReplayCreatedAt(sql: {
+  exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
+}): number | null {
+  const row = sql
+    .exec<{ m: number | null }>(`SELECT MIN(createdAt) AS m FROM __wskit_replay`)
+    .one();
+  return row?.m == null ? null : Number(row.m);
+}
+
+/**
+ * Runs the per-message retention prune only when it would actually evict — an
+ * in-memory row count and oldest-timestamp prove when the store is under its
+ * caps, where the prune only scans and deletes nothing. Both are seeded from the
+ * table on first use, so a hibernation wake stays correct, then maintained as
+ * history rows are stored. Skipping an under-cap prune is exactly what the prune
+ * itself would have done, so eviction and the gap watermark are unchanged.
+ */
+export class ReplayPruneGate {
+  private minCreatedAt: number | null = null;
+  private minSeeded = false;
+  private readonly scopeCounts = new Map<string, number>();
+
+  prune(
+    sql: Pick<SQLProvider, 'exec'>,
+    opts: {
+      retention: ReplayOptions['retention'] | undefined;
+      scope: ReplayPayloadScope;
+      stamp: number;
+    },
+  ): void {
+    const { retention, scope, stamp } = opts;
+    if (retention?.maxAgeMs !== undefined) {
+      if (!this.minSeeded) {
+        this.minCreatedAt = minReplayCreatedAt(sql);
+        this.minSeeded = true;
+      } else if (this.minCreatedAt === null || stamp < this.minCreatedAt) {
+        this.minCreatedAt = stamp;
+      }
+      if (this.minCreatedAt !== null && this.minCreatedAt < stamp - retention.maxAgeMs) {
+        pruneExpiredReplayRows(sql, retention, stamp);
+        this.minCreatedAt = minReplayCreatedAt(sql);
+      }
+    }
+
+    if (retention?.maxMessages !== undefined) {
+      const key = replayScopeKey(scope);
+      const cached = this.scopeCounts.get(key);
+      const count = cached === undefined ? countReplayScopeRows(sql, scope) : cached + 1;
+      if (count > retention.maxMessages) {
+        pruneReplayScopeRows(sql, retention, scope);
+        this.scopeCounts.set(key, retention.maxMessages);
+      } else {
+        this.scopeCounts.set(key, count);
+      }
+    }
+  }
+}
+
 /**
  * Build the SQL string and bound params for one `loadReplayRows` call.
  */

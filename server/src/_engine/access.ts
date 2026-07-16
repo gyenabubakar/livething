@@ -925,6 +925,15 @@ export interface EngineAccess {
   getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
 
   /**
+   * The per-instance receipt-cursor cache, so an ack can skip re-reading a
+   * member's cursor before advancing it. Optional: an engine access without it
+   * (a test double) falls back to reading the cursor from storage.
+   *
+   * @internal
+   */
+  receiptCursorCache?(): Map<string, { receivedThrough: number; readThrough: number }>;
+
+  /**
    * Whether a channel key opted into read receipts via `readReceipts()`. Read by
    * the read-receipts handle-augmenter to decide whether `handle.readReceipts()`
    * returns a surface or `null`.

@@ -408,6 +408,8 @@ export function createEngineAccess(
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),
     getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
+
+    receiptCursorCache: () => core.inboxReceiptCursors,
     hasReadReceiptsChannel: (channelKey) => core.readReceiptsChannels.has(channelKey),
   };
 }

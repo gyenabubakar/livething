@@ -488,6 +488,13 @@ export interface ActiveStream {
   scope?: ResolvedChannel;
 
   /**
+   * In-memory chunk count for a recorded stream with a `maxChunks` cap. Seeded
+   * from storage on the first chunk (so a resume stays correct) and incremented
+   * per append, so the cap check skips a `COUNT(*)` on every chunk.
+   */
+  recordedChunkCount?: number;
+
+  /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
    * generator code can pass it into slow awaited work (`fetch`, timers, …). The
    * runtime aborts it on client cancel, owning-connection disconnect, and server

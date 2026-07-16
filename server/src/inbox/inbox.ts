@@ -148,13 +148,17 @@ function buildReceivedHandler(deps: {
         onDelivered: options.onDelivered,
       });
 
-      const cursors = advanceReceivedThrough(engine.requireStorage().sql, {
-        channelName,
-        channelFamily,
-        identity,
-        receivedThrough: frame.payload.receivedThrough,
-        now: Date.now(),
-      });
+      const cursors = advanceReceivedThrough(
+        engine.requireStorage().sql,
+        {
+          channelName,
+          channelFamily,
+          identity,
+          receivedThrough: frame.payload.receivedThrough,
+          now: Date.now(),
+        },
+        engine.receiptCursorCache?.(),
+      );
       if (cursors.changed && options.broadcastReceipts) {
         broadcastReceipt(engine, options.maxReceiptAudience, {
           channelName,

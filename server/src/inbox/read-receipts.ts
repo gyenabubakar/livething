@@ -106,13 +106,17 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     const channelFamily = frame.__wskit.channelFamily ?? null;
     if (!isMember(ctx, channelName, channelFamily)) return true;
 
-    const cursors = advanceReadThrough(engine.requireStorage().sql, {
-      channelName,
-      channelFamily,
-      identity,
-      readThrough: frame.payload.readThrough,
-      now: Date.now(),
-    });
+    const cursors = advanceReadThrough(
+      engine.requireStorage().sql,
+      {
+        channelName,
+        channelFamily,
+        identity,
+        readThrough: frame.payload.readThrough,
+        now: Date.now(),
+      },
+      engine.receiptCursorCache?.(),
+    );
     if (!cursors.changed) return true;
 
     broadcastReceipt(engine, options.maxReceiptAudience, {

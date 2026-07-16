@@ -269,6 +269,19 @@ export function deleteInboxRowsForChannel(
   );
 }
 
+/** Count a member's inbox rows for one channel. */
+export function countInboxRows(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { identity: string; channelName: string; channelFamily: string | null },
+): number {
+  const row = sql
+    .exec<{
+      n: number;
+    }>(`SELECT COUNT(*) AS n FROM __wskit_inbox WHERE identity = ? AND channel_name = ? AND channel_family = ?`, params.identity, params.channelName, familyToDb(params.channelFamily))
+    .one();
+  return row ? Number(row.n) : 0;
+}
+
 /**
  * Enforce a member's retention limits for one channel by dropping the oldest
  * rows past the age or count cap — including undelivered rows, since a member
