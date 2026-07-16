@@ -15,10 +15,12 @@ export function setup(): void {
     <button data-testid="sub-room">sub-room</button>
     <button data-testid="room-r1">room-r1</button>
     <button data-testid="room-r2">room-r2</button>
+    <button data-testid="ping-plugin">ping-plugin</button>
     <button data-testid="drop">drop</button>
     <span data-testid="status"></span>
     <span data-testid="reconnects"></span>
     <span data-testid="messages"></span>
+    <span data-testid="plugin-messages"></span>
     <span data-testid="room-subscribed"></span>
     <span data-testid="room-messages"></span>
   `);
@@ -58,6 +60,8 @@ export function setup(): void {
 
   socket.on('chat-msg', (msg) => append('messages', msg.text));
   room.on('room-msg', (msg) => append('room-messages', msg.text));
+  // A plugin-owned event reaches a typed client under its `__<id>::` wire prefix.
+  socket.on('__e2e:replay::plugin-msg', (msg) => append('plugin-messages', msg.text));
 
   button('connect', () => socket.connect());
   button('send-m1', () => {
@@ -79,6 +83,9 @@ export function setup(): void {
   });
   button('room-r2', () => {
     room.send('send-room-msg', { text: 'r2' });
+  });
+  button('ping-plugin', () => {
+    socket.send('__e2e:replay::ping-all', { text: 'p1' });
   });
 
   button('drop', () => {

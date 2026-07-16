@@ -85,4 +85,38 @@ test.describe('replay-history (conformance)', () => {
     await alice.close();
     await bob.close();
   });
+
+  test('top-level replay catches up a PLUGIN-owned event missed while offline', async ({
+    browser,
+  }, testInfo) => {
+    // The host lists no plugin replay — a plugin cannot own the host-only replay
+    // engine. It only lists top-level replay.history(). This proves that engine
+    // covers a plugin's own broadcast: the plugin's `ping-all` handler broadcasts
+    // `plugin-msg`, which leaves the server namespaced as `__e2e:replay::plugin-msg`
+    // and is stored by the top-level replay like any other outgoing frame.
+    const room = `replay-plugin-${testInfo.testId}`;
+    const alice = await openClient(browser, room, 'alice');
+    const bob = await openClient(browser, room, 'bob');
+
+    // Alice sees one top-level message so she has a seq to replay from. She must
+    // NOT see the plugin frame live — the client would dedup the replayed copy
+    // by its messageId — so bob (a witness) triggers the plugin broadcast, which
+    // excludes its own sender, only while alice is offline.
+    await alice.page.getByTestId('send-m1').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+
+    await bob.page.getByTestId('ping-plugin').click();
+
+    // Alice reconnects and her top-level __replay__ hands back the plugin's frame,
+    // which her typed client delivers under the plugin's `__<id>::` wire prefix.
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
+    await expect(alice.page.getByTestId('plugin-messages')).toHaveText('p1');
+
+    await alice.close();
+    await bob.close();
+  });
 });

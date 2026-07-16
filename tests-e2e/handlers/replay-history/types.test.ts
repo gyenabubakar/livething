@@ -40,9 +40,15 @@ describe('ReplayClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly four events in top-level incoming', () => {
+  it('has the plugin-owned plugin-msg under its wire prefix', () => {
+    expectTypeOf<ReplayClient['incoming']['__e2e:replay::plugin-msg']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('exactly five events in top-level incoming', () => {
     expectTypeOf<keyof ReplayClient['incoming']>().toEqualTypeOf<
-      'chat-msg' | 'cursor' | 'room-msg' | 'replay-guard-error'
+      'chat-msg' | 'cursor' | 'room-msg' | 'replay-guard-error' | '__e2e:replay::plugin-msg'
     >();
   });
 });
@@ -73,6 +79,12 @@ describe('ReplayClient — outgoing (server incoming)', () => {
 
   it('has trigger-bigint-replay with empty payload', () => {
     expectTypeOf<ReplayClient['outgoing']['trigger-bigint-replay']>().toEqualTypeOf<{}>();
+  });
+
+  it('has the plugin-owned ping-all under its wire prefix', () => {
+    expectTypeOf<ReplayClient['outgoing']['__e2e:replay::ping-all']>().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 
