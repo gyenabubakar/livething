@@ -514,12 +514,9 @@ type EmitPayloadOf<T> =
 type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
 
 /** The `out` (server→client payload) type one channel request declaration carries. */
-type ServerRequestPayloadOf<TDeclaration> =
-  TDeclaration extends TypeMarker<infer U>
-    ? U
-    : TDeclaration extends { out: TypeMarker<infer U> }
-      ? U
-      : unknown;
+type ServerRequestPayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> }
+  ? U
+  : unknown;
 
 /** The `in` (client→server answer) type one channel request declaration carries; `void` for an acknowledgement. */
 type ServerRequestResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> }
@@ -673,8 +670,8 @@ export type ChannelConfig<
   readonly outgoing?: {
     readonly emits?: Record<string, TypeMarker<any>>;
     /**
-     * Server→client requests this channel asks its members. Same `{ out, in }` /
-     * bare-marker shape as the top-level `requests({...})`. Declaring these needs
+     * Server→client requests this channel asks its members. Same `{ out, in? }`
+     * shape as the top-level `requests({...})`. Declaring these needs
      * the `requests()` capability listed; the channel overloads gate it at
      * compile time and the runtime throws as a backstop.
      */

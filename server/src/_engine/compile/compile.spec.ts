@@ -158,15 +158,15 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects request and emit names ending with __', () => {
     const requestBase = define({ env: t<Env>(), capabilities: [requests()] });
     expect(() => requestBase.request('ask__', { run() {} })).toThrow(/reserved '__' suffix/);
-    expect(() => requests({ answer__: t<{}>() })).toThrow(/reserved '__' suffix/);
+    expect(() => requests({ answer__: { out: t<{}>() } })).toThrow(/reserved '__' suffix/);
     expect(() => emits({ update__: t<{}>() })).toThrow(/reserved '__' suffix/);
   });
 
   it('rejects channel outgoing requests and scheduled task ids ending with __', () => {
     const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
-    expect(() => base.channel('room', { outgoing: { requests: { answer__: t<{}>() } } })).toThrow(
-      /reserved '__' suffix/,
-    );
+    expect(() =>
+      base.channel('room', { outgoing: { requests: { answer__: { out: t<{}>() } } } }),
+    ).toThrow(/reserved '__' suffix/);
     expect(() => scheduled({ cleanup__: null })).toThrow(/reserved '__' suffix/);
   });
 

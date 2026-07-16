@@ -17,7 +17,7 @@ export const serverRequestContract = define({
   capabilities: [
     requests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
-      'ping-ack': t<{ note: string }>(),
+      'ping-ack': { out: t<{ note: string }>() },
     }),
     emits({
       outcome: t<{ allowed: boolean }>(),

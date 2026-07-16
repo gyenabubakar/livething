@@ -17,24 +17,20 @@ export interface RequestBuildConfig {
 }
 
 /**
- * One server→client request declaration. Either a bare `t<…>()` marker — an
+ * One server→client request declaration, always `{ out, in? }`. `out` is the
+ * type the server sends (a marker, trusted, not validated outbound). `in` is the
+ * schema the client's answer is validated against; omit it for an
  * acknowledgement request, where the client just confirms receipt and the caller
- * resolves with no value — or `{ out, in }`, where `out` is the type the server
- * sends (a marker, trusted, not validated outbound) and `in` is the schema the
- * client's answer is validated against. Targeted vs fan-out is decided by the
- * verb (`request` vs `broadcastRequest`), not the declaration.
+ * resolves with no value. Targeted vs fan-out is decided by the verb (`request`
+ * vs `broadcastRequest`), not the declaration.
  */
-export type ServerRequestDeclaration =
-  | TypeMarker<any>
-  | { readonly out: TypeMarker<any>; readonly in: Validator };
+export type ServerRequestDeclaration = {
+  readonly out: TypeMarker<any>;
+  readonly in?: Validator;
+};
 
 /** The `out` (server→client payload) type a request declaration carries. */
-type PayloadOf<TDeclaration> =
-  TDeclaration extends TypeMarker<infer U>
-    ? U
-    : TDeclaration extends { out: TypeMarker<infer U> }
-      ? U
-      : unknown;
+type PayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> } ? U : unknown;
 
 /** The `in` (client→server answer) type a declaration carries; `void` for an acknowledgement. */
 type ResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> } ? U : void;
@@ -86,9 +82,7 @@ export interface RequestsCapability<
 }
 
 function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
-  return {
-    responseValidator: 'in' in declaration ? declaration.in : undefined,
-  };
+  return { responseValidator: declaration.in };
 }
 
 /**
