@@ -82,6 +82,13 @@ export class WSKitSocket {
 
   /** @internal — set after construction, once add-on modules are ready. */
   _primitives: readonly PrimitiveRuntime[] = [];
+
+  // The send and receive loops run on every frame and only call onIncoming or
+  // onOutgoing. Most primitives don't have those hooks, so we pick the ones that
+  // do just once here and let the loops skip the rest.
+  private _incoming: readonly PrimitiveRuntime[] = [];
+  private _outgoing: readonly PrimitiveRuntime[] = [];
+
   private _knownTags: ReadonlySet<string> = new Set();
 
   /** @internal — the writable half; `_setState` drives it and `state` exposes it. */
@@ -148,6 +155,9 @@ export class WSKitSocket {
 
   private readonly _shared = new Map<string, unknown>();
 
+  // One shared error callback, so the send loop doesn't make a new one per message.
+  private readonly _reportBound = (error: unknown): void => this._reportError(error);
+
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
@@ -172,6 +182,8 @@ export class WSKitSocket {
   /** @internal — attach the primitive runtimes after they're set up. */
   _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
     this._primitives = primitives;
+    this._incoming = primitives.filter((p) => p.onIncoming);
+    this._outgoing = primitives.filter((p) => p.onOutgoing);
   }
 
   /** @internal — the set of installed primitive tags, for `helpers.hasPrimitive`. */
@@ -661,10 +673,9 @@ export class WSKitSocket {
     // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
     // and skip that module so the rest of the pipeline still runs.
     let message: WireMessage = parsed;
-    for (const primitive of this._primitives) {
-      if (!primitive.onIncoming) continue;
+    for (const primitive of this._incoming) {
       try {
-        const result = primitive.onIncoming(message);
+        const result = primitive.onIncoming!(message);
         if (result === null) {
           this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
           return;
@@ -776,17 +787,10 @@ export class WSKitSocket {
     this._ensureConnected();
 
     let outgoing: WireMessage | null = message;
-    for (const primitive of this._primitives) {
-      if (!primitive.onOutgoing) continue;
-
+    for (const primitive of this._outgoing) {
       // Block cancels the send; any other throw is reported and the message
       // passes through unchanged.
-      const onOutgoing = primitive.onOutgoing;
-      outgoing = runMessageHook(
-        (m) => onOutgoing(m),
-        outgoing!,
-        (error) => this._reportError(error),
-      );
+      outgoing = runMessageHook(primitive.onOutgoing!, outgoing!, this._reportBound);
 
       if (outgoing === null) {
         this._log('a primitive cancelled the send');
