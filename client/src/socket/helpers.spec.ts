@@ -1,5 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { idGenerator } from '~/internal/id.ts';
+import { signalBus } from '~/internal/signals.ts';
 import { installMockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WSKitSocket } from '~/socket/socket.ts';
@@ -18,46 +20,51 @@ function makeHelpers() {
   return (socket as WSKitSocket)._helpers();
 }
 
-describe('onSignal / emitSignal', () => {
-  it('unsubscribing stops the handler from receiving later signals', () => {
+describe('signal bus', () => {
+  it('every primitive on one socket reaches the same bus through the shared registry', () => {
     const helpers = makeHelpers();
-    const received: boolean[] = [];
-    const unsub = helpers.onSignal('online', (v: boolean) => received.push(v));
+    expect(signalBus(helpers)).toBe(signalBus(helpers));
+  });
 
-    helpers.emitSignal('online', true);
+  it('unsubscribing stops the handler from receiving later signals', () => {
+    const bus = signalBus(makeHelpers());
+    const received: boolean[] = [];
+    const unsub = bus.on('online', (v) => received.push(v));
+
+    bus.emit('online', true);
     expect(received).toEqual([true]);
 
     unsub();
 
-    helpers.emitSignal('online', false);
+    bus.emit('online', false);
     expect(received).toHaveLength(1);
   });
 
-  it('emitSignal to a name with no listeners is a safe no-op', () => {
-    const helpers = makeHelpers();
-    expect(() => helpers.emitSignal('online', true)).not.toThrow();
+  it('emit to a name with no listeners is a safe no-op', () => {
+    const bus = signalBus(makeHelpers());
+    expect(() => bus.emit('online', true)).not.toThrow();
   });
 
-  it('emitSignal to a name after every subscriber has unsubscribed is a safe no-op', () => {
-    const helpers = makeHelpers();
-    const unsub = helpers.onSignal('online', () => {});
+  it('emit to a name after every subscriber has unsubscribed is a safe no-op', () => {
+    const bus = signalBus(makeHelpers());
+    const unsub = bus.on('online', () => {});
     unsub();
-    expect(() => helpers.emitSignal('online', true)).not.toThrow();
+    expect(() => bus.emit('online', true)).not.toThrow();
   });
 
   it('other handlers for the same signal still fire after one is unsubscribed', () => {
-    const helpers = makeHelpers();
+    const bus = signalBus(makeHelpers());
     const a: boolean[] = [];
     const b: boolean[] = [];
-    const unsubA = helpers.onSignal('online', (v: boolean) => a.push(v));
-    helpers.onSignal('online', (v: boolean) => b.push(v));
+    const unsubA = bus.on('online', (v) => a.push(v));
+    bus.on('online', (v) => b.push(v));
 
-    helpers.emitSignal('online', true);
+    bus.emit('online', true);
     expect(a).toEqual([true]);
     expect(b).toEqual([true]);
 
     unsubA();
-    helpers.emitSignal('online', false);
+    bus.emit('online', false);
     expect(a).toHaveLength(1);
     expect(b).toEqual([true, false]);
   });
@@ -67,47 +74,47 @@ describe('generateId', () => {
   // Ids carry a per-socket random scope segment before the counter so two fresh
   // sockets never collide (#1): `<scope>-<n>` with no prefix, `<prefix>-<scope>-<n>` with one.
   it('returns scope-counter when no prefix is given', () => {
-    const helpers = makeHelpers();
-    const id = helpers.generateId();
+    const gen = idGenerator(makeHelpers());
+    const id = gen();
     expect(typeof id).toBe('string');
     expect(id).toMatch(/^.+-\d+$/);
   });
 
   it('returns prefix-scope-N when a prefix is given', () => {
-    const helpers = makeHelpers();
-    const id = helpers.generateId('ack');
+    const gen = idGenerator(makeHelpers());
+    const id = gen('ack');
     expect(id).toMatch(/^ack-.+-\d+$/);
   });
 
-  it('successive calls produce strictly increasing counters', () => {
+  it('every primitive on one socket shares the same generator', () => {
     const helpers = makeHelpers();
+    expect(idGenerator(helpers)).toBe(idGenerator(helpers));
+  });
+
+  it('successive calls produce strictly increasing counters', () => {
+    const gen = idGenerator(makeHelpers());
     function counter(id: string): number {
       return Number(id.split('-').at(-1));
     }
-    const first = counter(helpers.generateId());
-    const second = counter(helpers.generateId());
-    const third = counter(helpers.generateId());
+    const first = counter(gen());
+    const second = counter(gen());
+    const third = counter(gen());
     expect(second).toBeGreaterThan(first);
     expect(third).toBeGreaterThan(second);
   });
 
   it('ids are unique across successive calls regardless of prefix', () => {
-    const helpers = makeHelpers();
-    const ids = [
-      helpers.generateId('ack'),
-      helpers.generateId('req'),
-      helpers.generateId('ack'),
-      helpers.generateId(),
-    ];
+    const gen = idGenerator(makeHelpers());
+    const ids = [gen('ack'), gen('req'), gen('ack'), gen()];
     const underlying = ids.map((id: string) => id.split('-').at(-1));
     const unique = new Set(underlying);
     expect(unique.size).toBe(ids.length);
   });
 
   it('a stream id and a request id on the same socket never share the same underlying counter value', () => {
-    const helpers = makeHelpers();
-    const streamId = helpers.generateId('stream');
-    const reqId = helpers.generateId('req');
+    const gen = idGenerator(makeHelpers());
+    const streamId = gen('stream');
+    const reqId = gen('req');
     const streamN = streamId.replace('stream-', '');
     const reqN = reqId.replace('req-', '');
     expect(streamN).not.toBe(reqN);
@@ -117,7 +124,7 @@ describe('generateId', () => {
 describe('id scope fallback (#17)', () => {
   /** The per-socket scope segment of `<scope>-<n>` (no prefix). */
   function scopeOf(socket: WSKitSocket): string {
-    const id = socket._helpers().generateId();
+    const id = idGenerator(socket._helpers())();
     return id.slice(0, id.lastIndexOf('-'));
   }
 

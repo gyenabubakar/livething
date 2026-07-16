@@ -123,15 +123,6 @@ export interface InternalSendOptions {
 export type InterceptFn = (message: WireMessage) => WireMessage | void;
 
 /**
- * A signal that one primitive can broadcast and another can listen to.
- * The socket just passes them through, so neither primitive has to import the other.
- *
- * - `online` — `true` when the device is online, `false` when offline.
- * - `visibility` — `true` when the app/tab is visible, `false` when hidden.
- */
-export type PlatformSignal = 'online' | 'visibility';
-
-/**
  * A logger for primitives. `info` / `warn` / `error` are debug breadcrumbs:
  * gated on whether debug mode is on and prefixed with `[wskit]`, so call sites
  * never repeat that check. They map to `console.log` / `console.warn` / `console.error`.
@@ -236,9 +227,6 @@ export interface PrimitiveHelpers {
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
   send(message: WireMessage, options?: InternalSendOptions): SendResult;
 
-  /** Make a unique id. The counter is shared across all primitives, so ids never collide. */
-  generateId(prefix?: string): string;
-
   /** The current connection state. */
   getState(): ConnectionState;
 
@@ -297,11 +285,13 @@ export interface PrimitiveHelpers {
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */
   readonly log: PrimitiveLogger;
 
-  /** Publish a platform signal (e.g. `platform()` reporting online/offline). */
-  emitSignal(name: PlatformSignal, value: boolean): void;
-
-  /** React to a platform signal. Returns an unsubscribe. */
-  onSignal(name: PlatformSignal, handler: (value: boolean) => void): () => void;
+  /**
+   * A per-socket key/value store for primitives that must share one instance
+   * without importing each other — e.g. `platform()` and `reconnection()` both
+   * reach the same signal bus through it. The socket never reads it; it only
+   * hands out the same map to every primitive's `setup`.
+   */
+  readonly shared: Map<string, unknown>;
 
   /** Close the connection and stop everything (the public `disconnect()`). */
   disconnect(code?: number, reason?: string): void;

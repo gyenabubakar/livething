@@ -41,25 +41,6 @@ type SocketEvents = {
   error: [error: unknown];
 };
 
-/**
- * A unique per-socket token mixed into every generated id. `randomUUID` is ideal;
- * when it's missing (older runtimes) fall back to 16 bytes from `getRandomValues`,
- * which is just as collision-resistant — crucially it does NOT share a seeded
- * counter the way a weak RNG might, so two fresh sockets can't mint the same
- * token. Only with no secure RNG at all does it drop to `Math.random`.
- */
-function makeIdScope(): string {
-  const crypto = globalThis.crypto;
-  if (crypto?.randomUUID) return crypto.randomUUID();
-  if (crypto?.getRandomValues) {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    let hex = '';
-    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
-    return hex;
-  }
-  return Math.random().toString(36).slice(2, 10);
-}
-
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -165,11 +146,7 @@ export class WSKitSocket {
     | ((message: WireMessage, options?: InternalSendOptions) => boolean)
     | null = null;
 
-  private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
-
-  private _idCounter = 0;
-
-  private readonly _idScope = makeIdScope();
+  private readonly _shared = new Map<string, unknown>();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
@@ -215,16 +192,29 @@ export class WSKitSocket {
    * stay, so calling `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
+    this._teardown(code, reason, { intentional: true, suspended: false });
+  }
+
+  /**
+   * The shared teardown behind `disconnect()` and `suspend()`. `intentional` is
+   * a deliberate full stop (`disconnect`), which resets the session so the next
+   * connect is a first connect, not a reconnect. `suspended` is a temporary
+   * platform pause (`suspend`) that will resume as the same session — both are
+   * passed to each primitive's `onClose`.
+   */
+  private _teardown(
+    code: number,
+    reason: string,
+    { intentional, suspended }: { intentional: boolean; suspended: boolean },
+  ): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    // A deliberate teardown resets the session: the next connect() is treated
-    // as a first connect, not a reconnect (so onReconnect/replay don't fire).
-    this._isFirstConnect = true;
+    if (intentional) this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
-    // Was there anything to tear down? A disconnect() on an already-closed
-    // socket must not fire a second onClose. Closing a connecting/reconnecting
-    // socket still counts (matches native close-during-connecting).
+    // Was there anything to tear down? A teardown on an already-closed socket
+    // must not fire a second onClose. Closing a connecting/reconnecting socket
+    // still counts (matches native close-during-connecting).
     const wasActive = this._state !== 'closed';
 
     if (this.ws) {
@@ -245,7 +235,7 @@ export class WSKitSocket {
     // live listeners.
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(code, reason, true, false);
+        primitive.onClose?.(code, reason, intentional, suspended);
       } catch (error) {
         this._reportError(error);
       }
@@ -254,7 +244,7 @@ export class WSKitSocket {
     this._clearLazyIdleTimer();
 
     // Fire the user-facing close only once: skip it when we were already closed
-    // so a redundant disconnect doesn't emit a second onClose.
+    // so a redundant teardown doesn't emit a second onClose.
     if (wasActive) {
       this._setState('closed');
       this._emitter.emit('close', { code, reason, wasClean: true });
@@ -343,11 +333,6 @@ export class WSKitSocket {
 
       send: (message, options) => this._send(message, options),
 
-      generateId: (prefix) => {
-        const id = ++this._idCounter;
-        return prefix ? `${prefix}-${this._idScope}-${id}` : `${this._idScope}-${id}`;
-      },
-
       getState: () => this._state,
 
       state: this.state,
@@ -385,24 +370,7 @@ export class WSKitSocket {
         this._outgoingFallback = handler;
       },
 
-      emitSignal: (name, value) => {
-        const set = this._signalHandlers.get(name);
-        if (set) dispatchToHandlers(set, this._logger, value);
-      },
-
-      onSignal: (name, handler) => {
-        let set = this._signalHandlers.get(name);
-        if (!set) {
-          set = new Set();
-          this._signalHandlers.set(name, set);
-        }
-
-        set.add(handler);
-
-        return () => {
-          set.delete(handler);
-        };
-      },
+      shared: this._shared,
 
       disconnect: (code, reason) => this.disconnect(code, reason),
 
@@ -410,46 +378,15 @@ export class WSKitSocket {
 
       suspend: (code, reason) => this._suspend(code, reason),
 
-      resume: () => this._resume(),
+      // Resuming a suspended transport is exactly a fresh connect: the session
+      // was never reset (suspend keeps it), so `_openConnection` treats it as a
+      // reconnect and primitives rejoin/resume as usual.
+      resume: () => this.connect(),
     };
   }
 
   private _suspend(code = 1000, reason = 'background'): void {
-    this._intentionalClose = true;
-    this._connectAttemptId++;
-    this._clearLazyIdleTimer();
-
-    const wasActive = this._state !== 'closed';
-
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      this.ws.onmessage = null;
-      this.ws.close(code, reason);
-      this.ws = null;
-    }
-    this.protocol = null;
-
-    for (const primitive of this._primitives) {
-      try {
-        primitive.onClose?.(code, reason, false, true);
-      } catch (error) {
-        this._reportError(error);
-      }
-    }
-    this._clearLazyIdleTimer();
-
-    if (wasActive) {
-      this._setState('closed');
-      this._emitter.emit('close', { code, reason, wasClean: true });
-    }
-  }
-
-  private _resume(): void {
-    if (this._state === 'open' || this._state === 'connecting') return;
-    this._intentionalClose = false;
-    this._openConnection();
+    this._teardown(code, reason, { intentional: false, suspended: true });
   }
 
   /**

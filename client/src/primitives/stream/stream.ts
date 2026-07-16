@@ -1,5 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
@@ -199,7 +200,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           const { event, payload } = details;
           const eventError = wireIdError(event, event, 'event');
           if (eventError) return Promise.reject(eventError);
-          const streamNudgeId = helpers.generateId('nudge');
+          const streamNudgeId = idGenerator(helpers)('nudge');
           let result: SendResult;
           try {
             result = helpers.rawSend({
@@ -251,7 +252,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         payload: unknown,
         context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
       ): Promise<StreamHandle<unknown>> {
-        const streamId = context.options?.streamId ?? helpers.generateId('stream');
+        const streamId = context.options?.streamId ?? idGenerator(helpers)('stream');
         // Reject a bad event or streamId locally — the server rejects such a frame
         // before it can route the error back to settle this Promise.
         const idError =

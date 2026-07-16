@@ -1,3 +1,4 @@
+import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { ReconnectionInfo, ReconnectionOptions } from '~/primitives/reconnection/types.ts';
@@ -117,7 +118,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Recon
       // Pause/resume retries when the environment reports network changes.
       // Without that signal this block never fires and the timer runs alone.
       if (networkAware) {
-        helpers.onSignal('online', (value) => {
+        signalBus(helpers).on('online', (value) => {
           online = value;
           if (!value) {
             clearTimer();

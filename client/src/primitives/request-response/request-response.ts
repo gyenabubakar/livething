@@ -1,5 +1,6 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { idGenerator } from '~/internal/id.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
@@ -54,7 +55,7 @@ export function requestResponse(
         const eventError = wireIdError(event, event, 'event');
         if (eventError) return Promise.reject(eventError);
 
-        const correlationId = helpers.generateId('req');
+        const correlationId = idGenerator(helpers)('req');
 
         helpers.lazyAcquire();
         helpers.ensureConnected();

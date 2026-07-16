@@ -2,6 +2,7 @@
 import { WSKitConfigError } from '@wskit/core';
 import { runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
+import { idGenerator } from '~/internal/id.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { WSKitError } from '@wskit/core';
@@ -189,7 +190,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       return () => errorHandlers.delete(handler);
     },
 
-    generateId: (prefix?: string) => helpers.generateId(prefix),
+    generateId: (prefix?: string) => idGenerator(helpers)(prefix),
     hasPrimitive: (tag: string) => helpers.hasPrimitive(tag),
     ensureConnected: () => helpers.ensureConnected(),
     state: helpers.state,

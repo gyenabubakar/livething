@@ -1,5 +1,6 @@
 import { ChannelNotSubscribed } from '@wskit/core';
 import { Disconnected } from '~/errors.ts';
+import { idGenerator } from '~/internal/id.ts';
 import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
@@ -213,7 +214,7 @@ export function buildChannelMessaging(
       state.markUnsubscribed();
       if (state.familyKey) context.family(state.familyKey).fireUnsubscribed(state.name);
 
-      const unsubscribeId = helpers.generateId('unsub');
+      const unsubscribeId = idGenerator(helpers)('unsub');
       const promise = state.beginLeave(unsubscribeId);
       const result = helpers.rawSend({
         event: '__unsubscribe__',

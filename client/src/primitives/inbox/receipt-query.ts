@@ -1,4 +1,5 @@
 import { Disconnected, Timeout } from '~/errors.ts';
+import { idGenerator } from '~/internal/id.ts';
 import type { PrimitiveHelpers, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeInfo } from '~/internal/scoped.ts';
 
@@ -26,7 +27,7 @@ export function runReceiptQuery(
   const { scope, seq, event, timeout } = args;
   return new Promise<string[]>((resolve, reject) => {
     scope.assertReady?.();
-    const correlationId = helpers.generateId('receipt');
+    const correlationId = idGenerator(helpers)('receipt');
     const timer = setTimeout(() => {
       pending.delete(correlationId);
       reject(Timeout());
