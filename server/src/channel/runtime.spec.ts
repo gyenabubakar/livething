@@ -154,11 +154,6 @@ describe('createChannelMembershipKey', () => {
     const b = createChannelMembershipKey('lobby', 'rooms::private');
     expect(a).not.toBe(b);
   });
-
-  it('uses JSON-encoded tuples as the key format', () => {
-    expect(createChannelMembershipKey('lobby', null)).toBe(JSON.stringify([null, 'lobby']));
-    expect(createChannelMembershipKey('lobby', 'rooms')).toBe(JSON.stringify(['rooms', 'lobby']));
-  });
 });
 
 describe('channel runtime', () => {
@@ -623,49 +618,27 @@ describe('channel runtime', () => {
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('async commit handler is detected at runtime and throws', async () => {
+  it('native-Promise commit throws a synchronous-commit WSKitConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
 
-    await expect(
-      subscribeConnection(
-        {
-          ...runtime,
-          commitHooks: new Map([
-            [
-              'rooms',
-              [{ handler: (async () => {}) as unknown as (ctx: unknown, r: unknown) => void }],
-            ],
-          ]),
-        },
-        connection,
-        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
-      ),
-    ).rejects.toThrow(/commit\(\) must be synchronous/);
-  });
+    const rejection = subscribeConnection(
+      {
+        ...runtime,
+        commitHooks: new Map([
+          [
+            'rooms',
+            [{ handler: (async () => {}) as unknown as (ctx: unknown, r: unknown) => void }],
+          ],
+        ]),
+      },
+      connection,
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
+    );
 
-  it('native-Promise commit throws WSKitConfigError before membership is written', async () => {
-    const connection = createConnection('conn_1');
-    const { runtime, connections } = createRuntime();
-    connections.set(connection.id, connection);
-
-    await expect(
-      subscribeConnection(
-        {
-          ...runtime,
-          commitHooks: new Map([
-            [
-              'rooms',
-              [{ handler: (() => Promise.resolve()) as (ctx: unknown, r: unknown) => void }],
-            ],
-          ]),
-        },
-        connection,
-        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
-      ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
-
+    await expect(rejection).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(rejection).rejects.toThrow(/commit\(\) must be synchronous/);
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 

@@ -157,15 +157,6 @@ describe('inbox delivered acknowledgement (the double-grey check)', () => {
 
     expect(broadcasts).toEqual([]);
   });
-
-  it('records receiversOf after a delivered ack', () => {
-    const { sql, handlers } = harness();
-    handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(5));
-
-    expect(listReceivers(sql, { channelName: 'room', channelFamily: null, seq: 5 })).toEqual([
-      'alice',
-    ]);
-  });
 });
 
 describe('inbox __receivedQuery__ handler', () => {

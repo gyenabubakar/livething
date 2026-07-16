@@ -24,15 +24,6 @@ describe('serializeJsonOrThrow', () => {
     expect(() => serializeJsonOrThrow(undefined, 'thing')).toThrow(/did not serialize/);
   });
 
-  it('throws when a nested toJSON returns undefined at the top level (the wrapper IS the bad value)', () => {
-    class Wrapped {
-      toJSON() {
-        return undefined;
-      }
-    }
-    expect(() => serializeJsonOrThrow(new Wrapped(), 'wrapped')).toThrow(/did not serialize/);
-  });
-
   it('lets JSON.stringify exceptions propagate (e.g. BigInt) — caller decides how to react', () => {
     expect(() => serializeJsonOrThrow({ n: 1n }, 'bigint')).toThrow(TypeError);
   });

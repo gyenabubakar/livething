@@ -321,15 +321,11 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //       emits DELETE-all / reinsert-all per call, so the empty-load case
     //       costs zero extra writes; only genuine new rows are written.
     //
-    // FLAGGED REGRESSION (define/assemble migration): under the new API this
-    // boots only 7 round trips, not 11. The v1 implement().build() injected an
-    // internal recurring scheduled task ('__wskit:stream-durable-sweep') for any
-    // server that declared a durable (resumable/recorded) stream, which booted
-    // the whole scheduled engine — schema hook #5, bootstrap loads #9-10, and the
-    // persist-after-restore #11. The new resumableStream()/recordedStream()
-    // capabilities do NOT install that sweep, so expired durable-stream rows are
-    // never reclaimed. Budget left at the v1 value on purpose so this stays RED
-    // until the sweep is wired into the durable-stream capabilities (or persistence).
+    // The resumableStream()/recordedStream() capabilities install an internal
+    // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
+    // durable stream. That task boots the scheduled engine, which adds the schema
+    // hook (#5), the bootstrap loads (#9-10), and the one persist-after-restore
+    // INSERT (#11) — so a durable-stream server pays 11 round trips on a cold boot.
     expect(execCount).toBe(11);
   });
 

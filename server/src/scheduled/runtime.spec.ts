@@ -235,7 +235,7 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
 
-  it('throws when required task data is omitted', () => {
+  it('throws when task data is missing or fails validation at enqueue time', () => {
     const { runtime } = createScheduledRuntime([
       {
         taskId: 'flush',
@@ -247,17 +247,6 @@ describe('scheduled/runtime', () => {
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: undefined }),
     ).toThrow();
-  });
-
-  it('throws when task data fails validation at enqueue time', () => {
-    const { runtime } = createScheduledRuntime([
-      {
-        taskId: 'flush',
-        hasData: true,
-        dataSchema: v.object({ label: v.string() }),
-      },
-    ]);
-
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { label: 42 } }),
     ).toThrow();
