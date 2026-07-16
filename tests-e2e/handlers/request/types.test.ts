@@ -28,11 +28,9 @@ describe('RequestClient — top-level requests', () => {
     expectTypeOf<RequestClient['requests']>().toHaveProperty('no-response');
   });
 
-  it('no-response has correct payload and response', () => {
+  it('no-response has an empty payload and a void response (a void acknowledgement)', () => {
     expectTypeOf<RequestClient['requests']['no-response']['payload']>().toEqualTypeOf<{}>();
-    expectTypeOf<RequestClient['requests']['no-response']['response']>().toEqualTypeOf<{
-      ok: boolean;
-    }>();
+    expectTypeOf<RequestClient['requests']['no-response']['response']>().toEqualTypeOf<void>();
   });
 
   it('has double-response request', () => {

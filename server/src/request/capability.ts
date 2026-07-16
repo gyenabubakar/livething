@@ -154,9 +154,10 @@ export const requests = withCapabilityKind(function requests<
       event,
       async (ctx: { respond(value: unknown): void }, payload: unknown) => {
         const result = await run(ctx, payload);
-        // `undefined` is the only "no answer" signal (rejects the client with
-        // request-no-response); a returned `null` is a real, nullable response.
-        if (result !== undefined) ctx.respond(result);
+        // A nullish return (`null`/`undefined`, or no `return` at all) is a void
+        // acknowledgement — leave it unanswered so the runtime sends the empty
+        // correlated frame. Only a real value is forwarded as the response.
+        if (result != null) ctx.respond(result);
       },
       config.input ? { validator: config.input } : undefined,
     );

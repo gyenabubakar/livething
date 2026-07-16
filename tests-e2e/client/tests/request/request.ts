@@ -9,11 +9,13 @@ export function setup(): void {
     <button data-testid="connect">connect</button>
     <button data-testid="get-time">get-time</button>
     <button data-testid="no-response">no-response</button>
+    <button data-testid="throwing-request">throwing-request</button>
     <button data-testid="sub-room">sub-room</button>
     <button data-testid="ch-info">ch-info</button>
     <span data-testid="status"></span>
     <span data-testid="time"></span>
-    <span data-testid="no-response-error"></span>
+    <span data-testid="no-response-result"></span>
+    <span data-testid="throw-error"></span>
     <span data-testid="subscribed"></span>
     <span data-testid="ch-result"></span>
   `);
@@ -34,10 +36,17 @@ export function setup(): void {
   });
 
   button('no-response', async () => {
+    // Resolves with no value — a void acknowledgement, not a rejection.
+    await socket.request('no-response', {});
+    el('no-response-result').textContent = 'acked';
+  });
+
+  button('throwing-request', async () => {
+    // A handler that throws still rejects the client's request().
     try {
-      await socket.request('no-response', {});
+      await socket.request('throwing-request', {});
     } catch (err) {
-      el('no-response-error').textContent = errorCode(err);
+      el('throw-error').textContent = errorCode(err);
     }
   });
 

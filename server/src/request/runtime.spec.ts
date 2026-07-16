@@ -120,12 +120,11 @@ describe('request/runtime', () => {
     });
   });
 
-  it('throws RequestNoResponse when handler exits without calling ctx.respond()', async () => {
-    // Pre-fix the runtime swallowed the missing-respond case silently — the
-    // client's request promise hung until its own timeout, with no log, no
-    // error, and no breadcrumb. The throw lets the outer dispatcher route a
-    // correlated `__error__` back through handleRuntimeError using the
-    // originating correlationId.
+  it('sends an empty void-ack frame when the handler exits without calling ctx.respond()', async () => {
+    // A handler that answers nothing is a void acknowledgement, not a failure:
+    // the runtime sends an empty correlated frame the client resolves with no
+    // value. To reject instead, a handler throws. The empty payload keeps the
+    // client's pending promise from hanging until its own timeout.
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
@@ -139,19 +138,27 @@ describe('request/runtime', () => {
       handler: vi.fn(async () => {}),
     } as unknown as RequestPrimitive;
 
-    await expect(
-      handleRequest(runtime, {
-        connection,
-        ctx: { ok: true },
-        scope: {},
-        event: 'status',
-        request,
-        payload: {},
-        wskit: { correlationId: 'req-1', channelFamily: null },
-      }),
-    ).rejects.toMatchObject({ code: 'request-no-response' });
+    await handleRequest(runtime, {
+      connection,
+      ctx: { ok: true },
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-1', channelFamily: null },
+    });
 
-    expect(sendThroughPipeline).not.toHaveBeenCalled();
+    expect(sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
+      routing: {
+        channel: undefined,
+        channelFamily: undefined,
+        correlationId: 'req-1',
+        source: 'client',
+      },
+      event: 'status',
+      payload: {},
+    });
   });
 
   it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {

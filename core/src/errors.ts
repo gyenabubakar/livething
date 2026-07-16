@@ -430,18 +430,22 @@ export const RejoinRejected = /* @__PURE__ */ buildErrorFactory(
 export const InternalError = /* @__PURE__ */ buildErrorFactory('internal-error');
 
 /**
- * Sent to the client when a `request(...)` handler returned without calling
- * `ctx.respond(...)`. The client's pending request promise rejects with this
- * code instead of hanging until its own timeout. The server-side cause is
- * almost always a missing `ctx.respond` on some code path inside the handler.
+ * Rejects a **server→client** request when the client produced no reply — it has
+ * no handler registered for that request, or its handler settled without
+ * answering. The client sends this code back so the server's `ctx.request(...)`
+ * promise rejects fast instead of waiting out its timeout.
+ *
+ * A **client→server** request that answers nothing is not this error — it
+ * resolves as a void acknowledgement. Throw to reject one of those.
  *
  * @example
  * ```ts
+ * // server side, asking a connection a question
  * try {
- *   await client.request('whoami', {});
+ *   await ctx.request('confirm', { action: 'delete' });
  * } catch (err) {
  *   if (RequestNoResponse.matches(err)) {
- *     // server handler exited without ctx.respond — surface to logs / retry
+ *     // the client had no handler, or gave no answer
  *   }
  * }
  * ```

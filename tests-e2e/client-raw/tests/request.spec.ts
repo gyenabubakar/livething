@@ -24,20 +24,16 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('"channel":"room"');
   });
 
-  test('handler that never calls ctx.respond settles via correlated __error__ with code "request-no-response"', async ({
+  test('handler that returns nothing settles via a correlated empty void-ack frame', async ({
     page,
   }, testInfo) => {
-    // Pre-fix the runtime swallowed the missing-respond case silently: the
-    // client's request promise hung until its own timeout, with no log and
-    // no breadcrumb to find the forgotten ctx.respond(). Now the runtime
-    // throws RequestNoResponse, the outer dispatcher routes it through
-    // handleRuntimeError with the originating correlationId, and the
-    // client's pending promise settles by rejecting with a typed code.
+    // A handler that answers nothing is a void acknowledgement, not a failure.
+    // The server sends an empty correlated frame the client resolves with no
+    // value — the page records the correlated payload, which is `{}` (no error
+    // code), proving the request settled instead of hanging until timeout.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('no-response').click();
-    await expect(page.getByTestId('last-response')).not.toHaveText('');
-    const text = (await page.getByTestId('last-response').textContent()) ?? '';
-    expect(text).toContain('"code":"request-no-response"');
+    await expect(page.getByTestId('last-response')).toHaveText('{}');
   });
 
   test('schema-failed request settles via __error__ frame with the original correlationId', async ({

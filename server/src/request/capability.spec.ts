@@ -62,7 +62,7 @@ describe('requests() capability — client to server', () => {
     expect(respond).toHaveBeenCalledWith(0);
   });
 
-  it('responds with an explicit null (a nullable response, not "no answer")', async () => {
+  it('treats an explicit null as a void ack, not a response value', async () => {
     const base = define({ env: t<Env>(), capabilities: [requests()] });
     const handleFind = base.request('find', {
       run() {
@@ -74,7 +74,9 @@ describe('requests() capability — client to server', () => {
       { respond } as never,
       {},
     );
-    expect(respond).toHaveBeenCalledWith(null);
+    // `null` is nullish, so the builder leaves it unanswered — the runtime sends
+    // the empty correlated frame the client resolves with no value.
+    expect(respond).not.toHaveBeenCalled();
   });
 
   it('throws when base.request is used without the requests() capability', () => {

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestNoCorrelation, RequestNoResponse } from '@wskit/core';
+import { RequestNoCorrelation } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -42,6 +42,12 @@ export interface HandleRequestOptions {
  * captures that value, then emits an outgoing event with the same name and the
  * original `correlationId` (read from the incoming frame's `__wskit`) so the
  * client can resolve the correct Promise.
+ *
+ * A handler that finishes without a real answer — it returned nothing, `null`,
+ * or `undefined`, or never called `ctx.respond` — settles the client as a void
+ * acknowledgement: an empty correlated frame the client resolves with no value.
+ * To reject the client instead, throw (a declared error carries its code and
+ * detail; anything else collapses to `internal-error`).
  */
 export async function handleRequest(
   runtime: RequestRuntime,
@@ -85,13 +91,6 @@ export async function handleRequest(
     return request.handler(ctx, payload);
   });
 
-  // Handler exited without calling ctx.respond(). Surface this as a
-  // correlated `__error__` so the client's pending request settles instead of
-  // hanging until its own timeout. The outer dispatcher catches the throw and
-  // routes it through handleRuntimeError, which carries the correlationId
-  // from `wskit` back to the originating client promise.
-  if (!responded) throw RequestNoResponse();
-
   runtime.sendThroughPipeline(connection, {
     routing: {
       channel: scope.channelName,
@@ -101,6 +100,9 @@ export async function handleRequest(
       source: 'client',
     },
     event,
-    payload: response,
+    // A nullish answer (no response, or a `null`/`undefined` one) is a void
+    // acknowledgement: send an empty payload the client resolves with no value.
+    // A real falsy answer (0, false, '') is preserved.
+    payload: response ?? {},
   });
 }
