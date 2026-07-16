@@ -1,40 +1,13 @@
-import { DatabaseSync } from 'node:sqlite';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
-import type { AsyncContextFactory, KVProvider, SQLProvider, SqlResult } from '~/context.ts';
-
-function realSql(): SQLProvider {
-  const db = new DatabaseSync(':memory:');
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const trimmed = query.trim();
-    if (/^\s*(SELECT|WITH)/i.test(trimmed)) {
-      const rows = db.prepare(trimmed).all(...(params as never[])) as TRow[];
-      return {
-        toArray: () => rows,
-        one: () => rows[0] ?? null,
-        raw: () => rows.map((r) => Object.values(r as Record<string, unknown>)),
-      };
-    }
-    // A schema-init exec bundles several statements with `;`; the final one may
-    // carry the params. Run the leading statements unparameterized, then bind
-    // the params onto the last.
-    const statements = trimmed
-      .split(';')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const last = statements.pop()!;
-    for (const statement of statements) db.exec(statement);
-    db.prepare(last).run(...(params as never[]));
-    return { toArray: () => [], one: () => null, raw: () => [] };
-  }
-  return { exec, transaction: (fn) => fn({ exec }) };
-}
+import type { AsyncContextFactory, KVProvider, SQLProvider } from '~/context.ts';
 
 function memoryKV(): KVProvider {
   const store = new Map<string, unknown>();
@@ -129,7 +102,7 @@ function buildEngine(storage: { sql: SQLProvider; kv: KVProvider }): Engine {
 
 describe('hibernation restore — live delivery to a passive member', () => {
   it('reaches a member hibernated at broadcast time without it sending a message first', async () => {
-    const storage = { sql: realSql(), kv: memoryKV() };
+    const storage = { sql: createTestSql(), kv: memoryKV() };
     const engine = buildEngine(storage);
     await engine.initialize();
 

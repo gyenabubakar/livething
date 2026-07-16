@@ -1,5 +1,6 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { SQLProvider, SqlResult } from '~/context.ts';
+import type { SQLProvider } from '~/context.ts';
 import {
   deleteMembership,
   deleteMembershipsByChannel,
@@ -10,112 +11,11 @@ import {
   purgeTagsByIdentity,
 } from './storage.ts';
 
-/**
- * Tiny SQL stub that recognises just the statements this file emits. Keeps
- * membership and tag rows in two maps so the helpers can be exercised
- * end-to-end without a real SQLite instance.
- */
-function inMemorySql(): SQLProvider {
-  type MembershipRow = {
-    identity: string;
-    channel_name: string;
-    channel_family: string;
-    joined_at: number;
-  };
-  type TagRow = { identity: string; group_name: string; key: string; added_at: number };
-
-  const memberships = new Map<string, MembershipRow>();
-  const tags = new Map<string, TagRow>();
-
-  function mKey(r: { identity: string; channel_name: string; channel_family: string }) {
-    return `${r.identity}|${r.channel_name}|${r.channel_family}`;
-  }
-  function result<T>(items: T[]): SqlResult<T> {
-    return {
-      toArray: () => items.slice(),
-      one: () => (items.length === 0 ? null : items[0]!),
-      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
-    };
-  }
-
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const q = query.trim().replace(/\s+/g, ' ');
-
-    if (q.startsWith('CREATE')) return result<TRow>([]);
-
-    if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
-      const [identity, channel_name, channel_family, joined_at] = params as [
-        string,
-        string,
-        string,
-        number,
-      ];
-      const row = { identity, channel_name, channel_family, joined_at };
-      memberships.set(mKey(row), row);
-      return result<TRow>([]);
-    }
-
-    if (
-      q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_family = ?',
-      )
-    ) {
-      const [identity, channel_name, channel_family] = params as [string, string, string];
-      memberships.delete(mKey({ identity, channel_name, channel_family }));
-      return result<TRow>([]);
-    }
-
-    if (
-      q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE channel_name = ? AND channel_family = ?',
-      )
-    ) {
-      const [channel_name, channel_family] = params as [string, string];
-      for (const [k, row] of memberships) {
-        if (row.channel_name === channel_name && row.channel_family === channel_family) {
-          memberships.delete(k);
-        }
-      }
-      return result<TRow>([]);
-    }
-
-    if (q.startsWith('DELETE FROM __wskit_channel_memberships WHERE identity = ?')) {
-      const [identity] = params as [string];
-      for (const [k, row] of memberships) {
-        if (row.identity === identity) memberships.delete(k);
-      }
-      return result<TRow>([]);
-    }
-
-    if (
-      q.startsWith(
-        'SELECT channel_name, channel_family, joined_at FROM __wskit_channel_memberships',
-      )
-    ) {
-      const [identity] = params as [string];
-      const rows = [...memberships.values()].filter((r) => r.identity === identity);
-      return result<TRow>(rows as unknown as TRow[]);
-    }
-
-    if (q.startsWith('DELETE FROM __wskit_tags WHERE identity = ?')) {
-      const [identity] = params as [string];
-      for (const [k, row] of tags) {
-        if (row.identity === identity) tags.delete(k);
-      }
-      return result<TRow>([]);
-    }
-
-    throw new Error(`unrecognized SQL: ${q}`);
-  }
-
-  return { exec } as unknown as SQLProvider;
-}
-
 describe('persistence storage', () => {
   let sql: SQLProvider;
 
   beforeEach(() => {
-    sql = inMemorySql();
+    sql = createTestSql();
     ensurePersistenceSchema(sql);
   });
 

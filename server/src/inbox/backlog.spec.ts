@@ -1,10 +1,10 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { LastSeenService } from '~/_engine/runtime/feature-slots.ts';
 import { advanceReceivedThrough, ensureReceiptsSchema } from './receipts-storage.ts';
 import { ackInboxRows, ensureInboxSchema, insertInboxRows } from './storage.ts';
 import { buildInboxSurface } from './surface.ts';
-import { createTestSql } from './test-sql.ts';
 
 const SCOPE = { channelName: 'room', channelFamily: null } as const;
 

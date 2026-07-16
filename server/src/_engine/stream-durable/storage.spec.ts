@@ -1,224 +1,11 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { createTestSql } from '~/_test/sql.ts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import * as Storage from './storage.ts';
 
-function memorySql() {
-  const streams = new Map<string, Record<string, unknown>>();
-  const chunks = new Map<string, Record<string, unknown>>();
-  const subscribers = new Map<string, { caught_up_seq: unknown; unsubscribed_at: unknown }>();
-  let raiseConstraint = false;
-  function key(parts: unknown[]): string {
-    return parts.join('|');
-  }
-
-  function setConstraintMode(on: boolean): void {
-    raiseConstraint = on;
-  }
-
-  return {
-    streams,
-    chunks,
-    setConstraintMode,
-    exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] } {
-      const q = query.trim();
-      if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
-
-      if (q.startsWith('INSERT INTO __wskit_streams')) {
-        if (raiseConstraint) {
-          throw new Error(
-            'UNIQUE constraint failed: __wskit_streams.identity, __wskit_streams.stream_id',
-          );
-        }
-        const [
-          identity,
-          streamId,
-          event,
-          payload,
-          kind,
-          channelKey,
-          channelFamily,
-          broadcast,
-          creatorIdentity,
-          startedAt,
-          lastActivityAt,
-          maxChunks,
-          maxAgeMs,
-          retentionAfterEndMs,
-        ] = params;
-        streams.set(key([identity, streamId]), {
-          identity,
-          stream_id: streamId,
-          event,
-          payload,
-          kind,
-          status: 'active',
-          cursor: null,
-          last_seq: 0,
-          channel_key: channelKey,
-          channel_family: channelFamily,
-          broadcast,
-          creator_identity: creatorIdentity,
-          started_at: startedAt,
-          last_activity_at: lastActivityAt,
-          ended_at: null,
-          max_chunks: maxChunks,
-          max_age_ms: maxAgeMs,
-          retention_after_end_ms: retentionAfterEndMs,
-        });
-        return { toArray: () => [] };
-      }
-
-      if (q.startsWith('SELECT * FROM __wskit_streams WHERE identity')) {
-        const [identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        return { toArray: () => (row ? [row] : []) };
-      }
-
-      if (q.startsWith('UPDATE __wskit_streams SET cursor')) {
-        const [cursor, lastSeq, now, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row) {
-          row.cursor = cursor;
-          row.last_seq = lastSeq;
-          row.last_activity_at = now;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('UPDATE __wskit_streams SET last_seq')) {
-        const [lastSeq, now, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row) {
-          row.last_seq = lastSeq;
-          row.last_activity_at = now;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith("UPDATE __wskit_streams SET status = 'suspended'")) {
-        const [now, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row && row.status === 'active') {
-          row.status = 'suspended';
-          row.last_activity_at = now;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith("UPDATE __wskit_streams SET status = 'ended'")) {
-        const [now, lastActivityAt, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row) {
-          row.status = 'ended';
-          row.ended_at = now;
-          row.last_activity_at = lastActivityAt;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith("UPDATE __wskit_streams SET status = 'active'")) {
-        const [now, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row) {
-          row.status = 'active';
-          row.last_activity_at = now;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('DELETE FROM __wskit_streams')) {
-        const [identity, streamId] = params;
-        streams.delete(key([identity, streamId]));
-        // emulate ON DELETE CASCADE
-        for (const k of [...chunks.keys()]) {
-          if (k.startsWith(key([identity, streamId]) + '|')) chunks.delete(k);
-        }
-        for (const k of [...subscribers.keys()]) {
-          if (k.startsWith(key([identity, streamId]) + '|')) subscribers.delete(k);
-        }
-        return { toArray: () => [] };
-      }
-
-      if (q.startsWith('INSERT INTO __wskit_stream_chunks')) {
-        const [identity, streamId, seq, messageId, payload, now] = params;
-        chunks.set(key([identity, streamId, seq]), {
-          identity,
-          stream_id: streamId,
-          seq,
-          message_id: messageId,
-          payload,
-          emitted_at: now,
-        });
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('SELECT * FROM __wskit_stream_chunks')) {
-        const [identity, streamId, since] = params;
-        const out: Record<string, unknown>[] = [];
-        for (const row of chunks.values()) {
-          if (
-            row.identity === identity &&
-            row.stream_id === streamId &&
-            Number(row.seq) > Number(since)
-          ) {
-            out.push(row);
-          }
-        }
-        out.sort((a, b) => Number(a.seq) - Number(b.seq));
-        return { toArray: () => out };
-      }
-      if (q.startsWith('SELECT COUNT(*) AS n FROM __wskit_stream_chunks')) {
-        const [identity, streamId] = params;
-        let n = 0;
-        for (const row of chunks.values()) {
-          if (row.identity === identity && row.stream_id === streamId) n += 1;
-        }
-        return { toArray: () => [{ n }] };
-      }
-
-      if (q.startsWith('SELECT identity, stream_id FROM __wskit_streams')) {
-        const isSuspended = q.includes("status = 'suspended'");
-        const [now] = params;
-        const out: Record<string, unknown>[] = [];
-        for (const row of streams.values()) {
-          if (isSuspended) {
-            if (row.status !== 'suspended') continue;
-            if (row.max_age_ms == null) continue;
-            if (Number(row.last_activity_at) + Number(row.max_age_ms) >= Number(now)) continue;
-          } else {
-            if (row.status !== 'ended') continue;
-            if (row.ended_at == null || row.retention_after_end_ms == null) continue;
-            if (Number(row.ended_at) + Number(row.retention_after_end_ms) >= Number(now)) continue;
-          }
-          out.push({ identity: row.identity, stream_id: row.stream_id });
-        }
-        return { toArray: () => out };
-      }
-
-      if (q.startsWith('INSERT OR IGNORE INTO __wskit_stream_subscribers')) {
-        const [identity, streamId, subscriberIdentity] = params;
-        const k = key([identity, streamId, subscriberIdentity]);
-        if (!subscribers.has(k)) subscribers.set(k, { caught_up_seq: 0, unsubscribed_at: null });
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('INSERT INTO __wskit_stream_subscribers')) {
-        const [identity, streamId, subscriberIdentity, value] = params;
-        const k = key([identity, streamId, subscriberIdentity]);
-        const row = subscribers.get(k) ?? { caught_up_seq: 0, unsubscribed_at: null };
-        if (q.includes('DO UPDATE SET caught_up_seq')) row.caught_up_seq = value;
-        else row.unsubscribed_at = value;
-        subscribers.set(k, row);
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('SELECT caught_up_seq, unsubscribed_at FROM __wskit_stream_subscribers')) {
-        const [identity, streamId, subscriberIdentity] = params;
-        const row = subscribers.get(key([identity, streamId, subscriberIdentity]));
-        return { toArray: () => (row ? [{ ...row }] : []) };
-      }
-
-      return { toArray: () => [] };
-    },
-  };
-}
-
 describe('durable-stream/storage', () => {
-  let sql: ReturnType<typeof memorySql>;
+  let sql: ReturnType<typeof createTestSql>;
   beforeEach(() => {
-    sql = memorySql();
+    sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
   });
 
@@ -351,17 +138,18 @@ describe('durable-stream/storage', () => {
   });
 
   it('insertStream turns a UNIQUE constraint error into StreamIdCollision', () => {
-    sql.setConstraintMode(true);
-    expect(() =>
-      Storage.insertStream(sql, {
-        identity: 'u-1',
-        streamId: 's-1',
-        event: 'e',
-        payload: '{}',
-        kind: 'recorded',
-        now: 1_000,
-      }),
-    ).toThrow(/stream-id-collision/);
+    const input = {
+      identity: 'u-1',
+      streamId: 's-1',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded' as const,
+      now: 1_000,
+    };
+    Storage.insertStream(sql, input);
+    // A second insert on the same (identity, stream_id) hits the real PRIMARY
+    // KEY constraint, which the helper surfaces as StreamIdCollision.
+    expect(() => Storage.insertStream(sql, input)).toThrow(/stream-id-collision/);
   });
 
   it('markUnsubscribed + isUnsubscribed round-trip', () => {

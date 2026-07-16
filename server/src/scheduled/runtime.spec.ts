@@ -1,28 +1,22 @@
+import { createTestSql } from '~/_test/sql.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import {
   bootstrapScheduledRuntime,
   cancelScheduledRuns,
+  ensureScheduledSchema,
   handleScheduledAlarm,
   rescheduleScheduledAlarm,
   scheduleTaskRun,
 } from './runtime.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
 
-class FakeSqlResult<TRow = unknown> {
-  constructor(private readonly rows: Record<string, unknown>[]) {}
-
-  toArray(): TRow[] {
-    return [...this.rows] as TRow[];
-  }
-
-  one(): TRow | null {
-    return (this.rows[0] as TRow | undefined) ?? null;
-  }
-
-  raw(): unknown[][] {
-    return this.rows.map((row) => Object.values(row));
-  }
+function scheduledTableRows(sql: ReturnType<typeof createTestSql>): Record<string, unknown>[] {
+  return sql
+    .exec<
+      Record<string, unknown>
+    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled')
+    .toArray();
 }
 
 function createScheduledRuntime(
@@ -41,90 +35,16 @@ function createScheduledRuntime(
   const runsPersisted = new Map<string, string>();
   const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
-  const storageRows = {
-    scheduled: [] as Record<string, unknown>[],
-    dlq: [] as Record<string, unknown>[],
-  };
+  const sql = createTestSql();
   const timers = {
     setAlarm: vi.fn(async () => {}),
     deleteAlarm: vi.fn(async () => {}),
     getAlarm: vi.fn(async () => null),
   };
 
-  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
-    const normalized = query.replaceAll(/\s+/g, ' ').trim();
-
-    if (
-      normalized.startsWith(
-        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled',
-      )
-    ) {
-      return new FakeSqlResult<TRow>(storageRows.scheduled);
-    }
-
-    if (
-      normalized.startsWith(
-        'SELECT id, taskId, time, failedAt, data, attempts, error FROM __wskit_scheduled_dlq',
-      )
-    ) {
-      return new FakeSqlResult<TRow>(storageRows.dlq);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_scheduled_dlq')) {
-      storageRows.dlq = [];
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_scheduled')) {
-      storageRows.scheduled = [];
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('INSERT INTO __wskit_scheduled_dlq')) {
-      const [id, taskId, time, failedAt, data, attempts, error] = params;
-      storageRows.dlq.push({
-        id,
-        taskId,
-        time,
-        failedAt,
-        data,
-        attempts,
-        error,
-      });
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('INSERT INTO __wskit_scheduled')) {
-      const [id, taskId, time, data, everyMs, attempts, recurring, retry] = params;
-      storageRows.scheduled.push({
-        id,
-        taskId,
-        time,
-        data,
-        everyMs,
-        attempts,
-        recurring,
-        retry,
-      });
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    return new FakeSqlResult<TRow>([]);
-  }
-  const sql = {
-    exec,
-    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
-      return fn({ exec });
-    },
-  };
-
   const taskMap = new Map(tasks.map((task) => [task.taskId, task]));
 
-  const runtime: ScheduledRuntimeAccess & {
-    storageRows: typeof storageRows;
-    alarms: number;
-  } = {
-    storageRows,
+  const runtime: ScheduledRuntimeAccess & { alarms: number } = {
     alarms: 0,
     requireStorage: () => ({
       sql,
@@ -150,7 +70,9 @@ function createScheduledRuntime(
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 
-  return { runtime, scheduledRuns, deadLetters, storageRows, timers };
+  ensureScheduledSchema(runtime);
+
+  return { runtime, scheduledRuns, deadLetters, sql, timers };
 }
 
 describe('scheduled/runtime', () => {
@@ -179,22 +101,24 @@ describe('scheduled/runtime', () => {
     // must drop the orphan row instead of restoring it — otherwise every
     // alarm tick would skip the missing handler and re-queue the same row
     // for the next interval, leaving storage to grow forever.
-    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([]);
-    storageRows.scheduled.push({
-      id: 'task_orphan_1',
-      taskId: 'cleanup',
-      time: 5_000,
-      data: null,
-      everyMs: 60_000,
-      attempts: 0,
-      recurring: 1,
-      retry: 1,
-    });
+    const { runtime, scheduledRuns, sql } = createScheduledRuntime([]);
+    sql.exec(
+      `INSERT INTO __wskit_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      'task_orphan_1',
+      'cleanup',
+      5_000,
+      null,
+      60_000,
+      0,
+      1,
+      1,
+    );
 
     bootstrapScheduledRuntime(runtime);
 
     expect([...scheduledRuns.values()]).toHaveLength(0);
-    expect(storageRows.scheduled).toHaveLength(0);
+    expect(scheduledTableRows(sql)).toHaveLength(0);
   });
 
   it('does not re-queue a recurring run whose task disappeared between alarm ticks', async () => {
@@ -673,19 +597,16 @@ describe('scheduled/runtime', () => {
   });
 
   it('round-trips custom backoff through serialization', () => {
-    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([
+    const { runtime, scheduledRuns, sql } = createScheduledRuntime([
       { taskId: 'ser', options: { retry: [100, 200] } },
     ]);
 
     scheduleTaskRun(runtime, { taskId: 'ser', time: 500, data: undefined });
-    const serialized = storageRows.scheduled[0];
-    expect(serialized?.retry).toBe('[100,200]');
+    expect(scheduledTableRows(sql)[0]?.retry).toBe('[100,200]');
 
+    // Drop the in-memory copy and re-read the persisted row: deserialization must
+    // turn the stored '[100,200]' string back into a real backoff array.
     scheduledRuns.clear();
-    storageRows.scheduled[0] = {
-      ...serialized!,
-      retry: '[100,200]',
-    };
     bootstrapScheduledRuntime(runtime);
 
     const restored = [...scheduledRuns.values()].find((r) => r.taskId === 'ser');

@@ -1,3 +1,4 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { buildChannelHandle } from '~/channel/context.ts';
 import { ensureSequenceSchema } from '~/sequence/runtime.ts';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +12,6 @@ import { registerInboxHandleAugmenter } from './augment.ts';
 import { registerReadReceiptsHandleAugmenter } from './read-receipts-augment.ts';
 import { ensureReceiptsSchema } from './receipts-storage.ts';
 import { ensureInboxSchema } from './storage.ts';
-import { createTestSql } from './test-sql.ts';
 
 const INBOX_OPTIONS: ResolvedInboxOptions = {
   onDelivered: 'delete',

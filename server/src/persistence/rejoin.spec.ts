@@ -1,4 +1,5 @@
 import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { createTestSql } from '~/_test/sql.ts';
 import { autoRejoinIdentity, restorePersistentTags } from '~/persistence/rejoin.ts';
 import {
   ensurePersistenceSchema,
@@ -10,63 +11,6 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
-import type { SQLProvider, SqlResult } from '~/context.ts';
-
-function inMemorySql(): SQLProvider {
-  type Row = {
-    identity: string;
-    channel_name: string;
-    channel_family: string;
-    joined_at: number;
-  };
-  const rows = new Map<string, Row>();
-  function key(r: { identity: string; channel_name: string; channel_family: string }) {
-    return `${r.identity}|${r.channel_name}|${r.channel_family}`;
-  }
-  function result<T>(items: T[]): SqlResult<T> {
-    return {
-      toArray: () => items.slice(),
-      one: () => (items.length === 0 ? null : items[0]!),
-      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
-    };
-  }
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const q = query.trim().replace(/\s+/g, ' ');
-    if (q.startsWith('CREATE')) return result<TRow>([]);
-    if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
-      const [identity, channel_name, channel_family, joined_at] = params as [
-        string,
-        string,
-        string,
-        number,
-      ];
-      const row = { identity, channel_name, channel_family, joined_at };
-      rows.set(key(row), row);
-      return result<TRow>([]);
-    }
-    if (
-      q.startsWith(
-        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_family = ?',
-      )
-    ) {
-      const [identity, channel_name, channel_family] = params as [string, string, string];
-      rows.delete(key({ identity, channel_name, channel_family }));
-      return result<TRow>([]);
-    }
-    if (q.startsWith('SELECT channel_name, channel_family, joined_at')) {
-      const [identity] = params as [string];
-      return result<TRow>(
-        [...rows.values()].filter((r) => r.identity === identity) as unknown as TRow[],
-      );
-    }
-    if (q.startsWith('DELETE FROM __wskit_tags')) return result<TRow>([]);
-    if (q.startsWith('SELECT group_name, key, added_at FROM __wskit_tags')) {
-      return result<TRow>([]);
-    }
-    throw new Error(`unrecognized SQL: ${q}`);
-  }
-  return { exec } as unknown as SQLProvider;
-}
 
 function fakeConnection(identity: string) {
   return { id: 'c-1', identity } as never;
@@ -74,7 +18,7 @@ function fakeConnection(identity: string) {
 
 describe('autoRejoinIdentity', () => {
   it('no-ops when identity is empty', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     const subscribe = vi.fn<
       (
@@ -97,7 +41,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('no-ops when identity has no stored memberships', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     const subscribe = vi.fn<
       (
@@ -124,7 +68,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('calls subscribeConnectionAsServer for every stored membership', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     insertMembership(sql, { identity: 'u-42', channelName: 'lobby', channelFamily: null });
     insertMembership(sql, { identity: 'u-42', channelName: 'room', channelFamily: 'room:abc' });
@@ -159,7 +103,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('on subscribe rejection drops the durable row and sends scoped _error', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
@@ -192,7 +136,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('propagates a config error and keeps the durable row', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
@@ -218,7 +162,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('propagates an internal/storage error and keeps the durable row', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelFamily: null });
 
@@ -244,7 +188,7 @@ describe('autoRejoinIdentity', () => {
   });
 
   it('one rejection does not stop the rest of the rejoin', async () => {
-    const sql = inMemorySql();
+    const sql = createTestSql();
     ensurePersistenceSchema(sql);
     insertMembership(sql, { identity: 'u-42', channelName: 'room-1', channelFamily: null });
     insertMembership(sql, { identity: 'u-42', channelName: 'room-2', channelFamily: null });
@@ -272,44 +216,6 @@ describe('autoRejoinIdentity', () => {
   });
 });
 
-function inMemoryTagSql(): SQLProvider {
-  type Row = { identity: string; group_name: string; key: string; added_at: number };
-  const rows = new Map<string, Row>();
-  function k(r: { identity: string; group_name: string; key: string }): string {
-    return `${r.identity}|${r.group_name}|${r.key}`;
-  }
-  function result<T>(items: T[]): SqlResult<T> {
-    return {
-      toArray: () => items.slice(),
-      one: () => (items.length === 0 ? null : items[0]!),
-      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
-    };
-  }
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const q = query.trim().replace(/\s+/g, ' ');
-    if (q.startsWith('CREATE')) return result<TRow>([]);
-    if (q.startsWith('INSERT OR REPLACE INTO __wskit_tags')) {
-      const [identity, group_name, key, added_at] = params as [string, string, string, number];
-      const row = { identity, group_name, key, added_at };
-      rows.set(k(row), row);
-      return result<TRow>([]);
-    }
-    if (
-      q.startsWith('DELETE FROM __wskit_tags WHERE identity = ? AND group_name = ? AND key = ?')
-    ) {
-      const [identity, group_name, key] = params as [string, string, string];
-      rows.delete(k({ identity, group_name, key }));
-      return result<TRow>([]);
-    }
-    if (q.startsWith('SELECT group_name, key, added_at FROM __wskit_tags')) {
-      const [identity] = params as [string];
-      return result<TRow>([...rows.values()].filter((r) => r.identity === identity) as TRow[]);
-    }
-    throw new Error(`unrecognized tag SQL: ${q}`);
-  }
-  return { exec } as unknown as SQLProvider;
-}
-
 function tagConnection(identity: string): RuntimeConnection {
   return {
     id: 'c-1',
@@ -320,7 +226,8 @@ function tagConnection(identity: string): RuntimeConnection {
 
 describe('restorePersistentTags', () => {
   it('deletes a stored tag whose value no longer matches its group schema', () => {
-    const sql = inMemoryTagSql();
+    const sql = createTestSql();
+    ensurePersistenceSchema(sql);
     insertTag(sql, { identity: 'u-1', group: 'role', key: 'admin' });
     insertTag(sql, { identity: 'u-1', group: 'role', key: 'not-a-role!' });
 
@@ -342,7 +249,8 @@ describe('restorePersistentTags', () => {
   });
 
   it('propagates a config error (async schema) and keeps the stored tag (#1)', () => {
-    const sql = inMemoryTagSql();
+    const sql = createTestSql();
+    ensurePersistenceSchema(sql);
     insertTag(sql, { identity: 'u-1', group: 'role', key: 'admin' });
     const connection = tagConnection('u-1');
     // An async validator is a config error, not invalid stored data.

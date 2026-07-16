@@ -1,60 +1,79 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { createChannelMembershipKey, removeChannelMember } from '~/channel/runtime.ts';
 import {
   deleteDurableMembership,
   hasDurableMembership,
   persistMembership,
 } from '~/persistence/membership.ts';
+import { ensurePersistenceSchema } from '~/persistence/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SQLProvider } from '~/context.ts';
 
-function makeCore(exec: ReturnType<typeof vi.fn>): EngineCore {
+function makeCore(sql: SQLProvider): EngineCore {
   return {
     persistenceEnabled: true,
-    requireStorage: () => ({ sql: { exec } }),
+    requireStorage: () => ({ sql }),
   } as unknown as EngineCore;
-}
-
-function makeExec() {
-  return vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
 }
 
 describe('durable membership identity gate', () => {
   it('skips the durable write for an empty (anonymous) identity', () => {
-    const exec = makeExec();
-    persistMembership(makeCore(exec), { identity: '', channelName: 'room', channelFamily: null });
-    expect(exec).not.toHaveBeenCalled();
+    let statements = 0;
+    const sql = createTestSql({ onExec: () => (statements += 1) });
+    ensurePersistenceSchema(sql);
+    statements = 0;
+
+    persistMembership(makeCore(sql), { identity: '', channelName: 'room', channelFamily: null });
+    expect(statements).toBe(0);
   });
 
   it('writes the durable row for a real identity', () => {
-    const exec = makeExec();
-    persistMembership(makeCore(exec), {
+    const sql = createTestSql();
+    ensurePersistenceSchema(sql);
+
+    persistMembership(makeCore(sql), {
       identity: 'user-1',
       channelName: 'room',
       channelFamily: null,
     });
-    expect(exec).toHaveBeenCalledTimes(1);
+    expect(
+      hasDurableMembership(makeCore(sql), {
+        identity: 'user-1',
+        channelName: 'room',
+        channelFamily: null,
+      }),
+    ).toBe(true);
   });
 
   it('skips the durable delete for an empty identity', () => {
-    const exec = makeExec();
-    deleteDurableMembership(makeCore(exec), {
+    let statements = 0;
+    const sql = createTestSql({ onExec: () => (statements += 1) });
+    ensurePersistenceSchema(sql);
+    statements = 0;
+
+    deleteDurableMembership(makeCore(sql), {
       identity: '',
       channelName: 'room',
       channelFamily: null,
     });
-    expect(exec).not.toHaveBeenCalled();
+    expect(statements).toBe(0);
   });
 
   it('reports no durable membership for an empty identity without querying', () => {
-    const exec = makeExec();
-    const result = hasDurableMembership(makeCore(exec), {
+    let statements = 0;
+    const sql = createTestSql({ onExec: () => (statements += 1) });
+    ensurePersistenceSchema(sql);
+    statements = 0;
+
+    const result = hasDurableMembership(makeCore(sql), {
       identity: '',
       channelName: 'room',
       channelFamily: null,
     });
     expect(result).toBe(false);
-    expect(exec).not.toHaveBeenCalled();
+    expect(statements).toBe(0);
   });
 });
 

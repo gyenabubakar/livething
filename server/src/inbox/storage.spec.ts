@@ -1,3 +1,4 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import {
   ackInboxRows,
@@ -12,7 +13,6 @@ import {
   loadUndeliveredRows,
   pruneInboxRetention,
 } from './storage.ts';
-import { createTestSql } from './test-sql.ts';
 import type { InboxFrame } from './storage.ts';
 
 function frame(seq: number, overrides: Partial<InboxFrame> = {}): InboxFrame {

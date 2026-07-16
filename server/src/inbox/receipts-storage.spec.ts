@@ -1,3 +1,4 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import {
   advanceReadThrough,
@@ -6,7 +7,6 @@ import {
   listReaders,
   listReceivers,
 } from './receipts-storage.ts';
-import { createTestSql } from './test-sql.ts';
 
 function setup() {
   const sql = createTestSql();

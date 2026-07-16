@@ -1,95 +1,27 @@
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { replay } from '~/replay/replay.ts';
-import { persistReplayMessage } from '~/replay/runtime.ts';
+import { ensureReplaySchema, persistReplayMessage } from '~/replay/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent } from '~/_engine/runtime/protocol.ts';
 import type { SqlResult, StorageProvider } from '~/context.ts';
 import type { ReplayRow } from '~/replay/types.ts';
 
-class FakeReplaySql {
-  rows = new Map<string, ReplayRow>();
+function replayDb() {
+  const sql = createTestSql();
+  ensureReplaySchema(sql);
+  return sql;
+}
 
-  exec<TRow = unknown>(query: string, ...params: unknown[]) {
-    const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
-
-    if (
-      normalizedQuery.startsWith(
-        'SELECT rowKey, messageId, seq, event, payload, channel, channelFamily, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
-      )
-    ) {
-      const row = this.rows.get(String(params[0]));
-      return {
-        toArray() {
-          return row ? ([row] as TRow[]) : [];
-        },
-        one() {
-          return (row as TRow | undefined) ?? null;
-        },
-        raw() {
-          return row ? [Object.values(row)] : [];
-        },
-      };
-    }
-
-    if (normalizedQuery.startsWith('DELETE FROM __wskit_replay WHERE rowKey = ?')) {
-      this.rows.delete(String(params[0]));
-      return {
-        toArray() {
-          return [] as TRow[];
-        },
-        one() {
-          return null as TRow | null;
-        },
-        raw() {
-          return [];
-        },
-      };
-    }
-
-    if (normalizedQuery.startsWith('INSERT OR REPLACE INTO __wskit_replay')) {
-      const row: ReplayRow = {
-        rowKey: String(params[0]),
-        messageId: String(params[1]),
-        seq: Number(params[2]),
-        event: String(params[3]),
-        payload: String(params[4]),
-        channel: (params[5] as string | null) ?? null,
-        channelFamily: (params[6] as string | null) ?? null,
-        snapshotKey: (params[7] as string | null) ?? null,
-        createdAt: Number(params[8]),
-      };
-      this.rows.set(row.rowKey, row);
-      return {
-        toArray() {
-          return [] as TRow[];
-        },
-        one() {
-          return null as TRow | null;
-        },
-        raw() {
-          return [];
-        },
-      };
-    }
-
-    return {
-      toArray() {
-        return [] as TRow[];
-      },
-      one() {
-        return null as TRow | null;
-      },
-      raw() {
-        return [];
-      },
-    };
-  }
-
-  transaction<T>(fn: (tx: { exec: FakeReplaySql['exec'] }) => T): T {
-    return fn({ exec: this.exec.bind(this) });
-  }
+function replayRows(sql: ReturnType<typeof createTestSql>): ReplayRow[] {
+  return sql
+    .exec<ReplayRow>(
+      `SELECT rowKey, messageId, seq, event, payload, channel, channelFamily, snapshotKey, createdAt
+       FROM __wskit_replay`,
+    )
+    .toArray();
 }
 
 describe('replay', () => {
@@ -133,7 +65,7 @@ describe('replay', () => {
   });
 
   it('reduces snapshot rows when a reducer is provided', () => {
-    const sql = new FakeReplaySql();
+    const sql = replayDb();
 
     persistReplayMessage(sql, {
       options: {
@@ -183,13 +115,13 @@ describe('replay', () => {
       now: 2,
     });
 
-    expect(sql.rows.size).toBe(1);
-    expect([...sql.rows.values()][0]).toMatchObject({
+    expect(replayRows(sql).length).toBe(1);
+    expect(replayRows(sql)[0]).toMatchObject({
       event: 'doc-snapshot',
       seq: 2,
       messageId: 'm2',
     });
-    expect(JSON.parse([...sql.rows.values()][0]!.payload)).toEqual({
+    expect(JSON.parse(replayRows(sql)[0]!.payload)).toEqual({
       id: 'doc-1',
       title: 'Draft',
       content: 'Hello',
@@ -197,7 +129,7 @@ describe('replay', () => {
   });
 
   it('deletes a snapshot when the reducer returns null', () => {
-    const sql = new FakeReplaySql();
+    const sql = replayDb();
 
     persistReplayMessage(sql, {
       options: {
@@ -230,11 +162,11 @@ describe('replay', () => {
     });
 
     expect(deleted).toBeNull();
-    expect(sql.rows.size).toBe(0);
+    expect(replayRows(sql).length).toBe(0);
   });
 
   it('validates the reduced value against the contract before storing it', () => {
-    const sql = new FakeReplaySql();
+    const sql = replayDb();
     const seen: Array<{ event: string; payload: Record<string, unknown> }> = [];
 
     persistReplayMessage(sql, {
@@ -254,7 +186,7 @@ describe('replay', () => {
   });
 
   it('does not store the row when reduced-value validation throws', () => {
-    const sql = new FakeReplaySql();
+    const sql = replayDb();
 
     expect(() =>
       persistReplayMessage(sql, {
@@ -273,11 +205,11 @@ describe('replay', () => {
       }),
     ).toThrow(/not a declared outgoing event/);
 
-    expect(sql.rows.size).toBe(0);
+    expect(replayRows(sql).length).toBe(0);
   });
 
   it('does not validate when no reducer is configured (live send already checked it)', () => {
-    const sql = new FakeReplaySql();
+    const sql = replayDb();
     let called = false;
 
     persistReplayMessage(sql, {
@@ -292,7 +224,7 @@ describe('replay', () => {
     });
 
     expect(called).toBe(false);
-    expect(sql.rows.size).toBe(1);
+    expect(replayRows(sql).length).toBe(1);
   });
 
   it('adds top-level sendReplay through a context extender', () => {

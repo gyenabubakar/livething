@@ -1,35 +1,11 @@
-import { DatabaseSync } from 'node:sqlite';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
-import type { AsyncContextFactory, KVProvider, SQLProvider, SqlResult } from '~/context.ts';
-
-function memorySql(): SQLProvider {
-  const db = new DatabaseSync(':memory:');
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const trimmed = query.trim();
-    if (/^\s*(SELECT|WITH)/i.test(trimmed)) {
-      const rows = db.prepare(trimmed).all(...(params as never[])) as TRow[];
-      return {
-        toArray: () => rows,
-        one: () => rows[0] ?? null,
-        raw: () => rows.map((row) => Object.values(row as Record<string, unknown>)),
-      };
-    }
-    const statements = trimmed
-      .split(';')
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-    const last = statements.pop()!;
-    for (const statement of statements) db.exec(statement);
-    db.prepare(last).run(...(params as never[]));
-    return { toArray: () => [], one: () => null, raw: () => [] };
-  }
-  return { exec, transaction: (fn) => fn({ exec }) };
-}
+import type { AsyncContextFactory, KVProvider } from '~/context.ts';
 
 function memoryKV(): KVProvider {
   const store = new Map<string, unknown>();
@@ -109,7 +85,7 @@ function buildEngine(options: ServerOptions = {}): Engine {
         platform: { kind: 'test' },
         waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        ...(options.hibernation ? { storage: { sql: memorySql(), kv: memoryKV() } } : {}),
+        ...(options.hibernation ? { storage: { sql: createTestSql(), kv: memoryKV() } } : {}),
       });
       return {};
     },

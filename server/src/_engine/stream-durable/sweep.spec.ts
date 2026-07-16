@@ -1,115 +1,15 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import { sweepDurableStreams } from './runtime.ts';
 import * as Storage from './storage.ts';
 
-function makeSql() {
-  const streams = new Map<string, Record<string, unknown>>();
-  const chunks = new Map<string, Record<string, unknown>>();
-  function key(parts: unknown[]): string {
-    return parts.join('|');
-  }
-
-  const sql = {
-    streams,
-    chunks,
-    exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] } {
-      const q = query.trim();
-      if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
-
-      if (q.startsWith('INSERT INTO __wskit_streams')) {
-        const [
-          identity,
-          streamId,
-          event,
-          payload,
-          kind,
-          channelKey,
-          channelFamily,
-          broadcast,
-          creatorIdentity,
-          startedAt,
-          lastActivityAt,
-          maxChunks,
-          maxAgeMs,
-          retentionAfterEndMs,
-        ] = params;
-        streams.set(key([identity, streamId]), {
-          identity,
-          stream_id: streamId,
-          event,
-          payload,
-          kind,
-          status: 'active',
-          cursor: null,
-          last_seq: 0,
-          channel_key: channelKey,
-          channel_family: channelFamily,
-          broadcast,
-          creator_identity: creatorIdentity,
-          started_at: startedAt,
-          last_activity_at: lastActivityAt,
-          ended_at: null,
-          max_chunks: maxChunks,
-          max_age_ms: maxAgeMs,
-          retention_after_end_ms: retentionAfterEndMs,
-        });
-        return { toArray: () => [] };
-      }
-      if (q.startsWith("UPDATE __wskit_streams SET status = 'suspended'")) {
-        const [now, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row && row.status === 'active') {
-          row.status = 'suspended';
-          row.last_activity_at = now;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith("UPDATE __wskit_streams SET status = 'ended'")) {
-        const [now, lastActivityAt, identity, streamId] = params;
-        const row = streams.get(key([identity, streamId]));
-        if (row) {
-          row.status = 'ended';
-          row.ended_at = now;
-          row.last_activity_at = lastActivityAt;
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('DELETE FROM __wskit_streams')) {
-        const [identity, streamId] = params;
-        streams.delete(key([identity, streamId]));
-        for (const k of [...chunks.keys()]) {
-          if (k.startsWith(key([identity, streamId]) + '|')) chunks.delete(k);
-        }
-        return { toArray: () => [] };
-      }
-      if (q.startsWith('SELECT identity, stream_id FROM __wskit_streams')) {
-        const isSuspended = q.includes("status = 'suspended'");
-        const [now] = params;
-        const out: Record<string, unknown>[] = [];
-        for (const row of streams.values()) {
-          if (isSuspended) {
-            if (row.status !== 'suspended') continue;
-            if (row.max_age_ms == null) continue;
-            if (Number(row.last_activity_at) + Number(row.max_age_ms) >= Number(now)) continue;
-          } else {
-            if (row.status !== 'ended') continue;
-            if (row.ended_at == null || row.retention_after_end_ms == null) continue;
-            if (Number(row.ended_at) + Number(row.retention_after_end_ms) >= Number(now)) continue;
-          }
-          out.push({ identity: row.identity, stream_id: row.stream_id });
-        }
-        return { toArray: () => out };
-      }
-      return { toArray: () => [] };
-    },
-  };
-  return sql;
+function countStreams(sql: ReturnType<typeof createTestSql>): number {
+  return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_streams').one()!.n);
 }
 
 describe('sweepDurableStreams', () => {
   it('deletes nothing when no rows have expired yet', () => {
-    const sql = makeSql();
+    const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     Storage.insertStream(sql, {
       identity: 'u',
@@ -123,11 +23,11 @@ describe('sweepDurableStreams', () => {
     Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: Date.now() });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(0);
-    expect(sql.streams.size).toBe(1);
+    expect(countStreams(sql)).toBe(1);
   });
 
   it('deletes suspended rows past maxAgeMs', () => {
-    const sql = makeSql();
+    const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     // Insert + suspend with maxAgeMs = 1ms in the past so it's immediately expired.
     const longAgo = Date.now() - 10_000;
@@ -143,11 +43,11 @@ describe('sweepDurableStreams', () => {
     Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
-    expect(sql.streams.size).toBe(0);
+    expect(countStreams(sql)).toBe(0);
   });
 
   it('deletes ended rows past retentionAfterEndMs', () => {
-    const sql = makeSql();
+    const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const longAgo = Date.now() - 10_000;
     Storage.insertStream(sql, {
@@ -162,11 +62,11 @@ describe('sweepDurableStreams', () => {
     Storage.markEnded(sql, { identity: 'u', streamId: 's2', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
-    expect(sql.streams.size).toBe(0);
+    expect(countStreams(sql)).toBe(0);
   });
 
   it('mixes suspended + ended in one sweep tick', () => {
-    const sql = makeSql();
+    const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const longAgo = Date.now() - 10_000;
 
@@ -205,7 +105,7 @@ describe('sweepDurableStreams', () => {
 
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(2);
-    expect(sql.streams.size).toBe(1);
-    expect(sql.streams.has('u|fresh')).toBe(true);
+    expect(countStreams(sql)).toBe(1);
+    expect(Storage.readStream(sql, 'u', 'fresh')).not.toBeNull();
   });
 });

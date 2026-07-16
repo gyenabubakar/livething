@@ -1,5 +1,5 @@
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import { createTestSql } from '~/inbox/test-sql.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { LastSeenService } from '~/_engine/runtime/feature-slots.ts';

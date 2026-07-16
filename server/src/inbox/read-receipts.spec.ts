@@ -1,4 +1,5 @@
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import {
   advanceReadThrough,
@@ -14,7 +15,6 @@ import type {
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import { readReceipts } from './read-receipts.ts';
 import { ensureInboxSchema, insertInboxRows, loadUndeliveredRows } from './storage.ts';
-import { createTestSql } from './test-sql.ts';
 
 type Handler = (ctx: unknown, frame: Protocol.IncomingProtocolFrame) => boolean | void;
 
