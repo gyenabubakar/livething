@@ -271,6 +271,15 @@ interface HandleDispatchErrorOptions {
   error: unknown;
 
   attempt: number;
+
+  /**
+   * True only when the throw came from an `on()` handler body. `Defer` re-queues
+   * the message, which is meaningful only for an `on()` handler: a request would
+   * re-run and re-answer a settled correlation, an intercept fires on every frame
+   * kind, and a stream can't restart after yielding. So `Defer` is honored only
+   * when this is set; thrown anywhere else it collapses to `internal-error`.
+   */
+  fromIncomingHandler: boolean;
 }
 
 /**
@@ -347,6 +356,10 @@ export async function dispatchIncoming(
   }
 
   let message = { event, payload };
+  // Set once the `on()` handler is about to run, so the catch can tell a Defer
+  // thrown from the handler body (honored) from one thrown by an intercept or a
+  // request handler (collapsed to internal-error).
+  let fromIncomingHandler = false;
 
   try {
     if (attempt === 0) {
@@ -412,6 +425,7 @@ export async function dispatchIncoming(
     }
 
     if (incoming) {
+      fromIncomingHandler = true;
       await withConnectionContext(runtime.asyncContext, connection.id, () =>
         incoming.handler(getCtx(), payloadValue),
       );
@@ -457,6 +471,7 @@ export async function dispatchIncoming(
       scope,
       error,
       attempt,
+      fromIncomingHandler,
     });
   }
 }
@@ -466,9 +481,23 @@ async function handleDispatchError(
   connection: RuntimeConnection,
   opts: HandleDispatchErrorOptions,
 ): Promise<void> {
-  const { event, payload, wskit, scope, error, attempt } = opts;
+  const { event, payload, wskit, scope, error, attempt, fromIncomingHandler } = opts;
   rethrowIfConfigError(error);
   if (error === Block) return;
+
+  const isDefer =
+    !!error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer';
+
+  // `Defer` re-queues the message, which only makes sense for an `on()` handler.
+  // Thrown from an intercept (fires on every frame kind), a request handler
+  // (would re-answer a settled correlation), or anywhere else, it is a mistake —
+  // log it and let it fall through to `internal-error` below.
+  if (isDefer && !fromIncomingHandler) {
+    runtime.logger.error(
+      '[wskit] Defer is only valid in an on() handler — ignoring it and surfacing internal-error',
+      { event },
+    );
+  }
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
@@ -494,8 +523,10 @@ async function handleDispatchError(
 
   // Defer — re-queue the message after a delay. Give up and fire
   // DeferExhausted after 3 retries, or when this connection already has
-  // MAX_PENDING_DEFERS timers in flight.
-  if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
+  // MAX_PENDING_DEFERS timers in flight. Only an `on()` handler may Defer; a
+  // Defer from anywhere else fell through the guard above and lands on the
+  // generic `internal-error` path below.
+  if (isDefer && fromIncomingHandler) {
     const pendingDefers = connection.deferTimers?.size ?? 0;
     if (attempt >= 3 || pendingDefers >= MAX_PENDING_DEFERS) {
       const exhausted = ErrorsPrimitive.DeferExhausted({

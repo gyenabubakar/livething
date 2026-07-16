@@ -341,6 +341,72 @@ describe('defer retry behavior', () => {
     // The retry must be a no-op — no side effects for a gone connection.
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it('does not retry a Defer thrown from a request handler — surfaces it as an error', async () => {
+    // Defer re-queues the frame; a request would re-run and re-answer a
+    // correlation the client already settled. Only an on() handler may Defer, so
+    // a request-handler Defer runs once and routes to the error path
+    // (internal-error on the wire), never a retry.
+    const connection = createConnection();
+    const handler = vi.fn(async () => {
+      throw Defer(10);
+    });
+    const errors: any[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        requests: new Map([['ask', { event: 'ask', handler, validator: undefined }]]),
+      } as any,
+      connections: new Map([[connection.id, connection]]),
+      requestDispatch: async (_rt: any, _c: any, opts: any) => {
+        await opts.request.handler({ respond() {} }, opts.payload);
+      },
+      async handleRuntimeError(_c: any, opts: any) {
+        errors.push(opts);
+      },
+    } as any);
+
+    await dispatchIncoming(runtime, connection, {
+      event: 'ask',
+      payload: {},
+      wskit: { correlationId: 'c1' } as any,
+    });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].error.__wskit).toBe('defer');
+  });
+
+  it('does not retry a Defer thrown from an intercept — surfaces it as an error', async () => {
+    // An intercept fires on every frame kind, so a Defer there could re-queue a
+    // request or stream frame. It runs once and routes to the error path.
+    const connection = createConnection();
+    const handler = vi.fn(async () => {});
+    let interceptCalls = 0;
+    const errors: any[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
+      } as any,
+      connections: new Map([[connection.id, connection]]),
+      runIntercepts: async () => {
+        interceptCalls += 1;
+        throw Defer(10);
+      },
+      async handleRuntimeError(_c: any, opts: any) {
+        errors.push(opts);
+      },
+    } as any);
+
+    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(interceptCalls).toBe(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(errors[0].error.__wskit).toBe('defer');
+  });
 });
 
 describe('Disconnect thrown from handler', () => {

@@ -71,21 +71,19 @@ export function RejectUpgrade(code: number, reason: string) {
 
 /**
  * Re-enqueue the current message for processing after a delay (milliseconds).
- * Only valid in `incoming` handlers and intercepts — in `request` or `stream`
- * handlers, it's treated as an unrecognized error (`internal-error`).
+ *
+ * Valid **only in `on()` handlers**. Re-queuing replays the whole frame, which
+ * only makes sense there: a `request` handler would re-run and re-answer a
+ * correlation the client already settled, an intercept fires on every frame kind
+ * (a request or stream frame, not just an `on()` event), and a stream generator
+ * that already yielded chunks cannot restart from the top. Thrown from any of
+ * those, `Defer` is treated as an unrecognized error and surfaces to the client
+ * as `internal-error`.
  *
  * Up to 3 retries per message, so the handler runs **at most 4 times total**
  * (the initial attempt plus 3 retries). After the third retry still throws
  * `Defer`, the message is dropped and `onError` fires with a `DeferExhausted`
  * error whose `detail.retries` is `3`.
- *
- * **In request handlers:** throw `Defer` instead of returning a response, never
- * after producing one. When the engine retries, the handler runs again from the
- * top, so throw `Defer` before you `return`, or not at all.
- *
- * **Timeout budget:** each retry adds `delay` milliseconds before the handler
- * runs again. The client's request timeout still counts down during retries —
- * three defers of 500 ms each consume 1.5 s before the handler can succeed.
  *
  * ```ts
  * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
