@@ -348,9 +348,10 @@ export interface ScopeSendApi {
   readonly name: string;
 
   /**
-   * Send an event only to the current connection, scoped to this channel.
-   * Returns nothing — it dispatches or throws. Use `ctx.channels.get(...).send`
-   * to target a specific member and get a delivered boolean back.
+   * Send an event only to the current connection — the one whose event you are
+   * handling — scoped to this channel. The frame arrives on the client's handle
+   * for this channel, not the top-level socket. Returns nothing: it dispatches
+   * or throws. To reach every member instead, use `broadcast`.
    */
   send(event: string, payload: unknown): void;
 
