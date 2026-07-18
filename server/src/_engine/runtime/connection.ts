@@ -14,6 +14,20 @@ import type * as EngineRuntimeTypes from './types.ts';
 const MAX_IDENTITY_LENGTH = 256;
 
 /**
+ * Resolve the storage row key for one connection. Returns the connection's
+ * identity when it was supplied at upgrade, or its engine-assigned `id` when
+ * not. Anonymous connections (no `onUpgrade`, or an upgrade that returned no
+ * identity) all default to `identity: ''` at the adapter boundary — using
+ * that empty string as a real key would collapse every anonymous user onto
+ * one row and let them read each other's private durable streams.
+ */
+export function storageIdentityOf(
+  connection: Pick<EngineRuntimeTypes.RuntimeConnection, 'id' | 'identity'>,
+): string {
+  return connection.identity || connection.id;
+}
+
+/**
  * Minimal subset of the WebSocket-like object the engine wraps on wake. The
  * descriptor uses `send` and `close` to drive the underlying socket; the
  * per-connection snapshot is loaded via `runtime.restoreAttachment(wsKey)`,

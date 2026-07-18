@@ -1,5 +1,5 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
 import { registerInboxHandleAugmenter } from '~/inbox/augment.ts';
 import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
@@ -8,11 +8,10 @@ import {
   ensureReceiptsSchema,
   listReceivers,
 } from '~/inbox/receipts-storage.ts';
-import { applyInboxAck } from '~/inbox/runtime.ts';
+import { applyInboxAck, DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
 import { buildInboxSurface } from '~/inbox/surface.ts';
-import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/types.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';

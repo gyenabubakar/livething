@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import {
   isChannelReplayAuthorized,
   matchesReplayScope,

@@ -1,4 +1,4 @@
-import { ENGINE_CHANNEL_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
@@ -707,7 +707,11 @@ export function countReplayScopeRows(
   const row = sql
     .exec<{
       n: number;
-    }>(`SELECT COUNT(*) AS n FROM __wskit_replay WHERE channel IS ? AND channelFamily IS ?`, scope.channel, scope.channelFamily)
+    }>(
+      `SELECT COUNT(*) AS n FROM __wskit_replay WHERE channel IS ? AND channelFamily IS ?`,
+      scope.channel,
+      scope.channelFamily,
+    )
     .one();
   return row ? Number(row.n) : 0;
 }

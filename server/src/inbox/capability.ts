@@ -2,7 +2,7 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { hostCapability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { inbox as inboxFactory } from '~/inbox/inbox.ts';
 import { readReceipts as readReceiptsFactory } from '~/inbox/read-receipts.ts';
-import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/types.ts';
+import { DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/runtime.ts';
 import type { HostCapability } from '~/_define/capability.ts';
 import type { ResolvedReadReceiptsOptions } from '~/_engine/runtime/feature-slots.ts';
 import type {

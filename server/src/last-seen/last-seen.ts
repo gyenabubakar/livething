@@ -1,5 +1,5 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertOneOf, assertPositiveInteger } from '~/_engine/validation.ts';
 import {
   ensureLastSeenSchema,

@@ -1,4 +1,4 @@
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/keepalive.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';

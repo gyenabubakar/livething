@@ -7,7 +7,25 @@ import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
-import * as EngineContextTypes from './types.ts';
+import type * as EngineContextTypes from './types.ts';
+
+/**
+ * Symbol key used to attach channel metadata (channel name) to a handler context.
+ *
+ * @internal
+ */
+export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
+
+/**
+ * Symbol key under which engine internals stash the runtime connection on a
+ * handler context. Engine-installed protocol handlers read this to perform
+ * connection-state checks (membership, etc.). Product handlers cannot see
+ * this field — symbol keys do not appear in the public ctx type, in
+ * `Object.keys`, or in `JSON.stringify`.
+ *
+ * @internal
+ */
+export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
@@ -66,12 +84,12 @@ export function buildConnectionContext(
     'channels' | 'latency' | 'quality' | 'schedule' | 'cancelScheduled'
   > &
     Record<PropertyKey, unknown> = {
-    [EngineContextTypes.ENGINE_CHANNEL_META]: {
+    [ENGINE_CHANNEL_META]: {
       channelName: scope?.channelName,
       channelFamily: scope?.channelFamily,
     } satisfies EngineContextTypes.EngineChannelMeta,
 
-    [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
+    [ENGINE_INTERNAL_CONNECTION]: connection,
 
     id: connection.id,
 

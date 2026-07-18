@@ -1,4 +1,4 @@
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';

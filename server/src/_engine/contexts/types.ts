@@ -23,24 +23,6 @@ export interface EngineChannelMeta {
 }
 
 /**
- * Symbol key used to attach channel metadata (channel name) to a handler context.
- *
- * @internal
- */
-export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
-
-/**
- * Symbol key under which engine internals stash the runtime connection on a
- * handler context. Engine-installed protocol handlers read this to perform
- * connection-state checks (membership, etc.). Product handlers cannot see
- * this field — symbol keys do not appear in the public ctx type, in
- * `Object.keys`, or in `JSON.stringify`.
- *
- * @internal
- */
-export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
-
-/**
  * Shared capabilities needed to build init, task, shutdown, and connection
  * contexts from the engine state.
  */

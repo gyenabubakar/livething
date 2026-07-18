@@ -8,9 +8,9 @@ import {
 } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { storageIdentityOf } from '~/_engine/runtime/connection.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
-import { storageIdentityOf } from '~/_engine/runtime/types.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -35,8 +35,25 @@ import type {
 import type { Logger } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
-import { computeBroadcastKey } from './types.ts';
 import type { DurableStreamKind } from './types.ts';
+
+/**
+ * Synthetic key used as the storage row's `identity` column for broadcast
+ * durable streams. Encodes the scope (top-level / channel / channel-family)
+ * so every connection in scope can resolve the same row regardless of which
+ * user identity is holding the lookup.
+ */
+export function computeBroadcastKey(scope: ResolvedChannel): string {
+  if (scope.channelName) {
+    // The family key and channel name both may contain ':', so a plain-string
+    // delimiter can collide (family 'a:' + name 'b' vs family 'a' + name ':b').
+    // JSON-encode the pair instead: distinct pairs always encode distinctly.
+    return scope.channelFamily
+      ? `__bcast:chf:${JSON.stringify([scope.channelFamily, scope.channelName])}__`
+      : `__bcast:ch:${scope.channelName}__`;
+  }
+  return '__bcast:top__';
+}
 
 /** Minimal slice of the engine the durable runtime needs to do its job. */
 export interface DurableStreamRuntime {

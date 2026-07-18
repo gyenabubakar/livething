@@ -33,14 +33,6 @@ export type InboxOptions =
 /** The channel config value accepted for `inbox`: on/off or an options object. */
 export type InboxConfig = boolean | InboxOptions;
 
-/**
- * The default member cap for the live delivered/read receipt fan-out. Above it
- * the cursor is still stored and stays queryable, but the live tick is
- * suppressed because its fan-out is O(members²). Shared by inbox's `__received__`
- * tick and the read-receipts `__read__` tick.
- */
-export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
-
 /** Read-receipts settings accepted for one channel. */
 export interface ReadReceiptsOptions {
   /**

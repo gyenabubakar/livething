@@ -1,5 +1,5 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
 import { registerReadReceiptsHandleAugmenter } from '~/inbox/read-receipts-augment.ts';
 import { buildReadReceiptsSurface } from '~/inbox/read-receipts-surface.ts';

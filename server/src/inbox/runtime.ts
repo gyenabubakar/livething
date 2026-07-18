@@ -19,6 +19,14 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
 
+/**
+ * The default member cap for the live delivered/read receipt fan-out. Above it
+ * the cursor is still stored and stays queryable, but the live tick is
+ * suppressed because its fan-out is O(members²). Shared by inbox's `__received__`
+ * tick and the read-receipts `__read__` tick.
+ */
+export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
+
 /** Resolve the channel key (family key for families, name for static channels). */
 function channelKeyFor(channelName: string, channelFamily: string | null): string {
   return channelFamily ?? channelName;

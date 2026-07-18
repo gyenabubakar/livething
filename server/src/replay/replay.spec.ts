@@ -1,4 +1,4 @@
-import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { replay } from '~/replay/replay.ts';

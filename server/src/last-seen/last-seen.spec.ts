@@ -1,4 +1,4 @@
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';

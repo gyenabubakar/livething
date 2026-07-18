@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestInvalidResponse } from '@wskit/core';
-import { ENGINE_CHANNEL_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
