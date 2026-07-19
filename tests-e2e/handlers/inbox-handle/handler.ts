@@ -39,7 +39,7 @@ const base = define({
 // Mirrors `InboxBacklogEntry` from `@wskit/server` structurally — that type is
 // not re-exported from the package root, so the emit payload spells it out.
 interface BacklogEntry {
-  identity: string;
+  userId: string;
   online: boolean;
   heldRows: number;
   receivedThrough: number;

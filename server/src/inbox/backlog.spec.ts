@@ -54,18 +54,18 @@ describe('inbox backlog()', () => {
     const backlog = surface.backlog();
 
     expect(backlog).toHaveLength(2);
-    const alice = backlog.find((e) => e.identity === 'alice')!;
-    const bob = backlog.find((e) => e.identity === 'bob')!;
+    const alice = backlog.find((e) => e.userId === 'alice')!;
+    const bob = backlog.find((e) => e.userId === 'bob')!;
 
     expect(alice).toMatchObject({
-      identity: 'alice',
+      userId: 'alice',
       online: true,
       heldRows: 2,
       receivedThrough: 4,
       oldestHeldAt: 100,
     });
     expect(bob).toMatchObject({
-      identity: 'bob',
+      userId: 'bob',
       online: false,
       heldRows: 1,
       receivedThrough: 0,

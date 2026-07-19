@@ -24,7 +24,7 @@ export function buildInboxSurface(
 ): ChannelInbox {
   const { channelName, channelFamily } = scope;
   return {
-    backfill(identity: string, messages: readonly BackfillFrame[]): void {
+    backfill(userId: string, messages: readonly BackfillFrame[]): void {
       const frames: InboxFrame[] = messages.map((message) => ({
         seq: message.__wskit.seq,
         messageId: message.__wskit.messageId,
@@ -34,7 +34,7 @@ export function buildInboxSurface(
       backfillInbox(engine.requireStorage().sql, {
         channelName,
         channelFamily,
-        userId: identity,
+        userId,
         frames,
       });
     },
@@ -46,7 +46,7 @@ export function buildInboxSurface(
       const lastSeen = engine.getLastSeenService();
       return loadInboxBacklog(sql, { channelName, channelFamily }).map((row) => {
         const base = {
-          identity: row.userId,
+          userId: row.userId,
           online: engine.isUserOnline(row.userId),
           heldRows: row.heldRows,
           receivedThrough: row.receivedThrough,

@@ -10,7 +10,7 @@
     "preview": "nuxt generate && wrangler dev",
     "deploy": "nuxt generate && wrangler deploy",
     "typecheck": "vue-tsc --noEmit",
-    "clean": "rm -rf .nuxt .data .output node_modules/.cache"
+    "clean": "rm -rf .nuxt .data .output node_modules"
   },
   "dependencies": {
     "@nuxt/content": "^3.14.0",

@@ -239,7 +239,7 @@ describe('readReceipts scope isolation', () => {
   it('ignores a read frame scoped to a different channel', () => {
     const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
     const ctx = {
-      identity: 'alice',
+      user: { id: 'alice' },
       [ENGINE_CHANNEL_META]: { channelName: 'other', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'other'),
     };

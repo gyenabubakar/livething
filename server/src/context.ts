@@ -550,9 +550,9 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  * and for how long), not as a warning.
  */
 export interface InboxBacklogEntry {
-  /** The member's identity. */
-  readonly identity: string;
-  /** Whether this identity has a live connection on this instance right now. */
+  /** The member's user id. */
+  readonly userId: string;
+  /** Whether this user has a live connection on this instance right now. */
   readonly online: boolean;
   /** Count of unacked rows still held for this member on this channel. */
   readonly heldRows: number;
@@ -574,16 +574,16 @@ export interface InboxBacklogEntry {
  * the backlog.
  */
 export interface ChannelInbox {
-  /** Seed one identity's inbox with full frames, drained on its next reconnect. */
+  /** Seed one user's inbox with full frames, drained on their next reconnect. */
   backfill(
-    identity: string,
+    userId: string,
     messages: readonly {
       event: string;
       payload: unknown;
       __wskit: { seq: number; messageId: string };
     }[],
   ): void;
-  /** Identities whose received cursor has reached `seq`. */
+  /** User ids whose received cursor has reached `seq`. */
   receiversOf(seq: number): string[];
   /** One entry per member that still has unacked held rows for this channel. */
   backlog(): InboxBacklogEntry[];
@@ -595,7 +595,7 @@ export interface ChannelInbox {
  * any handle. Present only on channels that opted into `readReceipts`.
  */
 export interface ChannelReadReceipts {
-  /** Identities whose read cursor has reached `seq`. */
+  /** User ids whose read cursor has reached `seq`. */
   readersOf(seq: number): string[];
 }
 

@@ -121,7 +121,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
 
     const before = await askBacklog(alice.page, 'chat');
     const entries = before.payload.entries as Array<Record<string, unknown>>;
-    const bobEntry = entries.find((entry) => entry.identity === 'bob');
+    const bobEntry = entries.find((entry) => entry.userId === 'bob');
     expect(bobEntry).toBeDefined();
     expect(bobEntry?.online).toBe(true);
     expect(bobEntry?.heldRows).toBeGreaterThanOrEqual(1);
@@ -138,7 +138,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
 
     const after = await askBacklog(alice.page, 'chat');
     const afterEntries = after.payload.entries as Array<Record<string, unknown>>;
-    expect(afterEntries.find((entry) => entry.identity === 'bob')).toBeUndefined();
+    expect(afterEntries.find((entry) => entry.userId === 'bob')).toBeUndefined();
 
     await alice.close();
     await bob.close();
@@ -163,7 +163,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
 
     const answer = await askBacklog(alice.page, 'chat');
     const entries = answer.payload.entries as Array<Record<string, unknown>>;
-    const bobEntry = entries.find((entry) => entry.identity === 'bob');
+    const bobEntry = entries.find((entry) => entry.userId === 'bob');
     expect(bobEntry).toBeDefined();
     expect(bobEntry?.online).toBe(false);
 
