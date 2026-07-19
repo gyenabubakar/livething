@@ -357,7 +357,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  * const lobby = base.channel('lobby', { outgoing: { emits: { joined: t<{ id: string }>() } } });
  * export const handleChat = lobby.on('chat', {
  *   input: v.object({ text: v.string() }),
- *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.id }); },
+ *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },
  * });
  * ```
  */

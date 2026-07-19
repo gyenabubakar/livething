@@ -116,12 +116,12 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
 
     ws.emit({
       event: '__read__',
-      payload: { identity: 'bob', readThrough: 5 },
+      payload: { userId: 'bob', readThrough: 5 },
       __wskit: { channel: 'room' },
     });
     ws.emit({
       event: '__read__',
-      payload: { identity: 'bob', readThrough: 3 },
+      payload: { userId: 'bob', readThrough: 3 },
       __wskit: { channel: 'room' },
     });
 
@@ -140,12 +140,12 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
 
     ws.emit({
       event: '__read__',
-      payload: { identity: 'bob', readThrough: 4 },
+      payload: { userId: 'bob', readThrough: 4 },
       __wskit: { channel: 'room' },
     });
     ws.emit({
       event: '__read__',
-      payload: { identity: 'alice', readThrough: 2 },
+      payload: { userId: 'alice', readThrough: 2 },
       __wskit: { channel: 'room' },
     });
 
@@ -168,7 +168,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     const room = await subscribed(socket, ws);
     ws.emit({
       event: '__read__',
-      payload: { identity: 'bob', readThrough: 5 },
+      payload: { userId: 'bob', readThrough: 5 },
       __wskit: { channel: 'room' },
     });
     expect(room.readers.get().size).toBe(1);
@@ -195,7 +195,7 @@ describe('read-receipts — readersOf query over __readQuery__', () => {
     expect(query.payload).toEqual({ seq: 2 });
     ws.emit({
       event: '__readQuery__',
-      payload: { identities: ['alice', 7, null, 'carol'] },
+      payload: { userIds: ['alice', 7, null, 'carol'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });
 
@@ -248,12 +248,12 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
 
     ws.emit({
       event: '__readQuery__',
-      payload: { identities: ['read-answer'] },
+      payload: { userIds: ['read-answer'] },
       __wskit: { channel: 'room', correlationId: readId },
     });
     ws.emit({
       event: '__receivedQuery__',
-      payload: { identities: ['received-answer'] },
+      payload: { userIds: ['received-answer'] },
       __wskit: { channel: 'room', correlationId: receivedId },
     });
 
@@ -282,7 +282,7 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
       .at(-1);
     ws.emit({
       event: '__readQuery__',
-      payload: { identities: ['alice'] },
+      payload: { userIds: ['alice'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });
 

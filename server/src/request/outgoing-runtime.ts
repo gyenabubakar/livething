@@ -168,7 +168,7 @@ function addTagBroadcastRequest(handle: MemberHandle, runtime: BroadcastSender):
 
 /**
  * Build the per-engine pending map and the `sendServerRequest` helper every
- * server→client request surface (`ctx.request`, `ctx.connection(ref).request`,
+ * server→client request surface (`ctx.request`, `ctx.connections.get(ref).request`,
  * `ctx.channel.request`) shares. The map lives here, in the requests capability,
  * so the engine core never imports it.
  */
@@ -435,7 +435,7 @@ function toRejection(payload: unknown): unknown {
 /**
  * The runtime primitive the `requests({...})` capability contributes. Its
  * `__setup` installs the server→client request surfaces (`ctx.request`,
- * `ctx.connection(ref).request`, `ctx.channel.request`) and the inbound
+ * `ctx.connections.get(ref).request`, `ctx.channel.request`) and the inbound
  * answer-frame + disconnect seams. The pending-request map lives in this module,
  * so the engine core never imports any of it (tree-shaking: a server without
  * `requests()` pulls none of this).

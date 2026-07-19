@@ -248,13 +248,13 @@ describe('inbox — receivers store from __received__ fan-out', () => {
 
     ws.emit({
       event: '__received__',
-      payload: { identity: 'bob', receivedThrough: 5 },
+      payload: { userId: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
     // A lower value must not regress the cursor (Math.max merge).
     ws.emit({
       event: '__received__',
-      payload: { identity: 'bob', receivedThrough: 3 },
+      payload: { userId: 'bob', receivedThrough: 3 },
       __wskit: { channel: 'room' },
     });
 
@@ -270,7 +270,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     const room = await subscribedReceived(socket, ws);
     ws.emit({
       event: '__received__',
-      payload: { identity: 42, receivedThrough: 5 },
+      payload: { userId: 42, receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
     expect(room.receivers.get().size).toBe(0);
@@ -281,7 +281,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     await subscribedReceived(socket, ws);
     ws.emit({
       event: '__received__',
-      payload: { identity: 'bob', receivedThrough: 5 },
+      payload: { userId: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
     await flush();
@@ -294,7 +294,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     const room = await subscribedReceived(socket, ws);
     ws.emit({
       event: '__received__',
-      payload: { identity: 'bob', receivedThrough: 5 },
+      payload: { userId: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
     expect(room.receivers.get().size).toBe(1);
@@ -313,14 +313,14 @@ describe('inbox — receivers projection', () => {
 
     ws.emit({
       event: '__received__',
-      payload: { identity: 'bob', receivedThrough: 5 },
+      payload: { userId: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
     expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
 
     ws.emit({
       event: '__received__',
-      payload: { identity: 'alice', receivedThrough: 2 },
+      payload: { userId: 'alice', receivedThrough: 2 },
       __wskit: { channel: 'room' },
     });
     expect(room.receivers.get()).toEqual(
@@ -352,7 +352,7 @@ describe('inbox — receiversOf query without readReceipts()', () => {
 
     ws.emit({
       event: '__receivedQuery__',
-      payload: { identities: ['alice', 'bob'] },
+      payload: { userIds: ['alice', 'bob'] },
       __wskit: { channel: 'room', correlationId: query.__wskit.correlationId },
     });
 

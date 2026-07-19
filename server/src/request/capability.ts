@@ -94,7 +94,7 @@ function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedSe
  *
  * Passing a declaration map also enables **server→client** requests: the server
  * asks one connection a question with `ctx.request(event, payload)` (or
- * `ctx.connection(ref).request(...)` / `ctx.channel.request(...)`) and awaits
+ * `ctx.connections.get(ref).request(...)` / `ctx.channel.request(...)`) and awaits
  * the client's typed answer. Each `response` schema validates the client's
  * reply; an answer that fails it rejects the server promise with
  * `request-invalid-response`.

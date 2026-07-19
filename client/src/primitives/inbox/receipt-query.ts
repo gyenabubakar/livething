@@ -60,8 +60,8 @@ export function resolveOwnQuery(
   if (!waiter || correlationId === undefined) return message;
   pending.delete(correlationId);
   clearTimeout(waiter.timer);
-  const identities = (message.payload as { identities?: unknown })?.identities;
-  waiter.resolve(Array.isArray(identities) ? identities.filter(isString) : []);
+  const userIds = (message.payload as { userIds?: unknown })?.userIds;
+  waiter.resolve(Array.isArray(userIds) ? userIds.filter(isString) : []);
   return null;
 }
 

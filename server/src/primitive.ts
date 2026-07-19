@@ -191,7 +191,7 @@ export interface PrimitiveFactory<
  *   setup(engine) {
  *     engine.onIncoming((msg) => { ... });
  *     engine.extendContext((ctx) => ({
- *       ping() { engine.rawSend(ctx.id, '__ping__', {}); }
+ *       ping() { engine.rawSend(ctx.connection.id, '__ping__', {}); }
  *     }));
  *   },
  * });

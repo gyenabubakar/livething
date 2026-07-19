@@ -97,9 +97,9 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           }
 
           if (message.event === '__read__') {
-            const payload = message.payload as { identity?: unknown; readThrough?: unknown };
-            if (typeof payload?.identity === 'string' && typeof payload.readThrough === 'number') {
-              applyRead(key, payload.identity, payload.readThrough);
+            const payload = message.payload as { userId?: unknown; readThrough?: unknown };
+            if (typeof payload?.userId === 'string' && typeof payload.readThrough === 'number') {
+              applyRead(key, payload.userId, payload.readThrough);
             }
             return null;
           }

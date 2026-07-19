@@ -129,15 +129,15 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           }
 
           if (message.event === '__received__') {
-            // A fan-out carries `identity`; a bare `{receivedThrough}` is this
+            // A fan-out carries `userId`; a bare `{receivedThrough}` is this
             // client's own ack echoed back on some transports — never a fan-out
             // the client should apply, so consume it either way.
-            const payload = message.payload as { identity?: unknown; receivedThrough?: unknown };
+            const payload = message.payload as { userId?: unknown; receivedThrough?: unknown };
             if (
-              typeof payload?.identity === 'string' &&
+              typeof payload?.userId === 'string' &&
               typeof payload.receivedThrough === 'number'
             ) {
-              applyReceived(key, payload.identity, payload.receivedThrough);
+              applyReceived(key, payload.userId, payload.receivedThrough);
             }
             return null;
           }

@@ -102,7 +102,7 @@ describe('ctx.connections.get(ref).send', () => {
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connection(ref).send target not found',
+      '[wskit] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'nonexistent-id',
         event: 'evt',
@@ -116,7 +116,7 @@ describe('ctx.connections.get(ref).send', () => {
 
     expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connection(ref).send target not found',
+      '[wskit] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'missing',
         event: 'evt',
@@ -158,7 +158,7 @@ describe('ctx.connections.get(ref).send', () => {
       userId: 'peer',
     };
     expect(() => ctx.connections.get(foreign).send('evt', {})).toThrow(
-      '[wskit] ctx.connection(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
+      '[wskit] ctx.connections.get(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
         'cross-instance routing requires a broker, which is not configured yet.',
     );
   });

@@ -9,22 +9,23 @@ type ConnectionHandleDeps = Pick<
 > & { connections: Map<string, EngineRuntimeTypes.RuntimeConnection> };
 
 /**
- * Build the `ctx.connection(ref)` factory shared by the connection and task
- * contexts. The returned handle's `send` routes only to the addressed
- * connection. A ref naming another instance is refused via `assertLocalRef`; a
- * ref to a connection no longer live logs and returns `false`.
+ * Build the connection-handle factory backing `ctx.connections.get(ref)`,
+ * shared by the connection and connectionless contexts. The returned handle's
+ * `send` routes only to the addressed connection. A ref naming another instance
+ * is refused via `assertLocalRef`; a ref to a connection no longer live logs and
+ * returns `false`.
  */
 export function buildConnectionHandle(deps: ConnectionHandleDeps): {
   connection: (ref: PublicApi.ConnectionRef) => PublicApi.ConnectionHandle;
 } {
   return {
     connection: (ref) => {
-      assertLocalRef(ref, deps.instanceId, 'ctx.connection(ref).send');
+      assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
       return {
         send: (event, payload) => {
           const target = deps.connections.get(ref.id);
           if (!target) {
-            deps.logger.error('[wskit] ctx.connection(ref).send target not found', {
+            deps.logger.error('[wskit] ctx.connections.get(ref).send target not found', {
               connectionId: ref.id,
               event,
             });
@@ -44,12 +45,12 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
  * resolves locally. When a broker is configured (future), it carries the target
  * instance id. Until then, any op that targets a different instance has no
  * transport to reach it, so we refuse early with one consistent message — every
- * ref-addressed op (`ctx.connection(ref).send`, `channelHandle.subscribe(ref)`,
+ * ref-addressed op (`ctx.connections.get(ref).send`, `channelHandle.subscribe(ref)`,
  * …) shares this error family.
  *
  * @param ref        The target connection ref.
  * @param instanceId This engine's instance id (`undefined` single-instance).
- * @param opLabel    The op name shown in the message, e.g. `ctx.connection(ref).send`.
+ * @param opLabel    The op name shown in the message, e.g. `ctx.connections.get(ref).send`.
  */
 export function assertLocalRef(
   ref: { readonly instance: string | undefined },

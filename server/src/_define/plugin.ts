@@ -334,13 +334,13 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
  * });
  * const heartbeat = h.on('heartbeat', {
  *   input: v.object({}),
- *   run(ctx) { ctx.send('user-online', { id: ctx.id }); },
+ *   run(ctx) { ctx.send('user-online', { id: ctx.connection.id }); },
  * });
  *
  * // The api is authored on the scoped assemble, next to its handlers.
  * const presence = h.assemble({
  *   handlers: [heartbeat],
- *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.id }); } }),
+ *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.connection.id }); } }),
  * });
  *
  * export const Presence = plugin('acme:presence', { handler: presence });
