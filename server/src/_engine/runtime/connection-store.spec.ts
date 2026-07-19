@@ -38,7 +38,7 @@ function inMemorySql(): SQLProvider {
     if (normalized.startsWith('INSERT OR REPLACE INTO __wskit_connections')) {
       const [
         connection_id,
-        identity,
+        user_id,
         meta,
         ephemeral_tags,
         ephemeral_memberships,
@@ -46,7 +46,7 @@ function inMemorySql(): SQLProvider {
       ] = params as string[];
       rows.set(connection_id!, {
         connection_id,
-        identity,
+        user_id,
         meta,
         ephemeral_tags,
         ephemeral_memberships,
@@ -88,7 +88,7 @@ function inMemorySql(): SQLProvider {
 function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConnection {
   return {
     id: 'conn_1',
-    identity: 'user-1',
+    userId: 'user-1',
     wsKey: Symbol('ws'),
     descriptor: {
       send() {},
@@ -127,7 +127,7 @@ describe('connection-store', () => {
     const row = buildConnectionRow(fakeConnection());
     expect(row).toEqual({
       connection_id: 'conn_1',
-      identity: 'user-1',
+      user_id: 'user-1',
       meta: { role: 'admin' },
       ephemeral_tags: [
         { group: 'role', key: 'admin' },
@@ -146,7 +146,7 @@ describe('connection-store', () => {
     const read = readConnectionRow(sql, 'conn_1');
     expect(read).toEqual({
       connection_id: 'conn_1',
-      identity: 'user-1',
+      user_id: 'user-1',
       meta: { role: 'admin' },
       ephemeral_tags: [
         { group: 'role', key: 'admin' },
@@ -190,8 +190,8 @@ describe('connection-store', () => {
   });
 
   it('reconcile with empty set wipes the table', () => {
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'a', identity: 'a' })));
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'b', identity: 'b' })));
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'a', userId: 'a' })));
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'b', userId: 'b' })));
 
     reconcileConnectionRows(sql, new Set());
 
@@ -200,15 +200,15 @@ describe('connection-store', () => {
   });
 
   it('reconcile with surviving ids keeps those rows and drops the rest', () => {
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'a', identity: 'a' })));
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'b', identity: 'b' })));
-    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'c', identity: 'c' })));
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'a', userId: 'a' })));
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'b', userId: 'b' })));
+    writeConnectionRow(sql, buildConnectionRow(fakeConnection({ id: 'c', userId: 'c' })));
 
     reconcileConnectionRows(sql, new Set(['a', 'c']));
 
-    expect(readConnectionRow(sql, 'a')?.identity).toBe('a');
+    expect(readConnectionRow(sql, 'a')?.user_id).toBe('a');
     expect(readConnectionRow(sql, 'b')).toBeNull();
-    expect(readConnectionRow(sql, 'c')?.identity).toBe('c');
+    expect(readConnectionRow(sql, 'c')?.user_id).toBe('c');
   });
 
   it('readConnectionRow returns empty defaults for malformed JSON columns', () => {
@@ -217,7 +217,7 @@ describe('connection-store', () => {
     // throwing — the connection wakes with no tags / no memberships rather
     // than crashing the engine.
     sql.exec(
-      'INSERT OR REPLACE INTO __wskit_connections (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO __wskit_connections (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
       'broken',
       'broken-id',
       'not-json',

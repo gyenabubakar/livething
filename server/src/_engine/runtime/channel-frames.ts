@@ -12,11 +12,7 @@ import type * as EngineRuntimeTypes from './types.ts';
  */
 interface ChannelRuntime
   extends EngineRuntimeTypes.ConnectionMembersRuntime, EngineRuntimeTypes.ChannelHooks {
-  hasDurableMembership(
-    identity: string,
-    channelName: string,
-    channelFamily: string | null,
-  ): boolean;
+  hasDurableMembership(userId: string, channelName: string, channelFamily: string | null): boolean;
 
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -44,12 +40,8 @@ interface ChannelRuntime
 
   isChannelPersistent(channelKey: string): boolean;
 
-  persistMembership(identity: string, channelName: string, channelFamily: string | null): void;
-  deleteDurableMembership(
-    identity: string,
-    channelName: string,
-    channelFamily: string | null,
-  ): void;
+  persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
+  deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;
 }
 
 /**
@@ -158,7 +150,7 @@ export async function subscribeFromServer(
       | 'waitUntil'
       | 'wskitStampHooks'
     > & { instanceId: string | undefined },
-  ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string },
+  ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string },
   opts: SubscribeFromServerOptions,
 ): Promise<void> {
   const { channelName, channelFamily, payload, rejoining = false } = opts;

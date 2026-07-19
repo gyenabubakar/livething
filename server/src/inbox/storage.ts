@@ -3,7 +3,7 @@ import type { SQLProvider } from '~/context.ts';
 
 const CREATE_INBOX_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_inbox (
-    identity       TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
     channel_name   TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
     seq            INTEGER NOT NULL,
@@ -13,23 +13,23 @@ const CREATE_INBOX_TABLE_SQL = `
     created_at     INTEGER NOT NULL,
     delivered_at   INTEGER,
     metadata       TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (identity, channel_name, channel_family, seq)
+    PRIMARY KEY (user_id, channel_name, channel_family, seq)
   )
 `;
 
 const CREATE_INBOX_MEMBER_INDEX_SQL = `
   CREATE INDEX IF NOT EXISTS __wskit_idx_inbox_member
-  ON __wskit_inbox (identity, seq)
+  ON __wskit_inbox (user_id, seq)
 `;
 
 const CREATE_INBOX_WATERMARK_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_inbox_watermark (
-    identity            TEXT NOT NULL,
+    user_id             TEXT NOT NULL,
     channel_name        TEXT NOT NULL,
     channel_family      TEXT NOT NULL DEFAULT '',
     evicted_through_seq INTEGER NOT NULL,
     metadata            TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (identity, channel_name, channel_family)
+    PRIMARY KEY (user_id, channel_name, channel_family)
   )
 `;
 
@@ -86,24 +86,24 @@ export interface InboxRow {
 export function insertInboxRows(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identities: readonly string[];
+    userIds: readonly string[];
     channelName: string;
     channelFamily: string | null;
     frame: InboxFrame;
     now: number;
   },
 ): void {
-  const { identities, channelName, channelFamily, frame, now } = params;
-  if (identities.length === 0) return;
+  const { userIds, channelName, channelFamily, frame, now } = params;
+  if (userIds.length === 0) return;
 
   const family = familyToDb(channelFamily);
   const payloadJson = JSON.stringify(frame.payload);
   const rowValues: unknown[] = [];
   const placeholders: string[] = [];
-  for (const identity of identities) {
+  for (const userId of userIds) {
     placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, NULL)');
     rowValues.push(
-      identity,
+      userId,
       channelName,
       family,
       frame.seq,
@@ -117,7 +117,7 @@ export function insertInboxRows(
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_inbox
-        (identity, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+        (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
       VALUES ${placeholders.join(', ')}
     `,
     ...rowValues,
@@ -125,21 +125,21 @@ export function insertInboxRows(
 }
 
 /**
- * Insert inbox rows for one identity from a set of full frames. Backs
+ * Insert inbox rows for one user from a set of full frames. Backs
  * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own seq/messageId so
  * ordering and dedup stay consistent with live traffic.
  */
-export function insertInboxRowsForIdentity(
+export function insertInboxRowsForUserId(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     frames: readonly InboxFrame[];
     now: number;
   },
 ): void {
-  const { identity, channelName, channelFamily, frames, now } = params;
+  const { userId, channelName, channelFamily, frames, now } = params;
   if (frames.length === 0) return;
 
   const family = familyToDb(channelFamily);
@@ -148,7 +148,7 @@ export function insertInboxRowsForIdentity(
   for (const frame of frames) {
     placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, NULL)');
     rowValues.push(
-      identity,
+      userId,
       channelName,
       family,
       frame.seq,
@@ -162,7 +162,7 @@ export function insertInboxRowsForIdentity(
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_inbox
-        (identity, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+        (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
       VALUES ${placeholders.join(', ')}
     `,
     ...rowValues,
@@ -174,7 +174,7 @@ export function insertInboxRowsForIdentity(
  * seq. In `delete` mode nothing is ever marked delivered, so every remaining row
  * is still owed; in `retain` mode a row stays owed until its `delivered_at` is set.
  */
-export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, identity: string): InboxRow[] {
+export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: string): InboxRow[] {
   const rows = sql
     .exec<{
       seq: number;
@@ -187,10 +187,10 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, identity: st
       `
         SELECT seq, message_id, event, payload, channel_name, channel_family
         FROM __wskit_inbox
-        WHERE identity = ? AND delivered_at IS NULL
+        WHERE user_id = ? AND delivered_at IS NULL
         ORDER BY channel_name, channel_family, seq ASC
       `,
-      identity,
+      userId,
     )
     .toArray();
 
@@ -213,7 +213,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, identity: st
 export function ackInboxRows(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     receivedThrough: number;
@@ -221,16 +221,16 @@ export function ackInboxRows(
     now: number;
   },
 ): void {
-  const { identity, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
+  const { userId, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
   const family = familyToDb(channelFamily);
 
   if (onDelivered === 'delete') {
     sql.exec(
       `
         DELETE FROM __wskit_inbox
-        WHERE identity = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
+        WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND seq <= ?
       `,
-      identity,
+      userId,
       channelName,
       family,
       receivedThrough,
@@ -242,11 +242,11 @@ export function ackInboxRows(
     `
       UPDATE __wskit_inbox
       SET delivered_at = ?
-      WHERE identity = ? AND channel_name = ? AND channel_family = ?
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
         AND seq <= ? AND delivered_at IS NULL
     `,
     now,
-    identity,
+    userId,
     channelName,
     family,
     receivedThrough,
@@ -256,14 +256,14 @@ export function ackInboxRows(
 /** Drop every inbox row a member has for one channel. Used when they leave it. */
 export function deleteInboxRowsForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { identity: string; channelName: string; channelFamily: string | null },
+  params: { userId: string; channelName: string; channelFamily: string | null },
 ): void {
   sql.exec(
     `
       DELETE FROM __wskit_inbox
-      WHERE identity = ? AND channel_name = ? AND channel_family = ?
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
-    params.identity,
+    params.userId,
     params.channelName,
     familyToDb(params.channelFamily),
   );
@@ -272,12 +272,17 @@ export function deleteInboxRowsForChannel(
 /** Count a member's inbox rows for one channel. */
 export function countInboxRows(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { identity: string; channelName: string; channelFamily: string | null },
+  params: { userId: string; channelName: string; channelFamily: string | null },
 ): number {
   const row = sql
     .exec<{
       n: number;
-    }>(`SELECT COUNT(*) AS n FROM __wskit_inbox WHERE identity = ? AND channel_name = ? AND channel_family = ?`, params.identity, params.channelName, familyToDb(params.channelFamily))
+    }>(
+      `SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ? AND channel_name = ? AND channel_family = ?`,
+      params.userId,
+      params.channelName,
+      familyToDb(params.channelFamily),
+    )
     .one();
   return row ? Number(row.n) : 0;
 }
@@ -292,21 +297,21 @@ export function countInboxRows(
 export function pruneInboxRetention(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     retention: InboxRetention;
     now: number;
   },
 ): number | null {
-  const { identity, channelName, channelFamily, retention, now } = params;
+  const { userId, channelName, channelFamily, retention, now } = params;
   const family = familyToDb(channelFamily);
   let evictedThrough: number | null = null;
 
   if (retention.maxAgeMs !== undefined) {
     const cutoff = now - retention.maxAgeMs;
     evictedThrough = evictOldest(sql, {
-      identity,
+      userId,
       channelName,
       family,
       where: 'created_at < ?',
@@ -321,12 +326,12 @@ export function pruneInboxRetention(
         `
           SELECT MAX(seq) AS seq FROM (
             SELECT seq FROM __wskit_inbox
-            WHERE identity = ? AND channel_name = ? AND channel_family = ?
+            WHERE user_id = ? AND channel_name = ? AND channel_family = ?
             ORDER BY seq DESC
             LIMIT -1 OFFSET ?
           )
         `,
-        identity,
+        userId,
         channelName,
         family,
         retention.maxMessages,
@@ -334,7 +339,7 @@ export function pruneInboxRetention(
       .one();
     if (seqCap?.seq != null) {
       evictedThrough = evictOldest(sql, {
-        identity,
+        userId,
         channelName,
         family,
         where: 'seq <= ?',
@@ -351,7 +356,7 @@ export function pruneInboxRetention(
 function evictOldest(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identity: string;
+    userId: string;
     channelName: string;
     family: string;
     where: string;
@@ -359,13 +364,13 @@ function evictOldest(
     previous: number | null;
   },
 ): number | null {
-  const { identity, channelName, family, where, bind, previous } = params;
-  const scope = [identity, channelName, family];
+  const { userId, channelName, family, where, bind, previous } = params;
+  const scope = [userId, channelName, family];
   const highest = sql
     .exec<{ seq: number | null }>(
       `
         SELECT MAX(seq) AS seq FROM __wskit_inbox
-        WHERE identity = ? AND channel_name = ? AND channel_family = ? AND ${where}
+        WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
       `,
       ...scope,
       ...bind,
@@ -376,7 +381,7 @@ function evictOldest(
   sql.exec(
     `
       DELETE FROM __wskit_inbox
-      WHERE identity = ? AND channel_name = ? AND channel_family = ? AND ${where}
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
     `,
     ...scope,
     ...bind,
@@ -392,21 +397,21 @@ function evictOldest(
 export function bumpInboxWatermark(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     evictedThroughSeq: number;
   },
 ): void {
-  const { identity, channelName, channelFamily, evictedThroughSeq } = params;
+  const { userId, channelName, channelFamily, evictedThroughSeq } = params;
   const family = familyToDb(channelFamily);
   const existing = sql
     .exec<{ evicted_through_seq: number }>(
       `
         SELECT evicted_through_seq FROM __wskit_inbox_watermark
-        WHERE identity = ? AND channel_name = ? AND channel_family = ?
+        WHERE user_id = ? AND channel_name = ? AND channel_family = ?
       `,
-      identity,
+      userId,
       channelName,
       family,
     )
@@ -417,10 +422,10 @@ export function bumpInboxWatermark(
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_inbox_watermark
-        (identity, channel_name, channel_family, evicted_through_seq)
+        (user_id, channel_name, channel_family, evicted_through_seq)
       VALUES (?, ?, ?, ?)
     `,
-    identity,
+    userId,
     channelName,
     family,
     evictedThroughSeq,
@@ -430,16 +435,16 @@ export function bumpInboxWatermark(
 /** Every scope where a member's inbox overflowed, to turn into a gap on the next drain. */
 export function loadInboxWatermarks(
   sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
+  userId: string,
 ): Array<{ channelName: string; channelFamily: string | null; evictedThroughSeq: number }> {
   return sql
     .exec<{ channel_name: string; channel_family: string; evicted_through_seq: number }>(
       `
         SELECT channel_name, channel_family, evicted_through_seq
         FROM __wskit_inbox_watermark
-        WHERE identity = ?
+        WHERE user_id = ?
       `,
-      identity,
+      userId,
     )
     .toArray()
     .map((row) => ({
@@ -450,8 +455,8 @@ export function loadInboxWatermarks(
 }
 
 /** Drop a member's overflow watermarks once their gap has been delivered on drain. */
-export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
-  sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE identity = ?`, identity);
+export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE user_id = ?`, userId);
 }
 
 /**
@@ -460,14 +465,14 @@ export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, identity: s
  */
 export function deleteInboxWatermarkForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { identity: string; channelName: string; channelFamily: string | null },
+  params: { userId: string; channelName: string; channelFamily: string | null },
 ): void {
   sql.exec(
     `
       DELETE FROM __wskit_inbox_watermark
-      WHERE identity = ? AND channel_name = ? AND channel_family = ?
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
-    params.identity,
+    params.userId,
     params.channelName,
     familyToDb(params.channelFamily),
   );

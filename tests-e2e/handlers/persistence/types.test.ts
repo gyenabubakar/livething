@@ -106,8 +106,8 @@ describe('PersistenceClient — empty slots', () => {
     >();
   });
 
-  it('streams is empty', () => {
-    expectTypeOf<keyof PersistenceClient['streams']>().toBeNever();
+  it('exposes only the anon-stream resumable stream', () => {
+    expectTypeOf<keyof PersistenceClient['streams']>().toEqualTypeOf<'anon-stream'>();
   });
 });
 

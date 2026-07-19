@@ -106,7 +106,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine();
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: 'conn-1' });
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
       void fake.activityHandlers[0]!('conn-1');
 
       expect(fake.refreshConnectionIdleTimeout.mock.calls).toEqual([
@@ -119,7 +119,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine();
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: '' });
+      void fake.connectHandlers[0]!({ connection: { id: '' } });
 
       expect(fake.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
     });
@@ -146,7 +146,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine();
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: 'conn-1' });
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
       vi.advanceTimersByTime(OPTS.pingIntervalMs);
 
       expect(fake.sendPing).toHaveBeenCalledWith('conn-1');
@@ -156,7 +156,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine();
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: 'conn-1' });
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
       vi.advanceTimersByTime(OPTS.pingIntervalMs);
       vi.setSystemTime(Date.now() + 80);
       void fake.pongHandlers[0]!('conn-1');
@@ -168,7 +168,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine();
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: 'conn-1' });
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
       fake.cleanupHandlers[0]!('conn-1');
       vi.advanceTimersByTime(OPTS.pingIntervalMs * 5);
 
@@ -179,7 +179,7 @@ describe('keepalive', () => {
       const fake = createFakeEngine({ hibernating: true });
       keepalive(OPTS).__setup?.(fake.engine);
 
-      void fake.connectHandlers[0]!({ id: 'conn-1' });
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
       vi.advanceTimersByTime(OPTS.pingIntervalMs * 5);
 
       expect(fake.sendPing).not.toHaveBeenCalled();

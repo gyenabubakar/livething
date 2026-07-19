@@ -20,7 +20,7 @@ describe('receipts-storage — received cursor', () => {
   it('advances cumulatively and reports changed only when it moves', () => {
     const sql = setup();
     function advance(receivedThrough: number) {
-      return advanceReceivedThrough(sql, { ...room, identity: 'alice', receivedThrough, now: 1 });
+      return advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough, now: 1 });
     }
 
     expect(advance(5)).toEqual({ receivedThrough: 5, readThrough: 0, changed: true });
@@ -33,7 +33,7 @@ describe('receipts-storage — received cursor', () => {
 describe('receipts-storage — read cursor', () => {
   it('pulls received up so read never runs ahead of received', () => {
     const sql = setup();
-    const result = advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 7, now: 1 });
+    const result = advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 7, now: 1 });
     expect(result).toEqual({
       receivedThrough: 7,
       readThrough: 7,
@@ -44,8 +44,8 @@ describe('receipts-storage — read cursor', () => {
 
   it('pulls received up to a read mark ahead of it (read implies received)', () => {
     const sql = setup();
-    advanceReceivedThrough(sql, { ...room, identity: 'alice', receivedThrough: 10, now: 1 });
-    const result = advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 20, now: 2 });
+    advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough: 10, now: 1 });
+    const result = advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 20, now: 2 });
     expect(result).toEqual({
       receivedThrough: 20,
       readThrough: 20,
@@ -56,8 +56,8 @@ describe('receipts-storage — read cursor', () => {
 
   it('leaves received untouched when the read mark is already delivered', () => {
     const sql = setup();
-    advanceReceivedThrough(sql, { ...room, identity: 'alice', receivedThrough: 10, now: 1 });
-    const result = advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 6, now: 2 });
+    advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough: 10, now: 1 });
+    const result = advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 6, now: 2 });
     expect(result).toEqual({
       receivedThrough: 10,
       readThrough: 6,
@@ -68,9 +68,9 @@ describe('receipts-storage — read cursor', () => {
 
   it('never lets read exceed received when a later lower read arrives', () => {
     const sql = setup();
-    advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 15, now: 1 });
+    advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 15, now: 1 });
     // received is now 15, read 15. A lower read mark cannot lower either cursor.
-    const result = advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 8, now: 2 });
+    const result = advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 8, now: 2 });
     expect(result).toEqual({
       receivedThrough: 15,
       readThrough: 15,
@@ -81,8 +81,8 @@ describe('receipts-storage — read cursor', () => {
 
   it('is a no-op when neither cursor moves', () => {
     const sql = setup();
-    advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 5, now: 1 });
-    const again = advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 3, now: 2 });
+    advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 5, now: 1 });
+    const again = advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 3, now: 2 });
     expect(again).toEqual({
       receivedThrough: 5,
       readThrough: 5,
@@ -93,11 +93,11 @@ describe('receipts-storage — read cursor', () => {
 });
 
 describe('receipts-storage — enumeration', () => {
-  it('lists identities whose received/read cursor has reached seq', () => {
+  it('lists user ids whose received/read cursor has reached seq', () => {
     const sql = setup();
-    advanceReceivedThrough(sql, { ...room, identity: 'alice', receivedThrough: 10, now: 1 });
-    advanceReceivedThrough(sql, { ...room, identity: 'bob', receivedThrough: 4, now: 1 });
-    advanceReadThrough(sql, { ...room, identity: 'alice', readThrough: 8, now: 1 });
+    advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough: 10, now: 1 });
+    advanceReceivedThrough(sql, { ...room, userId: 'bob', receivedThrough: 4, now: 1 });
+    advanceReadThrough(sql, { ...room, userId: 'alice', readThrough: 8, now: 1 });
 
     expect(listReceivers(sql, { ...room, seq: 5 }).sort()).toEqual(['alice']);
     expect(listReceivers(sql, { ...room, seq: 4 }).sort()).toEqual(['alice', 'bob']);
@@ -110,7 +110,7 @@ describe('receipts-storage — enumeration', () => {
     advanceReceivedThrough(sql, {
       channelName: 'room',
       channelFamily: 'rooms',
-      identity: 'alice',
+      userId: 'alice',
       receivedThrough: 5,
       now: 1,
     });

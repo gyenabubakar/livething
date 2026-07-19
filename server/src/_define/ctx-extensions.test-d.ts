@@ -26,7 +26,7 @@ import { expectTypeOf } from 'vitest';
 // ---------------------------------------------------------------------------
 const lifecycleBase = define({
   env: t<{ SECRET: string }>(),
-  upgrade: () => ({ identity: 'u', meta: { who: 'x' } }),
+  upgrade: () => ({ userId: 'u', meta: { who: 'x' } }),
   capabilities: [emits({ bye: t<{ reason: string }>() })],
 });
 

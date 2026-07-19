@@ -34,8 +34,8 @@ function createCore(inboxChannels: Map<string, ResolvedInboxOptions> = new Map()
   return { core, sql };
 }
 
-function connection(identity: string | null): RuntimeConnection {
-  return { identity } as unknown as RuntimeConnection;
+function connection(userId: string | null): RuntimeConnection {
+  return { userId } as unknown as RuntimeConnection;
 }
 
 const deliver: ResolvedInboxOptions = {
@@ -49,7 +49,7 @@ afterEach(() => vi.restoreAllMocks());
 describe('fanOutToInbox', () => {
   it('writes nothing for a non-inbox channel', () => {
     const { core, sql } = createCore();
-    insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
 
     fanOutToInbox(core, {
       channelName: 'room',
@@ -65,8 +65,8 @@ describe('fanOutToInbox', () => {
 
   it('writes one row per durable member sharing the given seq/messageId', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
-    insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
-    insertMembership(sql, { identity: 'bob', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'bob', channelName: 'room', channelFamily: null });
 
     fanOutToInbox(core, {
       channelName: 'room',
@@ -85,8 +85,8 @@ describe('fanOutToInbox', () => {
 
   it('filters out anonymous members but still writes durable rows', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
-    insertMembership(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
-    insertMembership(sql, { identity: '', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: '', channelName: 'room', channelFamily: null });
 
     fanOutToInbox(core, {
       channelName: 'room',
@@ -120,7 +120,7 @@ describe('fanOutToInbox', () => {
 
   it('resolves a family channel by its family key', () => {
     const { core, sql } = createCore(new Map([['rooms', deliver]]));
-    insertMembership(sql, { identity: 'alice', channelName: 'room-1', channelFamily: 'rooms' });
+    insertMembership(sql, { userId: 'alice', channelName: 'room-1', channelFamily: 'rooms' });
 
     fanOutToInbox(core, {
       channelName: 'room-1',
@@ -136,7 +136,7 @@ describe('fanOutToInbox', () => {
 });
 
 describe('drainInboxOnReconnect', () => {
-  it('is a no-op for a connection with no identity', () => {
+  it('is a no-op for a connection with no user id', () => {
     const { core } = createCore();
     const gap = vi.spyOn(Wire, 'sendGap').mockImplementation(() => {});
     const replay = vi.spyOn(Wire, 'sendReplay').mockImplementation(() => {});
@@ -158,13 +158,13 @@ describe('drainInboxOnReconnect', () => {
     );
 
     bumpInboxWatermark(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       evictedThroughSeq: 7,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: { seq: 8, messageId: 'm8', event: 'msg', payload: {} },
@@ -183,7 +183,7 @@ describe('drainInboxOnReconnect', () => {
     vi.spyOn(Wire, 'sendReplay').mockImplementation(() => {});
 
     bumpInboxWatermark(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       evictedThroughSeq: 4,
@@ -205,7 +205,7 @@ describe('drainInboxOnReconnect', () => {
 
     for (const seq of [3, 1, 2]) {
       insertInboxRows(sql, {
-        identities: ['alice'],
+        userIds: ['alice'],
         channelName: 'room',
         channelFamily: null,
         frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
@@ -221,52 +221,52 @@ describe('drainInboxOnReconnect', () => {
 });
 
 describe('clearInboxForChannel', () => {
-  it('drops the identity rows AND the overflow watermark for the left channel only', () => {
+  it('drops the user id rows AND the overflow watermark for the left channel only', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
     bumpInboxWatermark(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       evictedThroughSeq: 5,
     });
 
-    clearInboxForChannel(core, { identity: 'alice', channelName: 'room', channelFamily: null });
+    clearInboxForChannel(core, { userId: 'alice', channelName: 'room', channelFamily: null });
 
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
   });
 
-  it('is a no-op for an anonymous identity or a non-inbox channel', () => {
+  it('is a no-op for an anonymous user id or a non-inbox channel', () => {
     const { core, sql } = createCore(new Map([['room', deliver]]));
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'lobby',
       channelFamily: null,
       frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
       now: 1,
     });
 
-    clearInboxForChannel(core, { identity: '', channelName: 'room', channelFamily: null });
-    clearInboxForChannel(core, { identity: 'alice', channelName: 'lobby', channelFamily: null });
+    clearInboxForChannel(core, { userId: '', channelName: 'room', channelFamily: null });
+    clearInboxForChannel(core, { userId: 'alice', channelName: 'lobby', channelFamily: null });
 
     expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(1);
   });
 });
 
 describe('backfillInbox', () => {
-  it('seeds one identity from full frames and ignores an anonymous identity', () => {
+  it('seeds one user id from full frames and ignores an anonymous user id', () => {
     const { sql } = createCore();
     backfillInbox(sql, {
       channelName: 'room',
       channelFamily: null,
-      identity: 'newcomer',
+      userId: 'newcomer',
       frames: [
         { seq: 1, messageId: 'm1', event: 'msg', payload: { n: 1 } },
         { seq: 2, messageId: 'm2', event: 'msg', payload: { n: 2 } },
@@ -275,7 +275,7 @@ describe('backfillInbox', () => {
     backfillInbox(sql, {
       channelName: 'room',
       channelFamily: null,
-      identity: '',
+      userId: '',
       frames: [{ seq: 9, messageId: 'm9', event: 'msg', payload: {} }],
     });
 

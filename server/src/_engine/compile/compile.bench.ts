@@ -65,7 +65,7 @@ const mediumHandler = mediumBase.assemble({
     mediumBase.request('whoami', {
       input: Empty,
       run(ctx) {
-        return { id: ctx.identity };
+        return { id: ctx.user.id };
       },
     }),
     mediumBase.stream('tail', {

@@ -71,7 +71,7 @@ const inheritRoom = base.channel('inherit-room', {
 const handleInheritSend = inheritRoom.on('send', {
   input: RoomMsgPayload,
   run(ctx, p) {
-    ctx.channel.broadcast('msg', p, { excludeSelf: false });
+    ctx.channel.broadcast('msg', p, { includeSelf: true });
   },
 });
 
@@ -84,7 +84,7 @@ const noLimit = base.channel('no-limit', {
 const handleNoLimitSend = noLimit.on('send', {
   input: RoomMsgPayload,
   run(ctx, p) {
-    ctx.channel.broadcast('msg', p, { excludeSelf: false });
+    ctx.channel.broadcast('msg', p, { includeSelf: true });
   },
 });
 
@@ -98,7 +98,7 @@ const handleChatter = rooms.on('chatter', {
   input: RoomMsgPayload,
   rateLimit: { enabled: true, max: 1 },
   run(ctx, p) {
-    ctx.channel.broadcast('chatter-broadcast', p, { excludeSelf: false });
+    ctx.channel.broadcast('chatter-broadcast', p, { includeSelf: true });
   },
 });
 
@@ -112,14 +112,14 @@ const tightRoom = base.channel('tight-room', {
 const handleAlpha = tightRoom.on('alpha', {
   input: RoomMsgPayload,
   run(ctx, p) {
-    ctx.channel.broadcast('tight-broadcast', p, { excludeSelf: false });
+    ctx.channel.broadcast('tight-broadcast', p, { includeSelf: true });
   },
 });
 
 const handleBeta = tightRoom.on('beta', {
   input: RoomMsgPayload,
   run(ctx, p) {
-    ctx.channel.broadcast('tight-broadcast', p, { excludeSelf: false });
+    ctx.channel.broadcast('tight-broadcast', p, { includeSelf: true });
   },
 });
 

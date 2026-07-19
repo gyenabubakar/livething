@@ -46,7 +46,7 @@ describe('tags typing', () => {
     define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'a', tags: { ephemeral: { role: 'admin' } } };
+        return { userId: 'a', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
@@ -55,7 +55,7 @@ describe('tags typing', () => {
     define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'a', tags: { ephemeral: { nope: 'x' } } };
+        return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });

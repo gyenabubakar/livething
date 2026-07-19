@@ -69,7 +69,7 @@ const handleBlockTest = base.on('block-test', {
 const handleDeferTest = base.on('defer-test', {
   input: v.object({}),
   async run(ctx) {
-    const key = `defer:${ctx.id}`;
+    const key = `defer:${ctx.connection.id}`;
     const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
     await ctx.kv.set(key, attempts + 1);
     if (attempts < 1) throw Defer(50);

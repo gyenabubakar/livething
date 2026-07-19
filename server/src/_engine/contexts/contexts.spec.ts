@@ -10,7 +10,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -39,6 +39,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
   return {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
+    usersByKey: new Map<string, Set<RuntimeConnection>>(),
     tagMembers: new Map<string, Set<RuntimeConnection>>(),
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -64,7 +65,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     persistAttachment: vi.fn(),
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
-      identity: c.identity,
+      userId: c.userId,
       meta: c.meta,
       tags: [],
       channels: [...c.channelMemberships.values()].map((m) => m.channelName),
@@ -75,7 +76,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         __wskit: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
-        identity: c.identity,
+        userId: c.userId,
       }),
     }),
     attachPluginApis: vi.fn(),
@@ -85,10 +86,10 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 }
 
 function localRef(id: string) {
-  return { __wskit: 'connection-ref' as const, id, instance: undefined, identity: id };
+  return { __wskit: 'connection-ref' as const, id, instance: undefined, userId: id };
 }
 
-describe('ctx.connection(ref).send', () => {
+describe('ctx.connections.get(ref).send', () => {
   it('returns false and logs when the target id is not in the connection map', () => {
     const connection = createConnection('conn_1');
     const deps = baseDeps({
@@ -96,7 +97,7 @@ describe('ctx.connection(ref).send', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    const result = ctx.connection(localRef('nonexistent-id')).send('evt', {});
+    const result = ctx.connections.get(localRef('nonexistent-id')).send('evt', {});
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
@@ -109,11 +110,11 @@ describe('ctx.connection(ref).send', () => {
     );
   });
 
-  it('task context connection(ref).send returns false for unknown ids', () => {
+  it('task context connections.get(ref).send returns false for unknown ids', () => {
     const deps = baseDeps();
     const task = createTaskContext(deps);
 
-    expect(task.connection(localRef('missing')).send('evt', {})).toBe(false);
+    expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
       '[wskit] ctx.connection(ref).send target not found',
       {
@@ -134,7 +135,7 @@ describe('ctx.connection(ref).send', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    expect(ctx.connection(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
+    expect(ctx.connections.get(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
     expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, {
       routing: undefined,
       event: 'evt',
@@ -154,9 +155,9 @@ describe('ctx.connection(ref).send', () => {
       __wskit: 'connection-ref' as const,
       id: 'peer',
       instance: 'engine-b',
-      identity: 'peer',
+      userId: 'peer',
     };
-    expect(() => ctx.connection(foreign).send('evt', {})).toThrow(
+    expect(() => ctx.connections.get(foreign).send('evt', {})).toThrow(
       '[wskit] ctx.connection(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
         'cross-instance routing requires a broker, which is not configured yet.',
     );
@@ -226,7 +227,7 @@ describe('ctx.setAlarm', () => {
   });
 });
 
-describe('ctx.broadcast excludeSelf', () => {
+describe('ctx.broadcast includeSelf', () => {
   it('skips self by default (no options passed)', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
@@ -250,7 +251,7 @@ describe('ctx.broadcast excludeSelf', () => {
     });
   });
 
-  it('includes self when excludeSelf is false', () => {
+  it('includes self when includeSelf is true', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const broadcastToConnections = vi.fn();
@@ -263,12 +264,12 @@ describe('ctx.broadcast excludeSelf', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    ctx.broadcast('message', { text: 'hello' }, { excludeSelf: false });
+    ctx.broadcast('message', { text: 'hello' }, { includeSelf: true });
 
     expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
       event: 'message',
       payload: { text: 'hello' },
-      options: { excludeSelf: false },
+      options: { includeSelf: true },
       excludeConnectionId: 'self',
     });
   });
@@ -332,7 +333,7 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
-      identity: 'c2',
+      userId: 'c2',
       meta: {},
       tags: [],
       channels: [],
@@ -343,7 +344,7 @@ describe('ctx.channels.get(name).members()', () => {
         __wskit: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
-        identity: 'c2',
+        userId: 'c2',
       }),
     };
     const deps = baseDeps({
@@ -373,7 +374,7 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
-      identity: 'c2',
+      userId: 'c2',
       meta: {},
       tags: [],
       channels: [],
@@ -384,7 +385,7 @@ describe('ctx.channels.get(name).members()', () => {
         __wskit: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
-        identity: 'c2',
+        userId: 'c2',
       }),
     };
     const resolveChannel = vi.fn((target: any) =>
@@ -455,12 +456,13 @@ describe('ctx.channels.get(name).members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    await (ctx as any).channels.get('room').kick('banned', 'spam');
+    await (ctx as any).channels.get('room').kick('banned', { reason: 'spam', revoke: true });
 
     expect(kickChannelMembers).toHaveBeenCalledWith({
       channelName: 'room',
       target: 'banned',
       reason: 'spam',
+      revoke: true,
       channelFamily: undefined,
     });
   });

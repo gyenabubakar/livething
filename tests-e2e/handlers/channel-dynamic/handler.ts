@@ -49,7 +49,7 @@ const handleTopOnlyAction = base.on('top-only-action', {
 const handleTriggerServerSubscribeDynamic = base.on('trigger-server-subscribe-dynamic', {
   input: TriggerServerSubscribeDynamicPayload,
   async run(ctx, payload) {
-    await ctx.channels.get('room', payload.name).subscribe(ctx.self);
+    await ctx.channels.get('room', payload.name).subscribe(ctx.connection);
   },
 });
 

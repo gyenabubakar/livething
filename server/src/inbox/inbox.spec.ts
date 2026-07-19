@@ -40,9 +40,9 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
   return { sql, handlers, broadcasts, sentFrames };
 }
 
-function ctxFor(identity: string, connection: unknown) {
+function ctxFor(userId: string, connection: unknown) {
   return {
-    identity,
+    user: { id: userId },
     [ENGINE_CHANNEL_META]: { channelName: 'room', channelFamily: null },
     [ENGINE_INTERNAL_CONNECTION]: connection,
   };
@@ -75,7 +75,7 @@ describe('inbox registers received and received-query handlers', () => {
 describe('inbox __received__ handler', () => {
   function seedRow(sql: ReturnType<typeof harness>['sql'], seq: number) {
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
@@ -103,7 +103,7 @@ describe('inbox __received__ handler', () => {
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([1]);
   });
 
-  it('drops the ack from an anonymous identity', () => {
+  it('drops the ack from an anonymous user id', () => {
     const { sql, handlers } = harness();
     seedRow(sql, 1);
 
@@ -137,7 +137,7 @@ describe('inbox delivered acknowledgement (the double-grey check)', () => {
 
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]).toMatchObject({ event: '__received__' });
-    expect(broadcasts[0]!.payload).toEqual({ identity: 'alice', receivedThrough: 5 });
+    expect(broadcasts[0]!.payload).toEqual({ userId: 'alice', receivedThrough: 5 });
   });
 
   it('fans out the delivered tick only when the cursor advances', () => {
@@ -173,7 +173,7 @@ describe('inbox __receivedQuery__ handler', () => {
     advanceReceivedThrough(sql, {
       channelName: 'room',
       channelFamily: null,
-      identity: 'bob',
+      userId: 'bob',
       receivedThrough: 10,
       now: 1,
     });
@@ -183,7 +183,7 @@ describe('inbox __receivedQuery__ handler', () => {
     expect(sentFrames).toHaveLength(1);
     expect(sentFrames[0]!.frame).toMatchObject({
       event: '__receivedQuery__',
-      payload: { identities: ['bob'] },
+      payload: { userIds: ['bob'] },
       wskit: { channel: 'room', correlationId: 'q-1' },
     });
   });

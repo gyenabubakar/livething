@@ -34,7 +34,7 @@ export function buildInboxSurface(
       backfillInbox(engine.requireStorage().sql, {
         channelName,
         channelFamily,
-        identity,
+        userId: identity,
         frames,
       });
     },
@@ -46,14 +46,14 @@ export function buildInboxSurface(
       const lastSeen = engine.getLastSeenService();
       return loadInboxBacklog(sql, { channelName, channelFamily }).map((row) => {
         const base = {
-          identity: row.identity,
-          online: engine.isIdentityOnline(row.identity),
+          identity: row.userId,
+          online: engine.isUserOnline(row.userId),
           heldRows: row.heldRows,
           receivedThrough: row.receivedThrough,
           oldestHeldAt: row.oldestHeldAt,
         };
         const entry: InboxBacklogEntry = lastSeen
-          ? { ...base, lastSeenAt: lastSeen.at(row.identity) }
+          ? { ...base, lastSeenAt: lastSeen.at(row.userId) }
           : base;
         return entry;
       });

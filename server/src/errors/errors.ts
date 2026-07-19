@@ -60,7 +60,7 @@ export function Disconnect(code: number, reason: string) {
  *   async upgrade(req) {
  *     const user = await validateToken(req.headers.get('authorization'));
  *     if (!user) throw RejectUpgrade(4002, 'Invalid token');
- *     return { identity: user.id, meta: { userId: user.id } };
+ *     return { userId: user.id, meta: { role: user.role } };
  *   },
  * });
  * ```

@@ -46,6 +46,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -114,6 +115,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -191,6 +193,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -263,6 +266,7 @@ describe('connection runtime', () => {
       {
         compiled,
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -324,6 +328,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -334,7 +339,7 @@ describe('connection runtime', () => {
         restoreAttachment: () => ({ id: 'conn_1' }),
         readConnectionState: () => ({
           connection_id: 'conn_1',
-          identity: 'conn_1',
+          user_id: 'conn_1',
           meta: {},
           ephemeral_tags: [],
           ephemeral_memberships: [],
@@ -396,6 +401,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers: new Map(),
@@ -447,6 +453,7 @@ describe('connection runtime', () => {
           replayClaimedChannelKeys: new Set(),
         },
         connections: new Map(),
+        usersByKey: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
         tagMembers,
@@ -457,14 +464,14 @@ describe('connection runtime', () => {
         restoreAttachment: () => ({ id: 'conn_1' }),
         readConnectionState: () => ({
           connection_id: 'conn_1',
-          identity: 'user-1',
+          user_id: 'user-1',
           meta: {},
           ephemeral_tags: [],
           ephemeral_memberships: [],
           active_stream_ids: [],
         }),
         reloadPersistentTags(connection) {
-          reloaded.push(connection.identity);
+          reloaded.push(connection.userId);
           tagMembers.set('persistent:role/admin', new Set([connection]));
         },
         buildConnectionContext(connection) {
@@ -671,7 +678,7 @@ describe('connection runtime', () => {
         asyncContext,
       },
       'connect',
-      { id: 'conn_42' },
+      { connection: { id: 'conn_42' } },
     );
 
     expect(seen).toBe('conn_42');
@@ -694,7 +701,7 @@ describe('connection runtime', () => {
           asyncContext,
         },
         'connect',
-        { id: 'conn_42' },
+        { connection: { id: 'conn_42' } },
       ),
     ).rejects.toThrow('boom');
 
@@ -718,7 +725,7 @@ describe('connection runtime', () => {
         bufferedAmount: () => 0,
         identity: 'c1',
       },
-      identity: 'c1',
+      userId: 'c1',
       meta: {},
       tags: {
         ephemeral: new Map<string, Set<string>>(),
@@ -731,6 +738,7 @@ describe('connection runtime', () => {
     const runtime = {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map([[connection.id, connection]]) as never,
+      usersByKey: new Map() as never,
       wsToConnectionId: new Map() as never,
       async cancelActiveStreamsForConnection() {},
       buildConnectionContext: () => ({ id: connection.id }) as Record<PropertyKey, unknown>,
@@ -770,7 +778,7 @@ describe('connection runtime', () => {
         bufferedAmount: () => 0,
         identity: 'c1',
       },
-      identity: 'c1',
+      userId: 'c1',
       meta: {},
       tags: {
         ephemeral: new Map<string, Set<string>>(),
@@ -785,6 +793,7 @@ describe('connection runtime', () => {
     const runtime = {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map() as never,
+      usersByKey: new Map() as never,
       wsToConnectionId: new Map() as never,
       async cancelActiveStreamsForConnection() {
         events.push('cancel-streams');
@@ -817,7 +826,7 @@ describe('connection runtime', () => {
     const wsKey = Symbol('ws');
     const connection = {
       id: 'c1',
-      identity: 'c1',
+      userId: 'c1',
       wsKey,
       descriptor: {
         send() {},
@@ -842,6 +851,7 @@ describe('connection runtime', () => {
         channelFamilies: new Map(),
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
+      usersByKey: new Map() as never,
       wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
       timers: undefined,
       logger,
@@ -885,7 +895,7 @@ describe('connection runtime', () => {
       .mockImplementation(() => undefined);
     const connection = {
       id: 'c1',
-      identity: 'c1',
+      userId: 'c1',
       wsKey,
       descriptor: {
         send() {},
@@ -914,6 +924,7 @@ describe('connection runtime', () => {
         channelFamilies: new Map(),
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
+      usersByKey: new Map() as never,
       wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
       logger,
       async cancelActiveStreamsForConnection() {
@@ -948,7 +959,7 @@ describe('connection runtime', () => {
     const wsKey = Symbol('ws');
     const connection = {
       id: 'c1',
-      identity: 'c1',
+      userId: 'c1',
       wsKey,
       descriptor: {
         send() {},
@@ -974,6 +985,7 @@ describe('connection runtime', () => {
         channelFamilies: new Map(),
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
+      usersByKey: new Map() as never,
       wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
       deleteConnectionState() {},
       async cancelActiveStreamsForConnection() {},

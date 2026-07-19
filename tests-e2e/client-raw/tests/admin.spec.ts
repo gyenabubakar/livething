@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('admin() over the Worker→DO stub', () => {
-  test('purgeIdentity closes the user’s socket (a built-in op over RPC)', async ({
+  test('purgeUser closes the user’s socket (a built-in op over RPC)', async ({
     page,
   }, testInfo) => {
     const room = `admin-purge-${testInfo.testId}`;
@@ -19,13 +19,13 @@ test.describe('admin() over the Worker→DO stub', () => {
         ws.onclose = (event) => resolve(`${event.code}:${event.reason}`);
         setTimeout(() => resolve('timeout'), 5_000);
       });
-      await fetch(`/ws/admin/purge?room=${encodeURIComponent(currentRoom)}&identity=alice`, {
+      await fetch(`/ws/admin/purge?room=${encodeURIComponent(currentRoom)}&userId=alice`, {
         method: 'POST',
       });
       return closed;
     }, room);
 
-    expect(result).toBe('1000:identity purged');
+    expect(result).toBe('1000:user purged');
   });
 
   test('a dev-defined op (announce) runs over RPC and reaches connected clients', async ({

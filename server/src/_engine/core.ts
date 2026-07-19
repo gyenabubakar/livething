@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  DurableStreamRequiresUser,
   InternalError,
   RateLimited,
   RejoinRejected,
@@ -164,6 +165,7 @@ export class EngineCore {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
+    DurableStreamRequiresUser.code,
     RateLimited.code,
     RejoinRejected.code,
     RequestNoCorrelation.code,
@@ -175,6 +177,9 @@ export class EngineCore {
   ]);
 
   readonly connections = new Map<string, RuntimeConnection>();
+  // User-key → members index (fan-out for `ctx.user`/`ctx.users`, and total-user
+  // lookups), maintained on accept, close, and hibernation wake.
+  readonly usersByKey = new Map<string, Set<RuntimeConnection>>();
   // Channel-key → members index, so broadcasts skip a full connections scan.
   readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
   // Tag-key → members index, so tag fan-out skips a full connections scan.

@@ -2,19 +2,19 @@ import type { SQLProvider } from '~/context.ts';
 
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
-    identity      TEXT NOT NULL,
+    user_id       TEXT NOT NULL,
     channel_name  TEXT NOT NULL,
     channel_family TEXT NOT NULL DEFAULT '',
     joined_at     INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata      TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (identity, channel_name, channel_family)
+    PRIMARY KEY (user_id, channel_name, channel_family)
   )
 `;
 
-const CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_identity
-  ON __wskit_channel_memberships (identity)
+const CREATE_MEMBERSHIPS_USER_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_user
+  ON __wskit_channel_memberships (user_id)
 `;
 
 const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
@@ -24,19 +24,19 @@ const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
 
 const CREATE_TAGS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_tags (
-    identity   TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
     group_name TEXT NOT NULL,
     key        TEXT NOT NULL,
     added_at   INTEGER NOT NULL,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata   TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (identity, group_name, key)
+    PRIMARY KEY (user_id, group_name, key)
   )
 `;
 
-const CREATE_TAGS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_identity
-  ON __wskit_tags (identity)
+const CREATE_TAGS_USER_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_user
+  ON __wskit_tags (user_id)
 `;
 
 const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
@@ -67,10 +67,10 @@ type RawMembershipRow = {
 // instead of six.
 const PERSISTENCE_SCHEMA_SQL = [
   CREATE_MEMBERSHIPS_TABLE_SQL,
-  CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL,
+  CREATE_MEMBERSHIPS_USER_INDEX_SQL,
   CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL,
   CREATE_TAGS_TABLE_SQL,
-  CREATE_TAGS_IDENTITY_INDEX_SQL,
+  CREATE_TAGS_USER_INDEX_SQL,
   CREATE_TAGS_GROUP_KEY_INDEX_SQL,
 ].join(';\n');
 
@@ -83,7 +83,7 @@ export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
 }
 
 export interface MembershipKey {
-  identity: string;
+  userId: string;
 
   channelName: string;
   channelFamily: string | null;
@@ -101,10 +101,10 @@ export function insertMembership(
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_channel_memberships
-        (identity, channel_name, channel_family, joined_at)
+        (user_id, channel_name, channel_family, joined_at)
       VALUES (?, ?, ?, ?)
     `,
-    key.identity,
+    key.userId,
     key.channelName,
     familyToDb(key.channelFamily),
     joinedAt,
@@ -113,36 +113,36 @@ export function insertMembership(
 
 /**
  * Delete a single durable membership row. Called on a true leave (client
- * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
+ * `__unsubscribe__`, a revoking `kick`) of a persistent channel.
  */
 export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
   sql.exec(
     `
       DELETE FROM __wskit_channel_memberships
-      WHERE identity = ? AND channel_name = ? AND channel_family = ?
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
     `,
-    key.identity,
+    key.userId,
     key.channelName,
     familyToDb(key.channelFamily),
   );
 }
 
 /**
- * Read every durable membership for one identity. Used on accept to restore
+ * Read every durable membership for one user. Used on accept to restore
  * the user's persistent channels before `onConnect` fires.
  */
-export function listMembershipsByIdentity(
+export function listMembershipsByUser(
   sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
+  userId: string,
 ): readonly DurableMembership[] {
   const rows = sql
     .exec<RawMembershipRow>(
       `
         SELECT channel_name, channel_family, joined_at
         FROM __wskit_channel_memberships
-        WHERE identity = ?
+        WHERE user_id = ?
       `,
-      identity,
+      userId,
     )
     .toArray();
   return rows.map((row) => ({
@@ -153,7 +153,7 @@ export function listMembershipsByIdentity(
 }
 
 /**
- * Read every identity with a durable membership in one channel — the full
+ * Read every user id with a durable membership in one channel — the full
  * roster including members that are currently offline. Used by inbox fan-out to
  * write a per-member copy for everyone owed the message.
  */
@@ -163,29 +163,29 @@ export function listIdentitiesByChannel(
   channelFamily: string | null,
 ): string[] {
   return sql
-    .exec<{ identity: string }>(
+    .exec<{ user_id: string }>(
       `
-        SELECT identity FROM __wskit_channel_memberships
+        SELECT user_id FROM __wskit_channel_memberships
         WHERE channel_name = ? AND channel_family = ?
       `,
       channelName,
       familyToDb(channelFamily),
     )
     .toArray()
-    .map((row) => row.identity);
+    .map((row) => row.user_id);
 }
 
-/** True when a durable membership row exists for this identity and channel. */
+/** True when a durable membership row exists for this user and channel. */
 export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): boolean {
   return (
     sql
       .exec(
         `
           SELECT 1 FROM __wskit_channel_memberships
-          WHERE identity = ? AND channel_name = ? AND channel_family = ?
+          WHERE user_id = ? AND channel_name = ? AND channel_family = ?
           LIMIT 1
         `,
-        key.identity,
+        key.userId,
         key.channelName,
         familyToDb(key.channelFamily),
       )
@@ -194,10 +194,10 @@ export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: Membership
 }
 
 /**
- * Delete every membership row for one identity. Used by `purgeIdentity`.
+ * Delete every membership row for one user. Used by `purgeUser`.
  */
-export function purgeMembershipsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
-  sql.exec('DELETE FROM __wskit_channel_memberships WHERE identity = ?', identity);
+export function purgeMembershipsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec('DELETE FROM __wskit_channel_memberships WHERE user_id = ?', userId);
 }
 
 /**
@@ -220,17 +220,17 @@ export function deleteMembershipsByChannel(
 }
 
 /**
- * Delete every persistent tag row for one identity. Used by `purgeIdentity`.
- * Safe to call even when no rows exist for the identity.
+ * Delete every persistent tag row for one user. Used by `purgeUser`.
+ * Safe to call even when no rows exist for the user.
  */
-export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
-  sql.exec('DELETE FROM __wskit_tags WHERE identity = ?', identity);
+export function purgeTagsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec('DELETE FROM __wskit_tags WHERE user_id = ?', userId);
 }
 
 /**
  * Maps in-code `null` family (static channel) to the empty string `''` on the
  * DB side. SQLite treats NULLs as distinct in UNIQUE/PK, so `null` would
- * break the `(identity, channel_name, channel_family)` primary key for static
+ * break the `(user_id, channel_name, channel_family)` primary key for static
  * channels. `''` is the canonical "no family" marker on disk; in-engine code
  * never sees it.
  */

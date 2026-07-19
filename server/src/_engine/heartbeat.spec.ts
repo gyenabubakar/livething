@@ -50,7 +50,7 @@ function testSocket() {
 }
 
 /** The slice of a connection context these tests read. */
-type HeartbeatCtx = { id: string; latency: number | null };
+type HeartbeatCtx = { connection: { id: string }; latency: number | null };
 
 type ServerOptions = {
   withKeepalive?: { pingIntervalMs: number; idleTimeoutMs: number };
@@ -151,7 +151,9 @@ describe('the heartbeat hooks', () => {
 
     it('receives a context for the connection that pinged', async () => {
       const seen: string[] = [];
-      const engine = buildEngine({ onPing: (ctx) => void seen.push((ctx as HeartbeatCtx).id) });
+      const engine = buildEngine({
+        onPing: (ctx) => void seen.push((ctx as HeartbeatCtx).connection.id),
+      });
       const { handle } = await connect(engine);
 
       await handle.handleMessage('ping');
@@ -183,7 +185,7 @@ describe('the heartbeat hooks', () => {
     it('fires with a context when a client answers a ping', async () => {
       const seen: string[] = [];
       const { handle } = await connect(
-        buildEngine({ onPong: (ctx) => void seen.push((ctx as HeartbeatCtx).id) }),
+        buildEngine({ onPong: (ctx) => void seen.push((ctx as HeartbeatCtx).connection.id) }),
       );
 
       await handle.handleMessage('pong');

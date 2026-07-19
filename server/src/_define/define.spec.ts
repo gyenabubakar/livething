@@ -20,7 +20,7 @@ function makeBase() {
     env: t<Env>(),
     upgrade(request) {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
-      return { identity: username, meta: { username } };
+      return { userId: username, meta: { username } };
     },
     capabilities: [emits({ welcome: t<{ username: string }>() }), errors([NotFound]), intercepts()],
   });

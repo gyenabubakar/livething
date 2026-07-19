@@ -40,7 +40,7 @@ export interface RateLimitGlobalConfig {
   readonly max?: number;
   /**
    * Pick the budget key from the connection. Defaults to one budget per
-   * connection; return `ctx.identity` to share one budget across a user's
+   * connection; return `ctx.user.id` to share one budget across a user's
    * sockets.
    */
   readonly per?: (ctx: any) => string;

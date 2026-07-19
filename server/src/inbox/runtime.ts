@@ -7,7 +7,7 @@ import {
   deleteInboxRowsForChannel,
   deleteInboxWatermarkForChannel,
   insertInboxRows,
-  insertInboxRowsForIdentity,
+  insertInboxRowsForUserId,
   loadInboxWatermarks,
   loadUndeliveredRows,
   pruneInboxRetention,
@@ -37,7 +37,7 @@ function channelKeyFor(channelName: string, channelFamily: string | null): strin
  * the `seq`/`messageId` the broadcast already stamped, so a member's inbox row
  * matches the live frame it also receives (its ack settles the row, and dedup
  * suppresses the reconnect re-delivery). A no-op for a channel without inbox.
- * Anonymous members (empty identity) hold no durable row and get live-only
+ * Anonymous members (empty user id) hold no durable row and get live-only
  * delivery, but still see the same shared seq/messageId on the live frame.
  */
 export function fanOutToInbox(
@@ -55,10 +55,10 @@ export function fanOutToInbox(
   if (!config) return;
 
   const { sql } = core.requireStorage();
-  const identities = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
-    (identity) => identity !== '',
+  const userIds = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
+    (userId) => userId !== '',
   );
-  if (identities.length === 0) return;
+  if (userIds.length === 0) return;
 
   const frame: InboxFrame = {
     seq: opts.seq,
@@ -67,7 +67,7 @@ export function fanOutToInbox(
     payload: opts.payload,
   };
   insertInboxRows(sql, {
-    identities,
+    userIds,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     frame,
@@ -80,13 +80,13 @@ export function fanOutToInbox(
     const cap = config.retention.maxMessages;
     const countGates = config.retention.maxAgeMs === undefined && cap !== undefined;
 
-    for (const identity of identities) {
-      const key = memberCountKey(opts.channelName, opts.channelFamily, identity);
+    for (const userId of userIds) {
+      const key = memberCountKey(opts.channelName, opts.channelFamily, userId);
       const cached = core.inboxMemberCounts.get(key);
       const count =
         cached === undefined
           ? countInboxRows(sql, {
-              identity,
+              userId,
               channelName: opts.channelName,
               channelFamily: opts.channelFamily,
             })
@@ -96,7 +96,7 @@ export function fanOutToInbox(
       if (countGates && count <= cap!) continue;
 
       const evicted = applyRetention(core, {
-        identity,
+        userId,
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
         config,
@@ -107,12 +107,8 @@ export function fanOutToInbox(
 }
 
 /** Cache key for a member's per-channel inbox row count. */
-function memberCountKey(
-  channelName: string,
-  channelFamily: string | null,
-  identity: string,
-): string {
-  return `${channelName} ${channelFamily ?? ''} ${identity}`;
+function memberCountKey(channelName: string, channelFamily: string | null, userId: string): string {
+  return `${channelName} ${channelFamily ?? ''} ${userId}`;
 }
 
 /**
@@ -121,10 +117,10 @@ function memberCountKey(
  * `__received__`, and that ack settles them.
  */
 export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
-  if (!connection.identity) return;
+  if (!connection.userId) return;
   const { sql } = core.requireStorage();
 
-  const watermarks = loadInboxWatermarks(sql, connection.identity);
+  const watermarks = loadInboxWatermarks(sql, connection.userId);
   for (const watermark of watermarks) {
     sendGap(core, connection, {
       channelName: watermark.channelName,
@@ -132,9 +128,9 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       missedThrough: watermark.evictedThroughSeq,
     });
   }
-  if (watermarks.length > 0) clearInboxWatermarks(sql, connection.identity);
+  if (watermarks.length > 0) clearInboxWatermarks(sql, connection.userId);
 
-  const rows = loadUndeliveredRows(sql, connection.identity);
+  const rows = loadUndeliveredRows(sql, connection.userId);
   if (rows.length === 0) return;
 
   for (const row of rows) {
@@ -156,7 +152,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
 export function applyInboxAck(
   sql: Pick<SQLProvider, 'exec'>,
   opts: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     receivedThrough: number;
@@ -164,7 +160,7 @@ export function applyInboxAck(
   },
 ): void {
   ackInboxRows(sql, {
-    identity: opts.identity,
+    userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     receivedThrough: opts.receivedThrough,
@@ -176,17 +172,26 @@ export function applyInboxAck(
 /** Drop a member's rows for a channel it has left. */
 export function clearInboxForChannel(
   core: EngineCore,
-  key: { identity: string; channelName: string; channelFamily: string | null },
+  key: { userId: string; channelName: string; channelFamily: string | null },
 ): void {
-  if (!key.identity) return;
+  if (!key.userId) return;
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
   const { sql } = core.requireStorage();
-  deleteInboxRowsForChannel(sql, key);
-  deleteInboxWatermarkForChannel(sql, key);
+  const { userId } = key;
+  deleteInboxRowsForChannel(sql, {
+    userId,
+    channelName: key.channelName,
+    channelFamily: key.channelFamily,
+  });
+  deleteInboxWatermarkForChannel(sql, {
+    userId,
+    channelName: key.channelName,
+    channelFamily: key.channelFamily,
+  });
 }
 
 /**
- * Back an identity's inbox from a set of full frames. Each frame keeps its own
+ * Back a user's inbox from a set of full frames. Each frame keeps its own
  * seq/messageId so ordering and dedup stay consistent with live traffic; the
  * rows drain on the member's next reconnect, or arrive live if it is connected.
  */
@@ -195,13 +200,13 @@ export function backfillInbox(
   opts: {
     channelName: string;
     channelFamily: string | null;
-    identity: string;
+    userId: string;
     frames: readonly InboxFrame[];
   },
 ): void {
-  if (!opts.identity) return;
-  insertInboxRowsForIdentity(sql, {
-    identity: opts.identity,
+  if (!opts.userId) return;
+  insertInboxRowsForUserId(sql, {
+    userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     frames: opts.frames,
@@ -212,7 +217,7 @@ export function backfillInbox(
 function applyRetention(
   core: EngineCore,
   opts: {
-    identity: string;
+    userId: string;
     channelName: string;
     channelFamily: string | null;
     config: ResolvedInboxOptions;
@@ -221,7 +226,7 @@ function applyRetention(
   if (!opts.config.retention) return null;
   const { sql } = core.requireStorage();
   const evictedThrough = pruneInboxRetention(sql, {
-    identity: opts.identity,
+    userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     retention: opts.config.retention,
@@ -230,7 +235,7 @@ function applyRetention(
   if (evictedThrough === null) return null;
 
   bumpInboxWatermark(sql, {
-    identity: opts.identity,
+    userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     evictedThroughSeq: evictedThrough,

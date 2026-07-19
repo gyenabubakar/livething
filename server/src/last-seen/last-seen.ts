@@ -36,10 +36,10 @@ function resolveLastSeenOptions(config: LastSeenOptions): ResolvedLastSeenOption
 }
 
 /**
- * Track each identity's last-seen timestamp in a durable table. Stamps on
+ * Track each user's last-seen timestamp in a durable table. Stamps on
  * connect and disconnect; in `activity` mode it also stamps on each real inbound
  * message — protocol frames and app events, but not transport keepalive pings —
- * throttled per identity. Exposes `ctx.lastSeen` (`at` / `atMany` / `online`) and
+ * throttled per user. Exposes `ctx.lastSeen` (`at` / `atMany` / `online`) and
  * fills the engine's `lastSeenService` slot so inbox backlog can read it without
  * importing this module.
  *
@@ -79,11 +79,11 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
 /** Build the engine's `lastSeenService` slot: a durable read plus an in-memory online check. */
 function buildLastSeenService(engine: EngineAccess): LastSeenService {
   return {
-    at(identity: string): number | null {
-      return readLastSeen(engine.requireStorage().sql, identity);
+    at(userId: string): number | null {
+      return readLastSeen(engine.requireStorage().sql, userId);
     },
-    online(identity: string): boolean {
-      return engine.isIdentityOnline(identity);
+    online(userId: string): boolean {
+      return engine.isUserOnline(userId);
     },
   };
 }
@@ -92,45 +92,45 @@ function buildLastSeenService(engine: EngineAccess): LastSeenService {
 function buildLastSeenContext(engine: EngineAccess) {
   return (): Record<string, unknown> => ({
     lastSeen: {
-      at(identity: string): number | null {
-        return readLastSeen(engine.requireStorage().sql, identity);
+      at(userId: string): number | null {
+        return readLastSeen(engine.requireStorage().sql, userId);
       },
-      atMany(identities: string[]): Map<string, number> {
-        return readLastSeenMany(engine.requireStorage().sql, identities);
+      atMany(userIds: string[]): Map<string, number> {
+        return readLastSeenMany(engine.requireStorage().sql, userIds);
       },
-      online(identity: string): boolean {
-        return engine.isIdentityOnline(identity);
+      online(userId: string): boolean {
+        return engine.isUserOnline(userId);
       },
     },
   });
 }
 
-/** Stamp the connection's identity, reading it off the internal connection marker. */
+/** Stamp the connection's user, reading it off the internal connection marker. */
 function stampFromContext(engine: EngineAccess, ctx: unknown): void {
   const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
     ENGINE_INTERNAL_CONNECTION
   ];
-  const identity = connection?.identity ?? '';
-  if (!identity) return;
-  stampLastSeen(engine.requireStorage().sql, { identity, now: Date.now() });
+  const userId = connection?.userId ?? '';
+  if (!userId) return;
+  stampLastSeen(engine.requireStorage().sql, { userId, now: Date.now() });
 }
 
 /**
- * Stamp on a real inbound message, at most once per `throttleMs` per identity.
+ * Stamp on a real inbound message, at most once per `throttleMs` per user.
  * Uses message activity, not connection activity, so a keepalive ping on an
- * otherwise-idle connection does not keep bumping the mark. The per-identity
+ * otherwise-idle connection does not keep bumping the mark. The per-user
  * last-stamp map lives in this closure for the engine's lifetime.
  */
 function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
-  const lastStampByIdentity = new Map<string, number>();
+  const lastStampByUserId = new Map<string, number>();
   engine.onMessageActivity((connectionId) => {
-    const identity = engine.getConnectionIdentity(connectionId);
-    if (!identity) return;
+    const userId = engine.getConnectionIdentity(connectionId);
+    if (!userId) return;
     const now = Date.now();
-    const previous = lastStampByIdentity.get(identity);
+    const previous = lastStampByUserId.get(userId);
     if (previous !== undefined && now - previous < throttleMs) return;
-    lastStampByIdentity.set(identity, now);
-    stampLastSeen(engine.requireStorage().sql, { identity, now });
+    lastStampByUserId.set(userId, now);
+    stampLastSeen(engine.requireStorage().sql, { userId, now });
   });
 }
 

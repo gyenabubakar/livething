@@ -7,6 +7,7 @@ export {
   ValidationFailed,
   ChannelNotFound,
   ChannelNotSubscribed,
+  DurableStreamRequiresUser,
   InternalError,
   NudgeOverflow,
   RateLimited,

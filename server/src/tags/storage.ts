@@ -14,14 +14,14 @@ type RawTagRow = {
 };
 
 export interface InsertTagInput {
-  identity: string;
+  userId: string;
   group: string;
   key: string;
   addedAt?: number;
 }
 
 /**
- * Insert or replace a durable tag row for the given identity. Called when
+ * Insert or replace a durable tag row for the given user. Called when
  * `ctx.tags.persistent(group).add(key)` runs.
  */
 export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput): void {
@@ -29,10 +29,10 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_tags
-        (identity, group_name, key, added_at)
+        (user_id, group_name, key, added_at)
       VALUES (?, ?, ?, ?)
     `,
-    input.identity,
+    input.userId,
     input.group,
     input.key,
     addedAt,
@@ -40,7 +40,7 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
 }
 
 export interface DeleteTagInput {
-  identity: string;
+  userId: string;
   group: string;
   key: string;
 }
@@ -53,30 +53,30 @@ export function deleteTag(sql: Pick<SQLProvider, 'exec'>, input: DeleteTagInput)
   sql.exec(
     `
       DELETE FROM __wskit_tags
-      WHERE identity = ? AND group_name = ? AND key = ?
+      WHERE user_id = ? AND group_name = ? AND key = ?
     `,
-    input.identity,
+    input.userId,
     input.group,
     input.key,
   );
 }
 
 /**
- * Read every durable tag for one identity. Used on accept to restore the
+ * Read every durable tag for one user. Used on accept to restore the
  * persistent tag set onto a fresh socket.
  */
-export function listTagsByIdentity(
+export function listTagsByUser(
   sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
+  userId: string,
 ): readonly DurableTag[] {
   const rows = sql
     .exec<RawTagRow>(
       `
         SELECT group_name, key, added_at
         FROM __wskit_tags
-        WHERE identity = ?
+        WHERE user_id = ?
       `,
-      identity,
+      userId,
     )
     .toArray();
   return rows.map((row) => ({

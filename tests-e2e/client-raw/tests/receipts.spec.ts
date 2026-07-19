@@ -3,9 +3,9 @@ import { frames, openMember, send, subscribe, waitForFrame } from './_inbox-rig.
 
 // Raw-wire conformance for received + read receipts against the real worker.
 // `inbox` owns received: `__received__ {receivedThrough}` advances the received
-// cursor, fans out as `__received__ {identity, receivedThrough}`, and answers
+// cursor, fans out as `__received__ {userId, receivedThrough}`, and answers
 // `__receivedQuery__`. `readReceipts` owns read: `__read__ {readThrough}`
-// advances the read cursor, fans out as `__read__ {identity, readThrough}`, and
+// advances the read cursor, fans out as `__read__ {userId, readThrough}`, and
 // answers `__readQuery__`. `ask-cursor` returns the server's authoritative view.
 // A non-member's `__read__` / query is dropped silently.
 
@@ -23,7 +23,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await alice.close();
   });
 
-  test('a received ack fans out a __received__ with identity + receivedThrough', async ({
+  test('a received ack fans out a __received__ with userId + receivedThrough', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -54,12 +54,12 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
       __wskit: { channel: 'chat' },
     });
 
-    // Alice (a member) sees bob's received fan-out (identity present).
+    // Alice (a member) sees bob's received fan-out (userId present).
     const fanout = await waitForFrame(
       alice.page,
       (f) =>
         f.event === '__received__' &&
-        f.payload.identity === 'bob' &&
+        f.payload.userId === 'bob' &&
         f.payload.receivedThrough === seq,
     );
     expect(fanout.__wskit?.channel).toBe('chat');
@@ -69,7 +69,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await carol.close();
   });
 
-  test('a read ack fans out a __read__ with identity + readThrough', async ({
+  test('a read ack fans out a __read__ with userId + readThrough', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -101,8 +101,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
 
     const fanout = await waitForFrame(
       alice.page,
-      (f) =>
-        f.event === '__read__' && f.payload.identity === 'bob' && f.payload.readThrough === seq,
+      (f) => f.event === '__read__' && f.payload.userId === 'bob' && f.payload.readThrough === seq,
     );
     expect(fanout.__wskit?.channel).toBe('chat');
 
@@ -111,7 +110,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await carol.close();
   });
 
-  test('__receivedQuery__ / __readQuery__ round-trip identities on their correlationId', async ({
+  test('__receivedQuery__ / __readQuery__ round-trip userIds on their correlationId', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -157,7 +156,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
       alice.page,
       (f) => f.event === '__receivedQuery__' && f.__wskit?.correlationId === 'q-received-1',
     );
-    expect(receivedReply.payload.identities).toContain('bob');
+    expect(receivedReply.payload.userIds).toContain('bob');
 
     // readersOf(seq): a separate correlationId, likewise listing bob.
     await send(alice.page, {
@@ -169,14 +168,14 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
       alice.page,
       (f) => f.event === '__readQuery__' && f.__wskit?.correlationId === 'q-read-1',
     );
-    expect(readReply.payload.identities).toContain('bob');
+    expect(readReply.payload.userIds).toContain('bob');
 
     await alice.close();
     await bob.close();
     await carol.close();
   });
 
-  test('ask-cursor returns the server authoritative identities', async ({ browser }, testInfo) => {
+  test('ask-cursor returns the server authoritative userIds', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
     const bob = await openMember(browser, { path: '/receipts', room, username: 'bob' });
@@ -262,7 +261,7 @@ test.describe('receipts (raw wire, received + read cursors)', () => {
     await mallory.page.waitForTimeout(800);
 
     const malloryFanout = (await frames(alice.page)).filter(
-      (f) => f.event === '__read__' && f.payload.identity === 'mallory',
+      (f) => f.event === '__read__' && f.payload.userId === 'mallory',
     );
     expect(malloryFanout).toHaveLength(0);
 

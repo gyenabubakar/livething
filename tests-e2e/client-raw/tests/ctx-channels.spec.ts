@@ -185,7 +185,7 @@ test.describe('ctx-channels', () => {
     await ctxB.close();
   });
 
-  test('kick by a ConnectionRef (ctx.self) delivers __kicked__ to that socket', async ({
+  test('kick by a UserRef (ctx.user.ref()) delivers __kicked__ to that socket', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -197,5 +197,42 @@ test.describe('ctx-channels', () => {
 
     await page.getByTestId('kick-self-by-ref').click();
     await expect(page.getByTestId('kicked-result')).toContainText('self kick by ref');
+  });
+
+  test('ctx.channel.send({ to }) reaches only the member holding the tag', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await a.goto(`/ctx-channels?room=${room}`);
+    await b.goto(`/ctx-channels?room=${room}`);
+    await a.getByTestId('username').fill('user1');
+    await b.getByTestId('username').fill('user2');
+    await a.getByTestId('connect').click();
+    await b.getByTestId('connect').click();
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribed')).toHaveText('yes');
+    await expect(b.getByTestId('subscribed')).toHaveText('yes');
+
+    // a addresses user2's tag; only b (user2) receives the frame, and the
+    // reported delivered count is 1 (the intersection of tag holders and members).
+    await a.getByTestId('send-to-user2').click();
+    await expect(a.getByTestId('members-result')).toHaveText('room:1');
+    await expect(b.getByTestId('room-messages')).toContainText('user1:to-user2');
+    await expect(a.getByTestId('room-messages')).not.toContainText('to-user2');
+
+    // A tag nobody in the channel holds delivers to 0 sockets.
+    await a.getByTestId('send-to-nonmember').click();
+    await expect(a.getByTestId('members-result')).toHaveText('room:0');
+    await expect(b.getByTestId('room-messages')).not.toContainText('to-ghost');
+
+    await ctxA.close();
+    await ctxB.close();
   });
 });

@@ -13,7 +13,7 @@ app.assemble({
   handlers: [go],
   api: (ctx) => {
     expectTypeOf(ctx).toHaveProperty('broadcast');
-    expectTypeOf(ctx).toHaveProperty('purgeIdentity');
+    expectTypeOf(ctx).toHaveProperty('purgeUser');
     expectTypeOf(ctx).toHaveProperty('channels');
     expectTypeOf(ctx).toHaveProperty('closeConnections');
     expectTypeOf(ctx).toHaveProperty('sql');
@@ -25,7 +25,7 @@ app.assemble({
     // @ts-expect-error — no current connection on the admin ctx
     ctx.meta;
 
-    return { evict: (id: string) => ctx.purgeIdentity(id) };
+    return { evict: (id: string) => ctx.purgeUser(id) };
   },
 });
 
@@ -41,7 +41,7 @@ scoped.assemble({
   handlers: [beat],
   api: (ctx) => {
     expectTypeOf(ctx).toHaveProperty('send');
-    expectTypeOf(ctx.id).toEqualTypeOf<string>();
-    return { whoAmI: () => ctx.id };
+    expectTypeOf(ctx.connection.id).toEqualTypeOf<string>();
+    return { whoAmI: () => ctx.connection.id };
   },
 });

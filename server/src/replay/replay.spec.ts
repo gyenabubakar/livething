@@ -262,7 +262,7 @@ describe('replay', () => {
     replay().__setup?.(engine);
 
     const ctx: Record<PropertyKey, unknown> = {
-      id: 'c1',
+      connection: { id: 'c1' },
       [ENGINE_CHANNEL_META]: {},
     };
 
@@ -310,7 +310,10 @@ describe('replay', () => {
 
     replay().__setup?.(engine);
 
-    const ctx: Record<PropertyKey, unknown> = { id: 'c1', [ENGINE_CHANNEL_META]: {} };
+    const ctx: Record<PropertyKey, unknown> = {
+      connection: { id: 'c1' },
+      [ENGINE_CHANNEL_META]: {},
+    };
     extenders[0]!(ctx);
 
     (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
@@ -360,7 +363,7 @@ describe('replay', () => {
     replay().__setup?.(engine);
 
     const matchingCtx: Record<PropertyKey, unknown> = {
-      id: 'c1',
+      connection: { id: 'c1' },
       channel: { name: 'room-1' },
       [ENGINE_CHANNEL_META]: {
         channelName: 'room-1',
@@ -484,7 +487,7 @@ describe('replay', () => {
       ]),
     };
     const matchingCtx = {
-      id: 'c1',
+      connection: { id: 'c1' },
       [ENGINE_CHANNEL_META]: {
         channelName: 'room-1',
         channelFamily: 'rooms',
@@ -628,7 +631,7 @@ describe('replay', () => {
       return { handler: protocolHandlers[0]!, gaps, replays, watermarkReads };
     }
 
-    const topLevelCtx = { id: 'c1', [ENGINE_CHANNEL_META]: {} };
+    const topLevelCtx = { connection: { id: 'c1' }, [ENGINE_CHANNEL_META]: {} };
     const topLevelFrame = {
       event: '__replay__' as const,
       payload: { lastKnownSeq: 4 },
@@ -694,7 +697,7 @@ describe('replay', () => {
         ]),
       };
       const channelCtx = {
-        id: 'c1',
+        connection: { id: 'c1' },
         [ENGINE_CHANNEL_META]: { channelName: 'room-1', channelFamily: 'rooms' },
         [ENGINE_INTERNAL_CONNECTION]: memberConnection,
       };

@@ -359,7 +359,7 @@ describe('plugin namespacing — upgrade seeds tags into the plugin namespace (#
     const h = define({
       scoped: true,
       capabilities: [tags((ephemeral) => [ephemeral('room', t<string>())])],
-      upgrade: () => ({ identity: 'u1', tags: { ephemeral: { room: 'general' } } }),
+      upgrade: () => ({ userId: 'u1', tags: { ephemeral: { room: 'general' } } }),
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { handler: h.assemble({ handlers: [go] }) })();

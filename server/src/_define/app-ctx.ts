@@ -6,6 +6,8 @@ import type {
   KVProvider,
   Logger,
   SQLProvider,
+  UserInfo,
+  UserRef,
 } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
@@ -15,7 +17,7 @@ import type { TagGroupHandle, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
 
 /**
- * A handle to one specific connection, returned by `ctx.connection(ref)`. Its
+ * A handle to one specific connection, returned by `ctx.connections.get(ref)`. Its
  * `send` is typed to the server's `emits(...)` events, so a typo or wrong
  * payload is a compile error.
  *
@@ -82,7 +84,7 @@ export interface BroadcastRequestArm<SR> {
 }
 
 /**
- * The `request` arm a `requests()` server adds to a `ctx.connection(ref)`
+ * The `request` arm a `requests()` server adds to a `ctx.connections.get(ref)`
  * handle. The server asks one specific connection a declared server→client
  * request and awaits its typed answer.
  */
@@ -101,7 +103,7 @@ export interface ConnectionRequestHandle<TSlots> extends ConnectionHandle<TSlots
 }
 
 /**
- * The `ctx.request` / `ctx.connection(ref).request` surface — owned by the
+ * The `ctx.request` / `ctx.connections.get(ref).request` surface — owned by the
  * `requests()` capability. Server→client targeted requests: ask one connection
  * and await its typed answer.
  */
@@ -125,20 +127,82 @@ export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
 }
 
 /**
- * The `ctx.connection(ref)` accessor, always present. The handle it returns
- * carries `request(...)` only when the `requests()` capability is listed —
- * driven by `TCaps` so the arm is a compile error otherwise.
+ * The handle `ctx.connections.get(ref)` returns. It always carries the typed
+ * `send`; with `requests()` listed it also carries the typed `request(...)`,
+ * gated on `TCaps` so the arm is a compile error otherwise.
  */
-export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapability[]> {
-  /**
-   * Address one specific connection by ref. The handle always carries `send`;
-   * with `requests()` listed it also carries `request(...)`.
-   */
-  connection(
-    ref: ConnectionRef,
-  ): 'requests' extends BrandsOf<TCaps>
-    ? ConnectionRequestHandle<TSlots>
-    : ConnectionHandle<TSlots>;
+type ConnectionGetHandle<TSlots, TCaps extends readonly AnyCapability[]> =
+  'requests' extends BrandsOf<TCaps> ? ConnectionRequestHandle<TSlots> : ConnectionHandle<TSlots>;
+
+/**
+ * `ctx.connections`, always present. Reach one specific socket by ref with
+ * `get(ref)`, or snapshot every live connection on this instance with `all()`.
+ */
+export interface ConnectionsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  connections: {
+    /**
+     * Address one specific connection by ref. The handle always carries `send`;
+     * with `requests()` listed it also carries `request(...)`.
+     */
+    get(ref: ConnectionRef): ConnectionGetHandle<TSlots, TCaps>;
+    /** Snapshot of every connection currently open on this server instance. */
+    all(): ConnectionInfo<TMeta>[];
+  };
+}
+
+/**
+ * The `request` arm a `requests()` server adds to a `UserHandle`. Asks every
+ * live socket the user holds and settles on the first valid answer, reporting
+ * which connection gave it via `from`.
+ */
+export interface UserRequestArm<TSlots> {
+  request<E extends keyof ServerRequests<TSlots> & string>(
+    event: E,
+    payload: ServerRequests<TSlots>[E] extends { payload: infer P } ? P : never,
+    options?: { timeout?: number },
+  ): Promise<BroadcastAnswer<ServerRequests<TSlots>[E] extends { response: infer R } ? R : never>>;
+}
+
+/**
+ * A handle to one user — every live socket the user currently holds. `send` fans
+ * the event to all of them and returns how many sockets received it; `setMeta`
+ * fans a metadata patch the same way. Typed to the server's `emits(...)` events.
+ */
+export interface UserHandleBase<TSlots, TMeta> {
+  /** The user id — the value `upgrade(...)` returned, or the connection id for an anonymous user-of-one. */
+  readonly id: string;
+  /** Build a `UserRef` for this user — pass it to `kick` and the like. */
+  ref(): UserRef;
+  /** Fan an event to every live socket the user holds. Returns the delivered socket count. */
+  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): number;
+  /** Merge a metadata patch into every one of the user's live connections. */
+  setMeta(patch: Partial<TMeta>): void;
+  /** Snapshot the user's currently-live connections. */
+  connections(): ConnectionInfo<TMeta>[];
+  /** Close every one of the user's live sockets. */
+  close(code?: number, reason?: string): void;
+  /** A point-in-time snapshot of the user, or `null` when they have no live connection. */
+  info(): UserInfo<TMeta> | null;
+}
+
+/** A `UserHandle`, plus the `request` arm when `requests()` is listed. */
+type UserHandleCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = UserHandleBase<
+  TSlots,
+  TMeta
+> &
+  ('requests' extends BrandsOf<TCaps> ? UserRequestArm<TSlots> : {});
+
+/**
+ * `ctx.user` (the current connection's user) and `ctx.users` (reach any user by
+ * id), always present. A user is one or more connections sharing the id
+ * `upgrade(...)` returned; an anonymous connection is a user-of-one keyed by its
+ * own connection id.
+ */
+export interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /** The user behind the current connection. */
+  user: UserHandleCtx<TSlots, TMeta, TCaps>;
+  /** Reach any user by id. */
+  users: { get(id: string): UserHandleCtx<TSlots, TMeta, TCaps> };
 }
 
 /**
@@ -154,14 +218,16 @@ export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapabili
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  */
 export type CoreCtx<TSlots, TEnv, TMeta> = {
-  /** Unique id of this connection. Stable for the lifetime of the socket. */
-  readonly id: string;
-  /** The identity string returned from `upgrade(...)`. Stable until disconnect. */
-  readonly identity: string;
-  /** A reference handle to this connection — pass it to `kick`, `subscribe`, and the like. */
-  readonly self: ConnectionRef;
+  /**
+   * A `ConnectionRef` for the current connection — the self socket address. Read
+   * `ctx.connection.id` for the connection id and `ctx.connection.userId` for the
+   * user id; pass the ref itself to `kick`, `subscribe`, and the like.
+   */
+  readonly connection: ConnectionRef;
   /** The metadata returned from `upgrade(...)`, typed from its return value. */
   readonly meta: TMeta;
+  /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
+  setMeta(patch: Partial<TMeta>): void;
   /** The platform env bindings (for example Cloudflare Workers `Env`). */
   readonly env: TEnv;
   /** The raw platform handle (for example a Durable Object state). Untyped by default. */
@@ -179,8 +245,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
 
   /** Close this connection. */
   close(code?: number, reason?: string): void;
-  /** Snapshot of every connection currently open on this server instance. */
-  getConnections(): ConnectionInfo<TMeta>[];
 
   /** Adapter-provided SQL surface. Throws if the adapter has no storage. */
   readonly sql: SQLProvider;
@@ -209,12 +273,12 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
   /**
    * Send an event to every other connection on this server. The calling
-   * connection is excluded by default; pass `excludeSelf: false` to include it.
+   * connection is excluded by default; pass `includeSelf: true` to include it.
    */
   broadcast<E extends keyof Outgoing<TSlots> & string>(
     event: E,
     payload: Outgoing<TSlots>[E],
-    options?: { excludeSelf?: boolean },
+    options?: { includeSelf?: boolean },
   ): void;
 };
 
@@ -482,7 +546,8 @@ export type AppCtx<
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
 > = CoreCtx<TSlots, TEnv, TMeta> &
-  ConnectionAddressing<TSlots, TCaps> &
+  ConnectionsCtx<TSlots, TMeta, TCaps> &
+  UsersCtx<TSlots, TMeta, TCaps> &
   FrameMatchCtx<TSlots> &
   CtxExtensionsOf<TSlots, TMeta, TCaps>;
 

@@ -14,7 +14,7 @@ import type { OutgoingRuntime } from '~/outgoing/runtime.ts';
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -346,7 +346,7 @@ describe('broadcastToConnections — fanout resilience', () => {
   function peer(id: string, send: (frame: string) => void): RuntimeConnection {
     return {
       id,
-      identity: id,
+      userId: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -489,7 +489,7 @@ describe('broadcastToChannel — fanout resilience', () => {
   ): RuntimeConnection {
     const conn: RuntimeConnection = {
       id,
-      identity: id,
+      userId: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -574,7 +574,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
   ): RuntimeConnection {
     const conn: RuntimeConnection = {
       id,
-      identity: id,
+      userId: id,
       wsKey: Symbol(id),
       descriptor: {
         send,

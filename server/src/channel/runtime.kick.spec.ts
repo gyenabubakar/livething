@@ -8,7 +8,7 @@ import type { BroadcastToChannelOptions } from '~/channel/runtime.ts';
 function createConnection(id: string) {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -91,7 +91,7 @@ describe('channels.kick end-to-end', () => {
       toConnectionInfo(c: ReturnType<typeof createConnection>) {
         return {
           id: c.id,
-          identity: c.identity,
+          userId: c.userId,
           meta: c.meta,
           tags: [],
           channels: [...c.channelMemberships.values()].map((m) => m.channelName),
@@ -102,7 +102,7 @@ describe('channels.kick end-to-end', () => {
             __wskit: 'connection-ref' as const,
             id: c.id,
             instance: undefined,
-            identity: c.identity,
+            userId: c.userId,
           }),
         };
       },
@@ -298,8 +298,7 @@ describe('channels.kick end-to-end', () => {
 
     const connections = new Map([[banned.id, banned]]);
 
-    const deletedRows: { identity: string; channelName: string; channelFamily: string | null }[] =
-      [];
+    const deletedRows: { userId: string; channelName: string; channelFamily: string | null }[] = [];
 
     // channelFamilies is intentionally EMPTY — simulates the family missing at
     // kick time (e.g. a hot-reload removed it while a member was still live).
@@ -319,7 +318,7 @@ describe('channels.kick end-to-end', () => {
       toConnectionInfo(c: ReturnType<typeof createConnection>) {
         return {
           id: c.id,
-          identity: c.identity,
+          userId: c.userId,
           meta: c.meta,
           tags: [],
           channels: [...c.channelMemberships.values()].map((m) => m.channelName),
@@ -330,7 +329,7 @@ describe('channels.kick end-to-end', () => {
             __wskit: 'connection-ref' as const,
             id: c.id,
             instance: undefined,
-            identity: c.identity,
+            userId: c.userId,
           }),
         };
       },
@@ -343,8 +342,8 @@ describe('channels.kick end-to-end', () => {
       async handleValidationError() {},
       isChannelPersistent: (_key: string) => true,
       persistMembership() {},
-      deleteDurableMembership(identity: string, channelName: string, channelFamily: string | null) {
-        deletedRows.push({ identity, channelName, channelFamily });
+      deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null) {
+        deletedRows.push({ userId, channelName, channelFamily });
       },
       hasDurableMembership: () => true,
     };
@@ -365,6 +364,7 @@ describe('channels.kick end-to-end', () => {
         },
         reason: 'spam',
         channelFamily: 'room',
+        revoke: true,
       },
     );
 
@@ -373,7 +373,7 @@ describe('channels.kick end-to-end', () => {
     // makes leaveChannel set isPersistent=false and skip deleteDurableMembership.
     expect(deletedRows).toHaveLength(1);
     expect(deletedRows[0]).toEqual({
-      identity: 'banned',
+      userId: 'banned',
       channelName: 'room:123',
       channelFamily: 'room',
     });

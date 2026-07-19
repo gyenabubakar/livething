@@ -46,7 +46,7 @@ const lobby = base.channel('lobby', {
  */
 base.on('drive', {
   run(ctx) {
-    expectTypeOf(ctx.channels.get(lobby).send('joined', { who: 'a' })).toEqualTypeOf<boolean>();
+    expectTypeOf(ctx.channels.get(lobby).send('joined', { who: 'a' })).toEqualTypeOf<number>();
     expectTypeOf(ctx.channels.get(lobby).broadcastRequest('greet', {})).toEqualTypeOf<
       Promise<{ readonly response: { hi: boolean }; readonly from: ConnectionRef }>
     >();
@@ -58,7 +58,7 @@ base.on('drive', {
     void lobby.at({ id: 'x' });
 
     const ref = room.at({ id: 'general' });
-    expectTypeOf(ctx.channels.get(ref).send('tick', { n: 1 })).toEqualTypeOf<boolean>();
+    expectTypeOf(ctx.channels.get(ref).send('tick', { n: 1 })).toEqualTypeOf<number>();
     expectTypeOf(ctx.channels.get(ref).broadcastRequest('vol', {})).toEqualTypeOf<
       Promise<{ readonly response: { r: boolean }; readonly from: ConnectionRef }>
     >();

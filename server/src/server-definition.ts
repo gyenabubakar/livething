@@ -136,6 +136,11 @@ export interface ServerDefinition<
   readonly __api?: TApi;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
+  /** The per-user connection cap from `define({ users: {...} })`, enforced on accept. */
+  readonly __usersPolicy?: {
+    readonly maxConnections?: number;
+    readonly onExceed: 'replace' | 'reject';
+  };
   /**
    * Type-only field — never set at runtime.
    *

@@ -11,8 +11,8 @@ type ChannelHandleDeps = Pick<
   | 'channelHandleAugmenters'
   | 'getChannelMembers'
   | 'kickChannelMembers'
-  | 'removeChannelMember'
   | 'sendThroughPipeline'
+  | 'sendToChannelRecipient'
   | 'subscribeConnectionAsServer'
 >;
 
@@ -31,20 +31,32 @@ export function buildChannelHandle(
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
-    send: (event: string, payload: unknown) =>
-      deps.sendThroughPipeline(connection, {
+    send: (event: string, payload: unknown, options?: { to?: PublicApi.ChannelRecipient }) => {
+      if (options?.to) {
+        return deps.sendToChannelRecipient({
+          channelName: scope.channelName,
+          channelFamily: scope.channelFamily,
+          to: options.to,
+          event,
+          payload,
+        });
+      }
+      return deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
         payload,
-      }),
-    broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
+      })
+        ? 1
+        : 0;
+    },
+    broadcast: (event: string, payload: unknown, options?: { includeSelf?: boolean }) => {
       deps.broadcastToChannel({
         channelName: scope.channelName,
         event,
         payload,
         excludeConnectionId: connection.id,
         channelFamily: scope.channelFamily,
-        excludeSelf: options?.excludeSelf,
+        includeSelf: options?.includeSelf,
       });
     },
     members: () => deps.getChannelMembers(scope.channelName, scope.channelFamily),
@@ -54,15 +66,14 @@ export function buildChannelHandle(
         channelFamily: scope.channelFamily,
         payload,
       }),
-    kick: (target, reason: string) =>
+    kick: (target, opts) =>
       deps.kickChannelMembers({
         channelName: scope.channelName,
         target,
-        reason,
+        reason: opts.reason,
+        revoke: opts.revoke,
         channelFamily: scope.channelFamily,
       }),
-    removeMember: (identity: string) =>
-      deps.removeChannelMember(scope.channelName, scope.channelFamily, identity),
     inbox: () => null,
     readReceipts: () => null,
   };

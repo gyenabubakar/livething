@@ -1,12 +1,13 @@
 import { ChannelNotFound } from '@wskit/core';
+import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-/** Deps for an admin context: the task/shutdown dep-bag plus a `purgeIdentity`. */
+/** Deps for an admin context: the task/shutdown dep-bag plus a `purgeUser`. */
 export interface CreateAdminContextDeps extends EngineContextTypes.CreateTaskContextDeps {
   /** Drop a user everywhere and close their sockets. Closes over the engine core. */
-  purgeIdentity(identity: string): Promise<void>;
+  purgeUser(userId: string): Promise<void>;
 }
 
 /** `channels.get(name)` vs `channels.get(family, instance)` → a resolve target. */
@@ -40,9 +41,14 @@ export function createAdminContext(
             excludeConnectionId: undefined,
           }),
         members: () => deps.getChannelMembers(channelName, channelFamily),
-        kick: (target, reason) =>
-          deps.kickChannelMembers({ channelName, channelFamily, target, reason }),
-        removeMember: (identity) => deps.removeChannelMember(channelName, channelFamily, identity),
+        kick: (target, opts) =>
+          deps.kickChannelMembers({
+            channelName,
+            channelFamily,
+            target,
+            reason: opts.reason,
+            revoke: opts.revoke,
+          }),
       };
     },
   };
@@ -63,15 +69,15 @@ export function createAdminContext(
       deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
     channels,
-    purgeIdentity: (identity) => deps.purgeIdentity(identity),
+    purgeUser: (userId) => deps.purgeUser(userId),
     closeConnections: (filter, code, reason) => {
       for (const connection of deps.connections.values()) {
-        if (filter?.identity !== undefined && connection.identity !== filter.identity) continue;
+        if (filter?.userId !== undefined && connection.userId !== filter.userId) continue;
         connection.descriptor.close(code, reason);
       }
     },
-    getConnections: () =>
-      [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection)),
+    connections: buildConnectionsManager(deps),
+    users: buildUsersManager(deps),
     connectionCount: deps.connections.size,
     sql,
     kv,
@@ -98,9 +104,10 @@ export function adminBuiltIns(
   return {
     broadcast: ctx.broadcast,
     channels: ctx.channels,
-    purgeIdentity: ctx.purgeIdentity,
+    purgeUser: ctx.purgeUser,
     closeConnections: ctx.closeConnections,
-    getConnections: ctx.getConnections,
+    connections: ctx.connections,
+    users: ctx.users,
     connectionCount: ctx.connectionCount,
   };
 }

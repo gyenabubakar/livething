@@ -8,7 +8,7 @@ import {
   deleteInboxWatermarkForChannel,
   ensureInboxSchema,
   insertInboxRows,
-  insertInboxRowsForIdentity,
+  insertInboxRowsForUserId,
   loadInboxWatermarks,
   loadUndeliveredRows,
   pruneInboxRetention,
@@ -26,10 +26,10 @@ function setup() {
 }
 
 describe('inbox/storage — insert and load', () => {
-  it('writes one row per identity sharing the frame seq and messageId', () => {
+  it('writes one row per user id sharing the frame seq and messageId', () => {
     const sql = setup();
     insertInboxRows(sql, {
-      identities: ['alice', 'bob'],
+      userIds: ['alice', 'bob'],
       channelName: 'room',
       channelFamily: null,
       frame: frame(5),
@@ -49,17 +49,17 @@ describe('inbox/storage — insert and load', () => {
     expect(loadUndeliveredRows(sql, 'bob')[0]?.seq).toBe(5);
   });
 
-  it('de-dupes on the (identity, channel, seq) primary key via INSERT OR REPLACE', () => {
+  it('de-dupes on the (user_id, channel, seq) primary key via INSERT OR REPLACE', () => {
     const sql = setup();
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: frame(5, { payload: { n: 1 } }),
       now: 1000,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: frame(5, { payload: { n: 2 } }),
@@ -74,21 +74,21 @@ describe('inbox/storage — insert and load', () => {
   it('orders undelivered rows by channel then family then seq', () => {
     const sql = setup();
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'beta',
       channelFamily: null,
       frame: frame(9),
       now: 1,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'alpha',
       channelFamily: null,
       frame: frame(2),
       now: 1,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'alpha',
       channelFamily: null,
       frame: frame(1),
@@ -102,10 +102,10 @@ describe('inbox/storage — insert and load', () => {
     ]);
   });
 
-  it('backfills one identity from full frames keeping their own seq/messageId', () => {
+  it('backfills one user id from full frames keeping their own seq/messageId', () => {
     const sql = setup();
-    insertInboxRowsForIdentity(sql, {
-      identity: 'carol',
+    insertInboxRowsForUserId(sql, {
+      userId: 'carol',
       channelName: 'room',
       channelFamily: 'tenants',
       frames: [frame(3), frame(7)],
@@ -119,14 +119,14 @@ describe('inbox/storage — insert and load', () => {
   it('keys a static channel under an empty family and a family channel under its key', () => {
     const sql = setup();
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: frame(1),
       now: 1,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: 'rooms',
       frame: frame(2),
@@ -139,10 +139,10 @@ describe('inbox/storage — insert and load', () => {
 });
 
 describe('inbox/storage — ack lifecycle', () => {
-  function seedThree(sql: ReturnType<typeof setup>, identity = 'alice') {
+  function seedThree(sql: ReturnType<typeof setup>, userId = 'alice') {
     for (const seq of [1, 2, 3]) {
       insertInboxRows(sql, {
-        identities: [identity],
+        userIds: [userId],
         channelName: 'room',
         channelFamily: null,
         frame: frame(seq),
@@ -156,7 +156,7 @@ describe('inbox/storage — ack lifecycle', () => {
     seedThree(sql);
 
     ackInboxRows(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 2,
@@ -172,7 +172,7 @@ describe('inbox/storage — ack lifecycle', () => {
     seedThree(sql);
     function ack(receivedThrough: number) {
       ackInboxRows(sql, {
-        identity: 'alice',
+        userId: 'alice',
         channelName: 'room',
         channelFamily: null,
         receivedThrough,
@@ -192,7 +192,7 @@ describe('inbox/storage — ack lifecycle', () => {
     seedThree(sql);
 
     ackInboxRows(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       receivedThrough: 2,
@@ -206,7 +206,7 @@ describe('inbox/storage — ack lifecycle', () => {
       .exec<{
         seq: number;
         delivered_at: number;
-      }>('SELECT seq, delivered_at FROM __wskit_inbox WHERE identity = ? ORDER BY seq', 'alice')
+      }>('SELECT seq, delivered_at FROM __wskit_inbox WHERE user_id = ? ORDER BY seq', 'alice')
       .toArray();
     expect(delivered.map((r) => [r.seq, r.delivered_at])).toEqual([
       [1, 2000],
@@ -220,7 +220,7 @@ describe('inbox/storage — ack lifecycle', () => {
     seedThree(sql);
     function ack(now: number) {
       ackInboxRows(sql, {
-        identity: 'alice',
+        userId: 'alice',
         channelName: 'room',
         channelFamily: null,
         receivedThrough: 1,
@@ -234,7 +234,7 @@ describe('inbox/storage — ack lifecycle', () => {
     const first = sql
       .exec<{
         delivered_at: number;
-      }>('SELECT delivered_at FROM __wskit_inbox WHERE identity = ? AND seq = 1', 'alice')
+      }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = 1', 'alice')
       .one();
     expect(first?.delivered_at).toBe(2000);
   });
@@ -244,21 +244,21 @@ describe('inbox/storage — leave clears rows and watermark', () => {
   it('deleteInboxRowsForChannel scopes to one channel only', () => {
     const sql = setup();
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: frame(1),
       now: 1,
     });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'lobby',
       channelFamily: null,
       frame: frame(2),
       now: 1,
     });
 
-    deleteInboxRowsForChannel(sql, { identity: 'alice', channelName: 'room', channelFamily: null });
+    deleteInboxRowsForChannel(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
 
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.channelName)).toEqual(['lobby']);
   });
@@ -266,20 +266,20 @@ describe('inbox/storage — leave clears rows and watermark', () => {
   it('deleteInboxWatermarkForChannel removes only the matching scope (regression: leave leaves a stale gap)', () => {
     const sql = setup();
     bumpInboxWatermark(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       evictedThroughSeq: 7,
     });
     bumpInboxWatermark(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'lobby',
       channelFamily: null,
       evictedThroughSeq: 3,
     });
 
     deleteInboxWatermarkForChannel(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
     });
@@ -294,7 +294,7 @@ describe('inbox/storage — retention and watermark', () => {
   function seed(sql: ReturnType<typeof setup>, entries: Array<{ seq: number; now: number }>) {
     for (const { seq, now } of entries) {
       insertInboxRows(sql, {
-        identities: ['alice'],
+        userIds: ['alice'],
         channelName: 'room',
         channelFamily: null,
         frame: frame(seq),
@@ -311,7 +311,7 @@ describe('inbox/storage — retention and watermark', () => {
     );
 
     const evicted = pruneInboxRetention(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       retention: { maxMessages: 2 },
@@ -331,7 +331,7 @@ describe('inbox/storage — retention and watermark', () => {
     ]);
 
     const evicted = pruneInboxRetention(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       retention: { maxAgeMs: 50 },
@@ -353,7 +353,7 @@ describe('inbox/storage — retention and watermark', () => {
     ]);
 
     const evicted = pruneInboxRetention(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: 'room',
       channelFamily: null,
       retention: { maxAgeMs: 50, maxMessages: 2 },
@@ -370,7 +370,7 @@ describe('inbox/storage — retention and watermark', () => {
     seed(sql, [{ seq: 1, now: 90 }]);
     expect(
       pruneInboxRetention(sql, {
-        identity: 'alice',
+        userId: 'alice',
         channelName: 'room',
         channelFamily: null,
         retention: { maxAgeMs: 50, maxMessages: 5 },
@@ -379,11 +379,11 @@ describe('inbox/storage — retention and watermark', () => {
     ).toBeNull();
   });
 
-  it('bumpInboxWatermark never lowers, and clearInboxWatermarks removes all for the identity', () => {
+  it('bumpInboxWatermark never lowers, and clearInboxWatermarks removes all for the user id', () => {
     const sql = setup();
     function bump(evictedThroughSeq: number) {
       bumpInboxWatermark(sql, {
-        identity: 'alice',
+        userId: 'alice',
         channelName: 'room',
         channelFamily: null,
         evictedThroughSeq,

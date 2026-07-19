@@ -1,3 +1,4 @@
+import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -54,9 +55,8 @@ export function createShutdownContext(
     },
     cancelScheduled,
     connectionCount: deps.connections.size,
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
-    },
+    connections: buildConnectionsManager(deps),
+    users: buildUsersManager(deps),
     env: deps.env,
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,

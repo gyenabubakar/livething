@@ -11,7 +11,7 @@ const PERSISTENCE_KEY = Symbol('persistence');
 
 /**
  * Activates per-user durable state. At boot the engine creates the
- * identity-keyed tables and starts writing channel memberships across
+ * user-keyed tables and starts writing channel memberships across
  * reconnects. Channels persist by default; set `persistent: false` in a
  * channel's definition config to opt out per channel.
  *

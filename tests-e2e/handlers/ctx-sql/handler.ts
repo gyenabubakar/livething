@@ -143,13 +143,13 @@ const handleSqlOneMultiProbe = base.on('sql-one-multi-probe', {
 const handleConnectionsSnapshotProbe = base.on('connections-snapshot-probe', {
   input: v.object({}),
   run(ctx) {
-    const conns = ctx.getConnections();
+    const conns = ctx.connections.all();
     const c = conns[0];
     const shapeOk =
       !!c &&
       typeof c.id === 'string' &&
       c.id.length > 0 &&
-      typeof c.identity === 'string' &&
+      typeof c.userId === 'string' &&
       typeof c.meta === 'object' &&
       Array.isArray(c.channels) &&
       Array.isArray(c.tags) &&

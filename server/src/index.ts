@@ -39,10 +39,13 @@ export type { InferClient } from './infer-client.ts';
 export type {
   BroadcastOptions,
   ChannelHandle,
+  ChannelRecipient,
   ChannelsManager,
   ConnectionContext,
+  ConnectionHandle,
   ConnectionInfo,
   ConnectionRef,
+  ConnectionsManager,
   InitContext,
   Logger,
   ReplayScopeSendApi,
@@ -50,4 +53,8 @@ export type {
   ShutdownContext,
   TagRef,
   TaskContext,
+  UserHandle,
+  UserInfo,
+  UserRef,
+  UsersManager,
 } from './context.ts';

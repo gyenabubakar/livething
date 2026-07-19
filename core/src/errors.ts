@@ -608,6 +608,29 @@ export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
 export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-collision');
 
 /**
+ * Sent to the client when an anonymous connection (one whose `upgrade` returned
+ * no `userId`) tries to start a durable, resumable, or recorded stream. Those
+ * streams key their stored state by the user id so a later reconnect can resume
+ * them — an anonymous connection has no stable id to resume against, so the
+ * server refuses rather than write state that can never be reached again. Give
+ * the connection a `userId` in `upgrade`, or use a plain (non-durable) stream.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await socket.stream('start-tokens', { prompt });
+ * } catch (err) {
+ *   if (DurableStreamRequiresUser.matches(err)) {
+ *     // sign the user in (assign a userId) before starting a resumable stream
+ *   }
+ * }
+ * ```
+ */
+export const DurableStreamRequiresUser = /* @__PURE__ */ buildErrorFactory(
+  'durable-stream-requires-user',
+);
+
+/**
  * Sent to the client when an incoming frame is rejected because the connection
  * is sending faster than the configured rate-limit cap for the scope the frame
  * landed in. The handler does not run; the validator does not run. The client

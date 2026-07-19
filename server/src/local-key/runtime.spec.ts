@@ -9,7 +9,7 @@ import { localKey } from './local-key.ts';
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -57,7 +57,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     persistAttachment: vi.fn(),
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
-      identity: c.identity,
+      userId: c.userId,
       meta: c.meta,
       tags: [],
       channels: [],
@@ -68,7 +68,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
         __wskit: 'connection-ref',
         id: c.id,
         instance: undefined,
-        identity: c.identity,
+        userId: c.userId,
       }),
     }),
     attachPluginApis: vi.fn(),

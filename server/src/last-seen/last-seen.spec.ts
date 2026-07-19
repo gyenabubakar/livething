@@ -15,7 +15,7 @@ interface Captured {
   contextExtenders: Array<() => Record<string, unknown>>;
   service?: LastSeenService;
   online: Set<string>;
-  identityByConnection: Map<string, string>;
+  userIdByConnection: Map<string, string>;
 }
 
 function harness(options: LastSeenOptions = {}): Captured {
@@ -27,7 +27,7 @@ function harness(options: LastSeenOptions = {}): Captured {
     messageActivityHooks: [],
     contextExtenders: [],
     online: new Set(),
-    identityByConnection: new Map(),
+    userIdByConnection: new Map(),
   };
 
   const bootSchemaHooks: Array<() => void> = [];
@@ -44,9 +44,8 @@ function harness(options: LastSeenOptions = {}): Captured {
     onMessageActivity: (hook: (connectionId: string) => void) =>
       captured.messageActivityHooks.push(hook),
     requireStorage: () => ({ sql }),
-    isIdentityOnline: (identity: string) => captured.online.has(identity),
-    getConnectionIdentity: (connectionId: string) =>
-      captured.identityByConnection.get(connectionId),
+    isUserOnline: (userId: string) => captured.online.has(userId),
+    getConnectionIdentity: (connectionId: string) => captured.userIdByConnection.get(connectionId),
   } as unknown as EngineAccess;
 
   lastSeen(options).__setup!(engine as never);
@@ -54,30 +53,30 @@ function harness(options: LastSeenOptions = {}): Captured {
   return captured;
 }
 
-function ctxFor(identity: string) {
-  return { [ENGINE_INTERNAL_CONNECTION]: { identity } };
+function ctxFor(userId: string) {
+  return { [ENGINE_INTERNAL_CONNECTION]: { userId } };
 }
 
 describe('lastSeen storage', () => {
-  it('stamps and reads a single identity, never lowering an existing mark', () => {
+  it('stamps and reads a single user, never lowering an existing mark', () => {
     const sql = createTestSql();
     ensureLastSeenSchema(sql);
 
-    stampLastSeen(sql, { identity: 'alice', now: 500 });
+    stampLastSeen(sql, { userId: 'alice', now: 500 });
     expect(readLastSeen(sql, 'alice')).toBe(500);
 
-    stampLastSeen(sql, { identity: 'alice', now: 300 });
+    stampLastSeen(sql, { userId: 'alice', now: 300 });
     expect(readLastSeen(sql, 'alice')).toBe(500);
 
-    stampLastSeen(sql, { identity: 'alice', now: 900 });
+    stampLastSeen(sql, { userId: 'alice', now: 900 });
     expect(readLastSeen(sql, 'alice')).toBe(900);
   });
 
-  it('reads many identities in one call, keyed by identity', () => {
+  it('reads many users in one call, keyed by user id', () => {
     const sql = createTestSql();
     ensureLastSeenSchema(sql);
-    stampLastSeen(sql, { identity: 'alice', now: 1 });
-    stampLastSeen(sql, { identity: 'bob', now: 2 });
+    stampLastSeen(sql, { userId: 'alice', now: 1 });
+    stampLastSeen(sql, { userId: 'bob', now: 2 });
 
     const map = readLastSeenMany(sql, ['alice', 'bob', 'carol']);
     expect(map.get('alice')).toBe(1);
@@ -109,9 +108,9 @@ describe('lastSeen connection tracking', () => {
 });
 
 describe('lastSeen activity mode', () => {
-  it('stamps on activity, throttled per identity', () => {
+  it('stamps on activity, throttled per user', () => {
     const h = harness({ track: 'activity', throttleMs: 1000 });
-    h.identityByConnection.set('c1', 'alice');
+    h.userIdByConnection.set('c1', 'alice');
     expect(h.messageActivityHooks).toHaveLength(1);
     const activity = h.messageActivityHooks[0]!;
 
@@ -129,10 +128,10 @@ describe('lastSeen activity mode', () => {
     vi.restoreAllMocks();
   });
 
-  it('throttles each identity independently', () => {
+  it('throttles each user independently', () => {
     const h = harness({ track: 'activity', throttleMs: 1000 });
-    h.identityByConnection.set('c1', 'alice');
-    h.identityByConnection.set('c2', 'bob');
+    h.userIdByConnection.set('c1', 'alice');
+    h.userIdByConnection.set('c2', 'bob');
     const activity = h.messageActivityHooks[0]!;
 
     vi.spyOn(Date, 'now').mockReturnValue(100);
@@ -148,14 +147,14 @@ describe('ctx.lastSeen surface', () => {
   it('exposes at / atMany / online', () => {
     const h = harness();
     h.online.add('alice');
-    stampLastSeen(h.sql, { identity: 'alice', now: 7 });
-    stampLastSeen(h.sql, { identity: 'bob', now: 8 });
+    stampLastSeen(h.sql, { userId: 'alice', now: 7 });
+    stampLastSeen(h.sql, { userId: 'bob', now: 8 });
 
     const surface = h.contextExtenders[0]!() as {
       lastSeen: {
-        at(identity: string): number | null;
-        atMany(identities: string[]): Map<string, number>;
-        online(identity: string): boolean;
+        at(userId: string): number | null;
+        atMany(userIds: string[]): Map<string, number>;
+        online(userId: string): boolean;
       };
     };
 
@@ -172,7 +171,7 @@ describe('ctx.lastSeen surface', () => {
   it('feeds the lastSeenService slot with durable at() and in-memory online()', () => {
     const h = harness();
     h.online.add('alice');
-    stampLastSeen(h.sql, { identity: 'alice', now: 55 });
+    stampLastSeen(h.sql, { userId: 'alice', now: 55 });
 
     expect(h.service).toBeDefined();
     expect(h.service!.at('alice')).toBe(55);

@@ -13,7 +13,7 @@ const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 const base = define({
   env: t<{ SECRET: string }>(),
-  upgrade: () => ({ identity: 'x', meta: { username: 'x' } }),
+  upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
     emits({ welcome: t<{ username: string }>() }),
     emits({ goodbye: t<{ username: string }>() }),

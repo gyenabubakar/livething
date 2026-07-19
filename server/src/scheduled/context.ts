@@ -1,5 +1,5 @@
+import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
-import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -16,10 +16,8 @@ export function createTaskContext(
     broadcast: (event, payload) => {
       deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
-    ...buildConnectionHandle(deps),
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
-    },
+    connections: buildConnectionsManager(deps),
+    users: buildUsersManager(deps),
     connectionCount: deps.connections.size,
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);

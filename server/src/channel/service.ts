@@ -10,9 +10,9 @@ import type { ChannelService } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 /**
- * Bind `leaveChannel` to one engine core. The kick, unsubscribe, and
- * remove-member flows all hand this to the channel primitive so a leave runs
- * the full lifecycle (hooks, peer broadcasts, durable cleanup).
+ * Bind `leaveChannel` to one engine core. The kick and unsubscribe flows both
+ * hand this to the channel primitive so a leave runs the full lifecycle
+ * (hooks, peer broadcasts, durable cleanup).
  */
 function boundLeave(core: EngineCore) {
   return (connection: RuntimeConnection, opts: ChannelPrimitive.LeaveChannelOptions) =>
@@ -55,20 +55,6 @@ export const channelService: ChannelService = {
     return EngineChannelFrames.kickChannelMembers(
       { ...channelRuntime(core), leaveChannel: boundLeave(core) },
       opts,
-    );
-  },
-
-  removeChannelMember(core, key) {
-    return ChannelPrimitive.removeChannelMember(
-      {
-        compiled: core.compiled,
-        connections: core.connections,
-        logger: core.logger,
-        deleteDurableMembership: (durableKey) =>
-          core.persistenceService?.deleteDurableMembership(core, durableKey),
-      },
-      boundLeave(core),
-      key,
     );
   },
 

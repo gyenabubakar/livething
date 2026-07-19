@@ -135,12 +135,12 @@ function buildReceivedHandler(deps: {
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const identity = (ctx as { identity?: string }).identity ?? '';
+    const userId = (ctx as { user?: { id?: string } }).user?.id ?? '';
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
-    if (identity && isMember(ctx, channelName, channelFamily)) {
+    if (userId && isMember(ctx, channelName, channelFamily)) {
       applyInboxAck(engine.requireStorage().sql, {
-        identity,
+        userId,
         channelName,
         channelFamily,
         receivedThrough: frame.payload.receivedThrough,
@@ -152,7 +152,7 @@ function buildReceivedHandler(deps: {
         {
           channelName,
           channelFamily,
-          identity,
+          userId,
           receivedThrough: frame.payload.receivedThrough,
           now: Date.now(),
         },
@@ -163,7 +163,7 @@ function buildReceivedHandler(deps: {
           channelName,
           channelFamily,
           event: '__received__',
-          payload: { identity, receivedThrough: cursors.receivedThrough },
+          payload: { userId, receivedThrough: cursors.receivedThrough },
         });
       }
     }
@@ -194,7 +194,7 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
     ];
     if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
 
-    const identities = listReceivers(engine.requireStorage().sql, {
+    const userIds = listReceivers(engine.requireStorage().sql, {
       channelName,
       channelFamily,
       seq: frame.payload.seq,
@@ -207,7 +207,7 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
     if (channelFamily !== null) wskit.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__receivedQuery__',
-      payload: { identities },
+      payload: { userIds },
       wskit,
     });
     return true;

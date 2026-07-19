@@ -47,13 +47,13 @@ const room = h.channel('room', {
 });
 
 room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { who: ctx.id }, { excludeSelf: false });
+  ctx.channel.broadcast('joined', { who: ctx.connection.id }, { includeSelf: true });
 });
 
 const roomChat = room.on('chat', {
   input: v.object({ text: v.string() }),
   run(ctx, payload) {
-    ctx.channel.broadcast('said', { text: payload.text }, { excludeSelf: false });
+    ctx.channel.broadcast('said', { text: payload.text }, { includeSelf: true });
   },
 });
 
@@ -65,7 +65,7 @@ const thread = h.channel(['thread', 'thread:{id}'], {
 });
 
 thread.subscribe((ctx) => {
-  ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { excludeSelf: false });
+  ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
 });
 
 // Client → plugin incoming event, plugin emits back.

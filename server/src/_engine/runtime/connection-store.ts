@@ -5,7 +5,7 @@ import type { RuntimeConnection } from './types.ts';
 const CREATE_CONNECTIONS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_connections (
     connection_id         TEXT PRIMARY KEY,
-    identity              TEXT NOT NULL,
+    user_id               TEXT NOT NULL,
     meta                  TEXT NOT NULL,
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
@@ -15,9 +15,9 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
   )
 `;
 
-const CREATE_CONNECTIONS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_connections_identity
-  ON __wskit_connections (identity)
+const CREATE_CONNECTIONS_USER_ID_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_connections_user_id
+  ON __wskit_connections (user_id)
 `;
 
 /**
@@ -36,7 +36,7 @@ export interface StoredEphemeralTag {
  */
 export interface StoredConnectionRow {
   connection_id: string;
-  identity: string;
+  user_id: string;
   meta: Record<string, unknown>;
   ephemeral_tags: readonly StoredEphemeralTag[];
   ephemeral_memberships: readonly { channelName: string; channelFamily: string | null }[];
@@ -47,7 +47,7 @@ export interface StoredConnectionRow {
 
 type RawRow = {
   connection_id: string;
-  identity: string;
+  user_id: string;
   meta: string;
   ephemeral_tags: string;
   ephemeral_memberships: string;
@@ -55,10 +55,10 @@ type RawRow = {
 };
 
 // Table + index bundled — one round trip instead of two.
-const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNECTIONS_IDENTITY_INDEX_SQL}`;
+const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNECTIONS_USER_ID_INDEX_SQL}`;
 
 /**
- * Create the table and identity index used to persist per-connection state
+ * Create the table and user id index used to persist per-connection state
  * across hibernation cycles. Idempotent — safe to call on every engine boot.
  */
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
@@ -76,7 +76,7 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
   }
   return {
     connection_id: connection.id,
-    identity: connection.identity,
+    user_id: connection.userId,
     meta: connection.meta,
     ephemeral_tags,
     ephemeral_memberships: [...connection.channelMemberships.values()],
@@ -92,11 +92,11 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_connections
-        (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
+        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
       VALUES (?, ?, ?, ?, ?, ?)
     `,
     row.connection_id,
-    row.identity,
+    row.user_id,
     serializeJsonOrThrow(row.meta, `Connection meta for "${row.connection_id}"`),
     JSON.stringify(row.ephemeral_tags),
     JSON.stringify(row.ephemeral_memberships),
@@ -115,7 +115,7 @@ export function readConnectionRow(
   const raw = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
         FROM __wskit_connections
         WHERE connection_id = ?
       `,
@@ -125,7 +125,7 @@ export function readConnectionRow(
   if (!raw) return null;
   return {
     connection_id: raw.connection_id,
-    identity: raw.identity,
+    user_id: raw.user_id,
     meta: parseObject(raw.meta),
     ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
     ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),

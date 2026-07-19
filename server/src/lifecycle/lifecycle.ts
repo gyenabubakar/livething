@@ -15,9 +15,9 @@ export interface UpgradeResult {
    * user id, session id, device id, whatever your app treats as "the same
    * client across reconnects". WSKit does not interpret it; it stores it on
    * the connection and uses it as a row key for any per-user durable state.
-   * Surfaced as `ctx.identity` in every handler context.
+   * Surfaced as `ctx.user.id` in every handler context.
    */
-  readonly identity: string;
+  readonly userId: string;
   /**
    * Arbitrary key/value data attached to every connection established from this
    * upgrade. Accessible as `ctx.meta` in all handler contexts.

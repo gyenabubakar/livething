@@ -44,7 +44,7 @@ function createFakeCore(): {
 function createFakeConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: { key: id },
     descriptor: {} as never,
     meta: {},

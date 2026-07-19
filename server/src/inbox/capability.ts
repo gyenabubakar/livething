@@ -21,7 +21,7 @@ export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
  * catch-up on a shared log), inbox writes a real per-member copy on every channel
  * broadcast and holds it until that member acks with `__received__`. Turn it on
  * per channel with `inbox: true` (or an options object) inside a channel
- * definition. Members must have a stable identity — anonymous connections get
+ * definition. Members must have a stable user id — anonymous connections get
  * live-only delivery.
  *
  * Requires `channels()`, `persistence()`, `sequence({ persist: true })`, and

@@ -99,8 +99,8 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const identity = (ctx as { identity?: string }).identity ?? '';
-    if (!identity) return true;
+    const userId = (ctx as { user?: { id?: string } }).user?.id ?? '';
+    if (!userId) return true;
 
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
@@ -111,7 +111,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
       {
         channelName,
         channelFamily,
-        identity,
+        userId,
         readThrough: frame.payload.readThrough,
         now: Date.now(),
       },
@@ -123,7 +123,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
       channelName,
       channelFamily,
       event: '__read__',
-      payload: { identity, readThrough: cursors.readThrough },
+      payload: { userId, readThrough: cursors.readThrough },
     });
 
     // Read implies received, so a read mark can pull received up and settle the
@@ -132,7 +132,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
       const inboxConfig = settleInboxOnRead(engine, channelKey, {
         channelName,
         channelFamily,
-        identity,
+        userId,
         cursors,
       });
       if (inboxConfig?.broadcastReceipts) {
@@ -140,7 +140,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
           channelName,
           channelFamily,
           event: '__received__',
-          payload: { identity, receivedThrough: cursors.receivedThrough },
+          payload: { userId, receivedThrough: cursors.receivedThrough },
         });
       }
     }
@@ -168,7 +168,7 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
     ];
     if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
 
-    const identities = listReaders(engine.requireStorage().sql, {
+    const userIds = listReaders(engine.requireStorage().sql, {
       channelName,
       channelFamily,
       seq: frame.payload.seq,
@@ -181,7 +181,7 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
     if (channelFamily !== null) wskit.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__readQuery__',
-      payload: { identities },
+      payload: { userIds },
       wskit,
     });
     return true;
@@ -200,14 +200,14 @@ function settleInboxOnRead(
   opts: {
     channelName: string;
     channelFamily: string | null;
-    identity: string;
+    userId: string;
     cursors: AdvancedReadCursors;
   },
 ): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
   if (!inboxConfig) return undefined;
   applyInboxAck(engine.requireStorage().sql, {
-    identity: opts.identity,
+    userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     receivedThrough: opts.cursors.receivedThrough,

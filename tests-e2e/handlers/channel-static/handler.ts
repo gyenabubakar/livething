@@ -45,7 +45,7 @@ const handleKickByTag = base.on('kick-by-tag', {
   async run(ctx, payload) {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-ack', { tag: payload.tag });
   },
 });
@@ -53,7 +53,7 @@ const handleKickByTag = base.on('kick-by-tag', {
 const handleTriggerServerSubscribe = base.on('trigger-server-subscribe', {
   input: v.object({}),
   async run(ctx) {
-    await ctx.channels.get('room2').subscribe(ctx.self);
+    await ctx.channels.get('room2').subscribe(ctx.connection);
   },
 });
 

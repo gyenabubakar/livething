@@ -12,10 +12,10 @@ import { cancelDurableStream, resumeDurableStream, runDurableStream } from './ru
 import * as Storage from './storage.ts';
 import type { DurableStreamRuntimeDef } from './runtime.ts';
 
-function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
+function createConnection(id = 'c1', userId = 'u1'): RuntimeConnection {
   return {
     id,
-    identity,
+    userId,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -23,7 +23,7 @@ function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity,
+      identity: userId,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -133,7 +133,7 @@ describe('durable stream runtime', () => {
     const row = Storage.readStream(sql, 'u1', 'gen-1');
     expect(row?.status).toBe('ended');
     expect(
-      Storage.readChunksSince(sql, { identity: 'u1', streamId: 'gen-1', since: 0 }),
+      Storage.readChunksSince(sql, { userId: 'u1', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(2);
   });
 
@@ -168,7 +168,7 @@ describe('durable stream runtime', () => {
     });
 
     expect(caughtReason).toBe('buffer-full');
-    const chunkRows = Storage.readChunksSince(sql, { identity: 'u1', streamId: 'gen-1', since: 0 });
+    const chunkRows = Storage.readChunksSince(sql, { userId: 'u1', streamId: 'gen-1', since: 0 });
     expect(chunkRows.length).toBeLessThanOrEqual(2);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
@@ -180,7 +180,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-1',
       event: 'e',
       payload: '{}',
@@ -189,7 +189,7 @@ describe('durable stream runtime', () => {
       maxChunks: 10,
     });
     Storage.appendChunk(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-1',
       seq: 1,
       messageId: null,
@@ -200,7 +200,7 @@ describe('durable stream runtime', () => {
     await cancelDurableStream(runtime as never, connection, { streamId: 's-1', cancelScope: {} });
 
     expect(Storage.readStream(sql, 'u1', 's-1')).toBeNull();
-    expect(Storage.readChunksSince(sql, { identity: 'u1', streamId: 's-1', since: 0 })).toEqual([]);
+    expect(Storage.readChunksSince(sql, { userId: 'u1', streamId: 's-1', since: 0 })).toEqual([]);
   });
 
   it('resumeDurableStream — unknown stream id surfaces stream-aborted not-found', async () => {
@@ -229,7 +229,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 'busy',
       event: 'e',
       payload: '{}',
@@ -415,7 +415,7 @@ describe('durable stream runtime', () => {
 
     // A partially-written / corrupt row: payload is not valid JSON.
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 'corrupt',
       event: 'e',
       payload: '{not valid json',
@@ -453,7 +453,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-replay',
       event: 'e',
       payload: '{}',
@@ -463,7 +463,7 @@ describe('durable stream runtime', () => {
     });
     for (let seq = 1; seq <= 5; seq += 1) {
       Storage.appendChunk(sql, {
-        identity: 'u1',
+        userId: 'u1',
         streamId: 's-replay',
         seq,
         messageId: `m-${seq}`,
@@ -471,7 +471,7 @@ describe('durable stream runtime', () => {
         now: Date.now(),
       });
     }
-    Storage.markEnded(sql, { identity: 'u1', streamId: 's-replay', now: Date.now() });
+    Storage.markEnded(sql, { userId: 'u1', streamId: 's-replay', now: Date.now() });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
@@ -492,7 +492,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-cursor',
       event: 'e',
       payload: '{}',
@@ -500,13 +500,13 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
     Storage.updateCursor(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-cursor',
       cursor: JSON.stringify({ idx: 4 }),
       lastSeq: 4,
       now: Date.now(),
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 's-cursor', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-cursor', now: Date.now() });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({
@@ -539,7 +539,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-seq',
       event: 'e',
       payload: '{}',
@@ -547,13 +547,13 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
     Storage.updateCursor(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-seq',
       cursor: JSON.stringify({ idx: 3 }),
       lastSeq: 3,
       now: Date.now(),
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 's-seq', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-seq', now: Date.now() });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({
@@ -587,7 +587,7 @@ describe('durable stream runtime', () => {
 
     const longAgo = Date.now() - 60_000;
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-old',
       event: 'e',
       payload: '{}',
@@ -595,7 +595,7 @@ describe('durable stream runtime', () => {
       now: longAgo,
       maxAgeMs: 1_000,
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 's-old', now: longAgo });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-old', now: longAgo });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable' }) }),
@@ -618,7 +618,7 @@ describe('durable stream runtime', () => {
 
     const longAgo = Date.now() - 60_000;
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-ended-old',
       event: 'e',
       payload: '{}',
@@ -626,7 +626,7 @@ describe('durable stream runtime', () => {
       now: longAgo,
       retentionAfterEndMs: 500,
     });
-    Storage.markEnded(sql, { identity: 'u1', streamId: 's-ended-old', now: longAgo });
+    Storage.markEnded(sql, { userId: 'u1', streamId: 's-ended-old', now: longAgo });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
@@ -648,7 +648,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-valid',
       event: 'e',
       payload: '{}',
@@ -656,13 +656,13 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
     Storage.updateCursor(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-valid',
       cursor: JSON.stringify({ idx: 7 }),
       lastSeq: 7,
       now: Date.now(),
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 's-valid', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-valid', now: Date.now() });
 
     function cursorValidator(raw: unknown): { idx: number } {
       const obj = raw as Record<string, unknown>;
@@ -699,7 +699,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-bad',
       event: 'e',
       payload: '{}',
@@ -708,13 +708,13 @@ describe('durable stream runtime', () => {
     });
     // Stamp a cursor shape the validator will reject (idx is a string).
     Storage.updateCursor(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 's-bad',
       cursor: JSON.stringify({ idx: 'oops' }),
       lastSeq: 4,
       now: Date.now(),
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 's-bad', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 's-bad', now: Date.now() });
 
     // Schema rejects the stored cursor because `idx` is a string.
     const cursorValidator = v.object({ idx: v.number() });
@@ -774,14 +774,14 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 'a',
       event: 'e',
       payload: '{}',
       kind: 'resumable',
       now: Date.now(),
     });
-    Storage.markSuspended(sql, { identity: 'u1', streamId: 'a', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u1', streamId: 'a', now: Date.now() });
 
     await resumeDurableStream(runtime as never, connection, {
       resolveDef: () => ({
@@ -912,12 +912,12 @@ describe('durable stream runtime', () => {
     });
 
     // Row is keyed by broadcast scope key (top-level here), not the
-    // creator's identity.
+    // creator's user id.
     expect(Storage.readStream(sql, 'u-creator', 'gen-1')).toBeNull();
     const row = Storage.readStream(sql, '__bcast:top__', 'gen-1');
     expect(row).not.toBeNull();
     expect(row!.broadcast).toBe(true);
-    expect(row!.creatorIdentity).toBe('u-creator');
+    expect(row!.creatorUserId).toBe('u-creator');
 
     // Both chunks were sent to the peer via the outgoing pipeline (same as
     // the creator's own copies — broadcastToConnections is no longer used
@@ -969,19 +969,19 @@ describe('durable stream runtime', () => {
     const peer = createConnection('c-peer', 'u-peer');
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 'b-1',
       event: 'e',
       payload: '{}',
       kind: 'recorded',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
     for (let seq = 1; seq <= 3; seq += 1) {
       Storage.appendChunk(sql, {
-        identity: '__bcast:top__',
+        userId: '__bcast:top__',
         streamId: 'b-1',
         seq,
         messageId: null,
@@ -990,7 +990,7 @@ describe('durable stream runtime', () => {
       });
     }
     Storage.updateLastSeq(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 'b-1',
       lastSeq: 3,
       now: Date.now(),
@@ -1045,7 +1045,7 @@ describe('durable stream runtime', () => {
     expect(row.broadcast).toBe(true);
     expect(JSON.parse(row.cursor!)).toEqual({ idx: 3 });
     expect(
-      Storage.readChunksSince(sql, { identity: '__bcast:top__', streamId: 'gen-1', since: 0 }),
+      Storage.readChunksSince(sql, { userId: '__bcast:top__', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(0);
   });
 
@@ -1102,7 +1102,7 @@ describe('durable stream runtime', () => {
     expect(row.cursor).toBeNull();
     expect(row.lastSeq).toBe(3);
     expect(
-      Storage.readChunksSince(sql, { identity: 'u1', streamId: 'gen-1', since: 0 }),
+      Storage.readChunksSince(sql, { userId: 'u1', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(0);
   });
 
@@ -1113,18 +1113,18 @@ describe('durable stream runtime', () => {
     const peer = createConnection('c-peer', 'u-peer');
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-b',
       event: 'e',
       payload: '{}',
       kind: 'resumable',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
     Storage.updateCursor(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-b',
       cursor: JSON.stringify({ idx: 2 }),
       lastSeq: 2,
@@ -1156,9 +1156,9 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
     expect(
       Storage.getSubscriber(sql, {
-        storageIdentity: '__bcast:top__',
+        storageUserId: '__bcast:top__',
         streamId: 's-b',
-        subscriberIdentity: 'u-peer',
+        subscriberUserId: 'u-peer',
       })?.caughtUpSeq,
     ).toBe(2);
   });
@@ -1182,9 +1182,9 @@ describe('durable stream runtime', () => {
             if (i === 3) {
               runtime.connections.set(peer.id, peer);
               Storage.setCaughtUpSeq(sql, {
-                storageIdentity: '__bcast:top__',
+                storageUserId: '__bcast:top__',
                 streamId: 'gen-1',
-                subscriberIdentity: 'u-peer',
+                subscriberUserId: 'u-peer',
                 caughtUpSeq: 2,
               });
             }
@@ -1210,18 +1210,18 @@ describe('durable stream runtime', () => {
     runtime.connections.set(creator.id, creator);
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-bc',
       event: 'e',
       payload: '{}',
       kind: 'resumable',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
     Storage.updateCursor(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-bc',
       cursor: JSON.stringify({ idx: 5 }),
       lastSeq: 5,
@@ -1261,7 +1261,7 @@ describe('durable stream runtime', () => {
     expect(produced).toEqual([6]);
 
     const buffered = Storage.readChunksSince(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-bc',
       since: 0,
     });
@@ -1275,14 +1275,14 @@ describe('durable stream runtime', () => {
     const peer = createConnection('c-peer', 'u-peer');
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-c',
       event: 'e',
       payload: '{}',
       kind: 'recorded',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
 
@@ -1291,9 +1291,9 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, '__bcast:top__', 's-c')).not.toBeNull();
     expect(
       Storage.isUnsubscribed(sql, {
-        storageIdentity: '__bcast:top__',
+        storageUserId: '__bcast:top__',
         streamId: 's-c',
-        subscriberIdentity: 'u-peer',
+        subscriberUserId: 'u-peer',
       }),
     ).toBe(true);
   });
@@ -1305,14 +1305,14 @@ describe('durable stream runtime', () => {
     const creator = createConnection('c-creator', 'u-creator');
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-d',
       event: 'e',
       payload: '{}',
       kind: 'recorded',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
 
@@ -1321,27 +1321,27 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, '__bcast:top__', 's-d')).toBeNull();
   });
 
-  it('broadcast resume — unsubscribed identity gets stream-aborted unsubscribed', async () => {
+  it('broadcast resume — unsubscribed user gets stream-aborted unsubscribed', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
     const peer = createConnection('c-peer', 'u-peer');
 
     Storage.insertStream(sql, {
-      identity: '__bcast:top__',
+      userId: '__bcast:top__',
       streamId: 's-e',
       event: 'e',
       payload: '{}',
       kind: 'recorded',
       now: Date.now(),
       broadcast: true,
-      creatorIdentity: 'u-creator',
+      creatorUserId: 'u-creator',
       maxChunks: 10,
     });
     Storage.markUnsubscribed(sql, {
-      storageIdentity: '__bcast:top__',
+      storageUserId: '__bcast:top__',
       streamId: 's-e',
-      subscriberIdentity: 'u-peer',
+      subscriberUserId: 'u-peer',
       now: Date.now(),
     });
 
@@ -1628,7 +1628,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 'a',
       event: 'e',
       payload: '{}',
@@ -1684,7 +1684,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     Storage.insertStream(sql, {
-      identity: 'u1',
+      userId: 'u1',
       streamId: 'a',
       event: 'e',
       payload: '{}',

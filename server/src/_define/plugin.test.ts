@@ -109,7 +109,7 @@ describe('plugin typing', () => {
     define<{ userId: string }>({
       scoped: true,
       upgrade() {
-        return { identity: 'u1', meta: { userId: 'u1' } };
+        return { userId: 'u1', meta: { userId: 'u1' } };
       },
     });
   });

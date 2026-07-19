@@ -20,7 +20,7 @@ async function send(
 function makeConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: {},
     descriptor: { send() {}, close() {} } as unknown as RuntimeConnection['descriptor'],
     meta: {},

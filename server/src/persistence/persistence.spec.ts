@@ -50,9 +50,9 @@ describe('persistence()', () => {
 
     expect(created).toContain('__wskit_channel_memberships');
     expect(created).toContain('__wskit_tags');
-    expect(created).toContain('__wskit_idx_channel_memberships_identity');
+    expect(created).toContain('__wskit_idx_channel_memberships_user');
     expect(created).toContain('__wskit_idx_channel_memberships_channel');
-    expect(created).toContain('__wskit_idx_tags_identity');
+    expect(created).toContain('__wskit_idx_tags_user');
     expect(created).toContain('__wskit_idx_tags_group_key');
   });
 });

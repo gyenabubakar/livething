@@ -3,6 +3,7 @@ import { channels } from '@wskit/server/channels';
 import { Disconnect } from '@wskit/server/errors';
 import { persistence } from '@wskit/server/persistence';
 import { requests } from '@wskit/server/requests';
+import { resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
@@ -26,6 +27,7 @@ const base = define({
     persistence(),
     channels(),
     requests(),
+    resumableStream(),
     emits({
       'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
       // Test support: a per-subscribe-flow ack so a test can count how many times
@@ -39,7 +41,12 @@ const base = define({
 const handleRemoveMember = base.on('remove-member', {
   input: RemoveMemberPayload,
   async run(ctx, input) {
-    await ctx.channels.get('archive-room').removeMember(input.identity);
+    await ctx.channels
+      .get('archive-room')
+      .kick(
+        { __wskit: 'user-ref', id: input.identity, instance: undefined },
+        { reason: 'removed', revoke: true },
+      );
   },
 });
 
@@ -77,6 +84,17 @@ const handleReadExecCount = base.request('read-exec-count', {
   input: v.object({}),
   async run(ctx) {
     return { count: Number((await ctx.kv.get('exec-count')) ?? '0') };
+  },
+});
+
+// Anonymous connections (`upgrade` returned no `userId`) cannot resume a
+// stream on reconnect — they have no stable id to key the resume against. The
+// engine rejects the start with `DurableStreamRequiresUser` before this runs.
+const handleAnonStream = base.resumableStream('anon-stream', {
+  input: v.object({}),
+  chunk: t<{ n: number }>(),
+  async *run() {
+    yield { n: 1 };
   },
 });
 
@@ -166,6 +184,7 @@ export const persistenceHandler = base.assemble({
     handleServerDrop,
     handleRecordExec,
     handleReadExecCount,
+    handleAnonStream,
     handleSendMessage,
     typingIndicator,
     capacityRoom,

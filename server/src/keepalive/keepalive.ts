@@ -38,7 +38,10 @@ const KEEPALIVE_KEY = Symbol('keepalive');
 
 /** Read the connection id off a lifecycle context, or `''` when it has none. */
 function connectionIdOf(ctx: unknown): string {
-  return String((ctx as Record<PropertyKey, unknown>).id ?? '');
+  const connection = (ctx as Record<PropertyKey, unknown>).connection as
+    | { id?: unknown }
+    | undefined;
+  return String(connection?.id ?? '');
 }
 
 /**

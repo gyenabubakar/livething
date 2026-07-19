@@ -36,7 +36,7 @@ function requestDispatchForSpec(
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),

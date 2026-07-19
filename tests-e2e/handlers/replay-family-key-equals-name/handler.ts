@@ -25,7 +25,7 @@ const handleSendBatch = rooms.on('send-batch', {
   input: SendBatch,
   run(ctx, payload) {
     for (let i = 0; i < payload.count; i++) {
-      ctx.channel.broadcast('room-message', { text: `msg-${i}` }, { excludeSelf: false });
+      ctx.channel.broadcast('room-message', { text: `msg-${i}` }, { includeSelf: true });
     }
   },
 });

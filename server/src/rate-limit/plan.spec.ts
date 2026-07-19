@@ -152,15 +152,15 @@ describe('resolvePlan — cascade', () => {
   });
 
   it('`per` callback inherits down the cascade', () => {
-    function perByIdentity(ctx: any) {
-      return ctx.identity;
+    function perByUserId(ctx: any) {
+      return ctx.user.id;
     }
     const plan = resolvePlan({
-      contractRateLimit: { enabled: true, max: 60, per: perByIdentity },
+      contractRateLimit: { enabled: true, max: 60, per: perByUserId },
       definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
       overrides: emptyOverrides,
     });
-    expect(plan!.scopeRules.get('channel:ai')?.per).toBe(perByIdentity);
+    expect(plan!.scopeRules.get('channel:ai')?.per).toBe(perByUserId);
   });
 
   it('emits a plan when only per-event overrides exist (no scope rules)', () => {

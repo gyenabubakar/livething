@@ -108,7 +108,7 @@ export function buildGroupHandle(
   const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 
-  const persistsDurably = runtime.persistenceEnabled && connection.identity.length > 0;
+  const persistsDurably = runtime.persistenceEnabled && connection.userId.length > 0;
 
   return {
     __wskit: 'group-handle',
@@ -137,7 +137,7 @@ export function buildGroupHandle(
       // Durable write before the live mutation, so a failed SQL write cannot
       // leave the tag live with nothing saved.
       if (persistsDurably) {
-        insertTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
+        insertTag(runtime.requireStorage().sql, { userId: connection.userId, group, key });
       }
       addConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },
@@ -155,7 +155,7 @@ export function buildGroupHandle(
       if (!readBag(connection, kind).get(group)?.has(key)) return;
       // Durable delete before the live mutation, for the same reason as add().
       if (persistsDurably) {
-        deleteTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
+        deleteTag(runtime.requireStorage().sql, { userId: connection.userId, group, key });
       }
       removeConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },

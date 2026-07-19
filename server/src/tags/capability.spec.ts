@@ -68,7 +68,7 @@ describe('tags() capability', () => {
     const base = define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'alice', tags: { ephemeral: { role: 'admin' } } };
+        return { userId: 'alice', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
@@ -87,7 +87,7 @@ describe('tags() capability', () => {
     const base = define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'alice' };
+        return { userId: 'alice' };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });

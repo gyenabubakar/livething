@@ -23,11 +23,11 @@ const base = define({
 });
 
 base.onPing((ctx) => {
-  ctx.send('ping-seen', { connectionId: ctx.id });
+  ctx.send('ping-seen', { connectionId: ctx.connection.id });
 });
 
 base.onPong((ctx) => {
-  ctx.send('pong-seen', { connectionId: ctx.id });
+  ctx.send('pong-seen', { connectionId: ctx.connection.id });
 });
 
 export const heartbeatHibernationHandler = base.assemble({ handlers: [] });

@@ -37,7 +37,7 @@ export interface ContextCommonDeps {
 
   /**
    * The engine's instance id, or `undefined` when running single-instance.
-   * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.self`.
+   * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.connection`.
    */
   instanceId: string | undefined;
 
@@ -61,23 +61,25 @@ export interface ContextCommonDeps {
 
   broadcastToChannel(opts: OutgoingRuntime.BroadcastToChannelOptions): void;
 
+  /**
+   * Deliver a channel-scoped frame to the members a `to` recipient addresses,
+   * returning the number of sockets reached. Backs `ctx.channel.send(..., { to })`
+   * and the equivalent on any `ChannelHandle`.
+   */
+  sendToChannelRecipient(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    to: ChannelRuntime.ChannelRecipient;
+    event: string;
+    payload: unknown;
+  }): number;
+
   getChannelMembers(
     channelName: string,
     channelFamily: string | null,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
   kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
-
-  /**
-   * Remove every live connection of the given identity from one channel
-   * AND drop the durable membership row. True-leave semantics —
-   * `onUnsubscribe` fires, `__memberLeave__`/`__memberOffline__` broadcast.
-   */
-  removeChannelMember(
-    channelName: string,
-    channelFamily: string | null,
-    identity: string,
-  ): Promise<void>;
 
   /**
    * Server-initiated channel subscribe. Invoked from `channelHandle.subscribe(ref)`.
@@ -160,6 +162,8 @@ export interface ContextCommonDeps {
 export interface BuildConnectionContextDeps extends ContextCommonDeps {
   compiled: EngineCompileTypes.CompiledServer;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  /** User-key → members index backing `ctx.user` / `ctx.users` fan-out. */
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 }
 
@@ -168,4 +172,6 @@ export interface BuildConnectionContextDeps extends ContextCommonDeps {
  */
 export interface CreateTaskContextDeps extends ContextCommonDeps {
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  /** User-key → members index, backing the connectionless `ctx.users` surface. */
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 }

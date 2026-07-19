@@ -38,7 +38,7 @@ function makeCore(): EngineCore {
 function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
-    identity: 'c1',
+    userId: 'c1',
     wsKey: Symbol('c1'),
     descriptor: {
       send() {},

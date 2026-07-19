@@ -81,7 +81,7 @@ const handleKickInPublic = base.on('kick-in-public', {
   async run(ctx, payload) {
     await ctx.channels
       .get('publicRooms', payload.name)
-      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('user').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-acknowledged', { where: 'publicRooms' });
   },
 });
@@ -91,7 +91,7 @@ const handleKickInPrivate = base.on('kick-in-private', {
   async run(ctx, payload) {
     await ctx.channels
       .get('privateRooms', payload.name)
-      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('user').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-acknowledged', { where: 'privateRooms' });
   },
 });

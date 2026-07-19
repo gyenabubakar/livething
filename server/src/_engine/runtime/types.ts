@@ -86,7 +86,7 @@ export interface PluginLifecycleHooks {
 
 /**
  * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
- * inbound onion. It may own `identity` — but only one upgrade hook (a
+ * inbound onion. It may own `userId` — but only one upgrade hook (a
  * plugin's or the app's) may, enforced at runtime.
  */
 export interface PluginUpgradeEntry {
@@ -95,8 +95,8 @@ export interface PluginUpgradeEntry {
     request: Request,
     helpers: LifecycleTypes.UpgradeHelpers,
   ) =>
-    | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
-    | Promise<{ identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
+    | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+    | Promise<{ userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
 }
 
 /**
@@ -258,9 +258,9 @@ export interface RegisteredEngineHooks {
         request: Request,
         helpers: LifecycleTypes.UpgradeHelpers,
       ) =>
-        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+        | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
         | Promise<{
-            identity?: string;
+            userId?: string;
             meta?: Record<string, unknown>;
             tags?: readonly TagRef[];
           }>)
@@ -282,7 +282,7 @@ export interface RegisteredEngineHooks {
    * New-model plugin `upgrade` hooks, in registration order. Run before the
    * app's builder upgrade hook; meta is shallow-merged (the app wins on key
    * conflict), tags concatenated, and at most one hook (these or the app's) may
-   * return `identity`.
+   * return `userId`.
    */
   pluginUpgrade: PluginUpgradeEntry[];
 
@@ -322,12 +322,12 @@ export interface RuntimeConnection {
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Returned from `onUpgrade` and reused as the row key for any per-user
-   * durable state. Empty string means "no identity supplied" — runtime code
-   * that needs a storage key must use `storageIdentityOf(connection)` to fall
-   * back to the connection's own id so anonymous connections never share a
-   * row with each other.
+   * durable state. Empty string means "no user id supplied" — runtime code
+   * that needs a storage key must use `userKeyOf(connection)` to fall back to
+   * the connection's own id so anonymous connections (a user-of-one) never
+   * share a row with each other.
    */
-  identity: string;
+  userId: string;
 
   /** Opaque key the adapter uses to identify the underlying WebSocket. */
   wsKey: unknown;

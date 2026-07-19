@@ -36,7 +36,7 @@ function buildPresence() {
   const heartbeat = h.on('heartbeat', {
     input: v.object({}),
     run(ctx) {
-      ctx.send('user-online', { id: ctx.id });
+      ctx.send('user-online', { id: ctx.connection.id });
     },
   });
   const whoIsHere = h.request('who-is-here', {
@@ -50,7 +50,7 @@ function buildPresence() {
       handlers: [heartbeat, whoIsHere],
       api: (ctx) => ({
         announce() {
-          ctx.send('user-online', { id: ctx.id });
+          ctx.send('user-online', { id: ctx.connection.id });
         },
       }),
     }),
@@ -69,7 +69,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const { __primitives } = buildPresence()();
     const incoming = findPrimitive(__primitives, 'incoming', '__acme:presence::heartbeat');
     const send = vi.fn();
-    incoming.handler({ id: 'conn_1', send }, {});
+    incoming.handler({ connection: { id: 'conn_1' }, send }, {});
     expect(send).toHaveBeenCalledWith('__acme:presence::user-online', { id: 'conn_1' });
   });
 
@@ -163,7 +163,7 @@ describe('plugin() — scoped handler + manifest', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      buildConnectionContext: () => ({ id: connection.id, send }),
+      buildConnectionContext: () => ({ connection: { id: connection.id }, send }),
       async handleRuntimeError() {},
       async handleValidationError() {},
       async handleSubscribe() {},

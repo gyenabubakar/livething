@@ -213,6 +213,7 @@ export class Engine {
   private createShutdownContext() {
     return createShutdownContext({
       connections: this.core.connections,
+      usersByKey: this.core.usersByKey,
       ...EngineDeps.commonDeps(this.core),
     });
   }
@@ -222,7 +223,7 @@ export class Engine {
    * HTTP route, an auth webhook, a cron job). Returns the framework's built-in
    * admin operations merged with the app's own `api` (authored on
    * `assemble({ handlers, api })`). Built-ins are spread last, so they win on a
-   * name clash — a dev api method cannot shadow `broadcast`, `purgeIdentity`,
+   * name clash — a dev api method cannot shadow `broadcast`, `purgeUser`,
    * and the rest. The dev's `api` factory sees the full ctx (storage, schedule,
    * env, …), but only the operations are surfaced here, never that plumbing.
    */
@@ -230,16 +231,17 @@ export class Engine {
     const core = this.core;
     const ctx = createAdminContext({
       connections: core.connections,
+      usersByKey: core.usersByKey,
       ...EngineDeps.commonDeps(core),
-      purgeIdentity: (identity) => {
+      purgeUser: (userId) => {
         const service = core.persistenceService;
         if (!service) {
           throw new Error(
-            '[wskit] admin().purgeIdentity() needs persistence. List persistence() on the ' +
+            '[wskit] admin().purgeUser() needs persistence. List persistence() on the ' +
               'server to enable durable membership cleanup.',
           );
         }
-        return service.purgeIdentity(core, identity);
+        return service.purgeUser(core, userId);
       },
     });
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};

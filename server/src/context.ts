@@ -191,8 +191,8 @@ export interface Logger {
  * the inner fields to decide whether the target is on this instance or
  * another one.
  *
- * Get a ref from `ConnectionInfo.ref()` (any snapshot) or `ctx.self` (the
- * current connection inside a connection handler).
+ * Get a ref from `ConnectionInfo.ref()` (any snapshot) or `ctx.connection`
+ * (the current connection inside a connection handler).
  *
  * @example
  * ```ts
@@ -204,7 +204,7 @@ export interface Logger {
  * }
  *
  * // Auto-join the current connection to a default room
- * await ctx.channels.get('lobby').subscribe(ctx.self);
+ * await ctx.channels.get('lobby').subscribe(ctx.connection);
  * ```
  */
 export interface ConnectionRef {
@@ -222,8 +222,32 @@ export interface ConnectionRef {
    */
   readonly instance: string | undefined;
 
-  /** Identity string the upgrade hook returned for the target connection. */
-  readonly identity: string;
+  /** User id the upgrade hook returned for the target connection. */
+  readonly userId: string;
+}
+
+/**
+ * Address for one user — the account (or anonymous connection, which is a
+ * user-of-one) that a `ConnectionRef` belongs to. Built via `UserInfo.ref()`,
+ * `UserHandle.ref()`, or `ctx.user.ref()`. Pass it to `ctx.users.get(...)`
+ * or to fan-out targets that accept a user (such as `kick`).
+ *
+ * Different from `ConnectionRef`, which addresses one specific socket — a
+ * `UserRef` addresses every live connection the user currently holds.
+ */
+export interface UserRef {
+  /** Brand tag so the type cannot be confused with a plain object. */
+  readonly __wskit: 'user-ref';
+
+  /** The user id — same value as `ConnectionRef.userId` / `ctx.user.id`. */
+  readonly id: string;
+
+  /**
+   * Stable id of the engine instance that owns this reference. `undefined`
+   * in single-instance setups. See `ConnectionRef.instance` for the broker
+   * routing behavior this mirrors.
+   */
+  readonly instance: string | undefined;
 }
 
 /**
@@ -251,7 +275,7 @@ export interface TagRef {
 /**
  * A read-only snapshot of one live connection at a point in time.
  *
- * Returned by `ctx.getConnections()`, `channelHandle.members()`, and the
+ * Returned by `ctx.connections.all()`, `channelHandle.members()`, and the
  * tag-group reads on `ctx.tags`. The snapshot does not update — fetch it
  * again if you need fresh data.
  *
@@ -262,13 +286,14 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly id: string;
 
   /**
-   * Identity string the `onUpgrade` hook returned for this connection — the
-   * stable user-equivalent id the framework uses as the row key for any
-   * per-user durable state.
+   * User id the `onUpgrade` hook returned for this connection — the stable
+   * id the framework uses as the row key for any per-user durable state.
+   * An anonymous connection (upgrade returned no user id) falls back to its
+   * own connection id, so it is always a non-empty user-of-one.
    */
-  readonly identity: string;
+  readonly userId: string;
 
-  /** Key-value metadata set during the upgrade step (e.g. userId, role). */
+  /** Key-value metadata set during the upgrade step (e.g. role, display name). */
   readonly meta: Meta;
 
   /**
@@ -291,9 +316,9 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly bufferedAmount: number;
 
   /**
-   * The connection's identity last-seen timestamp (ms), present only when the
-   * `lastSeen()` capability is installed; `null` when that identity has never
-   * been stamped, and absent from the type entirely without the capability.
+   * This connection's last-seen timestamp (ms), present only when the
+   * `lastSeen()` capability is installed; `null` when it has never been
+   * stamped, and absent from the type entirely without the capability.
    */
   readonly lastSeen?: number | null;
 
@@ -306,9 +331,9 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 
 /**
  * A handle to one specific connection, addressed by its `ConnectionRef`.
- * Returned by `ctx.connection(ref)`. Use it to send directly to that socket.
+ * Returned by `ctx.connections.get(ref)`. Use it to send directly to that socket.
  *
- * Get a ref from `ConnectionInfo.ref()`, `ctx.self`, or any connection snapshot.
+ * Get a ref from `ConnectionInfo.ref()`, `ctx.connection`, or any connection snapshot.
  */
 export interface ConnectionHandle {
   /**
@@ -316,6 +341,123 @@ export interface ConnectionHandle {
    * is no longer live on this instance (its socket is gone).
    */
   send(event: string, payload: unknown): boolean;
+}
+
+/**
+ * Reach any specific connection by ref, or list every live connection.
+ * Available as `ctx.connections`.
+ *
+ * @example
+ * ```ts
+ * const target = ctx.connections.get(ref);
+ * target.send('notice', { text: 'hello' });
+ *
+ * const everyone = ctx.connections.all();
+ * ```
+ */
+export interface ConnectionsManager<Meta = Record<string, unknown>> {
+  /**
+   * Address one specific connection by ref. Returns a handle whose `send`
+   * delivers only to that socket. Get a ref from `ctx.connection`, a
+   * connection snapshot's `ref()`, or any `ConnectionRef` you hold.
+   */
+  get(ref: ConnectionRef): ConnectionHandle;
+
+  /** Get a snapshot of every live connection at this moment. */
+  all(): ConnectionInfo<Meta>[];
+}
+
+/**
+ * A read-only snapshot of one user at a point in time — the account (or
+ * anonymous user-of-one) that owns zero or more live connections.
+ *
+ * Returned by `UserHandle.info()`. Unlike `ConnectionInfo`, there is no flat
+ * `.meta` here: metadata lives per connection, since the same user can have
+ * different meta on different sockets (different device, different session).
+ */
+export interface UserInfo<Meta = Record<string, unknown>> {
+  /** The user id. */
+  readonly id: string;
+
+  /** Whether this user has at least one live connection right now. */
+  readonly online: boolean;
+
+  /** Snapshot of this user's live connections. */
+  connections(): ConnectionInfo<Meta>[];
+
+  /** Union of channel names across this user's live connections. */
+  readonly channels: readonly string[];
+
+  /** Union of tag refs across this user's live connections. */
+  readonly tags: readonly TagRef[];
+
+  /**
+   * This user's last-seen timestamp (ms), present only when the
+   * `lastSeen()` capability is installed; `null` when it has never been
+   * stamped, and absent from the type entirely without the capability.
+   */
+  readonly lastSeen?: number | null;
+
+  /** Build a `UserRef` for this user — pass it to engine methods that act on the whole user (such as `kick`). */
+  ref(): UserRef;
+}
+
+/**
+ * A handle to one user, addressed by user id. Returned by `ctx.users.get(id)`;
+ * the current connection's own user handle is `ctx.user`.
+ *
+ * Unlike `ConnectionHandle` (one socket), `UserHandle` acts on every live
+ * connection the user currently holds — the user-level actions that have no
+ * terse top-level verb.
+ */
+export interface UserHandle<Meta = Record<string, unknown>> {
+  /** The user id. */
+  readonly id: string;
+
+  /** Build a `UserRef` for this user. */
+  ref(): UserRef;
+
+  /**
+   * Send an event to every live connection this user holds (fan-out).
+   * Returns the number of sockets the event was delivered to.
+   */
+  send(event: string, payload: unknown): number;
+
+  /**
+   * Ask this user a question and await the first valid answer from any of
+   * their live connections. Present only when the contract declares
+   * `requests({...})`.
+   */
+  request?(
+    event: string,
+    payload: unknown,
+    opts?: { timeout?: number },
+  ): Promise<{ response: unknown; from: ConnectionRef }>;
+
+  /** Merge `patch` into every live connection's `meta` (fans the same patch out to all of the user's tabs/devices). */
+  setMeta(patch: Partial<Meta>): void;
+
+  /** Snapshot of this user's live connections. */
+  connections(): ConnectionInfo<Meta>[];
+
+  /** Close every live connection this user holds. */
+  close(code?: number, reason?: string): void;
+
+  /** A snapshot of this user, or `null` when the user has no live connections. */
+  info(): UserInfo<Meta> | null;
+}
+
+/**
+ * Reach any user by id. Available as `ctx.users`.
+ *
+ * @example
+ * ```ts
+ * ctx.users.get(targetId).send('notice', { text: 'hello' });
+ * ```
+ */
+export interface UsersManager<Meta = Record<string, unknown>> {
+  /** Address one user by id. Returns a handle usable even when the user has no live connections. */
+  get(id: string): UserHandle<Meta>;
 }
 
 /**
@@ -330,11 +472,28 @@ export interface ConnectionHandle {
  */
 export interface BroadcastOptions {
   /**
-   * Whether to skip the calling connection. Defaults to `true` inside a
-   * connection handler — pass `false` to include the sender as well.
+   * Whether to include the calling connection. Defaults to `false` inside a
+   * connection handler — pass `true` to also deliver to the sender.
    */
-  readonly excludeSelf?: boolean;
+  readonly includeSelf?: boolean;
 }
+
+/**
+ * Who a channel-scoped `send`/`request` targets. Defaults to the calling
+ * connection when omitted. Any recipient other than a `ConnectionRef` is
+ * intersected with the channel's membership — a `UserRef` reaches only that
+ * user's sockets that are members, and a `TagRef`/`TagGroupHandle` reaches only
+ * members that also hold the tag. Non-members are never delivered to.
+ */
+export type ChannelRecipient =
+  | ConnectionRef
+  | UserRef
+  | TagRef
+  | {
+      readonly __wskit: 'group-handle';
+      readonly kind: 'ephemeral' | 'persistent';
+      readonly group: string;
+    };
 
 /**
  * Send and broadcast helpers scoped to one channel.
@@ -348,12 +507,15 @@ export interface ScopeSendApi {
   readonly name: string;
 
   /**
-   * Send an event only to the current connection — the one whose event you are
-   * handling — scoped to this channel. The frame arrives on the client's handle
-   * for this channel, not the top-level socket. Returns nothing: it dispatches
-   * or throws. To reach every member instead, use `broadcast`.
+   * Send a channel-scoped event. By default it targets the current connection —
+   * the one whose event you are handling — and the frame arrives on the client's
+   * handle for this channel, not the top-level socket. Pass `{ to }` to target a
+   * specific member instead: a `ConnectionRef`, a `UserRef` (all that user's
+   * member sockets), or a `TagRef`/`TagGroupHandle` (members that also hold the
+   * tag). Returns the number of sockets the frame was delivered to. To reach
+   * every member instead, use `broadcast`.
    */
-  send(event: string, payload: unknown): void;
+  send(event: string, payload: unknown, options?: { to?: ChannelRecipient }): number;
 
   /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
@@ -470,19 +632,28 @@ export interface ChannelHandle<
    */
   readonly params: TParams;
 
-  /** Send a channel-scoped event to the current connection. */
-  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
+  /**
+   * Send a channel-scoped event. Targets the current connection by default;
+   * pass `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef`
+   * (all that user's member sockets), or a `TagRef`/`TagGroupHandle` (members
+   * that also hold the tag). Returns the number of sockets delivered to.
+   */
+  send<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    options?: { to?: ChannelRecipient },
+  ): number;
 
   /**
    * Broadcast a channel-scoped event to subscribers of this exact channel family.
    *
-   * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
+   * Excludes the calling connection by default. Pass `{ includeSelf: true }`
    * to also deliver the event to the sender.
    */
   broadcast<E extends keyof TOutgoing & string>(
     event: E,
     payload: TOutgoing[E],
-    options?: { excludeSelf?: boolean },
+    options?: { includeSelf?: boolean },
   ): void;
 
   /** List the connections currently subscribed to this exact channel family. */
@@ -505,47 +676,37 @@ export interface ChannelHandle<
    * Remove connections from this exact channel family. The `target` decides
    * which connections leave:
    *
-   * - `ConnectionRef` — kick that one socket.
+   * - `UserRef` — kick every one of that user's subscribed connections.
    * - `TagRef` — kick every socket holding the given `(kind, group, key)`.
    * - `TagGroupHandle` (returned by `ctx.tags.ephemeral(...)` / `.persistent(...)`)
    *   — kick every socket with any key under the group.
    *
+   * To drop one specific socket without kicking the rest of its user's
+   * connections, use `ctx.connections.get(ref).close()` instead.
+   *
    * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
    * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members.
    * Awaits every hook completion; rejections propagate to the caller.
+   *
+   * Pass `revoke: true` to also drop the durable membership row for each
+   * kicked connection's user, so they are NOT auto-rejoined on their next
+   * reconnect (use this to revoke a user's group membership in response to
+   * an external event — an auth provider webhook, an admin action, etc.).
+   * Defaults to `false`: the user is booted now but auto-rejoins later. A
+   * no-op per connection when persistence is off or the channel is
+   * ephemeral — there is no durable row to drop either way.
    */
   kick(
     target:
-      | ConnectionRef
+      | UserRef
       | TagRef
       | {
           readonly __wskit: 'group-handle';
           readonly kind: 'ephemeral' | 'persistent';
           readonly group: string;
         },
-    reason: string,
+    opts: { reason: string; revoke?: boolean },
   ): Promise<void>;
-
-  /**
-   * Remove every live connection of the given identity from this channel
-   * AND drop the durable membership row so the user is NOT auto-rejoined
-   * on next reconnect. Use this to revoke a user's group membership in
-   * response to an external event (auth provider webhook, admin action,
-   * etc.).
-   *
-   * Fires the channel's `onUnsubscribe` hook for every affected connection
-   * (true leave semantics) followed by `onSessionEnd` for each. Broadcasts
-   * `__memberLeave__` then `__memberOffline__` to remaining members.
-   *
-   * When persistence is disabled there is no durable row to delete, but any
-   * live connections with this identity are still made to leave (their
-   * `onUnsubscribe`/`onSessionEnd` hooks fire and `__memberLeave__` is
-   * broadcast). Use `kick(tag, reason)` if you only want to drop sockets.
-   *
-   * No-op when no live connection has the given identity and no durable
-   * row exists. Otherwise, removes whichever pieces are present.
-   */
-  removeMember(identity: string): Promise<void>;
 
   /**
    * The inbox surface for this channel, or `null` when this channel has no
@@ -616,8 +777,8 @@ export interface ChannelsManager<
  * ```
  *
  * Mental model, grouped by purpose:
- * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when the `tags()` capability is listed)
- * - **messaging** — `send`, `broadcast`, `connection(ref).send`
+ * - **identity** — `connection`, `user`, `meta`, `tags` (when the `tags()` capability is listed)
+ * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
@@ -627,37 +788,40 @@ export interface ConnectionContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  /** The unique ID for the current WebSocket connection. */
-  id: string;
+  /**
+   * A `ConnectionRef` for the current connection — the self socket address.
+   * Pass it to engine methods that act on a specific socket. Equivalent to
+   * calling `.ref()` on the current connection's `ConnectionInfo`, but
+   * available directly here. Use `ctx.connection.id` for the bare id string.
+   */
+  connection: ConnectionRef;
 
   /**
-   * The stable identity string the `onUpgrade` hook returned for this
-   * connection. Same person can have many connections (phone, laptop, etc.)
-   * with different `id`s but the same `identity`.
+   * A handle to the current connection's user — the account (or anonymous
+   * user-of-one) this connection belongs to. Every connection has a user:
+   * an anonymous connection (upgrade returned no user id) is a user-of-one
+   * keyed by its own connection id. Use `ctx.user.id` for the bare id
+   * string; the handle itself carries the user-level actions (`send`,
+   * `request`, `setMeta`, `connections`, `close`, `info`) that fan out to
+   * every live connection this user holds.
    */
-  identity: string;
+  user: UserHandle<Meta>;
 
-  /**
-   * A `ConnectionRef` for the current connection — pass it to engine methods
-   * that act on a specific socket. Equivalent to calling `.ref()` on the
-   * current connection's `ConnectionInfo`, but available directly here.
-   */
-  self: ConnectionRef;
-
-  /** Metadata attached during the upgrade step (e.g. user ID, session token). */
+  /** Metadata attached during the upgrade step (e.g. role, display name). */
   meta: Meta;
 
   /**
    * Send an event to the current connection only. Returns nothing — it either
    * dispatches the frame or throws (an undeclared event, or a non-object
    * payload). To target a different socket and learn whether it is still live,
-   * use `ctx.connection(ref).send(...)`, which returns a boolean.
+   * use `ctx.connections.get(ref).send(...)`, which returns a boolean.
    */
   send(event: string, payload: unknown): void;
 
   /**
    * Send an event to all live connections except the caller. Pass
-   * `{ excludeSelf: false }` to include the calling connection as well.
+   * `{ includeSelf: true }` to also deliver the event to the calling
+   * connection.
    *
    * Treat data you broadcast as untrusted by the receiving clients. The
    * server-side schema validated the inbound payload, but receivers must
@@ -667,17 +831,20 @@ export interface ConnectionContext<
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 
   /**
-   * Address one specific connection by ref. Returns a handle whose `send`
-   * delivers only to that socket. Get a ref from `ctx.self`, a connection
-   * snapshot's `ref()`, or any `ConnectionRef` you hold.
+   * Merge `patch` into the current connection's `meta`. Persists on the
+   * existing scope-end flush, alongside every other durable write for this
+   * dispatch.
    */
-  connection(ref: ConnectionRef): ConnectionHandle;
+  setMeta(patch: Partial<Meta>): void;
+
+  /** Reach any connection by ref, or list every live connection. */
+  connections: ConnectionsManager<Meta>;
+
+  /** Reach any user by id. */
+  users: UsersManager<Meta>;
 
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
-
-  /** Get a snapshot of every live connection at this moment. */
-  getConnections(): ConnectionInfo<Meta>[];
 
   /** The total number of live connections right now. */
   connectionCount: number;
@@ -865,8 +1032,11 @@ export interface ShutdownContext<
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
-  /** Get a snapshot of every live connection. */
-  getConnections(): ConnectionInfo<Meta>[];
+  /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
+  connections: ConnectionsManager<Meta>;
+
+  /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
+  users: UsersManager<Meta>;
 
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
@@ -909,14 +1079,11 @@ export interface TaskContext<
    */
   broadcast(event: string, payload: unknown): void;
 
-  /**
-   * Address one specific connection by ref. Returns a handle whose `send`
-   * delivers only to that socket.
-   */
-  connection(ref: ConnectionRef): ConnectionHandle;
+  /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
+  connections: ConnectionsManager<Meta>;
 
-  /** Get a snapshot of every live connection. */
-  getConnections(): ConnectionInfo<Meta>[];
+  /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
+  users: UsersManager<Meta>;
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
@@ -946,10 +1113,12 @@ export interface AdminChannelHandle<Meta = Record<string, unknown>> {
   broadcast(event: string, payload: unknown): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<Meta>[];
-  /** Remove a connection (or everyone holding a tag) from this channel. */
-  kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
-  /** Remove a durable membership by identity. */
-  removeMember(identity: string): Promise<void>;
+  /**
+   * Remove a user (or everyone holding a tag) from this channel. Pass
+   * `revoke: true` to also drop the durable membership row so the user does
+   * not auto-rejoin on reconnect.
+   */
+  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
 }
 
 /** Reach a channel by name from admin — the connectionless subset of `ctx.channels`. */
@@ -994,16 +1163,19 @@ export interface AdminContext<
    * durable), remove their persistent tags, and close every live socket they
    * hold. The one call the auth-webhook case (`user.deleted`) needs.
    */
-  purgeIdentity(identity: string): Promise<void>;
+  purgeUser(userId: string): Promise<void>;
 
   /**
    * Close live connections. With no filter, closes every connection; with
-   * `{ identity }`, closes only that user's sockets.
+   * `{ userId }`, closes only that user's sockets.
    */
-  closeConnections(filter?: { identity?: string }, code?: number, reason?: string): void;
+  closeConnections(filter?: { userId?: string }, code?: number, reason?: string): void;
 
-  /** Get a snapshot of every live connection. */
-  getConnections(): ConnectionInfo<Meta>[];
+  /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
+  connections: ConnectionsManager<Meta>;
+
+  /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
+  users: UsersManager<Meta>;
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;

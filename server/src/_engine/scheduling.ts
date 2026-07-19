@@ -108,7 +108,12 @@ function taskContextFactory(
   core: EngineCore,
   commonDeps: EngineContextTypes.ContextCommonDeps,
 ): () => unknown {
-  return () => ScheduledContext.createTaskContext({ connections: core.connections, ...commonDeps });
+  return () =>
+    ScheduledContext.createTaskContext({
+      connections: core.connections,
+      usersByKey: core.usersByKey,
+      ...commonDeps,
+    });
 }
 
 /**

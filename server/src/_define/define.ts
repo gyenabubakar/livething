@@ -23,12 +23,14 @@ import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.t
 import type { ExtractParams } from '~/channel/channel.ts';
 import type {
   AdminContext,
+  ChannelRecipient,
   ConnectionInfo,
   ConnectionRef,
   InitContext,
   ShutdownContext,
   TagRef,
   TaskContext,
+  UserRef,
 } from '~/context.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { InboxConfig, ReadReceiptsConfig } from '~/inbox/types.ts';
@@ -69,8 +71,8 @@ import type { BuildContract, InferInput } from './contract.ts';
 import type { GrantableCapability } from './plugin.ts';
 
 /**
- * What an `upgrade(...)` function returns to accept a connection. Return an
- * `identity` (the stable per-user key) and optional `meta`. Throw
+ * What an `upgrade(...)` function returns to accept a connection. Return a
+ * `userId` (the stable per-user key) and optional `meta`. Throw
  * `RejectUpgrade(code, reason)` to refuse the handshake.
  *
  * `tags.ephemeral` seeds initial ephemeral tags before any handler runs — the
@@ -79,8 +81,13 @@ import type { GrantableCapability } from './plugin.ts';
  * `ctx.tags.persistent(group).add(key)`.
  */
 export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> {
-  /** Stable key for the user behind this socket — used as the row key for durable state. */
-  readonly identity: string;
+  /**
+   * Stable key for the user behind this socket — used as the row key for durable
+   * state. Omit it (or return `undefined`) to accept the connection as
+   * **anonymous**: a user-of-one keyed by its own connection id, with no
+   * cross-reconnect recognition and no durable state.
+   */
+  readonly userId?: string;
   /** Per-connection metadata, surfaced as `ctx.meta` in every handler. */
   readonly meta?: TMeta;
   /** Initial ephemeral tags to attach: `{ ephemeral: { group: key } }`. */
@@ -111,10 +118,18 @@ export interface DefineConfig<
 > {
   /** The platform env bindings type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;
-  /** Auth gate. Return `{ identity, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
+  /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: { readonly enabled: boolean };
+  /**
+   * Cap how many live connections one user may hold at once. `onExceed` decides
+   * what a would-be breaching connection does: `reject` refuses the newcomer
+   * (closed with `CAPACITY`), `replace` evicts the user's oldest connection(s)
+   * to make room (each closed with `DUPLICATE`). Omit for unlimited. Anonymous
+   * connections (no `userId`) are each a user-of-one and never capped.
+   */
+  readonly users?: { readonly maxConnections?: number; readonly onExceed: 'replace' | 'reject' };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
   readonly capabilities?: TCaps;
   /** Always absent on an app server — set only by a plugin's scoped handler (`scoped: true`). */
@@ -542,22 +557,33 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   readonly family: string | null;
   /** The `{name}` captures from a dynamic pattern. */
   readonly params: TParams;
-  /** Send a channel event to the calling connection. */
-  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
+  /**
+   * Send a channel event. Targets the calling connection by default; pass
+   * `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef` (all
+   * that user's member sockets), or a `TagRef`/`TagGroupHandle` (members that
+   * also hold the tag). Returns the number of sockets delivered to.
+   */
+  send<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    options?: { to?: ChannelRecipient },
+  ): number;
   /** Broadcast a channel event to its members. */
   broadcast<E extends keyof TOutgoing & string>(
     event: E,
     payload: TOutgoing[E],
-    options?: { excludeSelf?: boolean },
+    options?: { includeSelf?: boolean },
   ): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<TMeta>[];
   /** Server-side subscribe a connection to this channel. */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
-  /** Remove a connection (or everyone holding a tag) from this channel. */
-  kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
-  /** Remove a durable membership by identity. */
-  removeMember(identity: string): Promise<void>;
+  /**
+   * Remove a user (or everyone holding a tag) from this channel. Pass
+   * `revoke: true` to also drop the durable membership row so the user does
+   * not auto-rejoin on reconnect.
+   */
+  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
   /**
    * Inject a synthetic replay frame for one of this channel's outgoing events.
    * Used from a channel custom-replay handler; `wire` carries the seq/messageId
@@ -591,15 +617,18 @@ type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> 
   'requests' extends BrandsOf<TCaps>
     ? {
         /**
-         * Ask the calling connection a server→client request this channel
-         * declared and resolve its typed answer.
+         * Ask a server→client request this channel declared and resolve its
+         * typed answer. Targets the calling connection by default; pass `{ to }`
+         * to ask a specific member instead — a `ConnectionRef`, or a
+         * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
+         * answer from a matching member wins.
          */
         request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
           event: E,
           payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
             ? P
             : never,
-          options?: { timeout?: number },
+          options?: { timeout?: number; to?: ChannelRecipient },
         ): Promise<
           ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
         >;
@@ -1212,7 +1241,7 @@ export interface ChannelCoreMethods<
   subscribe(
     handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
   ): void;
-  /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
+  /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
   unsubscribe(
     handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
   ): void;
@@ -1623,7 +1652,8 @@ function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
     const result = await fn(request);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
-      identity: result.identity,
+      // An anonymous upgrade omits userId; the engine keys it by connection id.
+      userId: result.userId ?? '',
       meta: result.meta,
       ...(tags.length > 0 ? { tags } : {}),
     };
@@ -1668,7 +1698,7 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
  *   async upgrade(request) {
  *     const username = new URL(request.url).searchParams.get('username');
  *     if (!username) throw RejectUpgrade(4001, 'Missing username');
- *     return { identity: username, meta: { username } };
+ *     return { userId: username, meta: { username } };
  *   },
  *   capabilities: [emits({ welcome: t<{ username: string }>() })],
  * });
@@ -2091,6 +2121,7 @@ export function define(config: any): any {
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
+        ...(config.users ? { __usersPolicy: config.users } : {}),
         // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),
         ...(config.scoped

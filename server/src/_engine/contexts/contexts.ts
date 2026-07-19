@@ -1,3 +1,4 @@
+import { userKeyOf } from '~/_engine/runtime/connection.ts';
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
@@ -29,16 +30,130 @@ export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connecti
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToConnections' | 'connections' | 'instanceId' | 'logger' | 'sendThroughPipeline'
+  | 'broadcastToConnections'
+  | 'connections'
+  | 'usersByKey'
+  | 'instanceId'
+  | 'logger'
+  | 'sendThroughPipeline'
+  | 'toConnectionInfo'
+  | 'persistAttachment'
 >;
 
-/** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
+/** Reach any specific connection by ref, or list every live connection. */
+export function buildConnectionsManager(
+  deps: MessagingDeps,
+): PublicApi.ConnectionsManager<Record<string, unknown>> {
+  const { connection: getConnectionHandle } = buildConnectionHandle(deps);
+  return {
+    get: (ref) => getConnectionHandle(ref),
+    all: () => [...deps.connections.values()].map((target) => deps.toConnectionInfo(target)),
+  };
+}
+
+/** Reach any user by id — the connectionless `ctx.users` surface. */
+export function buildUsersManager(
+  deps: MessagingDeps,
+): PublicApi.UsersManager<Record<string, unknown>> {
+  return { get: (id) => buildUserHandle(id, deps) };
+}
+
+/** Build a `UserRef` for one user id. */
+function buildUserRef(userId: string, instanceId: string | undefined): PublicApi.UserRef {
+  return { __wskit: 'user-ref', id: userId, instance: instanceId };
+}
+
+/** Snapshot of one user's currently-live connections, via the `usersByKey` fan-out index. */
+function userConnections(
+  userId: string,
+  deps: MessagingDeps,
+): EngineRuntimeTypes.RuntimeConnection[] {
+  return [...(deps.usersByKey.get(userId) ?? [])];
+}
+
+/** Build a `UserInfo` snapshot for one user, or `null` when they have no live connections. */
+function buildUserInfo(
+  userId: string,
+  deps: MessagingDeps,
+): PublicApi.UserInfo<Record<string, unknown>> | null {
+  const connections = userConnections(userId, deps);
+  if (connections.length === 0) return null;
+
+  const infos = connections.map((target) => deps.toConnectionInfo(target));
+  const channels = new Set<string>();
+  const tagsByKey = new Map<string, PublicApi.TagRef>();
+  // `lastSeen` is only present on a `ConnectionInfo` when `lastSeen()` is
+  // installed — track whether we saw it at all, separately from the running
+  // max, so the field can be omitted entirely without the capability.
+  let sawLastSeen = false;
+  let lastSeen: number | null = null;
+  for (const info of infos) {
+    for (const channel of info.channels) channels.add(channel);
+    for (const tag of info.tags) tagsByKey.set(`${tag.kind}:${tag.group}:${tag.key}`, tag);
+    if ('lastSeen' in info) {
+      sawLastSeen = true;
+      const seenAt = info.lastSeen ?? null;
+      if (seenAt !== null && (lastSeen === null || seenAt > lastSeen)) lastSeen = seenAt;
+    }
+  }
+
+  return {
+    id: userId,
+    online: true,
+    connections: () => connections.map((target) => deps.toConnectionInfo(target)),
+    channels: [...channels],
+    tags: [...tagsByKey.values()],
+    ...(sawLastSeen ? { lastSeen } : {}),
+    ref: () => buildUserRef(userId, deps.instanceId),
+  };
+}
+
+/** Build a `UserHandle` addressing every live connection of one user id. */
+function buildUserHandle(
+  userId: string,
+  deps: MessagingDeps,
+): PublicApi.UserHandle<Record<string, unknown>> {
+  return {
+    id: userId,
+
+    ref: () => buildUserRef(userId, deps.instanceId),
+
+    send: (event, payload) => {
+      let delivered = 0;
+      for (const connection of userConnections(userId, deps)) {
+        if (deps.sendThroughPipeline(connection, { routing: undefined, event, payload })) {
+          delivered += 1;
+        }
+      }
+      return delivered;
+    },
+
+    setMeta: (patch) => {
+      for (const connection of userConnections(userId, deps)) {
+        Object.assign(connection.meta, patch);
+        deps.persistAttachment(connection);
+      }
+    },
+
+    connections: () => userConnections(userId, deps).map((target) => deps.toConnectionInfo(target)),
+
+    close: (code, reason) => {
+      for (const connection of userConnections(userId, deps)) {
+        connection.descriptor.close(code, reason);
+      }
+    },
+
+    info: () => buildUserInfo(userId, deps),
+  };
+}
+
+/** Build the top-level send/broadcast/close/user/connection messaging surface for a connection ctx. */
 function buildMessagingApi(
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: MessagingDeps,
 ): Pick<
   PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'close' | 'connection' | 'send'
+  'broadcast' | 'close' | 'connection' | 'connections' | 'send' | 'setMeta' | 'user' | 'users'
 > {
   return {
     send: (event, payload) =>
@@ -53,7 +168,18 @@ function buildMessagingApi(
       });
     },
 
-    ...buildConnectionHandle(deps),
+    connection: buildConnectionRef(connection.id, connection.userId, deps.instanceId),
+
+    connections: buildConnectionsManager(deps),
+
+    user: buildUserHandle(userKeyOf(connection), deps),
+
+    users: { get: (id) => buildUserHandle(id, deps) },
+
+    setMeta: (patch) => {
+      Object.assign(connection.meta, patch);
+      deps.persistAttachment(connection);
+    },
 
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
@@ -91,19 +217,9 @@ export function buildConnectionContext(
 
     [ENGINE_INTERNAL_CONNECTION]: connection,
 
-    id: connection.id,
-
-    identity: connection.identity,
-
-    self: buildConnectionRef(connection.id, connection.identity, deps.instanceId),
-
     meta: connection.meta,
 
     ...buildMessagingApi(connection, deps),
-
-    getConnections: () => {
-      return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
-    },
 
     // Live reads, not snapshots — so a context reused across a dispatch's
     // intercepts and handler always reflects current values.
@@ -209,41 +325,41 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineRuntimeTypes.RuntimeConnection,
   instanceId: string | undefined,
-  opts?: { hibernationEnabled?: boolean; lastSeenAt?: (identity: string) => number | null },
+  opts?: { hibernationEnabled?: boolean; lastSeenAt?: (userId: string) => number | null },
 ): PublicApi.ConnectionInfo<Record<string, unknown>> {
   const hibernationEnabled = opts?.hibernationEnabled;
   const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {
     id: connection.id,
-    identity: connection.identity,
+    userId: connection.userId,
     meta: connection.meta,
     tags: connectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: hibernationEnabled || connection.latency === null ? null : connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
-    ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
+    ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };
   if (opts?.lastSeenAt) {
-    return { ...info, lastSeen: opts.lastSeenAt(connection.identity) };
+    return { ...info, lastSeen: opts.lastSeenAt(connection.userId) };
   }
   return info;
 }
 
 /**
  * Build a `ConnectionRef` for one connection. Captured by `ConnectionInfo.ref()`
- * and used directly for `ctx.self`. `instanceId` carries the engine's instance
- * id when one is configured — the broker (future) reads this field to decide
- * whether the target lives locally or on another instance.
+ * and used directly for `ctx.connection`. `instanceId` carries the engine's
+ * instance id when one is configured — the broker (future) reads this field
+ * to decide whether the target lives locally or on another instance.
  */
 export function buildConnectionRef(
   connectionId: string,
-  identity: string,
+  userId: string,
   instanceId: string | undefined,
 ): PublicApi.ConnectionRef {
   return {
     __wskit: 'connection-ref',
     id: connectionId,
     instance: instanceId,
-    identity,
+    userId,
   };
 }

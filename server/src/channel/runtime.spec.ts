@@ -20,7 +20,7 @@ import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -91,7 +91,7 @@ function createRuntime(
       toConnectionInfo(connection: ReturnType<typeof createConnection>) {
         return {
           id: connection.id,
-          identity: connection.identity,
+          userId: connection.userId,
           meta: connection.meta,
           tags: [],
           channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
@@ -102,7 +102,7 @@ function createRuntime(
             __wskit: 'connection-ref' as const,
             id: connection.id,
             instance: undefined,
-            identity: connection.identity,
+            userId: connection.userId,
           }),
         };
       },

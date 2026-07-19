@@ -79,8 +79,8 @@ interface RequestOptions {
 
 /** Per-broadcast-request options: a timeout plus self-exclusion control. */
 interface BroadcastRequestOptions extends RequestOptions {
-  /** Exclude the calling connection from the fan-out (default true). */
-  excludeSelf?: boolean;
+  /** Include the calling connection in the fan-out (default false). */
+  includeSelf?: boolean;
 }
 
 /**
@@ -131,6 +131,28 @@ function membersToTargets(
     targets.push({ connectionId: member.id, from: member.ref() });
   }
   return targets;
+}
+
+/**
+ * Whether a member snapshot satisfies a channel-scoped `to` recipient. A
+ * `user-ref` matches on the member's user key (`userId`, falling back to the
+ * connection id for an anonymous user-of-one), mirroring `matchesRecipient` on
+ * the live connection.
+ */
+function infoMatchesRecipient(
+  info: PublicApi.ConnectionInfo,
+  to: PublicApi.ChannelRecipient,
+): boolean {
+  switch (to.__wskit) {
+    case 'connection-ref':
+      return info.id === to.id;
+    case 'user-ref':
+      return (info.userId || info.id) === to.id;
+    case 'tag-ref':
+      return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
+    case 'group-handle':
+      return info.tags.some((t) => t.kind === to.kind && t.group === to.group);
+  }
 }
 
 /** Attach a `broadcastRequest` arm to a tag group/ref handle. */
@@ -433,18 +455,20 @@ export function makeServerRequestsPrimitive(
       engine.onAnswerFrame((connectionId, frame) => runtime.settle(connectionId, frame));
 
       engine.onDisconnect((ctx) => {
-        const connectionId = (ctx as { id?: string }).id;
+        const connectionId = (ctx as { connection?: { id?: string } }).connection?.id;
         if (connectionId) runtime.rejectForConnection(connectionId);
       });
 
       engine.extendContext((baseCtx) => {
         const ctx = baseCtx as Record<PropertyKey, unknown> & {
-          id?: string;
-          connection?: (ref: PublicApi.ConnectionRef) => PublicApi.ConnectionHandle;
+          connection?: PublicApi.ConnectionRef;
+          connections?: { get?(ref: PublicApi.ConnectionRef): PublicApi.ConnectionHandle };
+          user?: PublicApi.UserHandle & Record<string, unknown>;
+          users?: { get?(id: string): PublicApi.UserHandle & Record<string, unknown> };
           channel?: PublicApi.ChannelHandle;
         };
 
-        const connectionId = ctx.id;
+        const connectionId = ctx.connection?.id;
 
         const extra: Record<string, unknown> = {};
 
@@ -463,18 +487,14 @@ export function makeServerRequestsPrimitive(
             });
         }
 
-        // ctx.connection(ref).request — ask one specific connection by ref.
-        const coreConnection = ctx.connection;
-        if (typeof coreConnection === 'function') {
-          extra.connection = (ref: PublicApi.ConnectionRef) => {
-            const handle = coreConnection(ref) as PublicApi.ConnectionHandle &
-              Record<string, unknown>;
-
+        // ctx.connections.get(ref).request — ask one specific connection by ref.
+        const connections = ctx.connections;
+        if (connections && typeof connections.get === 'function') {
+          const coreGet = connections.get.bind(connections);
+          connections.get = (ref: PublicApi.ConnectionRef) => {
+            const handle = coreGet(ref) as PublicApi.ConnectionHandle & Record<string, unknown>;
             handle.request = (event: string, payload: unknown, options?: RequestOptions) => {
-              const self = (ctx as { self?: PublicApi.ConnectionRef }).self;
-
-              assertLocalRef(ref, self?.instance, 'ctx.connection(ref).request');
-
+              assertLocalRef(ref, ctx.connection?.instance, 'ctx.connections.get(ref).request');
               return runtime.sendRequest({
                 target: { connectionId: ref.id, declarationChannelKey: null },
                 event,
@@ -482,6 +502,29 @@ export function makeServerRequestsPrimitive(
                 options,
               });
             };
+            return handle;
+          };
+        }
+
+        // ctx.user.request / ctx.users.get(id).request — ask every live socket the
+        // user holds and settle on the first valid answer.
+        function attachUserRequest(handle: PublicApi.UserHandle & Record<string, unknown>) {
+          handle.request = (event: string, payload: unknown, options?: RequestOptions) =>
+            runtime.sendBroadcastRequest({
+              targets: membersToTargets(handle.connections(), undefined),
+              event,
+              payload,
+              options,
+              declarationChannelKey: null,
+            });
+        }
+        if (ctx.user) attachUserRequest(ctx.user);
+        const users = ctx.users;
+        if (users && typeof users.get === 'function') {
+          const coreUsersGet = users.get.bind(users);
+          users.get = (id: string) => {
+            const handle = coreUsersGet(id);
+            attachUserRequest(handle);
             return handle;
           };
         }
@@ -494,18 +537,43 @@ export function makeServerRequestsPrimitive(
           | undefined;
 
         if (channelHandle && connectionId) {
-          channelHandle.request = (event: string, payload: unknown, options?: RequestOptions) =>
-            runtime.sendRequest({
-              target: {
-                connectionId,
-                channel: channelHandle.name,
-                channelFamily: channelHandle.family ?? null,
-                declarationChannelKey: channelDeclarationKey(channelHandle),
-              },
+          channelHandle.request = (
+            event: string,
+            payload: unknown,
+            options?: RequestOptions & { to?: PublicApi.ChannelRecipient },
+          ) => {
+            const routing = {
+              channel: channelHandle.name,
+              channelFamily: channelHandle.family ?? null,
+            };
+            const declarationChannelKey = channelDeclarationKey(channelHandle);
+
+            // A `to` recipient asks matching members instead of the caller. When
+            // it resolves to more than one member the first valid answer wins;
+            // `from` is dropped so the resolved type stays the bare response.
+            const to = options?.to;
+            if (to) {
+              return runtime
+                .sendBroadcastRequest({
+                  targets: membersToTargets(
+                    channelHandle.members().filter((member) => infoMatchesRecipient(member, to)),
+                  ),
+                  event,
+                  payload,
+                  options,
+                  routing,
+                  declarationChannelKey,
+                })
+                .then((winner) => winner.response);
+            }
+
+            return runtime.sendRequest({
+              target: { connectionId, ...routing, declarationChannelKey },
               event,
               payload,
               options,
             });
+          };
         }
         if (channelHandle) {
           channelHandle.broadcastRequest = (
@@ -516,11 +584,11 @@ export function makeServerRequestsPrimitive(
             runtime.sendBroadcastRequest({
               // Exclude the calling connection by default, matching
               // ctx.channel.broadcast and ctx.broadcastRequest; an author can
-              // opt back in with { excludeSelf: false }. With no current
+              // opt back in with { includeSelf: true }. With no current
               // connection there is no self to drop.
               targets: membersToTargets(
                 channelHandle.members(),
-                (options?.excludeSelf ?? true) ? connectionId : undefined,
+                (options?.includeSelf ?? false) ? undefined : connectionId,
               ),
               event,
               payload,
@@ -532,9 +600,9 @@ export function makeServerRequestsPrimitive(
 
         // ctx.broadcastRequest — ask every other connection on this instance,
         // first valid answer wins. Self is excluded, mirroring ctx.broadcast.
-        const getConnections = (ctx as { getConnections?: () => PublicApi.ConnectionInfo[] })
-          .getConnections;
-        if (typeof getConnections === 'function') {
+        const allConnections = (ctx as { connections?: { all?(): PublicApi.ConnectionInfo[] } })
+          .connections?.all;
+        if (typeof allConnections === 'function') {
           extra.broadcastRequest = (
             event: string,
             payload: unknown,
@@ -542,8 +610,8 @@ export function makeServerRequestsPrimitive(
           ) =>
             runtime.sendBroadcastRequest({
               targets: membersToTargets(
-                getConnections(),
-                (options?.excludeSelf ?? true) ? connectionId : undefined,
+                allConnections(),
+                (options?.includeSelf ?? false) ? undefined : connectionId,
               ),
               event,
               payload,

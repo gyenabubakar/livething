@@ -12,7 +12,7 @@ import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 function createConnection(id = 'conn_1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -74,7 +74,7 @@ function baseDispatchRuntime(
     toConnectionInfo(connection: RuntimeConnection) {
       return {
         id: connection.id,
-        identity: connection.identity,
+        userId: connection.userId,
         meta: connection.meta,
         tags: [],
         channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
@@ -85,7 +85,7 @@ function baseDispatchRuntime(
           __wskit: 'connection-ref' as const,
           id: connection.id,
           instance: undefined,
-          identity: connection.identity,
+          userId: connection.userId,
         }),
       };
     },
@@ -804,6 +804,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       compiled: baseCompiled() as any,
       timers: undefined,
       connections: new Map(),
+      usersByKey: new Map(),
       channelMembers: new Map(),
       tagMembers: new Map(),
       wsToConnectionId: new Map(),
@@ -824,7 +825,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   it('restores memberships from the persisted connection row', () => {
     const runtime = makeRuntime('hib_1', {
       connection_id: 'hib_1',
-      identity: 'hib_1',
+      user_id: 'hib_1',
       meta: {},
       ephemeral_tags: [],
       ephemeral_memberships: [

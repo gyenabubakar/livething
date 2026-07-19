@@ -71,7 +71,7 @@ describe('hibernation()', () => {
     ).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_identity'),
+        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_user_id'),
       ),
     ).toBe(true);
   });

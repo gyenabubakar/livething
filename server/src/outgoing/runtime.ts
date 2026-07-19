@@ -425,7 +425,7 @@ export function broadcastToConnections(
   for (const connection of connections) {
     if (
       excludeConnectionId &&
-      (options?.excludeSelf ?? true) &&
+      !(options?.includeSelf ?? false) &&
       connection.id === excludeConnectionId
     )
       continue;
@@ -456,7 +456,8 @@ export interface BroadcastToChannelOptions {
 
   channelFamily: string | null;
 
-  excludeSelf?: boolean;
+  /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
+  includeSelf?: boolean;
 }
 
 export function broadcastToChannel(
@@ -489,7 +490,7 @@ export function broadcastToChannel(
     },
   opts: BroadcastToChannelOptions,
 ): void {
-  const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
+  const { channelName, event, payload, excludeConnectionId, channelFamily, includeSelf } = opts;
 
   let prepared: PreparedBroadcast;
   try {
@@ -541,7 +542,7 @@ export function broadcastToChannel(
   if (!members || members.size === 0) return;
 
   for (const connection of members) {
-    if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
+    if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
       continue;
     // One bad peer must not stop the rest of the fanout — log and continue.
     try {

@@ -35,7 +35,7 @@ const scopedBase = define({
 const scopedHandler = scopedBase.on('beat', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('p-online', { id: ctx.id });
+    ctx.send('p-online', { id: ctx.connection.id });
   },
 });
 
@@ -44,7 +44,7 @@ const ApiPlugin = plugin('acme:presence', {
     handlers: [scopedHandler],
     api: (ctx) => {
       // The declared emit with the right payload is allowed.
-      ctx.send('p-online', { id: ctx.id });
+      ctx.send('p-online', { id: ctx.connection.id });
 
       // @ts-expect-error — wrong payload shape for a declared emit
       ctx.send('p-online', { id: 123 });

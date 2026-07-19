@@ -47,7 +47,7 @@ const handleGetMyTags = base.on('get-my-tags', {
 const handleGetConnectionInfo = base.on('get-connection-info', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('connection-info', { count: ctx.getConnections().length });
+    ctx.send('connection-info', { count: ctx.connections.all().length });
   },
 });
 

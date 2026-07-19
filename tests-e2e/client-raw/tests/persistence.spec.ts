@@ -588,4 +588,85 @@ test.describe('persistence', () => {
     const members = sync.payload.members as { connectionId: string; meta: { username?: string } }[];
     expect(members.some((m) => m.meta?.username === 'alice')).toBe(true);
   });
+
+  test('an anonymous connection cannot start a durable stream', async ({ page }, testInfo) => {
+    // Anonymous upgrade (`&anon`, no username) yields an empty identity. A
+    // durable stream keys its stored state by that identity so a reconnect can
+    // resume it — with no stable identity, the engine rejects the start with
+    // `durable-stream-requires-user` instead of writing unreachable state.
+    //
+    // Inline raw WebSocket via page.evaluate because the shared local rig
+    // hardcodes a username-only URL with no `&anon` support.
+    const room = `persist-anon-stream-${testInfo.testId}-${Date.now()}`;
+
+    async function connectAnon(id: string) {
+      await page.evaluate(
+        ([sid, r]) => {
+          const url = `${location.origin.replace(/^http/, 'ws')}/ws/persistence?room=${encodeURIComponent(
+            r,
+          )}&anon`;
+          const ws = new WebSocket(url);
+          const w = window as unknown as {
+            __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+          };
+          w.__anon ??= new Map();
+          const frames: WireFrame[] = [];
+          w.__anon.set(sid, { ws, frames });
+          ws.addEventListener('message', (ev) => {
+            if (typeof ev.data === 'string') {
+              try {
+                frames.push(JSON.parse(ev.data));
+              } catch {
+                // ignore
+              }
+            }
+          });
+          return new Promise<void>((resolve, reject) => {
+            ws.addEventListener('open', () => resolve());
+            ws.addEventListener('error', () => reject(new Error('ws error')));
+          });
+        },
+        [id, room] as const,
+      );
+    }
+
+    async function sendAnon(id: string, frame: WireFrame) {
+      await page.evaluate(
+        ([sid, f]) => {
+          const w = window as unknown as {
+            __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+          };
+          w.__anon?.get(sid)?.ws.send(JSON.stringify(f as WireFrame));
+        },
+        [id, frame] as const,
+      );
+    }
+
+    async function framesAnon(id: string): Promise<WireFrame[]> {
+      return page.evaluate((sid) => {
+        const w = window as unknown as {
+          __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+        };
+        return w.__anon?.get(sid)?.frames ?? [];
+      }, id);
+    }
+
+    await connectAnon('anon-stream-conn');
+    await sendAnon('anon-stream-conn', {
+      event: 'anon-stream',
+      payload: {},
+      __wskit: { streamId: 'anon-1' },
+    });
+
+    const start = Date.now();
+    let rejection: WireFrame | undefined;
+    while (Date.now() - start < 2000 && !rejection) {
+      const all = await framesAnon('anon-stream-conn');
+      rejection = all.find((f) => f.event === '__error__' && f.__wskit?.streamId === 'anon-1');
+      if (!rejection) await page.waitForTimeout(50);
+    }
+
+    expect(rejection).toBeDefined();
+    expect(rejection?.payload.code).toBe('durable-stream-requires-user');
+  });
 });

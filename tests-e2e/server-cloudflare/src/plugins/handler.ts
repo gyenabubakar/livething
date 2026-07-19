@@ -68,7 +68,7 @@ const base = define({
 });
 
 base.onConnect((ctx) => {
-  ctx.log.info('Plugin handler: client connected', { id: ctx.id });
+  ctx.log.info('Plugin handler: client connected', { id: ctx.connection.id });
 });
 
 const handleInsert = base.on('insert-record', {

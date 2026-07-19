@@ -60,9 +60,9 @@ function memberConnection(id: string, channelName: string, channelFamily: string
   };
 }
 
-function ctxFor(identity: string, connection: unknown) {
+function ctxFor(userId: string, connection: unknown) {
   return {
-    identity,
+    user: { id: userId },
     [ENGINE_CHANNEL_META]: { channelName: 'room', channelFamily: null },
     [ENGINE_INTERNAL_CONNECTION]: connection,
   };
@@ -92,7 +92,7 @@ describe('readReceipts __read__ handler', () => {
     };
     const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
@@ -106,11 +106,11 @@ describe('readReceipts __read__ handler', () => {
     expect(broadcasts).toHaveLength(2);
     expect(broadcasts[0]).toMatchObject({
       event: '__read__',
-      payload: { identity: 'alice', readThrough: 5 },
+      payload: { userId: 'alice', readThrough: 5 },
     });
     expect(broadcasts[1]).toMatchObject({
       event: '__received__',
-      payload: { identity: 'alice', receivedThrough: 5 },
+      payload: { userId: 'alice', receivedThrough: 5 },
     });
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
   });
@@ -123,7 +123,7 @@ describe('readReceipts __read__ handler', () => {
     };
     const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
     insertInboxRows(sql, {
-      identities: ['alice'],
+      userIds: ['alice'],
       channelName: 'room',
       channelFamily: null,
       frame: { seq: 3, messageId: 'm3', event: 'msg', payload: {} },
@@ -143,7 +143,7 @@ describe('readReceipts __read__ handler', () => {
     advanceReceivedThrough(sql, {
       channelName: 'room',
       channelFamily: null,
-      identity: 'alice',
+      userId: 'alice',
       receivedThrough: 10,
       now: 1,
     });
@@ -154,7 +154,7 @@ describe('readReceipts __read__ handler', () => {
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]).toMatchObject({
       event: '__read__',
-      payload: { identity: 'alice', readThrough: 5 },
+      payload: { userId: 'alice', readThrough: 5 },
     });
   });
 
@@ -180,7 +180,7 @@ describe('readReceipts __read__ handler', () => {
       advanceReadThrough(sql, {
         channelName: 'room',
         channelFamily: null,
-        identity: 'alice',
+        userId: 'alice',
         readThrough: 0,
         now: 1,
       }).readThrough,
@@ -209,7 +209,7 @@ describe('readReceipts __readQuery__ handler', () => {
     advanceReadThrough(sql, {
       channelName: 'room',
       channelFamily: null,
-      identity: 'bob',
+      userId: 'bob',
       readThrough: 10,
       now: 1,
     });
@@ -220,7 +220,7 @@ describe('readReceipts __readQuery__ handler', () => {
     expect(sentFrames).toHaveLength(1);
     expect(sentFrames[0]!.frame).toMatchObject({
       event: '__readQuery__',
-      payload: { identities: ['bob'] },
+      payload: { userIds: ['bob'] },
       wskit: { channel: 'room', correlationId: 'q-1' },
     });
   });

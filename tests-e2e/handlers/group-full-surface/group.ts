@@ -35,7 +35,7 @@ base.onConnect((ctx) => {
 });
 
 base.onDisconnect((ctx) => {
-  ctx.sql.exec('INSERT INTO _disconnect_log (identity, t) VALUES (?, ?)', ctx.identity, Date.now());
+  ctx.sql.exec('INSERT INTO _disconnect_log (identity, t) VALUES (?, ?)', ctx.user.id, Date.now());
 });
 
 base.onError((ctx, err, eventName) => {
@@ -222,7 +222,7 @@ export const handleRoomSendMsg = rooms.on('send-msg', {
     ctx.channel.broadcast(
       'room-msg',
       { text: payload.text, from: ctx.meta.username },
-      { excludeSelf: false },
+      { includeSelf: true },
     );
   },
 });

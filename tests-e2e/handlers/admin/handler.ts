@@ -13,7 +13,7 @@ const noop = base.on('noop', { input: v.object({}), run() {} });
 
 /**
  * A tiny server whose whole point is the admin surface: `persistence()` so
- * `purgeIdentity` has durable state to wipe, and a top-level `api` whose
+ * `purgeUser` has durable state to wipe, and a top-level `api` whose
  * `announce` method proves a dev-defined admin op runs over the Worker→DO stub.
  */
 export const adminHandler = base.assemble({

@@ -48,6 +48,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
   return (depsMemoFor(core).ctxDeps ??= {
     compiled: core.compiled,
     connections: core.connections,
+    usersByKey: core.usersByKey,
     tagMembers: core.tagMembers,
     buildTagsApi: core.buildTagsApi,
     channelContext: core.channelContext,
@@ -90,13 +91,27 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     broadcastToChannel: (opts) => {
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
+    sendToChannelRecipient: (opts) => {
+      const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {
+        channelName: opts.channelName,
+        channelFamily: opts.channelFamily,
+        to: opts.to,
+      });
+      let delivered = 0;
+      for (const target of targets) {
+        const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
+          routing: { channel: opts.channelName, channelFamily: opts.channelFamily },
+          event: opts.event,
+          payload: opts.payload,
+        });
+        if (sent) delivered += 1;
+      }
+      return delivered;
+    },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
     kickChannelMembers: (opts) =>
       core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve(),
-    removeChannelMember: (channelName, channelFamily, identity) =>
-      core.channelService?.removeChannelMember(core, { channelName, channelFamily, identity }) ??
-      Promise.resolve(),
     subscribeConnectionAsServer: (ref, opts) =>
       core.channelService?.subscribeFromServer(core, ref, opts) ?? Promise.resolve(),
     resolveChannel: (target) => {
@@ -252,29 +267,25 @@ function buildChannelRuntime(core: EngineCore) {
 
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
 
-    persistMembership: (identity: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.persistMembership(core, { identity, channelName, channelFamily }),
+    persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.persistenceService?.persistMembership(core, { userId, channelName, channelFamily }),
 
-    deleteDurableMembership: (
-      identity: string,
-      channelName: string,
-      channelFamily: string | null,
-    ) =>
+    deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.persistenceService?.deleteDurableMembership(core, {
-        identity,
+        userId,
         channelName,
         channelFamily,
       }),
 
-    hasDurableMembership: (identity: string, channelName: string, channelFamily: string | null) =>
+    hasDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.persistenceService?.hasDurableMembership(core, {
-        identity,
+        userId,
         channelName,
         channelFamily,
       }) ?? false,
 
-    clearInbox: (identity: string, channelName: string, channelFamily: string | null) =>
-      core.inboxService?.clearChannel(core, { identity, channelName, channelFamily }),
+    clearInbox: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.inboxService?.clearChannel(core, { userId, channelName, channelFamily }),
 
     isInboxChannel: (channelName: string, channelFamily: string | null) =>
       core.inboxChannels.has(channelFamily ?? channelName),
@@ -400,6 +411,7 @@ function buildConnectionRuntime(core: EngineCore) {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
     connections: core.connections,
+    usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
     wsToConnectionId: core.wsToConnectionId,
@@ -418,7 +430,7 @@ function buildConnectionRuntime(core: EngineCore) {
       EngineHibernation.deleteConnectionState(core, connectionId),
 
     // Hibernation snapshots only carry ephemeral tags, so the wake path reloads
-    // persistent tags by identity. Wired only when persistence is on.
+    // persistent tags by user id. Wired only when persistence is on.
     ...(core.persistenceEnabled
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
@@ -564,6 +576,7 @@ export function handleConnectionClose(
     {
       compiled: core.compiled,
       connections: core.connections,
+      usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
       cancelActiveStreamsForConnection: (connectionId) =>

@@ -1,5 +1,5 @@
 import { createTestSql } from '~/_test/sql.ts';
-import { createChannelMembershipKey, removeChannelMember } from '~/channel/runtime.ts';
+import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import {
   deleteDurableMembership,
   hasDurableMembership,
@@ -18,57 +18,57 @@ function makeCore(sql: SQLProvider): EngineCore {
   } as unknown as EngineCore;
 }
 
-describe('durable membership identity gate', () => {
-  it('skips the durable write for an empty (anonymous) identity', () => {
+describe('durable membership user gate', () => {
+  it('skips the durable write for an empty (anonymous) user id', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
     ensurePersistenceSchema(sql);
     statements = 0;
 
-    persistMembership(makeCore(sql), { identity: '', channelName: 'room', channelFamily: null });
+    persistMembership(makeCore(sql), { userId: '', channelName: 'room', channelFamily: null });
     expect(statements).toBe(0);
   });
 
-  it('writes the durable row for a real identity', () => {
+  it('writes the durable row for a real user id', () => {
     const sql = createTestSql();
     ensurePersistenceSchema(sql);
 
     persistMembership(makeCore(sql), {
-      identity: 'user-1',
+      userId: 'user-1',
       channelName: 'room',
       channelFamily: null,
     });
     expect(
       hasDurableMembership(makeCore(sql), {
-        identity: 'user-1',
+        userId: 'user-1',
         channelName: 'room',
         channelFamily: null,
       }),
     ).toBe(true);
   });
 
-  it('skips the durable delete for an empty identity', () => {
+  it('skips the durable delete for an empty user id', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
     ensurePersistenceSchema(sql);
     statements = 0;
 
     deleteDurableMembership(makeCore(sql), {
-      identity: '',
+      userId: '',
       channelName: 'room',
       channelFamily: null,
     });
     expect(statements).toBe(0);
   });
 
-  it('reports no durable membership for an empty identity without querying', () => {
+  it('reports no durable membership for an empty user id without querying', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
     ensurePersistenceSchema(sql);
     statements = 0;
 
     const result = hasDurableMembership(makeCore(sql), {
-      identity: '',
+      userId: '',
       channelName: 'room',
       channelFamily: null,
     });
@@ -77,54 +77,123 @@ describe('durable membership identity gate', () => {
   });
 });
 
-describe('removeChannelMember', () => {
-  function makeDeps(connection: RuntimeConnection) {
+describe('kick(userRef, { revoke: true })', () => {
+  function userRef(id: string): { __wskit: 'user-ref'; id: string; instance: string | undefined } {
+    return { __wskit: 'user-ref', id, instance: undefined };
+  }
+
+  function makeConnection(id: string, userId: string): RuntimeConnection {
     return {
-      compiled: { channels: new Map([['room', { pattern: 'room' }]]), channelFamilies: new Map() },
-      connections: new Map([[connection.id, connection]]),
+      id,
+      userId,
+      wsKey: Symbol(id),
+      descriptor: { send() {}, close() {}, bufferedAmount: () => 0, identity: userId },
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+  }
+
+  const roomChannel = {
+    key: 'room',
+    kind: 'channel' as const,
+    pattern: 'room',
+    outgoing: new Map(),
+    incoming: new Map(),
+    requests: new Map(),
+    streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
+    intercepts: [],
+  };
+
+  function makeRuntime(
+    channelMembers: Map<string, Set<RuntimeConnection>>,
+    connections: Map<string, RuntimeConnection>,
+    deleteDurableMembership: ReturnType<typeof vi.fn>,
+  ) {
+    return {
+      compiled: { channels: new Map([['room', roomChannel]]), channelFamilies: new Map() },
+      connections,
+      channelMembers,
+      checkHooks: new Map(),
+      revalidateHooks: new Map(),
+      commitHooks: new Map(),
+      subscribeHooks: new Map(),
+      unsubscribeHooks: new Map(),
+      sessionEndHooks: new Map(),
       logger: { error: vi.fn() },
-      deleteDurableMembership: vi.fn(),
-    } as unknown as Parameters<typeof removeChannelMember>[0] & {
-      deleteDurableMembership: ReturnType<typeof vi.fn>;
+      toConnectionInfo: () => ({}) as unknown as ReturnType<typeof vi.fn>,
+      buildConnectionContext: () => ({}),
+      persistAttachment() {},
+      sendProtocolMessage() {},
+      broadcastToChannel() {},
+      async handleValidationError() {},
+      isChannelPersistent: () => true,
+      persistMembership() {},
+      deleteDurableMembership,
+      hasDurableMembership: () => true,
     };
   }
 
   it('drops the durable row and makes the live socket leave', async () => {
-    const membershipKey = createChannelMembershipKey('room', null);
-    const connection = {
-      id: 'conn_1',
-      identity: 'user-1',
-      channelMemberships: new Map([[membershipKey, { channelName: 'room', channelFamily: null }]]),
-    } as unknown as RuntimeConnection;
+    const connection = makeConnection('conn_1', 'user-1');
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    addChannelMembership(channelMembers, connection, { channelName: 'room', channelFamily: null });
+    const deleteDurableMembership = vi.fn();
+    const runtime = makeRuntime(
+      channelMembers,
+      new Map([[connection.id, connection]]),
+      deleteDurableMembership,
+    );
 
-    const deps = makeDeps(connection);
-    const leaveChannel = vi.fn(async (_connection: RuntimeConnection, _opts: unknown) => {});
-    await removeChannelMember(deps, leaveChannel, {
-      identity: 'user-1',
-      channelName: 'room',
-      channelFamily: null,
-    });
+    await kickChannelMembers(
+      {
+        ...runtime,
+        leaveChannel: (c: RuntimeConnection, opts: unknown) =>
+          leaveChannel(runtime as never, c, opts as never),
+      } as never,
+      {
+        channelName: 'room',
+        channelFamily: null,
+        target: userRef('user-1'),
+        reason: 'revoked',
+        revoke: true,
+      },
+    );
 
-    expect(deps.deleteDurableMembership).toHaveBeenCalledTimes(1);
-    expect(leaveChannel).toHaveBeenCalledTimes(1);
-    expect(leaveChannel.mock.calls[0]![0]).toBe(connection);
+    expect(deleteDurableMembership).toHaveBeenCalledTimes(1);
+    expect(connection.channelMemberships.size).toBe(0);
   });
 
-  it('leaves a non-member connection of the same identity untouched', async () => {
-    const connection = {
-      id: 'conn_1',
-      identity: 'user-1',
-      channelMemberships: new Map(), // not a member of 'room'
-    } as unknown as RuntimeConnection;
+  it('leaves a non-member connection of the same user id untouched', async () => {
+    const connection = makeConnection('conn_1', 'user-1');
+    // connection never joined 'room', so it is absent from the channelMembers index.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const deleteDurableMembership = vi.fn();
+    const runtime = makeRuntime(
+      channelMembers,
+      new Map([[connection.id, connection]]),
+      deleteDurableMembership,
+    );
 
-    const deps = makeDeps(connection);
-    const leaveChannel = vi.fn(async (_connection: RuntimeConnection, _opts: unknown) => {});
-    await removeChannelMember(deps, leaveChannel, {
-      identity: 'user-1',
-      channelName: 'room',
-      channelFamily: null,
-    });
+    await kickChannelMembers(
+      {
+        ...runtime,
+        leaveChannel: (c: RuntimeConnection, opts: unknown) =>
+          leaveChannel(runtime as never, c, opts as never),
+      } as never,
+      {
+        channelName: 'room',
+        channelFamily: null,
+        target: userRef('user-1'),
+        reason: 'revoked',
+        revoke: true,
+      },
+    );
 
-    expect(leaveChannel).not.toHaveBeenCalled();
+    expect(deleteDurableMembership).not.toHaveBeenCalled();
   });
 });

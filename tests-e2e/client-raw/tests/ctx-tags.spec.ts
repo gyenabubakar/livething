@@ -16,12 +16,12 @@ test.describe('ctx-tags', () => {
     await expect(page.getByTestId('tags')).not.toContainText('vip');
   });
 
-  test('ctx.getConnections returns a count for the current DO', async ({ page }) => {
+  test('ctx.connections.all() returns a count for the current DO', async ({ page }) => {
     await page.getByTestId('conn-info').click();
     await expect(page.getByTestId('conn-count')).toHaveText(/[1-9]\d*/);
   });
 
-  test('ctx.getConnectionsByTag returns self', async ({ page }) => {
+  test('tag ref connections() returns self', async ({ page }) => {
     // onUpgrade tags this connection with its username; so the username tag
     // should match exactly this one connection.
     await page.getByTestId('get-by-username').click();

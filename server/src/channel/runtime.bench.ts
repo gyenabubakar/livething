@@ -13,7 +13,7 @@ type ChannelRuntimeArg = Parameters<typeof SubscribeConnection>[0];
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -65,7 +65,7 @@ function createRuntime(memberCount: number) {
     sessionEndHooks: new Map(),
     toConnectionInfo: (connection: RuntimeConnection) => ({
       id: connection.id,
-      identity: connection.identity,
+      userId: connection.userId,
       meta: connection.meta,
       tags: [],
       channels: [],

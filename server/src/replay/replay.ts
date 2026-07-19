@@ -177,6 +177,17 @@ interface ReplayInstallerOptions {
 }
 
 /**
+ * Resolve the current connection's id from a handler ctx. Reads the engine's
+ * stashed runtime connection first — it is always present on a built ctx — so
+ * the id is available regardless of how the public `ctx.connection` ref is
+ * surfaced on a given dispatch.
+ */
+function readConnectionId(ctx: Record<PropertyKey, unknown>): string {
+  const runtime = ctx[ENGINE_INTERNAL_CONNECTION] as { id?: string } | undefined;
+  return runtime?.id ?? (ctx as { connection?: { id?: string } }).connection?.id ?? '';
+}
+
+/**
  * Bundles the context extender, persist callback, and `__replay__` protocol
  * handler used during replay setup. Using a class lets the three callbacks
  * share the same engine reference, channel key, exclude set, and options
@@ -201,11 +212,12 @@ class ReplayInstaller {
   /** Attach `sendReplay` to the relevant scope on every live connection context. */
   contextExtender = (ctx: unknown): Record<string, unknown> => {
     const base = ctx as Record<PropertyKey, unknown> & {
-      id?: string;
+      connection?: { id?: string };
       channel?: Record<PropertyKey, unknown>;
       sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
     };
     const scope = readReplayContextScope(base);
+    const connectionId = readConnectionId(base);
 
     if (this.channelKey) {
       // Channel-level replay. For families, channelKey is the family key and
@@ -213,14 +225,14 @@ class ReplayInstaller {
       // channel name and matches scope.channelName (scope.channelFamily is null).
       const matches =
         scope.channelFamily === this.channelKey || scope.channelName === this.channelKey;
-      if (!matches || !base.id || !base.channel) return {};
+      if (!matches || !connectionId || !base.channel) return {};
 
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.assertReplaySendContract(event, payload, {
           channel: scope.channelName ?? undefined,
           channelFamily: scope.channelFamily ?? null,
         });
-        this.engine.sendReplay(base.id as string, {
+        this.engine.sendReplay(connectionId, {
           channelName: scope.channelName ?? null,
           channelFamily: scope.channelFamily ?? null,
           event,
@@ -232,7 +244,7 @@ class ReplayInstaller {
       return {};
     }
 
-    if (!base.id) return {};
+    if (!connectionId) return {};
 
     // Top-level replay cascades into every channel it has not ceded to a
     // channel-scoped instance. When the live ctx is in such a channel scope,
@@ -250,7 +262,7 @@ class ReplayInstaller {
           channel: scope.channelName ?? undefined,
           channelFamily: scope.channelFamily ?? null,
         });
-        this.engine.sendReplay(base.id as string, {
+        this.engine.sendReplay(connectionId, {
           channelName: scope.channelName ?? null,
           channelFamily: scope.channelFamily ?? null,
           event,
@@ -266,7 +278,7 @@ class ReplayInstaller {
         channel: wire.channel,
         channelFamily: wire.channelFamily,
       });
-      this.engine.sendReplay(base.id as string, {
+      this.engine.sendReplay(connectionId, {
         channelName: wire.channel ?? null,
         channelFamily: wire.channelFamily ?? null,
         event,
@@ -372,7 +384,7 @@ class ReplayInstaller {
     const since = frame.payload.lastKnownSeq ?? 0;
     const { sql } = this.engine.requireStorage();
 
-    const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
+    const connectionId = readConnectionId(ctx as Record<PropertyKey, unknown>);
     if (!connectionId) return true;
 
     // Snapshot resends current state, so only history mode can have a gap.

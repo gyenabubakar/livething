@@ -113,7 +113,9 @@ const handleKickByTag = base.on('kick-by-tag', {
   async run(ctx, payload) {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), payload.reason);
+      .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), {
+        reason: payload.reason,
+      });
   },
 });
 

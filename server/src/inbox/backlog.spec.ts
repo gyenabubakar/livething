@@ -10,13 +10,13 @@ const SCOPE = { channelName: 'room', channelFamily: null } as const;
 
 function seedRow(
   sql: ReturnType<typeof createTestSql>,
-  row: { identity: string; seq: number; createdAt: number },
+  row: { userId: string; seq: number; createdAt: number },
 ) {
   insertInboxRows(sql, {
-    identities: [row.identity],
+    userIds: [row.userId],
     channelName: SCOPE.channelName,
     channelFamily: SCOPE.channelFamily,
-    frame: { seq: row.seq, messageId: `m${row.seq}-${row.identity}`, event: 'msg', payload: {} },
+    frame: { seq: row.seq, messageId: `m${row.seq}-${row.userId}`, event: 'msg', payload: {} },
     now: row.createdAt,
   });
 }
@@ -28,7 +28,7 @@ function harness(opts: { online?: Set<string>; lastSeen?: LastSeenService } = {}
 
   const engine = {
     requireStorage: () => ({ sql }),
-    isIdentityOnline: (identity: string) => opts.online?.has(identity) ?? false,
+    isUserOnline: (userId: string) => opts.online?.has(userId) ?? false,
     getLastSeenService: () => opts.lastSeen,
   } as unknown as EngineAccess;
 
@@ -39,14 +39,14 @@ describe('inbox backlog()', () => {
   it('reports one entry per member with held unacked rows and the received cursor', () => {
     const { sql, surface } = harness({ online: new Set(['alice']) });
 
-    seedRow(sql, { identity: 'alice', seq: 1, createdAt: 100 });
-    seedRow(sql, { identity: 'alice', seq: 2, createdAt: 200 });
-    seedRow(sql, { identity: 'bob', seq: 3, createdAt: 300 });
+    seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
+    seedRow(sql, { userId: 'alice', seq: 2, createdAt: 200 });
+    seedRow(sql, { userId: 'bob', seq: 3, createdAt: 300 });
 
     advanceReceivedThrough(sql, {
       channelName: SCOPE.channelName,
       channelFamily: SCOPE.channelFamily,
-      identity: 'alice',
+      userId: 'alice',
       receivedThrough: 4,
       now: 1,
     });
@@ -75,11 +75,11 @@ describe('inbox backlog()', () => {
 
   it('drops a member from the backlog once its rows are acked (delete mode)', () => {
     const { sql, surface } = harness();
-    seedRow(sql, { identity: 'alice', seq: 1, createdAt: 100 });
-    seedRow(sql, { identity: 'alice', seq: 2, createdAt: 200 });
+    seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
+    seedRow(sql, { userId: 'alice', seq: 2, createdAt: 200 });
 
     ackInboxRows(sql, {
-      identity: 'alice',
+      userId: 'alice',
       channelName: SCOPE.channelName,
       channelFamily: SCOPE.channelFamily,
       receivedThrough: 2,
@@ -92,7 +92,7 @@ describe('inbox backlog()', () => {
 
   it('omits lastSeenAt when no LastSeenService slot is set', () => {
     const { sql, surface } = harness();
-    seedRow(sql, { identity: 'alice', seq: 1, createdAt: 100 });
+    seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
 
     const [entry] = surface.backlog();
     expect(entry).toBeDefined();
@@ -105,7 +105,7 @@ describe('inbox backlog()', () => {
       online: () => false,
     };
     const { sql, surface } = harness({ lastSeen });
-    seedRow(sql, { identity: 'alice', seq: 1, createdAt: 100 });
+    seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
 
     const [entry] = surface.backlog();
     expect(entry!.lastSeenAt).toBe(4242);

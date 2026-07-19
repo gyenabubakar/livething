@@ -126,7 +126,7 @@ export interface PersistenceService {
     connection: RuntimeConnection,
   ): Promise<void>;
   restorePersistentTags(opts: any): void;
-  purgeIdentity(core: any, identity: string): Promise<void>;
+  purgeUser(core: any, userId: string): Promise<void>;
 }
 
 /**
@@ -198,10 +198,6 @@ export interface ChannelService {
     channelFamily: string | null,
   ): ConnectionInfo<Record<string, unknown>>[];
   kickChannelMembers(core: any, opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
-  removeChannelMember(
-    core: any,
-    key: { channelName: string; channelFamily: string | null; identity: string },
-  ): Promise<void>;
   subscribeFromServer(
     core: any,
     ref: ConnectionRef,
@@ -285,12 +281,12 @@ export interface InboxService {
       messageId: string;
     },
   ): void;
-  /** Re-deliver an identity's owed rows after its socket reconnects. */
+  /** Re-deliver a user's owed rows after its socket reconnects. */
   drainOnReconnect(core: any, connection: RuntimeConnection): void;
-  /** Drop an identity's rows for a channel it has just left. */
+  /** Drop a user's rows for a channel it has just left. */
   clearChannel(
     core: any,
-    key: { identity: string; channelName: string; channelFamily: string | null },
+    key: { userId: string; channelName: string; channelFamily: string | null },
   ): void;
 }
 

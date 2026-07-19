@@ -1,10 +1,11 @@
 import { adminBuiltIns, createAdminContext } from '~/admin/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { CreateAdminContextDeps } from '~/admin/context.ts';
+import type * as PublicApi from '~/context.ts';
 
 /** A stub connection carrying just the fields the admin context reads. */
-function conn(id: string, identity: string) {
-  return { id, identity, descriptor: { close: vi.fn() } };
+function conn(id: string, userId: string) {
+  return { id, userId, descriptor: { close: vi.fn() } };
 }
 
 function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
@@ -24,7 +25,6 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
     broadcastToChannel: vi.fn(),
     getChannelMembers: vi.fn(() => []),
     kickChannelMembers: vi.fn(() => Promise.resolve()),
-    removeChannelMember: vi.fn(() => Promise.resolve()),
     resolveChannel: vi.fn((target: unknown) => {
       if (target === 'missing') return undefined;
       if (typeof target === 'string') {
@@ -33,10 +33,10 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
       const { family, name } = target as { family: string; name: string };
       return { channelName: name, channelFamily: family, params: {} };
     }),
-    toConnectionInfo: (c: ReturnType<typeof conn>) => ({ id: c.id, identity: c.identity }),
+    toConnectionInfo: (c: ReturnType<typeof conn>) => ({ id: c.id, userId: c.userId }),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ removed: 1, taskExists: true })),
-    purgeIdentity: vi.fn(() => Promise.resolve()),
+    purgeUser: vi.fn(() => Promise.resolve()),
     ...overrides,
   } as unknown as CreateAdminContextDeps;
   return { deps, connections };
@@ -52,11 +52,11 @@ describe('createAdminContext', () => {
     expect(opts).toEqual({ event: 'ping', payload: { n: 1 } });
   });
 
-  it('closeConnections({ identity }) closes only that identity, else everyone', () => {
+  it('closeConnections({ userId }) closes only that user, else everyone', () => {
     const { deps, connections } = makeDeps();
     const ctx = createAdminContext(deps);
 
-    ctx.closeConnections({ identity: 'alice' }, 4000, 'gone');
+    ctx.closeConnections({ userId: 'alice' }, 4000, 'gone');
     expect(connections.get('c1')!.descriptor.close).toHaveBeenCalledWith(4000, 'gone');
     expect(connections.get('c3')!.descriptor.close).toHaveBeenCalledWith(4000, 'gone');
     expect(connections.get('c2')!.descriptor.close).not.toHaveBeenCalled();
@@ -77,10 +77,19 @@ describe('createAdminContext', () => {
     });
   });
 
-  it('channels.get(family, instance) resolves a dynamic channel', () => {
+  it('channels.get(family, instance) resolves a dynamic channel and kick revokes membership', () => {
     const { deps } = makeDeps();
-    createAdminContext(deps).channels.get('rooms', 'rooms:42').removeMember('alice');
-    expect(deps.removeChannelMember).toHaveBeenCalledWith('rooms:42', 'rooms', 'alice');
+    const target: PublicApi.UserRef = { __wskit: 'user-ref', id: 'alice', instance: undefined };
+    createAdminContext(deps)
+      .channels.get('rooms', 'rooms:42')
+      .kick(target, { reason: 'banned', revoke: true });
+    expect(deps.kickChannelMembers).toHaveBeenCalledWith({
+      channelName: 'rooms:42',
+      channelFamily: 'rooms',
+      target,
+      reason: 'banned',
+      revoke: true,
+    });
   });
 
   it('channels.get(unknown) throws', () => {
@@ -88,17 +97,17 @@ describe('createAdminContext', () => {
     expect(() => createAdminContext(deps).channels.get('missing')).toThrow();
   });
 
-  it('purgeIdentity delegates to the wired closure', async () => {
+  it('purgeUser delegates to the wired closure', async () => {
     const { deps } = makeDeps();
-    await createAdminContext(deps).purgeIdentity('alice');
-    expect(deps.purgeIdentity).toHaveBeenCalledWith('alice');
+    await createAdminContext(deps).purgeUser('alice');
+    expect(deps.purgeUser).toHaveBeenCalledWith('alice');
   });
 
-  it('connectionCount and getConnections reflect the live map', () => {
+  it('connectionCount and connections.all reflect the live map', () => {
     const { deps } = makeDeps();
     const ctx = createAdminContext(deps);
     expect(ctx.connectionCount).toBe(3);
-    expect(ctx.getConnections().map((c) => c.identity)).toEqual(['alice', 'bob', 'alice']);
+    expect(ctx.connections.all().map((c) => c.userId)).toEqual(['alice', 'bob', 'alice']);
   });
 });
 
@@ -113,8 +122,9 @@ describe('adminBuiltIns', () => {
         'channels',
         'closeConnections',
         'connectionCount',
-        'getConnections',
-        'purgeIdentity',
+        'connections',
+        'purgeUser',
+        'users',
       ].sort(),
     );
 

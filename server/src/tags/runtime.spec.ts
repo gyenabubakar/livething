@@ -12,7 +12,7 @@ import type { TagsRuntime } from '~/tags/runtime.ts';
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},

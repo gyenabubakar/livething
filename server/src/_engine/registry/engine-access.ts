@@ -396,14 +396,12 @@ export function createEngineAccess(
     addChannelHandleAugmenter: (augmenter) => {
       core.channelHandleAugmenters.push(augmenter);
     },
-    isIdentityOnline: (identity) => {
-      if (!identity) return false;
-      for (const connection of core.connections.values()) {
-        if (connection.identity === identity) return true;
-      }
-      return false;
+    isUserOnline: (userId) => {
+      if (!userId) return false;
+      const members = core.usersByKey.get(userId);
+      return members !== undefined && members.size > 0;
     },
-    getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.identity,
+    getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.userId,
     broadcastToChannel: (opts) => deps.broadcastToChannel(opts),
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),

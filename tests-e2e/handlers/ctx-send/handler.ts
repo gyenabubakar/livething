@@ -27,7 +27,7 @@ const handleDoBroadcast = base.on('do-broadcast', {
 const handleDoBroadcastExcludeSelf = base.on('do-broadcast-exclude-self', {
   input: v.object({ text: v.string() }),
   run(ctx, input) {
-    ctx.broadcast('message', { text: input.text, from: ctx.meta.username }, { excludeSelf: false });
+    ctx.broadcast('message', { text: input.text, from: ctx.meta.username }, { includeSelf: true });
   },
 });
 
@@ -58,9 +58,9 @@ const handleDoSendToConnection = base.on('do-send-to-connection', {
       __wskit: 'connection-ref' as const,
       id: input.connectionId,
       instance: undefined,
-      identity: input.connectionId,
+      userId: input.connectionId,
     };
-    const delivered = ctx.connection(ref).send('message', {
+    const delivered = ctx.connections.get(ref).send('message', {
       text: input.text,
       from: ctx.meta.username,
     });
@@ -71,7 +71,7 @@ const handleDoSendToConnection = base.on('do-send-to-connection', {
 const handleWhoAmI = base.on('who-am-i', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('who-am-i-result', { connectionId: ctx.id });
+    ctx.send('who-am-i-result', { connectionId: ctx.connection.id });
   },
 });
 

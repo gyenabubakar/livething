@@ -47,7 +47,7 @@ const handleTrigger = broadcastRequestContract.on('trigger', {
       const { response, from } = await ctx.channels
         .get(lobby)
         .broadcastRequest('volunteer', { turn: input.turn });
-      ctx.send('outcome', { from: from.identity, ready: response.ready });
+      ctx.send('outcome', { from: from.userId, ready: response.ready });
     } catch (error) {
       ctx.send('error-outcome', { code: describeError(error) });
     }
@@ -61,7 +61,7 @@ const handleTriggerTimeout = broadcastRequestContract.on('trigger-timeout', {
       const { response, from } = await ctx.channels
         .get(lobby)
         .broadcastRequest('volunteer', { turn: input.turn }, { timeout: 500 });
-      ctx.send('outcome', { from: from.identity, ready: response.ready });
+      ctx.send('outcome', { from: from.userId, ready: response.ready });
     } catch (error) {
       ctx.send('error-outcome', { code: describeError(error) });
     }

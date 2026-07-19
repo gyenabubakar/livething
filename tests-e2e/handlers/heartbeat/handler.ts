@@ -19,11 +19,11 @@ const probe = define({
 });
 
 probe.onPing((ctx) => {
-  ctx.send('plugin-ping-seen', { connectionId: ctx.id });
+  ctx.send('plugin-ping-seen', { connectionId: ctx.connection.id });
 });
 
 probe.onPong((ctx) => {
-  ctx.send('plugin-pong-seen', { connectionId: ctx.id });
+  ctx.send('plugin-pong-seen', { connectionId: ctx.connection.id });
 });
 
 const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble({ handlers: [] }) });
@@ -47,11 +47,11 @@ const base = define({
 });
 
 base.onPing((ctx) => {
-  ctx.send('ping-seen', { connectionId: ctx.id });
+  ctx.send('ping-seen', { connectionId: ctx.connection.id });
 });
 
 base.onPong((ctx) => {
-  ctx.send('pong-seen', { connectionId: ctx.id });
+  ctx.send('pong-seen', { connectionId: ctx.connection.id });
 });
 
 export const heartbeatHandler = base.assemble({ handlers: [] });

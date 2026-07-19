@@ -81,7 +81,7 @@ const handleKickStatic = base.on('kick-static', {
     void payload.name;
     await ctx.channels
       .get('general')
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-ack', { where: 'static' });
   },
 });
@@ -91,7 +91,7 @@ const handleKickFamily = base.on('kick-family', {
   async run(ctx, payload) {
     await ctx.channels
       .get('rooms', payload.name)
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-ack', { where: 'family' });
   },
 });
@@ -105,7 +105,7 @@ const general = base.channel('general', {
 const handleSendInGeneral = general.on('send-in-general', {
   input: SendInGeneralPayload,
   run(ctx, payload) {
-    ctx.channel.broadcast('msg', { from: 'static', text: payload.text }, { excludeSelf: false });
+    ctx.channel.broadcast('msg', { from: 'static', text: payload.text }, { includeSelf: true });
   },
 });
 
@@ -119,7 +119,7 @@ const handleSendInRoom = room.on('send-in-room', {
   input: SendInRoomPayload,
   run(ctx, payload) {
     void payload.name;
-    ctx.channel.broadcast('msg', { from: 'family', text: payload.text }, { excludeSelf: false });
+    ctx.channel.broadcast('msg', { from: 'family', text: payload.text }, { includeSelf: true });
   },
 });
 

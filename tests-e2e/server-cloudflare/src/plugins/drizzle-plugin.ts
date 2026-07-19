@@ -126,11 +126,11 @@ h.onInit((ctx) => {
 
 h.onConnect((ctx) => {
   const state = getState(ctx.platform as Platform);
-  state.lastGeneratedId = `drizzle-${ctx.id}`;
-  const self = ctx.getConnections().find((c) => c.id === ctx.id);
+  state.lastGeneratedId = `drizzle-${ctx.connection.id}`;
+  const self = ctx.connections.all().find((c) => c.id === ctx.connection.id);
   const meta = ctx.meta as { username?: unknown };
   state.lastState = {
-    id: ctx.id,
+    id: ctx.connection.id,
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
@@ -361,7 +361,7 @@ export const Drizzle = plugin('e2e:drizzle', {
           );
         },
         getCurrentConnectionId() {
-          return ctx.id ?? null;
+          return ctx.connection.id ?? null;
         },
       };
     },

@@ -56,7 +56,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
   function member(id: string): any {
     return {
       id,
-      ref: () => ({ __wskit: 'connection-ref', id, instance: undefined, identity: id }),
+      ref: () => ({ __wskit: 'connection-ref', id, instance: undefined, userId: id }),
     };
   }
 
@@ -68,14 +68,25 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       connections?: string[];
       channels?: Record<string, string[]>;
       tags?: { group?: string[]; refs?: Record<string, string[]> };
+      user?: string[];
     },
   ): any {
     const ctx: any = {
-      id: connectionId,
-      self: { __wskit: 'connection-ref', id: connectionId, instance: undefined, identity: 'i' },
+      connection: { __wskit: 'connection-ref', id: connectionId, instance: undefined, userId: 'i' },
       [ENGINE_CHANNEL_META]: scope ?? {},
-      connection: (ref: ConnectionRef) => ({ send: () => true, __ref: ref }),
+      connections: {
+        get: (ref: ConnectionRef) => ({ send: () => true, __ref: ref }),
+        all: () => (opts?.connections ?? []).map(member),
+      },
     };
+    if (opts?.user) {
+      for (const id of opts.user) live.add(id);
+      function userHandle(ids: string[]) {
+        return { id: ids[0], connections: () => ids.map(member) };
+      }
+      ctx.user = userHandle(opts.user);
+      ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
+    }
     for (const id of [
       ...(opts?.connections ?? []),
       ...Object.values(opts?.channels ?? {}).flat(),
@@ -83,9 +94,6 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
       ...Object.values(opts?.tags?.refs ?? {}).flat(),
     ]) {
       live.add(id);
-    }
-    if (opts?.connections) {
-      ctx.getConnections = () => opts.connections!.map(member);
     }
     if (opts?.channels) {
       ctx.channels = {
@@ -113,7 +121,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     return ctx;
   }
 
-  return { answerHook, disconnectHook, buildCtx, sent, live };
+  return { answerHook, disconnectHook, buildCtx, sent, live, member };
 }
 
 const PERMISSION = new Map<string, ResolvedServerRequest>([
@@ -214,36 +222,38 @@ describe('server→client request — outgoing runtime', () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' });
-    env.disconnectHook({ id: 'c1' });
+    env.disconnectHook({ connection: { id: 'c1' } });
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
   });
 
-  it('ctx.connection(ref).request targets the addressed peer', async () => {
+  it('ctx.connections.get(ref).request targets the addressed peer', async () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
       __wskit: 'connection-ref',
       id: 'peer',
       instance: undefined,
-      identity: 'p',
+      userId: 'p',
     };
-    const promise = ctx.connection(ref).request('ask', { action: 'x' });
+    const promise = ctx.connections.get(ref).request('ask', { action: 'x' });
     expect(env.sent[0]!.connectionId).toBe('peer');
     const { correlationId } = env.sent[0]!.opts;
     env.answerHook('peer', { event: 'ask', payload: { allowed: false }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: false });
   });
 
-  it('ctx.connection(ref).request to another instance throws cross-instance', () => {
+  it('ctx.connections.get(ref).request to another instance throws cross-instance', () => {
     const env = install(topDeclarations(PERMISSION));
     const ctx = env.buildCtx('c1');
     const ref: ConnectionRef = {
       __wskit: 'connection-ref',
       id: 'peer',
       instance: 'other',
-      identity: 'p',
+      userId: 'p',
     };
-    expect(() => ctx.connection(ref).request('ask', { action: 'x' })).toThrow(/cross-instance/);
+    expect(() => ctx.connections.get(ref).request('ask', { action: 'x' })).toThrow(
+      /cross-instance/,
+    );
   });
 
   it('ctx.channel.request stamps the channel routing', async () => {
@@ -275,6 +285,40 @@ describe('server→client request — outgoing runtime', () => {
     });
     expect(env.sent).toHaveLength(0);
   });
+
+  it('ctx.channel.request({ to }) asks only the targeted member and resolves the bare response', async () => {
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          family: 'rooms',
+          send: () => true,
+          members: () => ['c1', 'peer'].map(env.member),
+        },
+      },
+    );
+
+    const promise = ctx.channel.request(
+      'ask',
+      { action: 'x' },
+      {
+        to: { __wskit: 'connection-ref', id: 'peer', instance: undefined, userId: 'peer' },
+      },
+    );
+
+    // Only the targeted member is asked, and the frame is channel-stamped.
+    expect(env.sent).toHaveLength(1);
+    expect(env.sent[0]!.connectionId).toBe('peer');
+    expect(env.sent[0]!.opts.channel).toBe('room-1');
+    const { correlationId } = env.sent[0]!.opts;
+    env.answerHook('peer', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
+
+    // The targeted form resolves the bare response — no `{ response, from }`.
+    await expect(promise).resolves.toEqual({ allowed: true });
+  });
 });
 
 const VOLUNTEER = new Map<string, ResolvedServerRequest>([
@@ -299,6 +343,45 @@ describe('server→client broadcast request — first answer wins', () => {
     await expect(promise).resolves.toEqual({
       response: { ready: true },
       from: expect.objectContaining({ id: 'b' }),
+    });
+  });
+
+  it('ctx.user.request fans out to every socket the user holds and wins on the first answer', async () => {
+    const env = install(topDeclarations(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { user: ['c1', 'u2'] });
+    const promise = ctx.user.request('volunteer', { turn: 1 });
+
+    // Fanned to all of the user's sockets — self is not excluded on a user handle.
+    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['c1', 'u2']);
+    const legU2 = env.sent.find((s) => s.connectionId === 'u2')!;
+    env.answerHook('u2', {
+      event: 'volunteer',
+      payload: { ready: true },
+      wskit: { correlationId: legU2.opts.correlationId },
+    });
+
+    await expect(promise).resolves.toEqual({
+      response: { ready: true },
+      from: expect.objectContaining({ id: 'u2' }),
+    });
+  });
+
+  it('ctx.users.get(id).request asks that user’s sockets and resolves the first answer', async () => {
+    const env = install(topDeclarations(VOLUNTEER));
+    const ctx = env.buildCtx('c1', undefined, { user: ['u2', 'u3'] });
+    const promise = ctx.users.get('u').request('volunteer', { turn: 1 });
+
+    expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['u2', 'u3']);
+    const legU3 = env.sent.find((s) => s.connectionId === 'u3')!;
+    env.answerHook('u3', {
+      event: 'volunteer',
+      payload: { ready: true },
+      wskit: { correlationId: legU3.opts.correlationId },
+    });
+
+    await expect(promise).resolves.toEqual({
+      response: { ready: true },
+      from: expect.objectContaining({ id: 'u3' }),
     });
   });
 
@@ -411,7 +494,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 });
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
 
-    env.disconnectHook({ id: 'a' });
+    env.disconnectHook({ connection: { id: 'a' } });
 
     env.answerHook('b', {
       event: 'volunteer',
@@ -664,17 +747,17 @@ describe('server→client broadcast request — self-exclusion (Major 6)', () =>
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
   });
 
-  it('ctx.channel.broadcastRequest includes the caller with excludeSelf: false', () => {
+  it('ctx.channel.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(channelDeclarations('rooms', VOLUNTEER));
     const ctx = channelCtx(env);
-    void ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { excludeSelf: false });
+    void ctx.channel.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 
-  it('ctx.broadcastRequest includes the caller with excludeSelf: false', () => {
+  it('ctx.broadcastRequest includes the caller with includeSelf: true', () => {
     const env = install(topDeclarations(VOLUNTEER));
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1', 'a', 'b'] });
-    void ctx.broadcastRequest('volunteer', { turn: 1 }, { excludeSelf: false });
+    void ctx.broadcastRequest('volunteer', { turn: 1 }, { includeSelf: true });
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b', 'c1']);
   });
 });

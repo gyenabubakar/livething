@@ -156,13 +156,13 @@ export default {
       return new Response(null, { status: 204 });
     }
 
-    // Admin surface over the stub: a built-in op (purgeIdentity) and a
+    // Admin surface over the stub: a built-in op (purgeUser) and a
     // dev-defined op (announce), both reached through stub.admin().
     if (url.pathname === '/ws/admin/purge') {
       const id = env.ADMIN_SERVER.idFromName(room);
-      const identity = url.searchParams.get('identity') ?? '';
+      const userId = url.searchParams.get('userId') ?? '';
       const admin = await env.ADMIN_SERVER.get(id).admin();
-      await admin.purgeIdentity(identity);
+      await admin.purgeUser(userId);
       return new Response(null, { status: 204 });
     }
 

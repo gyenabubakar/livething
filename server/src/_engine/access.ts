@@ -875,13 +875,13 @@ export interface EngineAccess {
   addChannelHandleAugmenter(augmenter: FeatureSlots.ChannelHandleAugmenter): void;
 
   /**
-   * Whether any live connection on this instance currently carries the given
-   * identity. Read by inbox backlog and the last-seen surface to report a
-   * member's online state without scanning the connection map themselves.
+   * Whether any live connection on this instance currently belongs to the
+   * given user id. Read by inbox backlog and the last-seen surface to report
+   * a member's online state without scanning the connection map themselves.
    *
    * @internal
    */
-  isIdentityOnline(identity: string): boolean;
+  isUserOnline(userId: string): boolean;
 
   /**
    * The identity of one live connection by id, or `undefined` when no such

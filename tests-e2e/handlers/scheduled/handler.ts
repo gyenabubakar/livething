@@ -102,9 +102,9 @@ const handleSendToConnTask = base.scheduled('send-to-conn-task', {
       __wskit: 'connection-ref' as const,
       id: data.connectionId,
       instance: undefined,
-      identity: data.connectionId,
+      userId: data.connectionId,
     };
-    const delivered = ctx.connection(ref).send('schedule-send-to-conn-delivery', {
+    const delivered = ctx.connections.get(ref).send('schedule-send-to-conn-delivery', {
       text: data.text,
     });
     ctx.broadcast('schedule-send-to-conn-status', {
@@ -128,9 +128,9 @@ const handleBroadcastTask = base.scheduled('broadcast-task', {
 
 const handleSendToTagTask = base.scheduled('send-to-tag-task', {
   run(ctx) {
-    for (const conn of ctx.getConnections()) {
+    for (const conn of ctx.connections.all()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
-        ctx.connection(conn.ref()).send('send-to-tag-result', { text: 'tagged-from-task' });
+        ctx.connections.get(conn.ref()).send('send-to-tag-result', { text: 'tagged-from-task' });
       }
     }
   },
@@ -287,7 +287,7 @@ const handleScheduleSendToConn = base.on('schedule-send-to-conn', {
 const handleWhoAmI = base.on('who-am-i', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('who-am-i-result', { connectionId: ctx.id });
+    ctx.send('who-am-i-result', { connectionId: ctx.connection.id });
   },
 });
 

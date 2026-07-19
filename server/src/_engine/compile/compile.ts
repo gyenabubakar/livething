@@ -151,6 +151,7 @@ export function compileHandlerDefinition(
     scheduled: new Map(),
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
+    usersPolicy: handler.__usersPolicy,
   };
 
   const validateChannelsDisjoint = visitCompiledPrimitives(compiled, handler.primitives);

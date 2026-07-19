@@ -113,7 +113,7 @@ describe('hibernation restore — live delivery to a passive member', () => {
     for (const s of [kofi, ama, yaw]) {
       writeConnectionRow(storage.sql, {
         connection_id: s.id,
-        identity: s.id,
+        user_id: s.id,
         meta: {},
         ephemeral_tags: [],
         ephemeral_memberships: [{ channelName: 'room', channelFamily: null }],

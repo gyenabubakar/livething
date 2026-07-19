@@ -21,8 +21,8 @@ export interface RateLimitConfig {
   /** Maximum events per window. Default: `60`. */
   readonly max?: number;
   /**
-   * Pick the bucket key from the connection context. Default: `ctx.id`
-   * (per-connection). Use `(ctx) => ctx.identity` to share a single budget
+   * Pick the bucket key from the connection context. Default: `ctx.connection.id`
+   * (per-connection). Use `(ctx) => ctx.user.id` to share a single budget
    * across every socket the user has open.
    */
   readonly per?: (ctx: any) => string;
@@ -31,7 +31,7 @@ export interface RateLimitConfig {
 export const RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 60_000,
   max: 60,
-  per: (ctx: any) => String(ctx?.id ?? ''),
+  per: (ctx: any) => String(ctx?.connection?.id ?? ''),
 });
 
 export interface RateLimitPrimitive extends Primitive<'intercept'> {}

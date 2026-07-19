@@ -79,7 +79,7 @@ describe('plugin onPing / onPong', () => {
     let scopedId: unknown;
     const ph = define({ scoped: true });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
-    ph.onPong((ctx: any) => void (scopedId = ctx.id));
+    ph.onPong((ctx: any) => void (scopedId = ctx.connection.id));
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Probe()] });

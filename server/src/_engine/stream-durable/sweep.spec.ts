@@ -12,7 +12,7 @@ describe('sweepDurableStreams', () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 's1',
       event: 'e',
       payload: '{}',
@@ -20,7 +20,7 @@ describe('sweepDurableStreams', () => {
       now: Date.now(),
       maxAgeMs: 60_000,
     });
-    Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u', streamId: 's1', now: Date.now() });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(0);
     expect(countStreams(sql)).toBe(1);
@@ -32,7 +32,7 @@ describe('sweepDurableStreams', () => {
     // Insert + suspend with maxAgeMs = 1ms in the past so it's immediately expired.
     const longAgo = Date.now() - 10_000;
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 's1',
       event: 'e',
       payload: '{}',
@@ -40,7 +40,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       maxAgeMs: 1,
     });
-    Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: longAgo });
+    Storage.markSuspended(sql, { userId: 'u', streamId: 's1', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
     expect(countStreams(sql)).toBe(0);
@@ -51,7 +51,7 @@ describe('sweepDurableStreams', () => {
     Storage.ensureDurableStreamSchema(sql);
     const longAgo = Date.now() - 10_000;
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 's2',
       event: 'e',
       payload: '{}',
@@ -59,7 +59,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       retentionAfterEndMs: 1,
     });
-    Storage.markEnded(sql, { identity: 'u', streamId: 's2', now: longAgo });
+    Storage.markEnded(sql, { userId: 'u', streamId: 's2', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
     expect(countStreams(sql)).toBe(0);
@@ -71,7 +71,7 @@ describe('sweepDurableStreams', () => {
     const longAgo = Date.now() - 10_000;
 
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 'expired-suspended',
       event: 'e',
       payload: '{}',
@@ -79,10 +79,10 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       maxAgeMs: 1,
     });
-    Storage.markSuspended(sql, { identity: 'u', streamId: 'expired-suspended', now: longAgo });
+    Storage.markSuspended(sql, { userId: 'u', streamId: 'expired-suspended', now: longAgo });
 
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 'expired-ended',
       event: 'e',
       payload: '{}',
@@ -90,10 +90,10 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       retentionAfterEndMs: 1,
     });
-    Storage.markEnded(sql, { identity: 'u', streamId: 'expired-ended', now: longAgo });
+    Storage.markEnded(sql, { userId: 'u', streamId: 'expired-ended', now: longAgo });
 
     Storage.insertStream(sql, {
-      identity: 'u',
+      userId: 'u',
       streamId: 'fresh',
       event: 'e',
       payload: '{}',
@@ -101,7 +101,7 @@ describe('sweepDurableStreams', () => {
       now: Date.now(),
       maxAgeMs: 60_000,
     });
-    Storage.markSuspended(sql, { identity: 'u', streamId: 'fresh', now: Date.now() });
+    Storage.markSuspended(sql, { userId: 'u', streamId: 'fresh', now: Date.now() });
 
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(2);

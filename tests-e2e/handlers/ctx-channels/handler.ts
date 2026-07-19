@@ -48,7 +48,9 @@ const handleGetMemberId = base.on('get-member-id', {
 const handleKickInChannel = base.on('kick-in-channel', {
   input: v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
   async run(ctx, input) {
-    await ctx.channels.get('room').kick(ctx.tags.ephemeral('user').ref(input.tag), input.reason);
+    await ctx.channels
+      .get('room')
+      .kick(ctx.tags.ephemeral('user').ref(input.tag), { reason: input.reason });
   },
 });
 
@@ -57,14 +59,16 @@ const handleKickNonmember = base.on('kick-nonmember', {
   async run(ctx) {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral('user').ref('user3'), 'Non-existent user');
+      .kick(ctx.tags.ephemeral('user').ref('user3'), { reason: 'Non-existent user' });
   },
 });
 
 const handleKickSelfByRef = base.on('kick-self-by-ref', {
   input: v.object({}),
   async run(ctx) {
-    await ctx.channels.get('room').kick(ctx.self, 'self kick by ref');
+    await ctx.channels
+      .get('room')
+      .kick(ctx.tags.ephemeral('user').ref(ctx.meta.username), { reason: 'self kick by ref' });
   },
 });
 
@@ -72,6 +76,22 @@ const handleSendRoomMessage = room.on('send-room-message', {
   input: v.object({ text: v.string() }),
   run(ctx, input) {
     ctx.channel.broadcast('room-message', { text: input.text, from: ctx.meta.username });
+  },
+});
+
+// Exercises `ctx.channel.send(event, payload, { to })`: `to` is a channel
+// member's tag, so only sockets that are BOTH a member AND hold the tag
+// receive the frame. A tag with no matching member delivers to 0. The
+// delivered count comes back so the test can assert the intersection.
+const handleSendToTaggedMember = room.on('send-to-tagged-member', {
+  input: v.object({ tag: v.string(), text: v.string() }),
+  run(ctx, input) {
+    const delivered = ctx.channel.send(
+      'room-message',
+      { text: input.text, from: ctx.meta.username },
+      { to: ctx.tags.ephemeral('user').ref(input.tag) },
+    );
+    ctx.send('members-result', { channel: 'room', count: delivered });
   },
 });
 
@@ -83,6 +103,7 @@ export const ctxChannelsHandler = base.assemble({
     handleKickNonmember,
     handleKickSelfByRef,
     handleSendRoomMessage,
+    handleSendToTaggedMember,
   ],
 });
 

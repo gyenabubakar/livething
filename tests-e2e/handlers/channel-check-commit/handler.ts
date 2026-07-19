@@ -47,7 +47,7 @@ const room = base.channel('room', {
 });
 
 room.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { excludeSelf: false });
+  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
 });
 
 const handleRoomSend = room.on('send', {
@@ -67,7 +67,7 @@ const checkOnly = base.channel('check-only', {
 });
 
 checkOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { excludeSelf: false });
+  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
 });
 
 // Uses only commit — shows that check is optional.
@@ -80,7 +80,7 @@ const commitOnly = base.channel('commit-only', {
 });
 
 commitOnly.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { excludeSelf: false });
+  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
 });
 
 // Misuse: an async commit. commit() must be synchronous; the engine rejects
@@ -110,7 +110,7 @@ const nonceRoom = base.channel('nonce-room', {
 });
 
 nonceRoom.subscribe((ctx) => {
-  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { excludeSelf: false });
+  ctx.channel.broadcast('joined', { username: ctx.meta.username }, { includeSelf: true });
 });
 
 // Test support: a server-initiated retryable close so the client reconnects

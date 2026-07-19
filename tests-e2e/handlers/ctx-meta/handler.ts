@@ -25,7 +25,7 @@ const handleWhoAmI = base.on('who-am-i', {
 const handleListMembers = base.on('list-members', {
   input: v.object({}),
   run(ctx) {
-    const peers = ctx.getConnections();
+    const peers = ctx.connections.all();
     const usernames = peers.map((p) => (p.meta.username as string) ?? 'unknown');
     ctx.send('members-list-result', { members: usernames });
   },

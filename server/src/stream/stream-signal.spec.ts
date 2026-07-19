@@ -22,7 +22,7 @@ type AsyncContextStore = { connectionId?: string; [key: PropertyKey]: unknown };
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
