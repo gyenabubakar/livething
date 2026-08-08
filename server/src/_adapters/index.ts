@@ -7,12 +7,18 @@ export type {
   EngineOptions,
   UpgradeDecision,
 } from './types.ts';
-export type { ServerContract, ServerDefinition } from '~/server-definition.ts';
+export { ADMIN_CONTEXT_MEMBERS } from '~/admin/context.ts';
+export type { ApiOf, MetaOf, ServerContract, ServerDefinition } from '~/server-definition.ts';
 export type {
+  AdminContext,
+  ConnectionInfo,
+  ConnectionRef,
   KVProvider,
   Logger,
   SQLProvider,
   SqlResult,
   StorageProvider,
+  TagRef,
   TimerProvider,
+  UserRef,
 } from '~/context.ts';

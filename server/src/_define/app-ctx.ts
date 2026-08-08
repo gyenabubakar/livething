@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type {
+  AdminContext,
   ChannelHandle,
   ConnectionInfo,
   ConnectionRef,
@@ -550,6 +551,34 @@ export type AppCtx<
   UsersCtx<TSlots, TMeta, TCaps> &
   FrameMatchCtx<TSlots> &
   CtxExtensionsOf<TSlots, TMeta, TCaps>;
+
+/**
+ * The `ctx` the `api` factory on `assemble({ handlers, api })` receives — the
+ * connectionless admin surface, gated the same way {@link AppCtx} is.
+ *
+ * `schedule`/`cancelScheduled` and `channels` are owned by the `scheduled()`
+ * and `channels()` capabilities, so they appear only when that capability is
+ * listed. Without it the underlying engine service is absent and the operation
+ * would quietly do nothing, so reading it is a compile error instead.
+ *
+ * `purgeUser` is deliberately not gated: it belongs to the admin surface itself
+ * and throws a directed error when `persistence()` is missing.
+ *
+ * @template TSlots The merged contract slots — drives the typed `broadcast`.
+ * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TCaps  The capabilities listed, gating the capability-owned fields.
+ */
+export type AdminCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = Omit<AdminContext<TEnv, TMeta, unknown, TSlots>, 'schedule' | 'cancelScheduled' | 'channels'> &
+  ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
+  ('channels' extends BrandsOf<TCaps>
+    ? Pick<AdminContext<TEnv, TMeta, unknown, TSlots>, 'channels'>
+    : {});
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;

@@ -22,7 +22,6 @@ import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 import type {
-  AdminContext,
   ChannelRecipient,
   ConnectionInfo,
   ConnectionRef,
@@ -53,6 +52,7 @@ import {
   assertUniquePluginIds,
 } from './plugin.ts';
 import type {
+  AdminCtx,
   AppCtx,
   BroadcastRequestArm,
   BroadcastServerRequests,
@@ -1525,7 +1525,7 @@ export interface CoreBase<
     readonly api?: (
       ctx: TScoped extends true
         ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>
-        : AdminContext<TEnv, TMeta, unknown, MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
+        : AdminCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
     ) => TApi;
   }): ServerDefinition<
     readonly Primitive[],

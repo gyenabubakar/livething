@@ -61,6 +61,111 @@ export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
 
+/** Returned when a route names an op that has no case below. */
+const UNKNOWN_OP = Symbol('unknown-op');
+
+interface AdminOpArgs {
+  text: string;
+  userId: string;
+  channel: string;
+  url: URL;
+}
+
+type AdminStub = Awaited<ReturnType<ReturnType<Env['ADMIN_SERVER']['get']>['admin']>>;
+
+/**
+ * Drive one member of the admin ctx through the app's own `api`. Each case
+ * returns something observable so the test asserts on a value, not on silence.
+ */
+async function runAdminOp(
+  admin: AdminStub,
+  op: string,
+  { text, userId, channel, url }: AdminOpArgs,
+): Promise<unknown> {
+  switch (op) {
+    case 'count-now':
+      return admin.countNow();
+    case 'who-is-online':
+      return admin.whoIsOnline();
+    case 'connection-ids-of':
+      return admin.connectionIdsOf(userId);
+    case 'poke-connection':
+      return admin.pokeConnection(url.searchParams.get('connectionId') ?? '', text);
+    case 'notify-user':
+      return admin.notifyUser(userId, text);
+    case 'boot-user':
+      return admin.bootUser(userId) ?? null;
+    case 'announce-in':
+      return admin.announceIn(channel, text) ?? null;
+    case 'members-of':
+      return admin.membersOf(channel);
+    case 'kick-from':
+      return (await admin.kickFrom(channel, userId)) ?? null;
+    case 'schedule-announce':
+      return admin.scheduleAnnounce(Number(url.searchParams.get('delayMs') ?? '50'), text) ?? null;
+    case 'cancel-announce':
+      return admin.cancelAnnounce() ?? null;
+    case 'write-note':
+      return admin.writeNote(text) ?? null;
+    case 'read-notes':
+      return admin.readNotes();
+    case 'put-flag':
+      return (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null;
+    case 'get-flag':
+      return admin.getFlag(url.searchParams.get('key') ?? '');
+    case 'env-keys':
+      return admin.envKeys();
+    case 'log-something':
+      return admin.logSomething(text) ?? null;
+    case 'defer-note':
+      return admin.deferNote(text) ?? null;
+    case 'has-platform':
+      return admin.hasPlatform();
+    default:
+      return UNKNOWN_OP;
+  }
+}
+
+/** Drive one built-in flat op the Cloudflare adapter projects onto the stub. */
+async function runAdminBuiltIn(
+  admin: AdminStub,
+  op: string,
+  { text, userId, channel, url }: AdminOpArgs,
+): Promise<unknown> {
+  switch (op) {
+    case 'connection-count':
+      return admin.connectionCount();
+    case 'list-connections':
+      return (await admin.listConnections()).map((info) => ({
+        id: info.id,
+        userId: info.userId,
+        hasRef: 'ref' in info,
+      }));
+    case 'send-to-connection':
+      return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
+    case 'send-to-user':
+      return admin.sendToUser(userId, 'notified', { text });
+    case 'close-user':
+      return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
+    case 'broadcast':
+      return admin.broadcast('announced', { text }) ?? null;
+    case 'channel-broadcast':
+      return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
+    case 'channel-members':
+      return (await admin.channelMembers(channel)).map((info) => info.userId);
+    case 'channel-kick':
+      return (
+        (await admin.channelKick(
+          channel,
+          { __wskit: 'user-ref', id: userId, instance: undefined },
+          { reason: 'admin kick' },
+        )) ?? null
+      );
+    default:
+      return UNKNOWN_OP;
+  }
+}
+
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
@@ -169,11 +274,38 @@ export default {
     if (url.pathname === '/ws/admin/announce') {
       const id = env.ADMIN_SERVER.idFromName(room);
       const text = url.searchParams.get('text') ?? '';
-      const admin = (await env.ADMIN_SERVER.get(id).admin()) as unknown as {
-        announce(text: string): Promise<void>;
-      };
+      const admin = await env.ADMIN_SERVER.get(id).admin();
       await admin.announce(text);
       return new Response(null, { status: 204 });
+    }
+
+    // Every member of the admin ctx, driven through the app's own `api` over
+    // the stub. One route per member so a failure names the member that broke.
+    if (url.pathname.startsWith('/ws/admin/api/')) {
+      const op = url.pathname.slice('/ws/admin/api/'.length);
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      const text = url.searchParams.get('text') ?? '';
+      const userId = url.searchParams.get('userId') ?? '';
+      const channel = url.searchParams.get('channel') ?? 'lobby';
+
+      const result = await runAdminOp(admin, op, { text, userId, channel, url });
+      if (result === UNKNOWN_OP) return new Response(`unknown admin op: ${op}`, { status: 404 });
+      return Response.json({ result });
+    }
+
+    // Built-in flat ops on the stub itself, distinct from the app's `api`.
+    if (url.pathname.startsWith('/ws/admin/builtin/')) {
+      const op = url.pathname.slice('/ws/admin/builtin/'.length);
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      const text = url.searchParams.get('text') ?? '';
+      const userId = url.searchParams.get('userId') ?? '';
+      const channel = url.searchParams.get('channel') ?? 'lobby';
+
+      const result = await runAdminBuiltIn(admin, op, { text, userId, channel, url });
+      if (result === UNKNOWN_OP) return new Response(`unknown builtin op: ${op}`, { status: 404 });
+      return Response.json({ result });
     }
 
     if (url.pathname === '/ws/reject-http') {

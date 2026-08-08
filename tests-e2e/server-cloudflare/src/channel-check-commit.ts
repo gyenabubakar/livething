@@ -1,4 +1,4 @@
 import { server } from '@wskit/server-cloudflare';
 import { channelCheckCommitHandler } from '@wskit/tests-e2e-handlers/channel-check-commit';
 
-export const ChannelCheckCommitServer = server(channelCheckCommitHandler);
+export class ChannelCheckCommitServer extends server(channelCheckCommitHandler) {}

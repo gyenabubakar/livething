@@ -150,3 +150,28 @@ export interface ServerDefinition<
    */
   readonly __contract?: TContract;
 }
+
+/**
+ * The `api` type a handler was assembled with, or `unknown` when it had none.
+ *
+ * Adapters read this off the handler they are given so the service they return
+ * carries the app's own admin methods — `server(handler)` on Cloudflare uses it
+ * to type what `stub.admin()` resolves to.
+ */
+export type ApiOf<TDefinition> =
+  TDefinition extends ServerDefinition<any, any, any, infer TApi> ? TApi : unknown;
+
+/**
+ * The per-connection metadata type a handler's `upgrade(...)` returns, read off
+ * the ctx the definition is branded with.
+ *
+ * Adapters that carry connection snapshots across a serializing boundary need
+ * the concrete type: a `Record<string, unknown>` fallback is not something
+ * Cloudflare's RPC types accept as sendable.
+ */
+export type MetaOf<TDefinition> =
+  TDefinition extends ServerDefinition<any, any, infer TCtx, any>
+    ? TCtx extends { meta: infer TMeta }
+      ? TMeta
+      : Record<string, never>
+    : Record<string, never>;

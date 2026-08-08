@@ -78,7 +78,9 @@ export function createAdminContext(
     },
     connections: buildConnectionsManager(deps),
     users: buildUsersManager(deps),
-    connectionCount: deps.connections.size,
+    get connectionCount() {
+      return deps.connections.size;
+    },
     sql,
     kv,
     schedule: (taskId, options) => {
@@ -93,21 +95,45 @@ export function createAdminContext(
 }
 
 /**
- * The admin **operations** `service.admin()` exposes — the whole-server actions,
- * not the ctx plumbing (`sql`, `kv`, `schedule`, `env`, and the rest) the dev's
- * `api` uses internally. Keeping that plumbing off the returned surface keeps it
- * off the wire, where a stub adapter would otherwise promote its methods.
+ * Every member name the admin context itself owns, as a tuple so a name that is
+ * not a real member fails to compile. `Engine.admin()` merges the
+ * app's `api` into that context, so an adapter tells the two apart by name: a
+ * key outside this set came from the dev's `api` factory.
+ *
+ * Adapters that expose admin over a transport (rather than in-process) need the
+ * distinction to know what to forward — see the Cloudflare adapter, where only
+ * the app's own methods are promoted onto the RPC target.
  */
-export function adminBuiltIns(
-  ctx: PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-): Record<string, unknown> {
-  return {
-    broadcast: ctx.broadcast,
-    channels: ctx.channels,
-    purgeUser: ctx.purgeUser,
-    closeConnections: ctx.closeConnections,
-    connections: ctx.connections,
-    users: ctx.users,
-    connectionCount: ctx.connectionCount,
-  };
-}
+export const ADMIN_CONTEXT_MEMBER_NAMES = [
+  'broadcast',
+  'channels',
+  'purgeUser',
+  'closeConnections',
+  'connections',
+  'users',
+  'connectionCount',
+  'sql',
+  'kv',
+  'schedule',
+  'cancelScheduled',
+  'env',
+  'log',
+  'waitUntil',
+  'platform',
+] as const satisfies readonly AdminContextMember[];
+
+/** A member name of the admin context. */
+export type AdminContextMember = keyof PublicApi.AdminContext<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  unknown
+>;
+
+/** Any admin-context member {@link ADMIN_CONTEXT_MEMBER_NAMES} forgot to list. */
+export type UnlistedAdminContextMember = Exclude<
+  AdminContextMember,
+  (typeof ADMIN_CONTEXT_MEMBER_NAMES)[number]
+>;
+
+/** @see ADMIN_CONTEXT_MEMBER_NAMES */
+export const ADMIN_CONTEXT_MEMBERS: ReadonlySet<string> = new Set(ADMIN_CONTEXT_MEMBER_NAMES);

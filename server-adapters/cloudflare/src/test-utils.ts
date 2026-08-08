@@ -158,6 +158,15 @@ export interface FakeEngine {
   };
   /** The object `engine.admin()` returns; tests add dev methods and assert delegation. */
   adminApi: Record<string, unknown>;
+  /** Spies reached through the admin context's managers, which `adminApi` nests. */
+  adminSpies: {
+    connectionSend: ReturnType<typeof vi.fn>;
+    userSend: ReturnType<typeof vi.fn>;
+    userClose: ReturnType<typeof vi.fn>;
+    channelBroadcast: ReturnType<typeof vi.fn>;
+    channelMembers: ReturnType<typeof vi.fn>;
+    channelKick: ReturnType<typeof vi.fn>;
+  };
 }
 
 export function makeFakeEngine(): FakeEngine {
@@ -176,16 +185,41 @@ export function makeFakeEngine(): FakeEngine {
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
   let hibernation = false;
 
-  // What engine.admin() returns: built-in ops (spied) plus non-function plumbing
-  // that WSKitAdmin should skip when exposing methods over the stub.
-  // Mirrors Engine.admin(): the admin operations only, never the ctx plumbing.
+  // What engine.admin() returns: the admin context (spied), which the app's own
+  // api is merged into. WSKitAdmin projects this onto flat RPC methods, so the
+  // managers here carry the same shape the real context builds.
+  const adminConnection = {
+    id: 'c1',
+    userId: 'u1',
+    ref: () => ({ __wskit: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
+  };
+  const connectionSend = vi.fn(() => true);
+  const userSend = vi.fn(() => 2);
+  const userClose = vi.fn();
+  const channelHandle = {
+    broadcast: vi.fn(),
+    members: vi.fn(() => [adminConnection]),
+    kick: vi.fn(async () => {}),
+  };
   const adminApi: Record<string, unknown> = {
     broadcast: vi.fn(),
-    purgeIdentity: vi.fn(async () => {}),
+    purgeUser: vi.fn(async () => {}),
     closeConnections: vi.fn(),
-    getConnections: vi.fn(() => []),
-    channels: { get: vi.fn() },
-    connectionCount: 0,
+    connections: {
+      get: vi.fn(() => ({ send: connectionSend })),
+      all: vi.fn(() => [adminConnection]),
+    },
+    users: { get: vi.fn(() => ({ send: userSend, close: userClose })) },
+    channels: { get: vi.fn(() => channelHandle) },
+    connectionCount: 3,
+    sql: {},
+    kv: {},
+    env: {},
+    log: {},
+    platform: {},
+    waitUntil: vi.fn(),
+    schedule: vi.fn(),
+    cancelScheduled: vi.fn(),
   };
 
   const connectionHandle: FakeEngine['connectionHandle'] = {
@@ -238,6 +272,14 @@ export function makeFakeEngine(): FakeEngine {
     },
     connectionHandle,
     adminApi,
+    adminSpies: {
+      connectionSend,
+      userSend,
+      userClose,
+      channelBroadcast: channelHandle.broadcast,
+      channelMembers: channelHandle.members,
+      channelKick: channelHandle.kick,
+    },
   };
 }
 

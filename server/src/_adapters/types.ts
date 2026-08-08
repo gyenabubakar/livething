@@ -142,8 +142,12 @@ export interface EngineOptions {
   logger: Logger;
 }
 
-/** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
-export type Engine = EngineClass;
+/**
+ * The runtime engine created by the adapter from a compiled server definition.
+ * Handles connections, message routing, and lifecycle. `TApi` carries the
+ * handler's `api` type through to {@link EngineClass.admin}.
+ */
+export type Engine<TApi = unknown> = EngineClass<TApi>;
 
 /**
  * The configuration object returned by `adapter`.
@@ -169,10 +173,18 @@ export interface AdapterConfig<TOptions, TService> {
    */
   asyncContextFactory: AsyncContextFactory;
 
-  setup(
+  /**
+   * Wire the platform's WebSocket lifecycle to an engine instance.
+   *
+   * `TApi` is the handler's `api` type, so `engine.admin()` is already typed
+   * here. TypeScript cannot make `TService` itself depend on `TApi`, so an
+   * adapter whose service should carry the app's admin methods exports a thin
+   * generic `server(handler)` of its own on top of this.
+   */
+  setup<TApi>(
     createEngine: (
       runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>,
-    ) => Engine,
+    ) => Engine<TApi>,
     options: TOptions,
   ): TService;
 }

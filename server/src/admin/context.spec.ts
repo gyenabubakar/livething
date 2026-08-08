@@ -1,4 +1,4 @@
-import { adminBuiltIns, createAdminContext } from '~/admin/context.ts';
+import { ADMIN_CONTEXT_MEMBERS, createAdminContext } from '~/admin/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { CreateAdminContextDeps } from '~/admin/context.ts';
 import type * as PublicApi from '~/context.ts';
@@ -109,38 +109,23 @@ describe('createAdminContext', () => {
     expect(ctx.connectionCount).toBe(3);
     expect(ctx.connections.all().map((c) => c.userId)).toEqual(['alice', 'bob', 'alice']);
   });
+
+  it('connectionCount re-reads the map instead of freezing at build time', () => {
+    const { deps } = makeDeps();
+    const ctx = createAdminContext(deps);
+    expect(ctx.connectionCount).toBe(3);
+
+    (deps.connections as Map<string, unknown>).delete('c2');
+
+    expect(ctx.connectionCount).toBe(2);
+  });
 });
 
-describe('adminBuiltIns', () => {
-  it('surfaces the admin operations but none of the ctx plumbing', () => {
+describe('ADMIN_CONTEXT_MEMBERS', () => {
+  it('names every member the admin context actually builds', () => {
     const { deps } = makeDeps();
-    const keys = Object.keys(adminBuiltIns(createAdminContext(deps)));
+    const ctx = createAdminContext(deps);
 
-    expect(keys.sort()).toEqual(
-      [
-        'broadcast',
-        'channels',
-        'closeConnections',
-        'connectionCount',
-        'connections',
-        'purgeUser',
-        'users',
-      ].sort(),
-    );
-
-    // The plumbing the dev's api uses internally must never reach the returned
-    // surface — a stub adapter promotes its functions onto the wire otherwise.
-    for (const plumbing of [
-      'sql',
-      'kv',
-      'schedule',
-      'cancelScheduled',
-      'waitUntil',
-      'env',
-      'log',
-      'platform',
-    ]) {
-      expect(keys).not.toContain(plumbing);
-    }
+    expect([...Object.keys(ctx)].sort()).toEqual([...ADMIN_CONTEXT_MEMBERS].sort());
   });
 });

@@ -5,11 +5,12 @@ import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
-import { adminBuiltIns, createAdminContext } from '~/admin/context.ts';
+import { createAdminContext } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type { Primitive } from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
@@ -20,12 +21,23 @@ type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
  * Runs one compiled server definition. Adapters call methods on this class;
  * state lives on {@link EngineCore} and behaviour in `_engine/runtime/*` and
  * `_engine/registry/*`.
+ *
+ * @template TApi The `api` factory's return type, carried from the handler so
+ *   {@link Engine.admin} stays typed all the way out to the adapter.
  */
-export class Engine {
+export class Engine<TApi = unknown> {
   /** State container. Exposed for internal plugins that need direct field access. @internal */
   readonly core: EngineCore;
 
-  constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+  constructor(
+    handler: DefineServer.ServerDefinition<
+      readonly Primitive[],
+      DefineServer.ServerContract,
+      unknown,
+      TApi
+    >,
+    options: EngineAdapterTypes.EngineOptions,
+  ) {
     this.core = new EngineCore(handler, options);
   }
 
@@ -220,14 +232,17 @@ export class Engine {
 
   /**
    * The connectionless admin surface, reached from outside the socket layer (an
-   * HTTP route, an auth webhook, a cron job). Returns the framework's built-in
-   * admin operations merged with the app's own `api` (authored on
-   * `assemble({ handlers, api })`). Built-ins are spread last, so they win on a
-   * name clash — a dev api method cannot shadow `broadcast`, `purgeUser`,
-   * and the rest. The dev's `api` factory sees the full ctx (storage, schedule,
-   * env, …), but only the operations are surfaced here, never that plumbing.
+   * HTTP route, an auth webhook, a cron job). Returns the full admin context
+   * merged with the app's own `api` (authored on `assemble({ handlers, api })`).
+   * Built-in members win on a name clash — a dev api method cannot shadow
+   * `broadcast`, `purgeUser`, and the rest.
+   *
+   * Adapters decide what of this reaches the outside world. An in-process
+   * adapter hands it back whole; the Cloudflare adapter projects it onto an
+   * `RpcTarget`, because only prototype methods survive a Worker→DO call.
    */
-  admin(): Record<string, unknown> {
+  admin(): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> &
+    TApi {
     const core = this.core;
     const ctx = createAdminContext({
       connections: core.connections,
@@ -245,6 +260,15 @@ export class Engine {
       },
     });
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
-    return { ...(devApi as Record<string, unknown>), ...adminBuiltIns(ctx) };
+    // Copy descriptors rather than spreading: `connectionCount` is a getter and
+    // must stay live, and the built-ins have to land after the dev api to win.
+    const surface = { ...(devApi as Record<string, unknown>) };
+    Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
+    return surface as PublicApi.AdminContext<
+      Record<string, unknown>,
+      Record<string, unknown>,
+      unknown
+    > &
+      TApi;
   }
 }

@@ -1,4 +1,4 @@
 import { server } from '@wskit/server-cloudflare';
 import { errorHookIsolationHandler } from '@wskit/tests-e2e-handlers/error-hook-isolation';
 
-export const ErrorHookIsolationServer = server(errorHookIsolationHandler);
+export class ErrorHookIsolationServer extends server(errorHookIsolationHandler) {}

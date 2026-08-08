@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as ServerAdapters from '@wskit/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -6,6 +7,7 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
+import type { WSKitAdmin } from './server.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
@@ -23,7 +25,8 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-vi.mock('@wskit/server/adapters', () => ({
+vi.mock('@wskit/server/adapters', async (importOriginal) => ({
+  ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
     (_handler: unknown, options: TOpts): TSvc => {
@@ -47,13 +50,8 @@ type DOInstance = {
   admin(): Promise<AdminSurface>;
 };
 
-type AdminSurface = {
-  broadcast(event: string, payload: unknown): void;
-  purgeIdentity(identity: string): Promise<void>;
-  closeConnections(filter?: { identity?: string }, code?: number, reason?: string): void;
-  getConnections(): unknown[];
-  [op: string]: unknown;
-};
+/** The real built-in surface, plus whatever dev api methods a test stages on it. */
+type AdminSurface = WSKitAdmin & Record<string, unknown>;
 
 function buildClass(opts?: { hibernation?: boolean }) {
   fake = makeFakeEngine();
@@ -452,13 +450,67 @@ describe('WSKitDurableObject admin()', () => {
   it('built-in methods delegate to engine.admin()', async () => {
     const { admin } = await adminOf();
     admin.broadcast('evt', { n: 1 });
-    await admin.purgeIdentity('u1');
-    admin.closeConnections({ identity: 'u1' }, 4000, 'gone');
+    await admin.purgeUser('u1');
+    admin.closeConnections({ userId: 'u1' }, 4000, 'gone');
 
     expect(fake.engine.admin).toHaveBeenCalledTimes(1);
     expect(fake.adminApi.broadcast).toHaveBeenCalledWith('evt', { n: 1 });
-    expect(fake.adminApi.purgeIdentity).toHaveBeenCalledWith('u1');
-    expect(fake.adminApi.closeConnections).toHaveBeenCalledWith({ identity: 'u1' }, 4000, 'gone');
+    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1');
+    expect(fake.adminApi.closeConnections).toHaveBeenCalledWith({ userId: 'u1' }, 4000, 'gone');
+  });
+
+  it('projects the context managers onto flat, RPC-callable methods', async () => {
+    const { admin } = await adminOf();
+
+    expect(admin.connectionCount()).toBe(3);
+    expect(admin.listConnections()).toEqual([{ id: 'c1', userId: 'u1' }]);
+    expect(admin.sendToConnection('c1', 'evt', { n: 1 })).toBe(true);
+    expect(fake.adminSpies.connectionSend).toHaveBeenCalledWith('evt', { n: 1 });
+
+    expect(admin.sendToUser('u1', 'evt', { n: 2 })).toBe(2);
+    expect(fake.adminSpies.userSend).toHaveBeenCalledWith('evt', { n: 2 });
+
+    admin.closeUser('u1', 4000, 'bye');
+    expect(fake.adminSpies.userClose).toHaveBeenCalledWith(4000, 'bye');
+  });
+
+  it('a snapshot crossing the stub carries data only, never ref()', async () => {
+    const { admin } = await adminOf();
+    const [info] = admin.listConnections();
+    expect(info).not.toHaveProperty('ref');
+  });
+
+  it('sendToConnection reports false for an id no live connection holds', async () => {
+    const { admin } = await adminOf();
+    expect(admin.sendToConnection('nope', 'evt', {})).toBe(false);
+    expect(fake.adminSpies.connectionSend).not.toHaveBeenCalled();
+  });
+
+  it('channel ops resolve a static name and a family + instance alike', async () => {
+    const { admin } = await adminOf();
+    const channels = fake.adminApi.channels as { get: ReturnType<typeof vi.fn> };
+
+    admin.channelBroadcast('lobby', 'evt', { n: 1 });
+    expect(channels.get).toHaveBeenCalledWith('lobby');
+    expect(fake.adminSpies.channelBroadcast).toHaveBeenCalledWith('evt', { n: 1 });
+
+    admin.channelMembers({ family: 'rooms', instance: 'rooms:42' });
+    expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
+    expect(fake.adminSpies.channelMembers).toHaveBeenCalled();
+
+    const target = { __wskit: 'user-ref', id: 'u1', instance: undefined } as const;
+    await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
+    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(target, {
+      reason: 'banned',
+      revoke: true,
+    });
+  });
+
+  it('leaves the context plumbing off the stub surface', async () => {
+    const { admin } = await adminOf();
+    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'waitUntil', 'schedule']) {
+      expect(admin).not.toHaveProperty(plumbing);
+    }
   });
 
   it("exposes the app's own api methods over the stub", async () => {

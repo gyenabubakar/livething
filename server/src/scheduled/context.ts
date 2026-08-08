@@ -18,7 +18,9 @@ export function createTaskContext(
     },
     connections: buildConnectionsManager(deps),
     users: buildUsersManager(deps),
-    connectionCount: deps.connections.size,
+    get connectionCount() {
+      return deps.connections.size;
+    },
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },

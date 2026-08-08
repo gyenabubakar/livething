@@ -1,4 +1,4 @@
 import { server } from '@wskit/server-cloudflare';
 import { replayHandler } from '@wskit/tests-e2e-handlers/replay-history';
 
-export const ReplayServer = server(replayHandler);
+export class ReplayServer extends server(replayHandler) {}

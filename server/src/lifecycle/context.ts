@@ -54,7 +54,9 @@ export function createShutdownContext(
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled,
-    connectionCount: deps.connections.size,
+    get connectionCount() {
+      return deps.connections.size;
+    },
     connections: buildConnectionsManager(deps),
     users: buildUsersManager(deps),
     env: deps.env,

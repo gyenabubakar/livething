@@ -13,7 +13,8 @@ const pills = [
   { label: 'Same typed contract', icon: 'i-ph-link-duotone' },
 ]
 
-// The server adapters. Swapping the import is the only change between them.
+// The server adapters. The definition is identical across them; only the entry
+// file differs — the import, and how the runtime takes the built server.
 const adapters = [
   { name: 'Cloudflare', slug: 'cloudflare', detail: 'Durable Objects', logo: 'i-logos-cloudflare-workers-icon' },
   { name: 'Node', slug: 'node', detail: '', logo: 'i-logos-nodejs-icon' },
@@ -110,11 +111,11 @@ useViewportActivation(wireRef, {
             <span class="font-mono text-xs text-toned">room.server.ts</span>
           </div>
           <div class="flex-1 flex flex-col justify-center p-5 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="text-dimmed">// only this import changes per runtime</span>
+            <pre><code><span class="text-dimmed">// only the runtime entry changes</span>
 <span class="text-violet-400">import</span> { server } <span class="text-violet-400">from</span> <span class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-emerald-400">'@wskit/server-</span><span class="text-primary transition-colors duration-300">{{ active.slug }}</span><span class="text-emerald-400">'</span></span>
 <span class="text-violet-400">import</span> { chatHandler } <span class="text-violet-400">from</span> <span class="text-emerald-400">'./chat'</span>
 
-<span class="text-violet-400">export const</span> ChatRoom = <span class="text-amber-400">server</span>(chatHandler)</code></pre>
+<span v-if="active.slug === 'cloudflare'" class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">export class</span> ChatRoom <span class="text-violet-400">extends</span> <span class="text-amber-400">server</span>(chatHandler) {}</span><span v-else class="inline-flex items-center border border-primary/40 bg-primary/10 px-1 transition-colors duration-300"><span class="text-violet-400">const</span> service = <span class="text-amber-400">server</span>(chatHandler, { <span class="text-sky-400">port</span>: <span class="text-amber-400">3000</span> })</span></code></pre>
           </div>
         </div>
       </Motion>
