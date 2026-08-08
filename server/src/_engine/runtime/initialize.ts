@@ -65,9 +65,31 @@ function validatePrimitives(core: EngineCore): void {
 /**
  * One-time startup. Validate capabilities, install primitives and plugins,
  * then run boot hooks and init hooks.
+ *
+ * Safe to call from anywhere, any number of times: the first call owns the run
+ * and every later one joins it. A failed run stays failed rather than retrying
+ * — hook installation is additive, so a second attempt over a half-installed
+ * engine would duplicate every hook it already registered.
  */
-export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
-  if (core.initialized) return;
+export function initialize(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
+  if (core.initPromise) return core.initPromise;
+
+  // The run is published before it is started, not after. `runInitialize` gets
+  // as far as calling the first init hook before it ever suspends, so a hook
+  // that reaches back into `initialize()` would still find an empty field and
+  // start a second run.
+  let succeed!: () => void;
+  let fail!: (error: unknown) => void;
+  core.initPromise = new Promise<void>((resolve, reject) => {
+    succeed = resolve;
+    fail = reject;
+  });
+  runInitialize(core, accessDeps).then(succeed, fail);
+
+  return core.initPromise;
+}
+
+async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
   validateRequires(core);
   installPrimitiveHooks(core, accessDeps);
   if (core.compiled.scheduled.size > 0) {
@@ -114,7 +136,6 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }
-  core.initialized = true;
 }
 
 /** Adapter scheduled-callback entry. Runs `initialize` first, then walks scheduled hooks. */

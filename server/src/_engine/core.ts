@@ -96,7 +96,13 @@ export class EngineCore {
    */
   readonly channelHandleAugmenters: FeatureSlots.ChannelHandleAugmenter[] = [];
 
-  initialized = false;
+  /**
+   * The one `initialize()` run, in flight or settled. Held rather than a
+   * boolean flag so concurrent callers join the same run instead of each
+   * starting their own — a boolean set after the first await lies for as long
+   * as init takes.
+   */
+  initPromise: Promise<void> | null = null;
   /**
    * True after a cold-boot schema run (first wake with no prior schema). The
    * first `autoRejoinIdentity` call clears it so subsequent connections query

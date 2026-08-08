@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- bench harness */
-import { bench, describe } from 'vitest';
 import * as v from 'valibot';
+import { bench, describe } from 'vitest';
 import { parseUserEventFrame, UserEventFrameSchema } from './protocol.ts';
 import { resolveChannel } from './scope.ts';
 
