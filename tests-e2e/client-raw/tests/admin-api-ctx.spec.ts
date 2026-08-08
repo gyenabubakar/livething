@@ -29,6 +29,11 @@ declare global {
   }
 }
 
+// A Durable Object keeps its storage until the worker restarts, and a local run
+// reuses an already-running worker. Naming rooms per run keeps the sql and kv
+// assertions honest when the suite is run twice against the same worker.
+const RUN = Date.now().toString(36);
+
 /** Open a socket, collect its frames, and expose them to the assertions. */
 const PAGE_HELPERS = `
   window.__openSocket = async (room, username) => {
@@ -80,7 +85,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('api(ctx) members over the stub', () => {
   test('connectionCount and connections.all see the live sockets', async ({ page }, testInfo) => {
-    const room = `admin-ctx-conns-${testInfo.testId}`;
+    const room = `admin-ctx-conns-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
@@ -93,7 +98,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('users.get(id) reaches every socket a user holds', async ({ page }, testInfo) => {
-    const room = `admin-ctx-users-${testInfo.testId}`;
+    const room = `admin-ctx-users-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a1 = await window.__openSocket(r, 'alice');
       window.__a2 = await window.__openSocket(r, 'alice');
@@ -113,7 +118,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('connections.get(ref).send reaches exactly one socket', async ({ page }, testInfo) => {
-    const room = `admin-ctx-one-${testInfo.testId}`;
+    const room = `admin-ctx-one-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a1 = await window.__openSocket(r, 'alice');
       window.__a2 = await window.__openSocket(r, 'alice');
@@ -137,7 +142,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('poking an id no live connection holds reports false', async ({ page }, testInfo) => {
-    const room = `admin-ctx-missing-${testInfo.testId}`;
+    const room = `admin-ctx-missing-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -148,7 +153,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('users.get(id).close drops every socket that user holds', async ({ page }, testInfo) => {
-    const room = `admin-ctx-boot-${testInfo.testId}`;
+    const room = `admin-ctx-boot-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a1 = await window.__openSocket(r, 'alice');
       window.__a2 = await window.__openSocket(r, 'alice');
@@ -169,7 +174,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('channels.get(name) broadcasts to members and lists them', async ({ page }, testInfo) => {
-    const room = `admin-ctx-channel-${testInfo.testId}`;
+    const room = `admin-ctx-channel-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
@@ -192,7 +197,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('channels.get(name).kick removes a member', async ({ page }, testInfo) => {
-    const room = `admin-ctx-kick-${testInfo.testId}`;
+    const room = `admin-ctx-kick-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__a.ws.send(
@@ -212,7 +217,7 @@ test.describe('api(ctx) members over the stub', () => {
   test('schedule queues a task that fires, and cancelScheduled stops it', async ({
     page,
   }, testInfo) => {
-    const room = `admin-ctx-schedule-${testInfo.testId}`;
+    const room = `admin-ctx-schedule-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -237,7 +242,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('sql round-trips a row, and waitUntil work lands too', async ({ page }, testInfo) => {
-    const room = `admin-ctx-sql-${testInfo.testId}`;
+    const room = `admin-ctx-sql-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -253,7 +258,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('kv round-trips a value', async ({ page }, testInfo) => {
-    const room = `admin-ctx-kv-${testInfo.testId}`;
+    const room = `admin-ctx-kv-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -264,7 +269,7 @@ test.describe('api(ctx) members over the stub', () => {
   });
 
   test('env, log, and platform are usable from an api method', async ({ page }, testInfo) => {
-    const room = `admin-ctx-plumbing-${testInfo.testId}`;
+    const room = `admin-ctx-plumbing-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -282,7 +287,7 @@ test.describe('built-in flat ops on the stub', () => {
   test('connectionCount() and listConnections() report the live sockets as plain data', async ({
     page,
   }, testInfo) => {
-    const room = `admin-builtin-list-${testInfo.testId}`;
+    const room = `admin-builtin-list-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
@@ -301,7 +306,7 @@ test.describe('built-in flat ops on the stub', () => {
   });
 
   test('sendToConnection and sendToUser deliver over the stub', async ({ page }, testInfo) => {
-    const room = `admin-builtin-send-${testInfo.testId}`;
+    const room = `admin-builtin-send-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
@@ -328,7 +333,7 @@ test.describe('built-in flat ops on the stub', () => {
   });
 
   test('sendToConnection reports false for an unknown id', async ({ page }, testInfo) => {
-    const room = `admin-builtin-miss-${testInfo.testId}`;
+    const room = `admin-builtin-miss-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
@@ -339,7 +344,7 @@ test.describe('built-in flat ops on the stub', () => {
   });
 
   test('closeUser drops that user only', async ({ page }, testInfo) => {
-    const room = `admin-builtin-close-${testInfo.testId}`;
+    const room = `admin-builtin-close-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');
@@ -357,7 +362,7 @@ test.describe('built-in flat ops on the stub', () => {
   });
 
   test('broadcast reaches everyone; channel ops reach members only', async ({ page }, testInfo) => {
-    const room = `admin-builtin-channel-${testInfo.testId}`;
+    const room = `admin-builtin-channel-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
       window.__b = await window.__openSocket(r, 'bob');

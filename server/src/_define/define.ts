@@ -114,7 +114,12 @@ type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
 export interface DefineConfig<
   TEnv = unknown,
   TMeta = unknown,
-  TCaps extends readonly AnyCapability[] = readonly AnyCapability[],
+  // Defaults to no capabilities, not to every capability. `define(...)` infers
+  // the real list from the config it is given; the default only applies when
+  // this type is written out by hand, and a list of `AnyCapability` there would
+  // widen every capability brand to `string` — making the ctx gating pass for
+  // capabilities the server never listed.
+  TCaps extends readonly AnyCapability[] = readonly [],
 > {
   /** The platform env bindings type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;

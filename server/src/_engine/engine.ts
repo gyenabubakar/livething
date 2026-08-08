@@ -262,7 +262,7 @@ export class Engine<TApi = unknown> {
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
     // Copy descriptors rather than spreading: `connectionCount` is a getter and
     // must stay live, and the built-ins have to land after the dev api to win.
-    const surface = { ...(devApi as Record<string, unknown>) };
+    const surface = flattenApi(devApi);
     Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
     return surface as PublicApi.AdminContext<
       Record<string, unknown>,
@@ -271,4 +271,30 @@ export class Engine<TApi = unknown> {
     > &
       TApi;
   }
+}
+
+/**
+ * Flatten an `api` factory's result into own properties.
+ *
+ * An api may be a class instance, whose methods live on its prototype. Spread
+ * and `Object.entries` only see own properties, so those methods would be lost
+ * before an adapter ever looked for them. Methods keep their original receiver,
+ * so one that reads `this` (or a private field) still works after the move.
+ */
+function flattenApi(api: unknown): Record<string, unknown> {
+  const flat: Record<string, unknown> = {};
+  if (!api || typeof api !== 'object') return flat;
+
+  for (
+    let level: object | null = api;
+    level && level !== Object.prototype;
+    level = Object.getPrototypeOf(level) as object | null
+  ) {
+    for (const key of Object.getOwnPropertyNames(level)) {
+      if (key === 'constructor' || key in flat) continue;
+      const value = (api as Record<string, unknown>)[key];
+      flat[key] = typeof value === 'function' ? value.bind(api) : value;
+    }
+  }
+  return flat;
 }

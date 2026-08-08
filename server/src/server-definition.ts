@@ -167,11 +167,15 @@ export type ApiOf<TDefinition> =
  *
  * Adapters that carry connection snapshots across a serializing boundary need
  * the concrete type: a `Record<string, unknown>` fallback is not something
- * Cloudflare's RPC types accept as sendable.
+ * Cloudflare's RPC types accept as sendable. A handler with no `upgrade` hook
+ * has no metadata type to read, so it lands on the empty fallback rather than
+ * `unknown` — which would fail the same sendability check.
  */
 export type MetaOf<TDefinition> =
   TDefinition extends ServerDefinition<any, any, infer TCtx, any>
     ? TCtx extends { meta: infer TMeta }
-      ? TMeta
+      ? unknown extends TMeta
+        ? Record<string, never>
+        : TMeta
       : Record<string, never>
     : Record<string, never>;
