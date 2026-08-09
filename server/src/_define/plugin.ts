@@ -136,7 +136,7 @@ export interface PluginManifest<
 > {
   /**
    * The plugin's behavior — a scoped handler from
-   * `define({ scoped: true }).assemble({ handlers, api })`. Any `api` the host
+   * `define({ scope: 'plugin' }).assemble({ handlers, api })`. Any `api` the host
    * reaches via `ctx.plugin(id)` is authored on that `assemble`, not here.
    */
   readonly handler: ScopedHandler<TContract, TScopedCtx, TApi>;
@@ -284,7 +284,7 @@ function assertSupported(id: string, primitive: Primitive): void {
  * handler as `ctx.plugin('<id>')`.
  *
  * The behavior is authored as a real, independently-bootable handler with
- * `define({ scoped: true })`, so a plugin is tested like a tiny app.
+ * `define({ scope: 'plugin' })`, so a plugin is tested like a tiny app.
  *
  * @example
  * ```ts
@@ -293,7 +293,7 @@ function assertSupported(id: string, primitive: Primitive): void {
  * import * as v from 'valibot';
  *
  * const h = define({
- *   scoped: true,
+ *   scope: 'plugin',
  *   capabilities: [emits({ 'user-online': t<{ id: string }>() })],
  * });
  * const heartbeat = h.on('heartbeat', {
@@ -330,7 +330,7 @@ export function plugin<
   }
   if (!manifest.handler.__scoped) {
     throw new Error(
-      `[wskit] plugin('${id}') handler must be built with define({ scoped: true }). ` +
+      `[wskit] plugin('${id}') handler must be built with define({ scope: 'plugin' }). ` +
         'Author the plugin as a scoped handler, then pass its assemble() result here.',
     );
   }

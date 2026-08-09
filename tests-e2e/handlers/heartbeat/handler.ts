@@ -9,7 +9,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * for listing them. Its markers ride under the plugin's own namespace.
  */
 const probe = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [
     emits({
       'plugin-ping-seen': t<{ connectionId: string }>(),

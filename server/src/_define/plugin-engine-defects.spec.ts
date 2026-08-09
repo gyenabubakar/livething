@@ -39,7 +39,7 @@ function findPrimitive(primitives: readonly any[], wskit: string, event: string)
 describe('plugin engine defect — a plugin can emit its own declared event', () => {
   it('sends a scoped emits() event out on the wire as __<id>::<name>', () => {
     const h = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
     });
     const beat = h.on('go', {
@@ -93,7 +93,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
 
   function buildAuthPlugin() {
     const h = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [emits({ done: t<{}>() }), errors([Denied])],
     });
     const sync = h.on('deny-sync', {
@@ -179,7 +179,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
   });
 
   it('does not wrap handlers when the plugin declares no errors', () => {
-    const h = define({ scoped: true, capabilities: [emits({ done: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ done: t<{}>() })] });
     const original = vi.fn();
     const go = h.on('go', { input: v.object({}), run: original });
     const { __primitives } = plugin('acme:plain', { handler: h.assemble({ handlers: [go] }) })();

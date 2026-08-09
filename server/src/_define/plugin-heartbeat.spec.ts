@@ -60,7 +60,7 @@ async function openConnection(engine: Engine) {
 describe('plugin onPing / onPong', () => {
   it('a plugin can register onPing / onPong — no longer rejected at assemble', async () => {
     const seen: string[] = [];
-    const ph = define({ scoped: true });
+    const ph = define({ scope: 'plugin' });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPing(() => void seen.push('ping'));
     ph.onPong(() => void seen.push('pong'));
@@ -77,7 +77,7 @@ describe('plugin onPing / onPong', () => {
 
   it('the plugin observer sees its own scoped ctx', async () => {
     let scopedId: unknown;
-    const ph = define({ scoped: true });
+    const ph = define({ scope: 'plugin' });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPong((ctx: any) => void (scopedId = ctx.connection.id));
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
@@ -92,7 +92,7 @@ describe('plugin onPing / onPong', () => {
 
   it('runs a pong through plugin observers before the app, after keepalive', async () => {
     const order: string[] = [];
-    const ph = define({ scoped: true });
+    const ph = define({ scope: 'plugin' });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPong(() => void order.push('plugin'));
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
@@ -113,7 +113,7 @@ describe('plugin onPing / onPong', () => {
 
   it('isolates a throwing plugin observer so the app still runs', async () => {
     const order: string[] = [];
-    const ph = define({ scoped: true });
+    const ph = define({ scope: 'plugin' });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPing(() => {
       throw new Error('plugin ping hook failed');

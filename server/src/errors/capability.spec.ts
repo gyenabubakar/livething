@@ -35,7 +35,7 @@ describe('errors() duplicate error-code build guard', () => {
   });
 
   it('does not false-positive across plugin and host code boundaries', () => {
-    const h = define({ scoped: true, capabilities: [errors([NotFound])] });
+    const h = define({ scope: 'plugin', capabilities: [errors([NotFound])] });
     const Denied = plugin('acme:denied', { handler: h.assemble({ handlers: [] }) });
 
     // host declares its own 'not-found' while the plugin namespaces its code to

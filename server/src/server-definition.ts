@@ -120,7 +120,7 @@ export interface ServerDefinition<
   /**
    * Type-only field — never set at runtime.
    *
-   * A scoped handler (`define({ scoped: true })`) brands its assembled
+   * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
    * surface. Absent (`unknown`) on app servers.

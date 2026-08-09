@@ -75,7 +75,7 @@ function getState(platform: Platform): DoState {
 }
 
 const h = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [
     emits({
       'drizzle-ready': t<{ tables: string[] }>(),

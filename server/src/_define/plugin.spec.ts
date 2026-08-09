@@ -30,7 +30,7 @@ function findPrimitive(primitives: readonly any[], wskit: string, event?: string
 /** A small presence-style plugin authored as a scoped handler. */
 function buildPresence() {
   const h = define({
-    scoped: true,
+    scope: 'plugin',
     capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
   });
   const heartbeat = h.on('heartbeat', {
@@ -97,7 +97,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws on an invalid plugin id', () => {
-    const h = define({ scoped: true });
+    const h = define({ scope: 'plugin' });
     expect(() => plugin('NotValid', { handler: h.assemble({ handlers: [] }) })).toThrow(
       /is invalid/,
     );
@@ -106,12 +106,12 @@ describe('plugin() — scoped handler + manifest', () => {
   it('throws when the handler was not built with scoped define', () => {
     const h = define({ env: t<Env>() });
     expect(() => plugin('acme:presence', { handler: h.assemble({ handlers: [] }) as any })).toThrow(
-      /must be built with define\(\{ scoped: true \}\)/,
+      /must be built with define\(\{ scope: 'plugin' \}\)/,
     );
   });
 
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
-    const h = define({ scoped: true });
+    const h = define({ scope: 'plugin' });
     h.onConnect(() => {});
     const { __primitives } = plugin('acme:presence', { handler: h.assemble({ handlers: [] }) })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
@@ -130,16 +130,16 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('rejects a plugin short event name ending with __ before namespacing', () => {
-    const h = define({ scoped: true });
+    const h = define({ scope: 'plugin' });
     expect(() => h.on('heartbeat__', { run() {} })).toThrow(/reserved '__' suffix/);
   });
 
   it('lets two plugins coexist without their namespaced surfaces colliding', () => {
-    const a = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const a = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const aHandler = a.on('tick', { input: v.object({}), run() {} });
     const PluginA = plugin('acme:a', { handler: a.assemble({ handlers: [aHandler] }) });
 
-    const b = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const b = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const bHandler = b.on('tick', { input: v.object({}), run() {} });
     const PluginB = plugin('acme:b', { handler: b.assemble({ handlers: [bHandler] }) });
 
@@ -189,7 +189,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('passes assemble() when every dependsOn prerequisite is listed', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -207,14 +207,14 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws at assemble() when the same plugin id is listed twice, even with no api or handlers', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const P = plugin('acme:dup', { handler: h.assemble({ handlers: [] }) });
     const base = define({ env: t<Env>(), capabilities: [P(), P()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
   it('throws at assemble() when two different plugins share an id', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const First = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
     const Second = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
@@ -223,7 +223,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws at assemble() when a dependsOn prerequisite is missing', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -234,7 +234,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('does not satisfy a host dependency with a different host capability', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -246,7 +246,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('satisfies a host dependency when that capability is listed', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -257,7 +257,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it("auto-derives a host persistence dependency from a plugin's own durable stream", () => {
-    const h = define({ scoped: true, capabilities: [resumableStream()] });
+    const h = define({ scope: 'plugin', capabilities: [resumableStream()] });
     const feed = h.resumableStream('feed', {
       input: v.object({}),
       chunk: t<{ n: number }>(),
@@ -278,7 +278,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('auto-derives persistence from a plugin durable stream nested in a plugin channel', () => {
-    const h = define({ scoped: true, capabilities: [channels(), recordedStream()] });
+    const h = define({ scope: 'plugin', capabilities: [channels(), recordedStream()] });
     const rooms = h.channel('rooms', {});
     const feed = rooms.recordedStream('paginate', { async *run() {} } as any);
     const Dep = plugin('acme:roomfeed', { handler: h.assemble({ handlers: [feed] }) });
@@ -293,7 +293,7 @@ describe('plugin() — scoped handler + manifest', () => {
 
   it('auto-derives persistence from a plugin persistent tag group', () => {
     const h = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [tags((_e, p) => [p('favorite', t<string>())])],
     });
     const Dep = plugin('acme:tagger', { handler: h.assemble({ handlers: [] }) });
@@ -304,7 +304,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -315,7 +315,7 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('satisfies a keepalive dependency when keepalive(...) is listed', () => {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
@@ -332,7 +332,7 @@ describe('plugin() — scoped handler + manifest', () => {
 describe('plugin() — host-traffic observation', () => {
   /** A plugin with one intercept and one outgoing hook; `observes` opts into host traffic. */
   function buildObserver(observes: boolean) {
-    const h = define({ scoped: true, capabilities: [emits({ tick: t<{}>() }), intercepts()] });
+    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() }), intercepts()] });
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
     h.onOutgoing(() => {});

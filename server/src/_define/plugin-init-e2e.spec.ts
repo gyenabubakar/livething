@@ -38,7 +38,7 @@ describe('plugin init — onion order end-to-end', () => {
   it('runs the plugin init before the app init through a real engine boot', async () => {
     const trace: string[] = [];
 
-    const ph = define({ scoped: true, capabilities: [emits({ ready: t<{}>() })] });
+    const ph = define({ scope: 'plugin', capabilities: [emits({ ready: t<{}>() })] });
     ph.onInit(() => {
       trace.push('plugin');
     });
@@ -61,7 +61,7 @@ describe('plugin init — onion order end-to-end', () => {
 
   it('boots when the host and a plugin both declare tag groups of the same kind', async () => {
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [tags((ephemeral) => [ephemeral('plugin-role', t<string>())])],
     });
     const Plug = plugin('acme:tags', { handler: ph.assemble({ handlers: [] }) });

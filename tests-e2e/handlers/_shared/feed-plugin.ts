@@ -20,7 +20,7 @@ const RoomFull = error('room-full', v.object({ limit: v.number() }));
 // streams need is auto-derived from the streams the plugin owns, and the host
 // must provide persistence().
 const h = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [
     resumableStream(),
     recordedStream(),

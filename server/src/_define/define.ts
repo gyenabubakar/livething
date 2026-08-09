@@ -140,31 +140,35 @@ export interface DefineConfig<
   readonly users?: { readonly maxConnections?: number; readonly onExceed: 'replace' | 'reject' };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
   readonly capabilities?: TCaps;
-  /** Always absent on an app server — set only by a plugin's scoped handler (`scoped: true`). */
-  readonly scoped?: false;
+  /**
+   * Always absent on an app server. A scoped builder sets it instead — today
+   * only `'plugin'`.
+   */
+  readonly scope?: undefined;
 }
 
 /**
  * A capability a plugin is allowed to list — every capability except a
  * host-owned one. Host-owned engines (`dedup`/`sequence`/`keepalive`/
  * `persistence`/`rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one
- * inside `define({ scoped: true })` is a compile error. A plugin declares a
+ * inside `define({ scope: 'plugin' })` is a compile error. A plugin declares a
  * prerequisite on them instead.
  */
 export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
 
 /**
- * The configuration for a **plugin's** scoped handler (`scoped: true`). Authored
- * with the same builders as an app, but it declares only its own namespaced
- * slice and inherits the host's env, transport, and global singletons — so it
- * has no `env` field and cannot own host-level capabilities (see `plugin(...)`).
+ * The configuration for a **plugin's** scoped handler (`scope: 'plugin'`).
+ * Authored with the same builders as an app, but it declares only its own
+ * namespaced slice and inherits the host's env, transport, and global
+ * singletons — so it has no `env` field and cannot own host-level capabilities
+ * (see `plugin(...)`).
  */
 export interface ScopedDefineConfig<
   TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
 > {
   /** Marks this as a plugin's scoped handler. */
-  readonly scoped: true;
+  readonly scope: 'plugin';
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
    * onion: it sees only the raw request, not the app's identity. Return
@@ -1521,7 +1525,7 @@ export interface CoreBase<
    * upgrade hook, the lifecycle hooks, the intercept, and the listed capabilities
    * are folded in automatically.
    *
-   * A scoped plugin handler (`define({ scoped: true })`) may also pass `api` —
+   * A scoped plugin handler (`define({ scope: 'plugin' })`) may also pass `api` —
    * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
    * is the plugin's own scoped ctx, the same one its handlers receive.
    *
@@ -1733,6 +1737,7 @@ export function define<
   config: ScopedDefineConfig<TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps, true>;
 export function define(config: any): any {
+  const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];
   const seen = new Set<string>();
 
@@ -2040,7 +2045,7 @@ export function define(config: any): any {
       const primitives: Primitive[] = [];
       if (config.upgrade) {
         primitives.push(
-          config.scoped
+          scoped
             ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade))
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
@@ -2122,7 +2127,7 @@ export function define(config: any): any {
       const { hostDependencies } = resolveCapabilityRequirements(
         primitives,
         config.capabilities ?? [],
-        { scoped: !!config.scoped },
+        { scoped },
       );
 
       return Object.freeze({
@@ -2132,7 +2137,7 @@ export function define(config: any): any {
         ...(config.users ? { __usersPolicy: config.users } : {}),
         // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),
-        ...(config.scoped
+        ...(scoped
           ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
           : {}),
       });

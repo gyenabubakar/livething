@@ -35,7 +35,7 @@ export interface CustomReplayHooks {
 
 /** A `replay.custom()` capability, carrying the builder that turns hooks into a primitive. */
 export interface ReplayCustomCapability extends Capability<{}, never, 'replay-custom'> {
-  /** Host-owned: rejected inside a plugin's `define({ scoped: true })`. @internal */
+  /** Host-owned: rejected inside a plugin's `define({ scope: 'plugin' })`. @internal */
   readonly __hostOnly: true;
   /** Build the custom-replay primitive from `base.replay(...)` hooks. @internal */
   readonly __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive;

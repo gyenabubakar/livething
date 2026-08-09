@@ -33,8 +33,8 @@ function neededBy(primitives: readonly Primitive[], kind: string): string {
  * Resolve every `__requiresCapabilities` a server's primitives declare against
  * the capabilities it lists.
  *
- * On an app (`scoped: false`) a required capability that is not listed is a
- * build error. On a plugin's scoped handler (`scoped: true`) a required
+ * On an app a required capability that is not listed is a build error. On a
+ * plugin's scoped handler (`define({ scope: 'plugin' })`) a required
  * capability that the plugin cannot own (a host-owned engine) is not an error —
  * it is returned as a host dependency, so the plugin can declare it implicitly
  * and the host must provide it. A plugin missing a capability it *could* own is

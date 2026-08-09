@@ -23,7 +23,7 @@ interface PresenceApi {
 }
 
 const h = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'user-online': t<{ id: string }>() })],
 });
 const heartbeat = h.on('heartbeat', { input: v.object({}), run() {} });
@@ -63,7 +63,7 @@ describe('plugin typing', () => {
 
   it('folds a plugin surface into the top-level client maps under __id:: names', () => {
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
     });
     const beat = ph.on('heartbeat', { input: v.object({}), run() {} });
@@ -90,7 +90,7 @@ describe('plugin typing', () => {
   it('folds plugin streams / channels / errors into the top-level client maps under __id:: names', () => {
     const Denied = error('denied', v.object({ why: v.string() }));
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [stream(), channels(), errors([Denied])],
     });
     const ticks = ph.stream('ticks', { input: v.object({}), async *run() {} });
@@ -107,7 +107,7 @@ describe('plugin typing', () => {
 
   it('types a plugin upgrade meta through the scoped define generic', () => {
     define<{ userId: string }>({
-      scoped: true,
+      scope: 'plugin',
       upgrade() {
         return { userId: 'u1', meta: { userId: 'u1' } };
       },
@@ -122,14 +122,14 @@ describe('plugin typing', () => {
   it('rejects a host-owned capability inside a scoped define at compile time', () => {
     // @ts-expect-error keepalive() is host-owned and cannot be listed in a plugin
     define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
   });
 });
 
 describe('plugin host-observation compile gate', () => {
-  const obsHandler = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+  const obsHandler = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
   const beat = obsHandler.on('tick', { input: v.object({}), run() {} });
   const Observer = plugin('acme:obs', {
     handler: obsHandler.assemble({ handlers: [beat] }),

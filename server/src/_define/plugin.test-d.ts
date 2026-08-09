@@ -21,6 +21,7 @@ import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
+import type { DefineConfig, ScopedDefineConfig } from '~/_define/define.ts';
 import type { InferPluginClient } from '~/_define/plugin.ts';
 import type { InferClient } from '~/infer-client.ts';
 
@@ -28,7 +29,7 @@ import type { InferClient } from '~/infer-client.ts';
 // Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
 // ---------------------------------------------------------------------------
 const scopedBase = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'p-online': t<{ id: string }>() }), scheduled({ 'p-task': null })],
 });
 
@@ -66,7 +67,7 @@ void ApiPlugin;
 // through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server
 // ctx / contract slot, not on the client `InferClient`.
 // ---------------------------------------------------------------------------
-const inferBase = define({ scoped: true, capabilities: [emits({ e: t<{ n: number }>() })] });
+const inferBase = define({ scope: 'plugin', capabilities: [emits({ e: t<{ n: number }>() })] });
 const inferHandler = inferBase.on('x', {
   run(ctx) {
     ctx.send('e', { n: 1 });
@@ -104,7 +105,7 @@ inferHost.on('host-probe', {
 // discrimination; a plugin channel is covered by gap 4 below.)
 // ---------------------------------------------------------------------------
 const leakScoped = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'pl-out': t<{ a: number }>() })],
 });
 
@@ -160,7 +161,7 @@ expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 // prefixed `__<id>::family` name, flipped into the client view. The channel's
 // inner events stay scoped to it and are NOT prefixed.
 // ---------------------------------------------------------------------------
-const chScoped = define({ scoped: true, capabilities: [channels(), requests()] });
+const chScoped = define({ scope: 'plugin', capabilities: [channels(), requests()] });
 const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   subscribe: v.object({ token: v.string() }),
   outgoing: {
@@ -228,12 +229,12 @@ expectTypeOf<ChWire['channels']['fam']['outgoing']>().toHaveProperty('fam-ping')
 // compile errors: a plugin lists behavior in its own capabilities, and only the
 // host's engines (which carry __hostOnly) are valid dependsOn targets.
 // ---------------------------------------------------------------------------
-const depScoped = define({ scoped: true });
+const depScoped = define({ scope: 'plugin' });
 const DepPlugin = plugin('acme:dep', {
   handler: depScoped.assemble({ handlers: [depScoped.on('noop', { run() {} })] }),
 });
 
-const depHost = define({ scoped: true });
+const depHost = define({ scope: 'plugin' });
 // A host-owned engine factory is accepted.
 plugin('acme:ok', {
   handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
@@ -249,3 +250,38 @@ plugin('acme:bad', {
   // @ts-expect-error — a plugin factory is not a valid dependsOn target.
   dependsOn: [DepPlugin],
 });
+
+// ---------------------------------------------------------------------------
+// `scope` selects the builder. Today `'plugin'` is the only scoped form, and an
+// app never sets it — both are compile-time gates, not runtime checks.
+//
+// These assert against the config types directly rather than through `define`.
+// A failed `define(...)` call reports one error for the whole call, so it can
+// go red for a reason other than the field under test; a `satisfies` clause
+// pins each error to its own property. An unnecessary directive is itself an
+// error (TS2578), so none of these can pass vacuously.
+// ---------------------------------------------------------------------------
+
+({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — a top-level config never carries a scope.
+  scope: 'plugin',
+}) satisfies DefineConfig<Record<string, never>>;
+
+({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — the field is `scope`; the old boolean form is gone.
+  scoped: true,
+}) satisfies DefineConfig<Record<string, never>>;
+
+({ scope: 'plugin' }) satisfies ScopedDefineConfig;
+
+({
+  // @ts-expect-error — 'channel' is not a scope the builder knows.
+  scope: 'channel',
+}) satisfies ScopedDefineConfig;
+
+// And end to end, so the overload itself is covered: a typo'd flag on a real
+// call is rejected, with TypeScript pointing at the field that replaced it.
+// @ts-expect-error — the field is `scope`; the old boolean form is gone.
+define({ env: t<Record<string, never>>(), scoped: true });

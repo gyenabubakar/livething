@@ -33,7 +33,7 @@ import type { ChatMsg, Cursor, ReplayGuardError, RoomMsg } from './events.ts';
 // and the host's top-level replay stores and re-delivers it like any other
 // outgoing frame. This is the proof that app-level replay covers plugin events.
 const pluginBase = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'plugin-msg': PluginMsg })],
 });
 

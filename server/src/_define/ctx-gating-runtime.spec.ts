@@ -146,7 +146,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('listing a plugin adds ctx.plugin; it resolves the api and throws for unknown ids', async () => {
-    const ph = define({ scoped: true, capabilities: [] });
+    const ph = define({ scope: 'plugin', capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
       handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
