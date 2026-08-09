@@ -46,11 +46,14 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
+// Keep every value import off `./plugin.ts` — it is a package entry, so a
+// bundler keeps it whole and one binding drags the plugin runtime into apps
+// that list no plugins. Type imports are free.
 import {
   assertHostObservationGranted,
   assertPluginDependencies,
   assertUniquePluginIds,
-} from './plugin.ts';
+} from './plugin-checks.ts';
 import type {
   AdminCtx,
   AppCtx,
