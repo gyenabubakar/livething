@@ -44,12 +44,7 @@ describe('inbox capability — option resolution and validation', () => {
   it('declares its required capabilities', () => {
     const primitive = inbox({});
     expect(primitive.__requires).toEqual({});
-    expect(primitive.__requiresCapabilities).toEqual([
-      'channels',
-      'persistence',
-      'sequence',
-      'dedup',
-    ]);
+    expect(primitive.__requiresCapabilities).toEqual(['channels', 'sequence', 'dedup']);
   });
 
   it('__validate throws when the sequence is not persistent', () => {

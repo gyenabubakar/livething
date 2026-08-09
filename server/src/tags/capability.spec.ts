@@ -1,7 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { tags } from './capability.ts';
@@ -51,10 +50,7 @@ describe('tags() capability', () => {
   it('emits no ephemeral primitive when only persistent groups are declared', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [
-        tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
-        persistence(),
-      ],
+      capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     const { primitives } = base.assemble({ handlers: [] });
     expect(primitives.some((p) => p.__wskit === 'tag-groups')).toBe(true);
@@ -100,23 +96,10 @@ describe('tags() capability', () => {
     expect(result.tags).toBeUndefined();
   });
 
-  it('throws when persistent groups are declared without the persistence() capability', () => {
+  it('allows persistent groups', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
-    });
-    expect(() => base.assemble({ handlers: [] })).toThrow(
-      /persistence\(\) capability is required by tag-groups/,
-    );
-  });
-
-  it('allows persistent groups when persistence() is also listed', () => {
-    const base = define({
-      env: t<Env>(),
-      capabilities: [
-        tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
-        persistence(),
-      ],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });

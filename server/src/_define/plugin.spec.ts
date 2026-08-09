@@ -3,16 +3,15 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
-import { channels } from '~/channel/capability.ts';
+import { channel } from '~/channel/channel.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { persistence } from '~/persistence/capability.ts';
+import { replay } from '~/replay/replay.ts';
 import { requests } from '~/request/capability.ts';
-import { recordedStream } from '~/stream-recorded/capability.ts';
-import { resumableStream } from '~/stream-resumable/capability.ts';
-import { tags } from '~/tags/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { observeHost, plugin } from './plugin.ts';
@@ -255,53 +254,6 @@ describe('plugin() — scoped handler + manifest', () => {
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
-  it("auto-derives a host persistence dependency from a plugin's own durable stream", () => {
-    const h = define({ scope: 'plugin', capabilities: [resumableStream()] });
-    const feed = h.resumableStream('feed', {
-      input: v.object({}),
-      chunk: t<{ n: number }>(),
-      async *run() {
-        yield { n: 1 };
-      },
-    });
-    // No dependsOn — the persistence requirement is inferred from the durable
-    // stream the plugin owns.
-    const Dep = plugin('acme:dep', { handler: h.assemble({ handlers: [feed] }) });
-    const without = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
-    const withPersistence = define({
-      env: t<Env>(),
-      capabilities: [persistence(), resumableStream(), Dep()],
-    });
-    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
-  });
-
-  it('auto-derives persistence from a plugin durable stream nested in a plugin channel', () => {
-    const h = define({ scope: 'plugin', capabilities: [channels(), recordedStream()] });
-    const rooms = h.channel('rooms', {});
-    const feed = rooms.recordedStream('paginate', { async *run() {} } as any);
-    const Dep = plugin('acme:roomfeed', { handler: h.assemble({ handlers: [feed] }) });
-    const without = define({ env: t<Env>(), capabilities: [channels(), Dep()] });
-    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
-    const withPersistence = define({
-      env: t<Env>(),
-      capabilities: [persistence(), channels(), recordedStream(), Dep()],
-    });
-    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
-  });
-
-  it('auto-derives persistence from a plugin persistent tag group', () => {
-    const h = define({
-      scope: 'plugin',
-      capabilities: [tags((_e, p) => [p('favorite', t<string>())])],
-    });
-    const Dep = plugin('acme:tagger', { handler: h.assemble({ handlers: [] }) });
-    const without = define({ env: t<Env>(), capabilities: [Dep()] });
-    expect(() => without.assemble({ handlers: [] })).toThrow(/the host does not list/);
-    const withPersistence = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
-    expect(() => withPersistence.assemble({ handlers: [] })).not.toThrow();
-  });
-
   it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
     const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
@@ -397,5 +349,44 @@ describe('plugin() — host-traffic observation', () => {
       spy.mockRestore();
     }
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('plugin() — auto-derived host dependencies', () => {
+  it("auto-derives host sequence/dedup dependencies from a plugin's own replay primitive", () => {
+    const h = define({ scope: 'plugin' });
+    const cap = h.assemble({ handlers: [replay({}) as any] }) as {
+      __hostDependencies?: readonly string[];
+    };
+    expect(cap.__hostDependencies).toEqual(expect.arrayContaining(['sequence', 'dedup']));
+  });
+
+  it('auto-derives host sequence/dedup dependencies from a plugin replay primitive nested in a plugin channel', () => {
+    const h = define({ scope: 'plugin' });
+    const cap = h.assemble({ handlers: [channel('room', replay({})) as any] }) as {
+      __hostDependencies?: readonly string[];
+    };
+    expect(cap.__hostDependencies).toEqual(expect.arrayContaining(['sequence', 'dedup']));
+  });
+
+  it('throws at the host assemble() when an auto-derived host dependency is not listed', () => {
+    const h = define({ scope: 'plugin' });
+    const Presence = plugin('acme:presence', {
+      handler: h.assemble({ handlers: [channel('room', replay({})) as any] }),
+    });
+    const base = define({ env: t<Env>(), capabilities: [Presence()] });
+    expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
+  });
+
+  it('passes the host assemble() once every auto-derived host dependency is listed', () => {
+    const h = define({ scope: 'plugin' });
+    const Presence = plugin('acme:presence', {
+      handler: h.assemble({ handlers: [channel('room', replay({})) as any] }),
+    });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [dedup(), sequence({ persist: true }), Presence()],
+    });
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 });

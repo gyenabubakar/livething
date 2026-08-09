@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './capability.ts';
@@ -10,22 +9,10 @@ import { compileResumableStreamDef } from './compile.ts';
 import { resumableStream as resumableStreamDef } from './definition.ts';
 
 describe('resumableStream build-time validation', () => {
-  it('throws when resumableStream is declared without persistence: true', () => {
-    const base = define({ env: t<Record<string, unknown>>(), capabilities: [resumableStream()] });
-    const handle = base.resumableStream('feed', {
-      input: v.object({}),
-      chunk: t<{ idx: number }>(),
-      async *run() {
-        yield { idx: 1 };
-      },
-    });
-    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
-  });
-
-  it('builds when persistence is enabled and the stream is top-level', () => {
+  it('builds when the stream is top-level', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), resumableStream()],
+      capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {
       input: v.object({}),
@@ -40,7 +27,7 @@ describe('resumableStream build-time validation', () => {
   it('builds when declared inside a channel', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), channels(), resumableStream()],
+      capabilities: [channels(), resumableStream()],
     });
     const rooms = base.channel('rooms');
     const handle = rooms.resumableStream('feed', {
@@ -70,7 +57,7 @@ describe('resumableStream build-time validation', () => {
   it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), resumableStream()],
+      capabilities: [resumableStream()],
     });
     expect(() =>
       base.resumableStream('feed', {
@@ -87,7 +74,7 @@ describe('resumableStream build-time validation', () => {
   it('allows keep-running on a broadcast resumableStream', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), resumableStream()],
+      capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {
       input: v.object({}),

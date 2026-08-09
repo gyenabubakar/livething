@@ -29,8 +29,8 @@ const READ_RECEIPTS_KEY = Symbol('read-receipts');
  * The channel-scoped read-receipts primitive. Built by the `readReceipts()`
  * capability from a channel's `readReceipts` config. It tracks only the read
  * cursor (the blue check); delivered acknowledgement belongs to `inbox`.
- * Requires `inbox` (and its transitive `sequence`/`persistence`); the build
- * fails without them.
+ * Requires `inbox` (and its transitive `sequence`); the build fails without
+ * them.
  */
 export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceiptsPrimitive {
   return {
@@ -38,11 +38,7 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
     __kind: 'infrastructure',
     __identity: [READ_RECEIPTS_KEY],
     __requires: {},
-    __requiresCapabilities: [
-      CAPABILITY_KIND.inbox,
-      CAPABILITY_KIND.sequence,
-      CAPABILITY_KIND.persistence,
-    ],
+    __requiresCapabilities: [CAPABILITY_KIND.inbox, CAPABILITY_KIND.sequence],
     options,
     __setup(engine) {
       const { channelKey } = engine.getScopeInfo();

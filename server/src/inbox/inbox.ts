@@ -45,8 +45,8 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
 /**
  * The channel-scoped inbox primitive. Built by the `inbox()` capability from a
  * channel's `inbox` config; you do not call it directly. Requires `channels`,
- * `persistence`, `sequence({ persist: true })`, and `dedup` — the build fails
- * fast without them.
+ * `sequence({ persist: true })`, and `dedup` — the build fails fast without
+ * them.
  */
 export function inbox(config: InboxOptions): InboxPrimitive {
   const options = resolveInboxOptions(config);
@@ -58,7 +58,6 @@ export function inbox(config: InboxOptions): InboxPrimitive {
     __requires: {},
     __requiresCapabilities: [
       CAPABILITY_KIND.channels,
-      CAPABILITY_KIND.persistence,
       CAPABILITY_KIND.sequence,
       CAPABILITY_KIND.dedup,
     ],

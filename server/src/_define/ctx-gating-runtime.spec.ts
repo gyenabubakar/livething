@@ -5,7 +5,6 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import * as v from 'valibot';
@@ -164,7 +163,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   it('a stream-sweep-only server (recordedStream, no scheduled()) has no ctx.schedule', async () => {
     const base = define({
       env: t<{}>(),
-      capabilities: [persistence(), recordedStream()],
+      capabilities: [recordedStream()],
     });
     const ctx = await captureCtx(probeServer(base));
     expect('schedule' in ctx).toBe(false);

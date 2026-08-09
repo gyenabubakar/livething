@@ -32,17 +32,15 @@ function buildDurableSweep(): Primitive {
  * Enable resumable server-pushed streams. Listing this lets you register
  * `base.resumableStream(name, { input, cursor, run })`. The generator records a
  * cursor with each chunk (`ctx.stream.withCursor(chunk, cursor)`); after a
- * reconnect it re-runs from the saved cursor (`ctx.stream.cursor`). Requires the
- * `persistence()` capability.
+ * reconnect it re-runs from the saved cursor (`ctx.stream.cursor`).
  *
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
  * import { resumableStream } from '@wskit/server/streams';
- * import { persistence } from '@wskit/server/persistence';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [persistence(), resumableStream()] });
+ * const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
  *
  * export const handlePaginate = base.resumableStream('paginate', {
  *   input: v.object({}),

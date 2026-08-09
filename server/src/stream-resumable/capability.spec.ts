@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './capability.ts';
@@ -12,8 +11,8 @@ interface Env {
 }
 
 describe('resumableStream() capability', () => {
-  it('registers a resumable stream that boots when persistence is listed', () => {
-    const base = define({ env: t<Env>(), capabilities: [persistence(), resumableStream()] });
+  it('registers a resumable stream that boots', () => {
+    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
     const handle = base.resumableStream('paginate', {
       input: v.object({}),
       cursor: t<{ row: number }>(),
@@ -26,21 +25,15 @@ describe('resumableStream() capability', () => {
     expect(compiled.resumableStreams.has('paginate')).toBe(true);
   });
 
-  it('requires the persistence() capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
-    const handle = base.resumableStream('p', { async *run() {} });
-    expect(() => base.assemble({ handlers: [handle] })).toThrow(/persistence\(\) capability/);
-  });
-
   it('rejects keep-running without broadcast', () => {
-    const base = define({ env: t<Env>(), capabilities: [persistence(), resumableStream()] });
+    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
     expect(() =>
       base.resumableStream('p', { onDisconnect: 'keep-running', async *run() {} }),
     ).toThrow(/keep-running/);
   });
 
   it('lets the generator read cursor and use withCursor through the wrapper', async () => {
-    const base = define({ env: t<Env>(), capabilities: [persistence(), resumableStream()] });
+    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
     let seenCursor: unknown;
     const handle = base.resumableStream('p', {
       chunk: t<{ row: number }>(),

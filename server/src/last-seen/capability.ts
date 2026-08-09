@@ -12,17 +12,14 @@ export type { LastSeenOptions, LastSeenTrack } from '~/last-seen/types.ts';
  * (default 60s). When listed alongside `inbox()`, the inbox `backlog()` read
  * fills each member's `lastSeenAt` from this table.
  *
- * Requires `persistence()`; the build fails without it.
- *
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
- * import { persistence } from '@wskit/server/persistence';
  * import { lastSeen } from '@wskit/server/last-seen';
  *
  * const base = define({
  *   env: t<Env>(),
- *   capabilities: [persistence(), lastSeen({ track: 'activity' })],
+ *   capabilities: [lastSeen({ track: 'activity' })],
  * });
  * ```
  */

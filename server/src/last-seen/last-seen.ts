@@ -1,4 +1,3 @@
-import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertOneOf, assertPositiveInteger } from '~/_engine/validation.ts';
 import {
@@ -43,7 +42,7 @@ function resolveLastSeenOptions(config: LastSeenOptions): ResolvedLastSeenOption
  * fills the engine's `lastSeenService` slot so inbox backlog can read it without
  * importing this module.
  *
- * Enable it by listing the `lastSeen()` capability. Requires `persistence()`.
+ * Enable it by listing the `lastSeen()` capability.
  */
 export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
   const options = resolveLastSeenOptions(config);
@@ -53,7 +52,6 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
     __kind: 'infrastructure',
     __identity: [LAST_SEEN_KEY],
     __requires: {},
-    __requiresCapabilities: [CAPABILITY_KIND.persistence],
     options,
     __setup(engine) {
       engine.installOnce(LAST_SEEN_KEY, () => {

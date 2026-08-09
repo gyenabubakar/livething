@@ -24,21 +24,20 @@ export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
  * definition. Members must have a stable user id — anonymous connections get
  * live-only delivery.
  *
- * Requires `channels()`, `persistence()`, `sequence({ persist: true })`, and
- * `dedup()`; the build fails without them.
+ * Requires `channels()`, `sequence({ persist: true })`, and `dedup()`; the
+ * build fails without them.
  *
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
  * import { channels } from '@wskit/server/channels';
- * import { persistence } from '@wskit/server/persistence';
  * import { sequence } from '@wskit/server/sequence';
  * import { dedup } from '@wskit/server/dedup';
  * import { inbox } from '@wskit/server/inbox';
  *
  * const base = define({
  *   env: t<Env>(),
- *   capabilities: [channels(), persistence(), sequence({ persist: true }), dedup(), inbox()],
+ *   capabilities: [channels(), sequence({ persist: true }), dedup(), inbox()],
  * });
  * ```
  */
@@ -56,13 +55,12 @@ export const inbox = withCapabilityKind(function inbox(): HostCapability<{}, nev
  * Delivered acknowledgement (the double-grey check) comes with `inbox()` on its
  * own and needs no opt-in.
  *
- * Requires `inbox()` (and its `sequence`/`persistence`); the build fails without it.
+ * Requires `inbox()` (and its `sequence`); the build fails without it.
  *
  * @example
  * ```ts
  * capabilities: [
  *   channels(),
- *   persistence(),
  *   sequence({ persist: true }),
  *   dedup(),
  *   inbox(),
