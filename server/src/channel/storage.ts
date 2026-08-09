@@ -22,27 +22,14 @@ const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
   ON __wskit_channel_memberships (channel_name, channel_family)
 `;
 
-const CREATE_TAGS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS __wskit_tags (
-    user_id    TEXT NOT NULL,
-    group_name TEXT NOT NULL,
-    key        TEXT NOT NULL,
-    added_at   INTEGER NOT NULL,
-    -- Reserved JSON blob: lets us add per-row fields later without a migration.
-    metadata   TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (user_id, group_name, key)
-  )
-`;
-
-const CREATE_TAGS_USER_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_user
-  ON __wskit_tags (user_id)
-`;
-
-const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_group_key
-  ON __wskit_tags (group_name, key)
-`;
+// All three DDL statements in one multi-statement string. Cloudflare's SQL
+// `exec` accepts semicolon-separated statements, so this is one round trip
+// instead of three.
+const MEMBERSHIP_SCHEMA_SQL = [
+  CREATE_MEMBERSHIPS_TABLE_SQL,
+  CREATE_MEMBERSHIPS_USER_INDEX_SQL,
+  CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL,
+].join(';\n');
 
 /**
  * A single durable channel membership row, returned with the engine-native
@@ -62,24 +49,12 @@ type RawMembershipRow = {
   joined_at: number;
 };
 
-// All six DDL statements in one multi-statement string. Cloudflare's SQL
-// `exec` accepts semicolon-separated statements, so this is one round trip
-// instead of six.
-const PERSISTENCE_SCHEMA_SQL = [
-  CREATE_MEMBERSHIPS_TABLE_SQL,
-  CREATE_MEMBERSHIPS_USER_INDEX_SQL,
-  CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL,
-  CREATE_TAGS_TABLE_SQL,
-  CREATE_TAGS_USER_INDEX_SQL,
-  CREATE_TAGS_GROUP_KEY_INDEX_SQL,
-].join(';\n');
-
 /**
- * Create the per-user durable tables and indexes. Idempotent — safe to call
- * on every engine boot.
+ * Create the durable channel-membership table and its indexes. Idempotent —
+ * safe to call on every engine boot.
  */
-export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
-  sql.exec(PERSISTENCE_SCHEMA_SQL);
+export function ensureMembershipSchema(sql: Pick<SQLProvider, 'exec'>): void {
+  sql.exec(MEMBERSHIP_SCHEMA_SQL);
 }
 
 export interface MembershipKey {
@@ -217,14 +192,6 @@ export function deleteMembershipsByChannel(
     channelName,
     familyToDb(channelFamily),
   );
-}
-
-/**
- * Delete every persistent tag row for one user. Used by `purgeUser`.
- * Safe to call even when no rows exist for the user.
- */
-export function purgeTagsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_tags WHERE user_id = ?', userId);
 }
 
 /**

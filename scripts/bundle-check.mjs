@@ -38,6 +38,14 @@ const repoRoot = resolve(here, '..');
 // requests and rate-limit all use it internally), so it is present in every
 // server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
 // streams likewise carry no durable marker — there is nothing to persist.
+//
+// `persistence()` owns no storage engine of its own: it is a switch that tells
+// `channels()` and `tags()` to write their tables durably. Those two
+// capabilities create and own their tables unconditionally, so `channel` and
+// `channelStorage` are split apart — `channel` is the wire runtime, present
+// wherever a channel is targeted (for example channel-scoped requests or
+// replay); `channelStorage` is the membership table, owned only by
+// `channels()` itself.
 // ---------------------------------------------------------------------------
 const SERVER_DIST = resolve(repoRoot, 'server/dist');
 
@@ -47,9 +55,12 @@ const SERVER_ENGINES = {
     label: 'durable-stream engine (recorded chunk store)',
   },
   channel: { marker: '__subscribeOk__', label: 'channel runtime' },
+  channelStorage: {
+    marker: '__wskit_channel_memberships',
+    label: 'channel membership storage engine',
+  },
   scheduled: { marker: '__wskit_scheduled', label: 'scheduled-task engine' },
   sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
-  persistence: { marker: '__wskit_channel_memberships', label: 'persistence engine' },
   tags: { marker: '__wskit_tags', label: 'tags storage engine' },
   replay: { marker: '__wskit_replay', label: 'replay engine' },
   keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
@@ -89,13 +100,14 @@ function serverScenarios(f) {
       owns: 'rateLimit',
       alsoPulls: [],
     },
-    // Rejoin restores a reconnecting connection's tag memberships, so the
-    // persistence engine pulls the tags storage engine.
+    // `persistence()` owns no storage of its own — it is a switch that tells
+    // `channels()` and `tags()` (which create and own their own tables
+    // regardless) to start writing durably.
     {
       name: 'persistence',
       source: importStar(f('persistence.js')),
-      owns: 'persistence',
-      alsoPulls: ['tags'],
+      owns: null,
+      alsoPulls: [],
     },
     // Replay can be channel-scoped, so it pulls the channel runtime.
     { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
@@ -116,7 +128,15 @@ function serverScenarios(f) {
       owns: null,
       alsoPulls: [],
     },
-    { name: 'channels', source: importStar(f('channels.js')), owns: 'channel', alsoPulls: [] },
+    // `channels()` owns both the wire runtime and the membership table it
+    // creates and manages — the storage exists regardless of whether
+    // `persistence()` is listed; that only gates whether writes are durable.
+    {
+      name: 'channels',
+      source: importStar(f('channels.js')),
+      owns: ['channel', 'channelStorage'],
+      alsoPulls: [],
+    },
     { name: 'tags', source: importStar(f('tags.js')), owns: 'tags', alsoPulls: [] },
     { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
     { name: 'plugin', source: importStar(f('plugin.js')), owns: 'plugin', alsoPulls: [] },
@@ -193,7 +213,13 @@ async function runSuite({ label, distDir, engines }, scenarios) {
   await assertMarkersResolve(distDir, engines, failures);
 
   for (const scenario of scenarios) {
-    const allowed = new Set([scenario.owns, ...scenario.alsoPulls].filter(Boolean));
+    // `owns` is normally one engine id, but a scenario can legitimately own more
+    // than one (for example `channels()` owns both the wire runtime and the
+    // membership table it creates), so it also accepts an array.
+    const owned = new Set(
+      Array.isArray(scenario.owns) ? scenario.owns : [scenario.owns].filter(Boolean),
+    );
+    const allowed = new Set([...owned, ...scenario.alsoPulls]);
     const code = await bundle(scenario.source);
     const present = new Set(Object.keys(engines).filter((id) => code.includes(engines[id].marker)));
 
@@ -210,7 +236,7 @@ async function runSuite({ label, distDir, engines }, scenarios) {
     //    the marker, or update `owns`/`alsoPulls` for this scenario.
     for (const id of allowed) {
       if (!present.has(id)) {
-        const kind = id === scenario.owns ? 'own engine' : 'documented dependency';
+        const kind = owned.has(id) ? 'own engine' : 'documented dependency';
         failures.push(
           `  [${label} · ${scenario.name}] expected ${kind} ${engines[id].label} is absent — marker drift or dependency removed`,
         );

@@ -1,11 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { ensureConnectionSchema, readConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
-import { persistAttachment } from '~/persistence/context.ts';
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { EngineCore } from '~/_engine/core.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(id: string): RuntimeConnection {
@@ -490,8 +493,23 @@ describe('ctx.log', () => {
 });
 
 describe('persistAttachment', () => {
-  it('routes the connection snapshot through the adapter hibernation API', () => {
+  function fakeCore(overrides: Partial<EngineCore> = {}): EngineCore {
+    const sql = createTestSql();
+    ensureConnectionSchema(sql);
+    return {
+      hibernationEnabled: true,
+      storage: { sql },
+      asyncContext: undefined,
+      options: {},
+      ...overrides,
+    } as unknown as EngineCore;
+  }
+
+  it('writes the full connection row to storage and calls the adapter cheap persist hook', () => {
     const persist = vi.fn();
+    const core = fakeCore({
+      options: { hibernation: { persist, restore: () => undefined } } as never,
+    });
     const connection = createConnection('c1');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
@@ -502,23 +520,39 @@ describe('persistAttachment', () => {
     });
     connection.activeStreamIds = new Set(['stream_1']);
 
-    persistAttachment(connection, { persist, restore: () => undefined });
+    persistAttachment(core, connection);
 
     expect(persist).toHaveBeenCalledTimes(1);
-    expect(persist).toHaveBeenCalledWith(connection.wsKey, {
-      id: 'c1',
+    expect(persist).toHaveBeenCalledWith(connection.wsKey, { id: 'c1' });
+
+    const row = readConnectionRow(core.storage.sql, 'c1');
+    expect(row).toEqual({
+      connection_id: 'c1',
+      user_id: 'c1',
       meta: { username: 'user1' },
-      tags: [{ group: 'role', key: 'vip' }],
-      channelMemberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
-      activeStreamIds: ['stream_1'],
+      ephemeral_tags: [{ group: 'role', key: 'vip' }],
+      ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
+      active_stream_ids: ['stream_1'],
     });
   });
 
-  it('no-ops when the adapter does not provide a hibernation API', () => {
+  it('still writes the row when the adapter does not provide a hibernation API', () => {
+    const core = fakeCore();
     const connection = createConnection('c2');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
 
-    expect(() => persistAttachment(connection, undefined)).not.toThrow();
+    expect(() => persistAttachment(core, connection)).not.toThrow();
+    expect(readConnectionRow(core.storage.sql, 'c2')).not.toBeNull();
+  });
+
+  it('no-ops when hibernation is not enabled', () => {
+    const core = fakeCore({ hibernationEnabled: false });
+    const connection = createConnection('c3');
+    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+
+    persistAttachment(core, connection);
+
+    expect(readConnectionRow(core.storage.sql, 'c3')).toBeNull();
   });
 });
 

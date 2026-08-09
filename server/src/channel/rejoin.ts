@@ -1,16 +1,9 @@
-import {
-  ChannelNotFound,
-  RejoinRejected,
-  rethrowIfConfigError,
-  ValidationFailed,
-} from '@wskit/core';
-import { validateValue } from '~/_engine/compile/utils.ts';
-import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
-import { deleteMembership, listMembershipsByUser } from '~/persistence/storage.ts';
-import { deleteTag, listTagsByUser } from '~/tags/storage.ts';
+import { ChannelNotFound, RejoinRejected, rethrowIfConfigError } from '@wskit/core';
+import { deleteMembership, listMembershipsByUser } from '~/channel/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { Logger, SQLProvider } from '~/context.ts';
+import type { RestorePersistentTagsOptions } from '~/tags/rejoin.ts';
 import type { Validator } from '~/types.ts';
 
 export interface RejoinSubscribeOptions {
@@ -58,6 +51,13 @@ export interface RejoinRuntime {
   /** Returns a persistent tag group's validator, or undefined when it has none. */
   getTagGroupSchema?(group: string): Validator | undefined;
 
+  /**
+   * Restore the user's persistent tags into the live index. Set by the
+   * `tags()` capability's registered service; absent (a no-op) when `tags()`
+   * is not listed.
+   */
+  restorePersistentTags?(opts: RestorePersistentTagsOptions): void;
+
   logger?: Pick<Logger, 'error'>;
 }
 
@@ -85,52 +85,6 @@ export interface RejoinRuntime {
  *
  * @internal
  */
-/**
- * Put a user's saved persistent tags back into the live tag index.
- *
- * Runs on a fresh connect (via auto-rejoin) and on a hibernation wake, where
- * the per-connection snapshot only carries ephemeral tags. Reading by user id
- * means a tag dropped for the whole user while this socket slept does not
- * come back.
- */
-export interface RestorePersistentTagsOptions {
-  sql: Pick<SQLProvider, 'exec'>;
-  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
-  connection: EngineRuntimeTypes.RuntimeConnection;
-  /** Returns a group's validator, or undefined when it has none. */
-  getSchema?: (group: string) => Validator | undefined;
-  logger?: Pick<Logger, 'error'>;
-}
-
-export function restorePersistentTags(opts: RestorePersistentTagsOptions): void {
-  const { sql, tagMembers, connection } = opts;
-  if (!connection.userId) return;
-  for (const tag of listTagsByUser(sql, connection.userId)) {
-    const schema = opts.getSchema?.(tag.group);
-    if (schema) {
-      try {
-        validateValue(schema, tag.key, `tag persistent:${tag.group}`);
-      } catch (error) {
-        // Only a genuine schema mismatch drops the row. A config error (e.g. an
-        // async validator) or any other throw propagates rather than silently
-        // deleting valid persisted data.
-        if (!ValidationFailed.matches(error)) throw error;
-        deleteTag(sql, { userId: connection.userId, group: tag.group, key: tag.key });
-        opts.logger?.error('[wskit] dropped a stored persistent tag that failed validation', {
-          group: tag.group,
-          error: error.detail.issues[0]?.message ?? 'validation failed',
-        });
-        continue;
-      }
-    }
-    addConnectionTag(tagMembers, connection, {
-      kind: 'persistent',
-      group: tag.group,
-      key: tag.key,
-    });
-  }
-}
-
 export async function autoRejoinIdentity(
   runtime: RejoinRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
@@ -139,7 +93,7 @@ export async function autoRejoinIdentity(
 
   // Restore persistent tags first — channel auto-rejoin's check hook
   // can read them via `ctx.tags.persistent(...)`.
-  restorePersistentTags({
+  runtime.restorePersistentTags?.({
     sql: runtime.sql,
     tagMembers: runtime.tagMembers,
     connection,

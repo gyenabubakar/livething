@@ -4,19 +4,18 @@ import type { SQLProvider } from '~/context.ts';
 import {
   deleteMembership,
   deleteMembershipsByChannel,
-  ensurePersistenceSchema,
+  ensureMembershipSchema,
   insertMembership,
   listMembershipsByUser,
   purgeMembershipsByUser,
-  purgeTagsByUser,
 } from './storage.ts';
 
-describe('persistence storage', () => {
+describe('channel membership storage', () => {
   let sql: SQLProvider;
 
   beforeEach(() => {
     sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
   });
 
   it('maps null scope to "" on write and back to null on read', () => {
@@ -78,7 +77,13 @@ describe('persistence storage', () => {
     expect(listMembershipsByUser(sql, 'u-3')).toHaveLength(0);
   });
 
-  it('purgeTagsByUser is a no-op when the tag table is empty', () => {
-    expect(() => purgeTagsByUser(sql, 'u-1')).not.toThrow();
+  it('creates the table and both indexes', () => {
+    const created = sql
+      .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+      .toArray()
+      .map((row) => row.name);
+    expect(created).toContain('__wskit_channel_memberships');
+    expect(created).toContain('__wskit_idx_channel_memberships_user');
+    expect(created).toContain('__wskit_idx_channel_memberships_channel');
   });
 });

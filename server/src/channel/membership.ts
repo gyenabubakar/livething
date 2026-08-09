@@ -1,12 +1,11 @@
-import { CloseCodes } from '@wskit/core';
 import { sendProtocolMessage } from '~/_engine/runtime/wire.ts';
+import { autoRejoinIdentity as runAutoRejoin } from '~/channel/rejoin.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { autoRejoinIdentity as runAutoRejoin } from '~/persistence/rejoin.ts';
-import * as PersistenceStorage from '~/persistence/storage.ts';
+import * as ChannelStorage from '~/channel/storage.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { MembershipKey } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
-import type { MembershipKey } from '~/persistence/storage.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
@@ -37,7 +36,7 @@ type SubscribeFromServerFn = (
 export function persistMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
   if (!key.userId) return;
-  PersistenceStorage.insertMembership(core.storage.sql, key);
+  ChannelStorage.insertMembership(core.storage.sql, key);
 }
 
 /**
@@ -48,7 +47,7 @@ export function persistMembership(core: EngineCore, key: MembershipKey): void {
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
   if (!key.userId) return;
-  PersistenceStorage.deleteMembership(core.storage.sql, key);
+  ChannelStorage.deleteMembership(core.storage.sql, key);
 }
 
 /**
@@ -58,15 +57,17 @@ export function deleteDurableMembership(core: EngineCore, key: MembershipKey): v
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
   if (!core.persistenceEnabled) return false;
   if (!key.userId) return false;
-  return PersistenceStorage.membershipExists(core.storage.sql, key);
+  return ChannelStorage.membershipExists(core.storage.sql, key);
 }
 
 /**
- * "This user is gone, wipe them everywhere". Drops every persistent
- * membership and persistent tag for `userId`, then closes every live
- * socket. Backs the future `admin().purgeUser()` surface.
+ * "This user is gone, wipe them everywhere" — the channel-membership half.
+ * Kicks the user out of every channel it currently belongs to (live or
+ * durable-only), then drops its durable membership rows. Registered as an
+ * `onPurgeUser` hook by the `channels()` capability; `purgeUser` also closes
+ * the user's live sockets, but that part is core, not channel-specific.
  */
-export async function purgeUser(core: EngineCore, userId: string): Promise<void> {
+export async function purgeChannelMembership(core: EngineCore, userId: string): Promise<void> {
   // Dedup the channels by membership key; the pair itself is the map value,
   // so the key stays opaque and is never parsed back.
   const channels = new Map<string, { channelName: string; channelFamily: string | null }>();
@@ -84,18 +85,12 @@ export async function purgeUser(core: EngineCore, userId: string): Promise<void>
     }
   }
 
-  if (core.persistenceEnabled) {
-    const sql = core.storage.sql;
-    const rows = PersistenceStorage.listMembershipsByUser(sql, userId);
-    for (const row of rows) {
-      channels.set(
-        ChannelPrimitive.createChannelMembershipKey(row.channelName, row.channelFamily),
-        {
-          channelName: row.channelName,
-          channelFamily: row.channelFamily,
-        },
-      );
-    }
+  const sql = core.storage.sql;
+  for (const row of ChannelStorage.listMembershipsByUser(sql, userId)) {
+    channels.set(ChannelPrimitive.createChannelMembershipKey(row.channelName, row.channelFamily), {
+      channelName: row.channelName,
+      channelFamily: row.channelFamily,
+    });
   }
 
   const target: PublicApi.UserRef = {
@@ -113,17 +108,7 @@ export async function purgeUser(core: EngineCore, userId: string): Promise<void>
     });
   }
 
-  if (core.persistenceEnabled) {
-    const sql = core.storage.sql;
-    PersistenceStorage.purgeMembershipsByUser(sql, userId);
-    PersistenceStorage.purgeTagsByUser(sql, userId);
-  }
-
-  for (const connection of core.connections.values()) {
-    if (connection.userId === userId) {
-      connection.descriptor.close(CloseCodes.NORMAL, 'user purged');
-    }
-  }
+  ChannelStorage.purgeMembershipsByUser(sql, userId);
 }
 
 /**
@@ -153,6 +138,7 @@ export async function autoRejoinIdentity(
       },
       sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),
       getTagGroupSchema: (group) => core.getTagGroupSchema('persistent', group),
+      restorePersistentTags: (opts) => core.tagPersistenceService?.restorePersistentTags(opts),
       logger: core.logger,
     },
     connection,

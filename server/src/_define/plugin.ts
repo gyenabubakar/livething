@@ -36,6 +36,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'scheduled',
   'scheduledSurface',
   'tag-groups',
+  'tag-persistence-runtime',
   'errors',
   'onInit',
   'onConnect',

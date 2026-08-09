@@ -53,6 +53,18 @@ export interface EngineAccess {
   onBootSchema(handler: () => void | Promise<void>): void;
 
   /**
+   * Register per-user durable cleanup, run by `admin().purgeUser()`. A
+   * capability that owns per-user durable rows (channel membership,
+   * persistent tags, ...) registers a handler here to drop its own rows.
+   * Runs before the user's live sockets are closed. The `core` argument is
+   * the live engine core, opaque here — a handler casts it internally to
+   * reach the storage and services it needs.
+   *
+   * @internal
+   */
+  onPurgeUser(handler: (core: unknown, userId: string) => void | Promise<void>): void;
+
+  /**
    * Observe or rewrite incoming wire messages before the engine routes them.
    *
    * Return a value to replace the payload, or return nothing to leave it
@@ -787,12 +799,20 @@ export interface EngineAccess {
   setBuildTagsApi(build: FeatureSlots.BuildTagsApi): void;
 
   /**
-   * Register the durable membership/persistent-tag operations. Set by the
-   * `persistence()` capability so storage code stays out of a bare handler.
+   * Register the durable channel-membership operations. Set by the
+   * `channels()` capability so storage code stays out of a bare handler.
    *
    * @internal
    */
-  setPersistenceService(service: FeatureSlots.PersistenceService): void;
+  setChannelMembershipService(service: FeatureSlots.ChannelMembershipService): void;
+
+  /**
+   * Register the persistent-tag restore operation. Set by the `tags()`
+   * capability so tag storage code stays out of a bare handler.
+   *
+   * @internal
+   */
+  setTagPersistenceService(service: FeatureSlots.TagPersistenceService): void;
 
   /**
    * Register the scheduled-task runtime. Set by `scheduled()` and by durable

@@ -1,11 +1,12 @@
 import { createTestSql } from '~/_test/sql.ts';
-import { ensurePersistenceSchema } from '~/persistence/storage.ts';
 import {
   deleteGroup,
   deleteTag,
+  ensureTagsSchema,
   insertTag,
   listGroupNames,
   listTagsByUser,
+  purgeTagsByUser,
 } from '~/tags/storage.ts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SQLProvider } from '~/context.ts';
@@ -15,7 +16,30 @@ describe('tags storage', () => {
 
   beforeEach(() => {
     sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureTagsSchema(sql);
+  });
+
+  it('creates the table and both indexes', () => {
+    const created = sql
+      .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+      .toArray()
+      .map((row) => row.name);
+    expect(created).toContain('__wskit_tags');
+    expect(created).toContain('__wskit_idx_tags_user');
+    expect(created).toContain('__wskit_idx_tags_group_key');
+  });
+
+  it('purgeTagsByUser is a no-op when the tag table is empty', () => {
+    expect(() => purgeTagsByUser(sql, 'u-1')).not.toThrow();
+  });
+
+  it('purgeTagsByUser drops every row for that user', () => {
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    insertTag(sql, { userId: 'u-1', group: 'team', key: 'eng' });
+    insertTag(sql, { userId: 'u-2', group: 'role', key: 'admin' });
+    purgeTagsByUser(sql, 'u-1');
+    expect(listTagsByUser(sql, 'u-1')).toHaveLength(0);
+    expect(listTagsByUser(sql, 'u-2')).toHaveLength(1);
   });
 
   it('round-trips a tag through insert and read', () => {

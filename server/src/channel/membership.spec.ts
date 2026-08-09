@@ -1,11 +1,11 @@
 import { createTestSql } from '~/_test/sql.ts';
-import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import {
   deleteDurableMembership,
   hasDurableMembership,
   persistMembership,
-} from '~/persistence/membership.ts';
-import { ensurePersistenceSchema } from '~/persistence/storage.ts';
+} from '~/channel/membership.ts';
+import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
+import { ensureMembershipSchema } from '~/channel/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -22,7 +22,7 @@ describe('durable membership user gate', () => {
   it('skips the durable write for an empty (anonymous) user id', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     statements = 0;
 
     persistMembership(makeCore(sql), { userId: '', channelName: 'room', channelFamily: null });
@@ -31,7 +31,7 @@ describe('durable membership user gate', () => {
 
   it('writes the durable row for a real user id', () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
 
     persistMembership(makeCore(sql), {
       userId: 'user-1',
@@ -50,7 +50,7 @@ describe('durable membership user gate', () => {
   it('skips the durable delete for an empty user id', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     statements = 0;
 
     deleteDurableMembership(makeCore(sql), {
@@ -64,7 +64,7 @@ describe('durable membership user gate', () => {
   it('reports no durable membership for an empty user id without querying', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     statements = 0;
 
     const result = hasDurableMembership(makeCore(sql), {

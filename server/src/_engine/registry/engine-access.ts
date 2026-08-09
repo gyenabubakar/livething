@@ -83,6 +83,9 @@ export function createEngineAccess(
     onBootSchema: (handler) => {
       core.hooks.bootSchema.push(handler);
     },
+    onPurgeUser: (handler) => {
+      core.hooks.purgeUser.push(handler);
+    },
     onIncoming: (handler) => {
       core.hooks.incoming.push(handler);
     },
@@ -371,8 +374,11 @@ export function createEngineAccess(
     setBuildTagsApi: (build) => {
       core.buildTagsApi = build;
     },
-    setPersistenceService: (service) => {
-      core.persistenceService = service;
+    setChannelMembershipService: (service) => {
+      core.channelMembershipService = service;
+    },
+    setTagPersistenceService: (service) => {
+      core.tagPersistenceService = service;
     },
     setScheduledService: (service) => {
       core.scheduledService = service;

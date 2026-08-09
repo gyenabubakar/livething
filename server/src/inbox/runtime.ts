@@ -1,4 +1,5 @@
 import { sendGap, sendReplay } from '~/_engine/runtime/wire.ts';
+import { listIdentitiesByChannel } from '~/channel/storage.ts';
 import {
   ackInboxRows,
   bumpInboxWatermark,
@@ -12,7 +13,6 @@ import {
   loadUndeliveredRows,
   pruneInboxRetention,
 } from '~/inbox/storage.ts';
-import { listIdentitiesByChannel } from '~/persistence/storage.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';

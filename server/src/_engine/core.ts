@@ -81,7 +81,8 @@ export class EngineCore {
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
-  persistenceService?: FeatureSlots.PersistenceService;
+  channelMembershipService?: FeatureSlots.ChannelMembershipService;
+  tagPersistenceService?: FeatureSlots.TagPersistenceService;
   scheduledService?: FeatureSlots.ScheduledService;
   runIntercepts?: FeatureSlots.RunIntercepts;
   channelService?: FeatureSlots.ChannelService;

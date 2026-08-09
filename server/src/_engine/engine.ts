@@ -5,6 +5,7 @@ import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
+import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { createAdminContext } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -239,16 +240,7 @@ export class Engine<TApi = unknown> {
       connections: core.connections,
       usersByKey: core.usersByKey,
       ...EngineDeps.commonDeps(core),
-      purgeUser: (userId) => {
-        const service = core.persistenceService;
-        if (!service) {
-          throw new Error(
-            '[wskit] admin().purgeUser() needs persistence. List persistence() on the ' +
-              'server to enable durable membership cleanup.',
-          );
-        }
-        return service.purgeUser(core, userId);
-      },
+      purgeUser: (userId) => EnginePurgeUser.purgeUser(core, userId),
     });
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
     // Copy descriptors rather than spreading: `connectionCount` is a getter and

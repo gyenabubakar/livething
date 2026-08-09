@@ -11,12 +11,12 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
+import { persistentMarker } from '~/channel/marker.ts';
 import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
-import { persistentMarker } from '~/persistence/channel-marker.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';

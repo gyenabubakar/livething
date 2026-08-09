@@ -1,6 +1,6 @@
 import * as Wire from '~/_engine/runtime/wire.ts';
 import { createTestSql } from '~/_test/sql.ts';
-import { ensurePersistenceSchema, insertMembership } from '~/persistence/storage.ts';
+import { ensureMembershipSchema, insertMembership } from '~/channel/storage.ts';
 import { ensureSequenceSchema } from '~/sequence/runtime.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -23,7 +23,7 @@ import {
 function createCore(inboxChannels: Map<string, ResolvedInboxOptions> = new Map()) {
   const sql = createTestSql();
   ensureInboxSchema(sql);
-  ensurePersistenceSchema(sql);
+  ensureMembershipSchema(sql);
   ensureSequenceSchema(sql);
   let idCounter = 0;
   const core = {

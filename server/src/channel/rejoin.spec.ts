@@ -1,15 +1,12 @@
 import { RejoinRejected, WSKitConfigError } from '@wskit/core';
 import { createTestSql } from '~/_test/sql.ts';
-import { autoRejoinIdentity, restorePersistentTags } from '~/persistence/rejoin.ts';
+import { autoRejoinIdentity } from '~/channel/rejoin.ts';
 import {
-  ensurePersistenceSchema,
+  ensureMembershipSchema,
   insertMembership,
   listMembershipsByUser,
-} from '~/persistence/storage.ts';
-import { insertTag, listTagsByUser } from '~/tags/storage.ts';
-import * as v from 'valibot';
+} from '~/channel/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 
 function fakeConnection(userId: string) {
@@ -19,7 +16,7 @@ function fakeConnection(userId: string) {
 describe('autoRejoinIdentity', () => {
   it('no-ops when the user id is empty', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     const subscribe = vi.fn<
       (
         connection: never,
@@ -42,7 +39,7 @@ describe('autoRejoinIdentity', () => {
 
   it('no-ops when the user has no stored memberships', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     const subscribe = vi.fn<
       (
         connection: never,
@@ -67,9 +64,55 @@ describe('autoRejoinIdentity', () => {
     expect(subscribe).not.toHaveBeenCalled();
   });
 
+  it('calls restorePersistentTags before subscribing, when the dep is set', async () => {
+    const sql = createTestSql();
+    ensureMembershipSchema(sql);
+    insertMembership(sql, { userId: 'u-42', channelName: 'lobby', channelFamily: null });
+    const order: string[] = [];
+    const restorePersistentTags = vi.fn(() => {
+      order.push('restore');
+    });
+    const subscribe = vi.fn(async () => {
+      order.push('subscribe');
+    });
+
+    await autoRejoinIdentity(
+      {
+        sql,
+        tagMembers: new Map(),
+        subscribeConnectionAsServer: subscribe,
+        sendProtocolMessage: () => {},
+        restorePersistentTags,
+      },
+      fakeConnection('u-42'),
+    );
+
+    expect(order).toEqual(['restore', 'subscribe']);
+  });
+
+  it('skips restorePersistentTags entirely when the dep is unset (tags() not listed)', async () => {
+    const sql = createTestSql();
+    ensureMembershipSchema(sql);
+    insertMembership(sql, { userId: 'u-42', channelName: 'lobby', channelFamily: null });
+    const subscribe = vi.fn(async () => {});
+
+    await expect(
+      autoRejoinIdentity(
+        {
+          sql,
+          tagMembers: new Map(),
+          subscribeConnectionAsServer: subscribe,
+          sendProtocolMessage: () => {},
+        },
+        fakeConnection('u-42'),
+      ),
+    ).resolves.not.toThrow();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+
   it('calls subscribeConnectionAsServer for every stored membership', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     insertMembership(sql, { userId: 'u-42', channelName: 'lobby', channelFamily: null });
     insertMembership(sql, { userId: 'u-42', channelName: 'room', channelFamily: 'room:abc' });
     const subscribe = vi.fn<
@@ -104,7 +147,7 @@ describe('autoRejoinIdentity', () => {
 
   it('on subscribe rejection drops the durable row and sends scoped _error', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     insertMembership(sql, { userId: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
@@ -137,7 +180,7 @@ describe('autoRejoinIdentity', () => {
 
   it('propagates a config error and keeps the durable row', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     insertMembership(sql, { userId: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
@@ -163,7 +206,7 @@ describe('autoRejoinIdentity', () => {
 
   it('propagates an internal/storage error and keeps the durable row', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     insertMembership(sql, { userId: 'u-42', channelName: 'team-eng', channelFamily: null });
 
     const subscribe = vi.fn(async () => {
@@ -189,7 +232,7 @@ describe('autoRejoinIdentity', () => {
 
   it('one rejection does not stop the rest of the rejoin', async () => {
     const sql = createTestSql();
-    ensurePersistenceSchema(sql);
+    ensureMembershipSchema(sql);
     insertMembership(sql, { userId: 'u-42', channelName: 'room-1', channelFamily: null });
     insertMembership(sql, { userId: 'u-42', channelName: 'room-2', channelFamily: null });
     insertMembership(sql, { userId: 'u-42', channelName: 'room-3', channelFamily: null });
@@ -213,66 +256,5 @@ describe('autoRejoinIdentity', () => {
     expect(subscribe).toHaveBeenCalledTimes(3);
     const remaining = listMembershipsByUser(sql, 'u-42').map((r) => r.channelName);
     expect(remaining.sort()).toEqual(['room-1', 'room-3']);
-  });
-});
-
-function tagConnection(userId: string): RuntimeConnection {
-  return {
-    id: 'c-1',
-    userId,
-    tags: { ephemeral: new Map(), persistent: new Map() },
-  } as unknown as RuntimeConnection;
-}
-
-describe('restorePersistentTags', () => {
-  it('deletes a stored tag whose value no longer matches its group schema', () => {
-    const sql = createTestSql();
-    ensurePersistenceSchema(sql);
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'not-a-role!' });
-
-    const connection = tagConnection('u-1');
-    const errors: unknown[] = [];
-
-    restorePersistentTags({
-      sql,
-      tagMembers: new Map(),
-      connection,
-      getSchema: () => v.picklist(['admin', 'editor']) as never,
-      logger: { error: () => errors.push(1) },
-    });
-
-    const remaining = listTagsByUser(sql, 'u-1').map((t) => t.key);
-    expect(remaining).toEqual(['admin']);
-    expect(connection.tags.persistent.get('role')?.has('admin')).toBe(true);
-    expect(errors).toHaveLength(1);
-  });
-
-  it('propagates a config error (async schema) and keeps the stored tag (#1)', () => {
-    const sql = createTestSql();
-    ensurePersistenceSchema(sql);
-    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
-    const connection = tagConnection('u-1');
-    // An async validator is a config error, not invalid stored data.
-    const asyncSchema = {
-      '~standard': {
-        version: 1,
-        vendor: 'test',
-        validate: () => Promise.resolve({ value: 'admin' }),
-      },
-    } as never;
-
-    expect(() =>
-      restorePersistentTags({
-        sql,
-        tagMembers: new Map(),
-        connection,
-        getSchema: () => asyncSchema,
-        logger: { error: () => {} },
-      }),
-    ).toThrow(WSKitConfigError);
-
-    // The valid row must survive a config error, not be silently deleted.
-    expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
   });
 });

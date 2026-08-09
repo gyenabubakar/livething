@@ -1,6 +1,3 @@
-import { reconcilePersistenceOnBoot } from '~/persistence/cleanup.ts';
-import { persistenceService } from '~/persistence/service.ts';
-import { ensurePersistenceSchema } from '~/persistence/storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The TypeScript type returned by `persistence()`. */
@@ -10,10 +7,11 @@ export interface PersistencePrimitive extends Primitive<'persistence'> {}
 const PERSISTENCE_KEY = Symbol('persistence');
 
 /**
- * Activates per-user durable state. At boot the engine creates the
- * user-keyed tables and starts writing channel memberships across
- * reconnects. Channels persist by default; set `persistent: false` in a
- * channel's definition config to opt out per channel.
+ * Activates per-user durable state. Once listed, the engine starts writing
+ * channel memberships and persistent tags across reconnects — the owning
+ * capabilities (`channels()`, `tags()`) create and manage their own tables
+ * regardless of whether this is listed. Channels persist by default; set
+ * `persistent: false` in a channel's definition config to opt out per channel.
  *
  * Enable this by listing the `persistence()` capability instead of calling this
  * primitive directly.
@@ -39,29 +37,9 @@ export function persistence(): PersistencePrimitive {
     __requires: {},
     __setup(engine) {
       engine.setPersistenceEnabled(true);
-      engine.setPersistenceService(persistenceService);
-      engine.onBootSchema(() => {
-        ensurePersistenceSchema(engine.storage.sql);
-      });
-      engine.onBoot(() => {
-        const dropped = reconcilePersistenceOnBoot(engine.storage.sql, (name, scope) =>
-          engine.isDurableMembershipPairPersistent(name, scope),
-        );
-        if (dropped > 0) {
-          engine
-            .getLogger?.()
-            ?.info?.(
-              `[wskit] persistence boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
-            );
-        }
-      });
     },
   };
 }
 
-/**
- * Marker symbol for the `persistence` primitive. Used by plugins that depend
- * on per-user durable state to declare the requirement in their `dependencies`
- * array.
- */
+/** Symbol identity for the `persistence` primitive. */
 persistence.__key = PERSISTENCE_KEY;

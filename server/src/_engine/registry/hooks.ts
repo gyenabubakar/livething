@@ -20,6 +20,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     contextExtenders: [],
     boot: [],
     bootSchema: [],
+    purgeUser: [],
     init: [],
     connect: [],
     disconnect: [],

@@ -268,17 +268,21 @@ function buildChannelRuntime(core: EngineCore) {
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
 
     persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.persistMembership(core, { userId, channelName, channelFamily }),
+      core.channelMembershipService?.persistMembership(core, {
+        userId,
+        channelName,
+        channelFamily,
+      }),
 
     deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.deleteDurableMembership(core, {
+      core.channelMembershipService?.deleteDurableMembership(core, {
         userId,
         channelName,
         channelFamily,
       }),
 
     hasDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.hasDurableMembership(core, {
+      core.channelMembershipService?.hasDurableMembership(core, {
         userId,
         channelName,
         channelFamily,
@@ -434,7 +438,7 @@ function buildConnectionRuntime(core: EngineCore) {
     ...(core.persistenceEnabled
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
-            core.persistenceService?.restorePersistentTags({
+            core.tagPersistenceService?.restorePersistentTags({
               sql: core.storage.sql,
               tagMembers: core.tagMembers,
               connection,
@@ -472,7 +476,7 @@ function buildConnectionRuntime(core: EngineCore) {
               return Promise.resolve();
             }
             const rejoined =
-              core.persistenceService?.autoRejoinIdentity(
+              core.channelMembershipService?.autoRejoinIdentity(
                 core,
                 (ref: PublicApi.ConnectionRef, opts: unknown) =>
                   core.channelService?.subscribeFromServer(

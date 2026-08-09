@@ -1,13 +1,36 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { channelRuntime, memberRuntime } from '~/_engine/engine.deps.ts';
 import * as EngineChannelFrames from '~/_engine/runtime/channel-frames.ts';
+import { reconcileMembershipOnBoot } from '~/channel/cleanup.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import {
+  autoRejoinIdentity,
+  deleteDurableMembership,
+  hasDurableMembership,
+  persistMembership,
+  purgeChannelMembership,
+} from '~/channel/membership.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { ensureMembershipSchema } from '~/channel/storage.ts';
 import { definePrimitive } from '~/primitive.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
-import type { ChannelService } from '~/_engine/runtime/feature-slots.ts';
+import type { ChannelMembershipService, ChannelService } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+
+/**
+ * Durable channel-membership operations, reached through the engine's
+ * `channelMembershipService` slot. Registered by the `channels()` capability —
+ * a handler without it never pulls the membership storage or rejoin code.
+ * Each op already no-ops when persistence is off, so an unset slot behaves
+ * the same as the disabled path.
+ */
+export const channelMembershipService: ChannelMembershipService = {
+  persistMembership,
+  deleteDurableMembership,
+  hasDurableMembership,
+  autoRejoinIdentity,
+};
 
 /**
  * Bind `leaveChannel` to one engine core. The kick and unsubscribe flows both
@@ -78,6 +101,26 @@ export function registerChannelRuntime(engine: EngineAccess): void {
   engine.installOnce(CHANNEL_RUNTIME_KEY, () => {
     engine.setChannelService(channelService);
     engine.setChannelContext({ buildChannelsApi, buildChannelFamilyExtra });
+    engine.setChannelMembershipService(channelMembershipService);
+
+    engine.onBootSchema(() => {
+      ensureMembershipSchema(engine.storage.sql);
+    });
+
+    engine.onBoot(() => {
+      const dropped = reconcileMembershipOnBoot(engine.storage.sql, (name, scope) =>
+        engine.isDurableMembershipPairPersistent(name, scope),
+      );
+      if (dropped > 0) {
+        engine
+          .getLogger?.()
+          ?.info?.(
+            `[wskit] channel membership boot cleanup dropped ${dropped} orphaned channel-scope row group(s)`,
+          );
+      }
+    });
+
+    engine.onPurgeUser((core, userId) => purgeChannelMembership(core as EngineCore, userId));
   });
 }
 

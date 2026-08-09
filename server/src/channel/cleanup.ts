@@ -1,4 +1,4 @@
-import { deleteMembershipsByChannel } from '~/persistence/storage.ts';
+import { deleteMembershipsByChannel } from '~/channel/storage.ts';
 import type { SQLProvider } from '~/context.ts';
 
 type RawRow = { channel_name: string; channel_family: string };
@@ -15,7 +15,7 @@ type RawRow = { channel_name: string; channel_family: string };
  *
  * @internal
  */
-export function reconcilePersistenceOnBoot(
+export function reconcileMembershipOnBoot(
   sql: Pick<SQLProvider, 'exec'>,
   isPairPersistent: (channelName: string, channelFamily: string | null) => boolean,
 ): number {

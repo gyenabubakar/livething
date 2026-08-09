@@ -1,5 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { tagPersistenceRuntimePrimitive } from '~/tags/service.ts';
 import { resolveTagGroupDefs, tagGroups } from '~/tags/tags.ts';
 import type { Capability, UnionToIntersection } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -96,7 +97,7 @@ export const tags = withCapabilityKind(function tags<const TDefs extends readonl
   builder: TagsBuilder<TDefs>,
 ): TagsCapability<TDefs> {
   const defs = resolveTagGroupDefs(builder as TagsConfig);
-  const primitives: Primitive[] = [];
+  const primitives: Primitive[] = [tagPersistenceRuntimePrimitive()];
   const ephemeral = registrationsFor(defs, 'ephemeral');
   const persistent = registrationsFor(defs, 'persistent');
   if (ephemeral.length > 0) primitives.push(tagGroups('ephemeral', ephemeral));

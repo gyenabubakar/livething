@@ -217,6 +217,14 @@ export interface RegisteredEngineHooks {
    */
   bootSchema: (() => void | Promise<void>)[];
 
+  /**
+   * Per-user durable cleanup for `admin().purgeUser()`. Registered by a
+   * capability that owns per-user durable rows (channel membership,
+   * persistent tags, ...). Runs before the user's live sockets are closed.
+   * The `core` argument is the live engine core, opaque here.
+   */
+  purgeUser: ((core: any, userId: string) => void | Promise<void>)[];
+
   /** Runs once during `engine.initialize()` — for framework-level startup. */
   init: ((ctx: any) => void | Promise<void>)[];
 
