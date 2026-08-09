@@ -32,7 +32,7 @@ function augmenterEngine(opts: { inboxChannels: Set<string>; readReceiptsChannel
     getInboxChannel: (channelKey: string) =>
       opts.inboxChannels.has(channelKey) ? INBOX_OPTIONS : undefined,
     hasReadReceiptsChannel: (channelKey: string) => opts.readReceiptsChannels.has(channelKey),
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     isIdentityOnline: () => false,
     getLastSeenService: () => undefined,
   } as unknown as EngineAccess;

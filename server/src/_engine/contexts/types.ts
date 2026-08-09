@@ -41,9 +41,9 @@ export interface ContextCommonDeps {
    */
   instanceId: string | undefined;
 
-  requireStorage(): PublicApi.StorageProvider;
+  getStorage(): PublicApi.StorageProvider;
 
-  getTimers(): PublicApi.TimerProvider | undefined;
+  getTimers(): PublicApi.TimerProvider;
 
   scheduleTask(taskId: string, time: number, data: unknown): void;
 

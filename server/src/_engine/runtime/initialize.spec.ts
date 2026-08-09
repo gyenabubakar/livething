@@ -17,6 +17,8 @@ import { InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { createTestStorage } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
@@ -34,64 +36,25 @@ import type { ServerDefinition } from '~/server-definition.ts';
 
 function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
   const calls: string[] = [];
-  let schemaVersion: string | null = opts?.warmedSchemaVersion ?? null;
+  const storage = createTestStorage({ onExec: (query) => calls.push(query) });
 
-  const sql = {
-    exec(query: string, ...params: unknown[]) {
-      calls.push(query);
-      const trimmed = query.trim();
+  if (opts?.warmedSchemaVersion !== undefined) {
+    // Seed the real schema-meta row directly, as if a previous boot already
+    // wrote it — this does not count against the round-trip budget below.
+    storage.sql.exec(
+      `
+        CREATE TABLE IF NOT EXISTS __wskit_meta (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+        INSERT OR REPLACE INTO __wskit_meta (key, value) VALUES ('schema_version', ?)
+      `,
+      opts.warmedSchemaVersion,
+    );
+    calls.length = 0;
+  }
 
-      if (trimmed.startsWith('SELECT') && trimmed.includes('__wskit_meta')) {
-        if (schemaVersion === null) {
-          throw new Error('no such table: __wskit_meta');
-        }
-        return {
-          toArray: () => [{ value: schemaVersion }],
-          one: () => ({ value: schemaVersion }),
-          raw: () => [[schemaVersion]],
-        };
-      }
-
-      if (trimmed.includes('__wskit_meta') && trimmed.includes('INSERT')) {
-        schemaVersion = (params[0] as string) ?? null;
-      }
-
-      return {
-        toArray: () => [],
-        one: () => null,
-        raw: () => [],
-      };
-    },
-    transaction<T>(fn: (tx: any) => T): T {
-      return fn(sql);
-    },
-  };
-
-  const storage = {
-    sql,
-    kv: {
-      async get() {
-        return undefined;
-      },
-      async set() {},
-      async delete() {},
-      async list() {
-        return [];
-      },
-    },
-  };
-
-  return { storage, calls, sql };
-}
-
-function makeNoopTimers() {
-  return {
-    setAlarm() {},
-    deleteAlarm() {},
-    getAlarm() {
-      return null;
-    },
-  };
+  return { storage, calls };
 }
 
 function buildEngine(handler: ServerDefinition): Engine {
@@ -102,10 +65,10 @@ function buildEngine(handler: ServerDefinition): Engine {
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
-        storage: undefined,
+        storage: createTestStorage(),
         env: {},
         platform: {},
-        timers: makeNoopTimers() as never,
+        timers: createTestTimers(),
         waitUntil: () => {},
         logger: {
           info() {},
@@ -122,7 +85,19 @@ function buildEngine(handler: ServerDefinition): Engine {
 }
 
 async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
-  const { storage, calls } = makeFakeStorage(warm ? { warmedSchemaVersion: '1' } : {});
+  const { storage, calls } = makeFakeStorage();
+
+  if (warm) {
+    // Run a full cold boot first so every schema table and the meta row
+    // exist, exactly as a previous boot would have left them. A second,
+    // separate engine instance then wakes against the same storage — the
+    // real shape of a warm boot after a restart.
+    const warmup = buildEngine(handler);
+    warmup.core.storage = storage as never;
+    await warmup.initialize();
+    calls.length = 0;
+  }
+
   const engine = buildEngine(handler);
   engine.core.storage = storage as never;
   await engine.initialize();
@@ -331,21 +306,23 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('heavy: WARM boot (sentinel current) skips every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
-    if (execCount !== 5) {
+    if (execCount !== 4) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // Compared to cold (11): saves 5 schema hooks + 1 mark = 6 round trips
-    // skipped. Remaining: 1 sentinel SELECT + 4 cleanup/state-restore.
+    // Breakdown:
+    //   1. sentinel SELECT (returns row)
+    //   2. persistence reconcile (cleanup SELECT)
+    //   3-4. scheduled bootstrap loads queued runs + dlq
     //
-    // FLAGGED REGRESSION: same missing stream-durable-sweep scheduled task as the
-    // cold-boot case above. Under the new API this warm-boots only 2 round trips
-    // (sentinel SELECT + persistence reconcile), not 5 — the 3 scheduled
-    // state-restore round trips are gone. Budget left at v1 value on purpose.
-    expect(execCount).toBe(5);
+    // The recurring '__wskit:stream-durable-sweep' task (installed whenever a
+    // server declares a durable stream) was already persisted during the cold
+    // boot that seeded this storage, so the warm boot's bootstrap finds it in
+    // the loaded rows and issues no extra persist write.
+    expect(execCount).toBe(4);
   });
 });
 

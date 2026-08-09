@@ -46,16 +46,16 @@ export interface ScheduledCancelResult {
 /**
  * The small runtime surface the scheduled primitive needs from the engine.
  *
- * The engine still owns shared state like the in-memory run table and timer
- * handle. The scheduled primitive uses this access object to read that state
- * and perform its own scheduling logic.
+ * The engine still owns shared state like the in-memory run table. The
+ * scheduled primitive uses this access object to read that state and
+ * perform its own scheduling logic.
  */
 export interface ScheduledRuntimeAccess {
-  /** Read persistent storage. Throws if storage was not provided by the adapter. */
-  requireStorage(): StorageProvider;
+  /** Read the adapter's SQL and key-value storage. */
+  getStorage(): StorageProvider;
 
-  /** Read durable alarm APIs. Undefined when the adapter has no native alarm support. */
-  getTimers(): TimerProvider | undefined;
+  /** Read the adapter's durable alarm APIs. */
+  getTimers(): TimerProvider;
 
   /** Create a framework-generated id, usually for one queued task run. */
   generateId(prefix?: string): string;

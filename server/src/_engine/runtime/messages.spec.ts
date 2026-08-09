@@ -191,14 +191,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return {
-          setTimeout() {
-            return undefined;
-          },
-          clearTimeout() {},
-        };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -291,9 +283,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -363,9 +352,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -434,9 +420,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -533,9 +516,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -609,9 +589,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -688,9 +665,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -878,9 +852,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -955,9 +926,6 @@ describe('message runtime', () => {
       activityHooks: [],
       messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -1098,9 +1066,6 @@ describe('message runtime', () => {
       activityHooks: [],
       messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -1165,9 +1130,6 @@ describe('message runtime', () => {
       activityHooks: [],
       messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -1383,9 +1345,6 @@ function makeNudgeRuntime(
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    requireTimers() {
-      return { setTimeout: () => undefined, clearTimeout() {} };
-    },
     waitUntil() {},
     generateId() {
       return 'id_1';
@@ -1645,9 +1604,6 @@ describe('Defer retry hook isolation', () => {
           },
         ],
         errorHooks: [],
-        requireTimers() {
-          return { setTimeout: () => undefined, clearTimeout() {} };
-        },
         buildConnectionContext() {
           return { id: connection.id };
         },
@@ -1747,9 +1703,6 @@ describe('Defer retry hook isolation', () => {
             capturedCtx = ctx;
           },
         ],
-        requireTimers() {
-          return { setTimeout: () => undefined, clearTimeout() {} };
-        },
         buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
           return { id: connection.id, channel: scope?.channelName };
         },

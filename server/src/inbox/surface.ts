@@ -31,7 +31,7 @@ export function buildInboxSurface(
         event: message.event,
         payload: assertRecord(message.payload),
       }));
-      backfillInbox(engine.requireStorage().sql, {
+      backfillInbox(engine.storage.sql, {
         channelName,
         channelFamily,
         userId,
@@ -39,10 +39,10 @@ export function buildInboxSurface(
       });
     },
     receiversOf(seq: number): string[] {
-      return listReceivers(engine.requireStorage().sql, { channelName, channelFamily, seq });
+      return listReceivers(engine.storage.sql, { channelName, channelFamily, seq });
     },
     backlog(): InboxBacklogEntry[] {
-      const { sql } = engine.requireStorage();
+      const { sql } = engine.storage;
       const lastSeen = engine.getLastSeenService();
       return loadInboxBacklog(sql, { channelName, channelFamily }).map((row) => {
         const base = {

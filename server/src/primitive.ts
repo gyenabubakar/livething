@@ -14,18 +14,17 @@ export type PrimitiveKind =
   | 'plugin';
 
 /**
- * Declares which platform capabilities a primitive needs at runtime. When any
- * required capability is not provided by the adapter, the server fails to
- * start with a clear error — before any connection is accepted.
+ * Declares whether a primitive needs hibernation support — a platform
+ * capability not every adapter has. When a primitive sets `hibernation: true`
+ * and the adapter does not support it, the server fails to start with a clear
+ * error — before any connection is accepted.
  *
  * ```ts
- * // A primitive that needs both SQL storage and timers:
- * const requires: RequiresManifest = { storage: true, timers: true };
+ * // A primitive that needs hibernation support:
+ * const requires: RequiresManifest = { hibernation: true };
  * ```
  */
 export interface RequiresManifest {
-  storage?: boolean;
-  timers?: boolean;
   hibernation?: boolean;
 }
 

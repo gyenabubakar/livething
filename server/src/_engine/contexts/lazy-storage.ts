@@ -33,11 +33,8 @@ function isPluginKey(key: string): boolean {
 }
 
 /**
- * Build a `sql`/`kv` view that defers `requireStorage()` until a method is
- * actually invoked. Hooks and tasks that never touch storage stay valid on
- * adapters that do not provide it; hooks that do reach for `ctx.sql.exec(...)`
- * or `ctx.kv.get(...)` still get the adapter's "storage not provided" error
- * at the call site.
+ * Build the `sql` and `kv` surfaces exposed on handler and lifecycle
+ * contexts, backed by one storage provider.
  *
  * The app-facing `kv` rejects any reserved-form key so an app handler can't
  * collide with, or read into, a plugin's kv namespace, and a bare/empty-prefix
@@ -46,53 +43,53 @@ function isPluginKey(key: string): boolean {
  * its keys are framework-built, so they bypass the app guard without an
  * app-imitatable shape exemption.
  */
-export function createLazyStorageView(requireStorage: () => PublicApi.StorageProvider): {
+export function createLazyStorageView(storage: PublicApi.StorageProvider): {
   sql: PublicApi.SQLProvider;
   kv: PublicApi.KVProvider;
 } {
   const sql: PublicApi.SQLProvider = {
     exec(query, ...params) {
-      return requireStorage().sql.exec(query, ...params);
+      return storage.sql.exec(query, ...params);
     },
     transaction(fn) {
-      return requireStorage().sql.transaction(fn);
+      return storage.sql.transaction(fn);
     },
   };
 
   const privilegedKv: PublicApi.KVProvider = {
     async get(key) {
-      return requireStorage().kv.get(key);
+      return storage.kv.get(key);
     },
     async set(key, value, options) {
-      return requireStorage().kv.set(key, value, options);
+      return storage.kv.set(key, value, options);
     },
     async delete(key) {
-      return requireStorage().kv.delete(key);
+      return storage.kv.delete(key);
     },
     async list(prefix) {
-      return requireStorage().kv.list(prefix);
+      return storage.kv.list(prefix);
     },
   };
 
   const kv: PublicApi.KVProvider & { [PRIVILEGED_KV]: PublicApi.KVProvider } = {
     async get(key) {
       assertWritableKvKey(key);
-      return requireStorage().kv.get(key);
+      return storage.kv.get(key);
     },
     async set(key, value, options) {
       assertWritableKvKey(key);
-      return requireStorage().kv.set(key, value, options);
+      return storage.kv.set(key, value, options);
     },
     async delete(key) {
       assertWritableKvKey(key);
-      return requireStorage().kv.delete(key);
+      return storage.kv.delete(key);
     },
     async list(prefix) {
       if (prefix !== undefined && prefix !== '') {
         assertWritableKvKey(prefix);
-        return requireStorage().kv.list(prefix);
+        return storage.kv.list(prefix);
       }
-      const keys = await requireStorage().kv.list(prefix);
+      const keys = await storage.kv.list(prefix);
       return keys.filter((key) => !isPluginKey(key));
     },
     [PRIVILEGED_KV]: privilegedKv,

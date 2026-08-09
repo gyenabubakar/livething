@@ -44,7 +44,7 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   const fingerprint = JSON.stringify(row);
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
-  ConnectionStore.writeConnectionRow(core.requireStorage().sql, row);
+  ConnectionStore.writeConnectionRow(core.storage.sql, row);
   connection.lastPersistedFingerprint = fingerprint;
   // Cheap adapter call that updates the in-memory hibernation tag. Runs once
   // per SQL write — when the SQL write is skipped, this is skipped too.
@@ -60,7 +60,7 @@ export function readConnectionState(
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
   if (!core.hibernationEnabled) return null;
-  return ConnectionStore.readConnectionRow(core.requireStorage().sql, connectionId);
+  return ConnectionStore.readConnectionRow(core.storage.sql, connectionId);
 }
 
 /**
@@ -80,7 +80,7 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
       }
     }
   }
-  ConnectionStore.deleteConnectionRow(core.requireStorage().sql, connectionId);
+  ConnectionStore.deleteConnectionRow(core.storage.sql, connectionId);
 }
 
 /**
@@ -89,5 +89,5 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
  */
 export function reconcileConnections(core: EngineCore, surviving: ReadonlySet<string>): void {
   if (!core.hibernationEnabled) return;
-  ConnectionStore.reconcileConnectionRows(core.requireStorage().sql, surviving);
+  ConnectionStore.reconcileConnectionRows(core.storage.sql, surviving);
 }

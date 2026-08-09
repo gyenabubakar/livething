@@ -35,7 +35,7 @@ function createFakeCore(): {
         },
       },
     },
-    requireStorage: () => ({ sql }),
+    storage: { sql },
   } as unknown as EngineCore;
 
   return { core, writes, attachments };

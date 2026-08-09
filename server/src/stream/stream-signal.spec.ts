@@ -187,7 +187,6 @@ describe('stream stop signal (ctx.stream.signal)', () => {
       createShutdownContext: () => ({}),
       cancelActiveStreamsForConnection: () => Promise.resolve(),
       handleConnectionClose: () => Promise.resolve(),
-      alarmState: { current: null },
       logger: runtime.logger,
     } as Parameters<typeof handleShutdown>[0]);
 

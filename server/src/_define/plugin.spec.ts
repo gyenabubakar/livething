@@ -173,7 +173,6 @@ describe('plugin() — scoped handler + manifest', () => {
       persistAttachment() {},
       waitUntil() {},
       generateId: () => 'id_1',
-      requireTimers: () => ({ setTimeout: () => undefined, clearTimeout() {} }),
       toConnectionInfo() {
         throw new Error('unused');
       },

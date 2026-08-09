@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 import { persistAttachment } from '~/persistence/context.ts';
@@ -45,8 +46,8 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     waitUntilImpl: vi.fn(),
-    requireStorage: () => baseStorage(),
-    getTimers: () => undefined,
+    getStorage: () => baseStorage(),
+    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -205,25 +206,13 @@ describe('ctx.setAlarm', () => {
     const connection = createConnection('c1');
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
-      getTimers: () => ({
-        setAlarm,
-      }),
+      getTimers: () => ({ ...createTestTimers(), setAlarm }),
     });
 
     const ctx = buildConnectionContext(deps, connection);
     ctx.setAlarm(1_700_000_000_000);
 
     expect(setAlarm).toHaveBeenCalledWith(1_700_000_000_000);
-  });
-
-  it('is a no-op when the timer provider does not implement setAlarm', () => {
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-    });
-
-    const ctx = buildConnectionContext(deps, connection);
-    expect(() => ctx.setAlarm(1)).not.toThrow();
   });
 });
 
@@ -533,21 +522,15 @@ describe('persistAttachment', () => {
   });
 });
 
-describe('lazy storage in init/shutdown/task contexts', () => {
-  function makeFailingRequireStorage() {
-    return () => {
-      throw new Error('[wskit] storage not provided');
-    };
-  }
-
-  function makeShutdownDeps(requireStorage: () => any) {
+describe('storage view in init/shutdown/task contexts', () => {
+  function makeShutdownDeps(getStorage: () => any) {
     return {
       env: {},
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
       waitUntilImpl: vi.fn(),
-      requireStorage,
-      getTimers: () => undefined,
+      getStorage,
+      getTimers: () => createTestTimers(),
       scheduleTask: vi.fn(),
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
       broadcastToConnections: vi.fn(),
@@ -565,33 +548,33 @@ describe('lazy storage in init/shutdown/task contexts', () => {
     } as any;
   }
 
-  it('createInitContext does not call requireStorage eagerly', () => {
-    expect(() => createInitContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
-  });
-
-  it('createShutdownContext does not call requireStorage eagerly', () => {
-    expect(() =>
-      createShutdownContext(makeShutdownDeps(makeFailingRequireStorage())),
-    ).not.toThrow();
-  });
-
-  it('createTaskContext does not call requireStorage eagerly', () => {
-    expect(() => createTaskContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
-  });
-
-  it('init ctx.sql.exec throws the requireStorage error only when invoked', () => {
-    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
-    expect(() => ctx.sql.exec('SELECT 1')).toThrow('[wskit] storage not provided');
-  });
-
-  it('init ctx.kv.get throws the requireStorage error only when invoked', async () => {
-    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
-    await expect(ctx.kv.get('k')).rejects.toThrow('[wskit] storage not provided');
-  });
-
-  it('lazy view forwards calls to the real provider when storage exists', () => {
+  it('init ctx.sql.exec forwards calls to the real provider', () => {
     const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
     const ctx = createInitContext(
+      makeShutdownDeps(() => ({
+        sql: { exec: realSqlExec, transaction: vi.fn() },
+        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+      })),
+    );
+    ctx.sql.exec('SELECT 1', 1, 2);
+    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
+  });
+
+  it('shutdown ctx.sql.exec forwards calls to the real provider', () => {
+    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
+    const ctx = createShutdownContext(
+      makeShutdownDeps(() => ({
+        sql: { exec: realSqlExec, transaction: vi.fn() },
+        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+      })),
+    );
+    ctx.sql.exec('SELECT 1', 1, 2);
+    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
+  });
+
+  it('task ctx.sql.exec forwards calls to the real provider', () => {
+    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
+    const ctx = createTaskContext(
       makeShutdownDeps(() => ({
         sql: { exec: realSqlExec, transaction: vi.fn() },
         kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },

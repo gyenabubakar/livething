@@ -27,7 +27,7 @@ function harness(opts: { online?: Set<string>; lastSeen?: LastSeenService } = {}
   ensureReceiptsSchema(sql);
 
   const engine = {
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     isUserOnline: (userId: string) => opts.online?.has(userId) ?? false,
     getLastSeenService: () => opts.lastSeen,
   } as unknown as EngineAccess;

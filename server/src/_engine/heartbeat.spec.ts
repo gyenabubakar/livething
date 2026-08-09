@@ -1,21 +1,12 @@
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { createTestSql } from '~/_test/sql.ts';
+import { createTestStorage } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
-import type { AsyncContextFactory, KVProvider } from '~/context.ts';
-
-function memoryKV(): KVProvider {
-  const store = new Map<string, unknown>();
-  return {
-    get: async (key: string) => store.get(key) ?? null,
-    put: async (key: string, value: unknown) => void store.set(key, value),
-    delete: async (key: string) => void store.delete(key),
-    list: async () => ({ keys: [...store.keys()].map((name) => ({ name })) }),
-  } as unknown as KVProvider;
-}
+import type { AsyncContextFactory } from '~/context.ts';
 
 function passthroughAsyncContext(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {
@@ -81,11 +72,12 @@ function buildEngine(options: ServerOptions = {}): Engine {
       : {}),
     setup(createEngine) {
       engine = createEngine({
+        storage: createTestStorage(),
+        timers: createTestTimers(),
         env: {},
         platform: { kind: 'test' },
         waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        ...(options.hibernation ? { storage: { sql: createTestSql(), kv: memoryKV() } } : {}),
       });
       return {};
     },

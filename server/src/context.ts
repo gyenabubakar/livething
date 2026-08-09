@@ -120,25 +120,25 @@ export interface StorageProvider {
 }
 
 /**
- * Durable alarm APIs provided by the adapter.
+ * Durable alarm APIs provided by the adapter. Every adapter provides this.
  *
  * Plain JavaScript timers (`setTimeout` / `clearTimeout`) come from the
- * runtime directly and are not adapter-provided. This interface only models
- * durable alarm support on platforms that have it (such as Cloudflare Durable
- * Objects). Durable alarms survive hibernation — in-memory timers do not.
+ * runtime directly and are not part of this interface — this interface is
+ * only the adapter's durable alarm API, which survives hibernation and
+ * restarts.
  *
- * Prefer `ctx.schedule(...)` for most use cases — it is higher-level and
- * survives restarts. Use these methods only when you need low-level control.
+ * Prefer `ctx.schedule(...)` for most use cases — it is higher-level. Use
+ * these methods only when you need low-level control.
  */
 export interface TimerProvider {
   /** Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific. */
-  setAlarm?(timeMs: number): Promise<void>;
+  setAlarm(timeMs: number): Promise<void>;
 
   /** Cancel the current durable alarm. */
-  deleteAlarm?(): Promise<void>;
+  deleteAlarm(): Promise<void>;
 
   /** Read the time of the current durable alarm, or `null` if none is set. */
-  getAlarm?(): Promise<number | null>;
+  getAlarm(): Promise<number | null>;
 }
 
 /**

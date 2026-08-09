@@ -10,7 +10,6 @@
  * cursor codec into its bundle.
  */
 
-import { UnsupportedProtocol } from '@wskit/core';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type {
@@ -110,13 +109,6 @@ export const durableStreamService: DurableStreamService = {
     options: DurableTriggerOptions,
   ): Promise<void> {
     const { scope, durable, kind, payload, wskit } = options;
-    if (!runtime.sql) {
-      throw new Error(
-        '[wskit] durable stream "' +
-          durable.event +
-          '" requires storage; the adapter did not provide storage.',
-      );
-    }
     ensureSchemaOnce(runtime);
     await DurableStreamRuntime.runDurableStream(runtime, connection, {
       scope,
@@ -132,14 +124,6 @@ export const durableStreamService: DurableStreamService = {
     options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
   ): Promise<void> {
     const { resumeScope, streamId, lastKnownSeq } = options;
-    if (!runtime.sql) {
-      runtime.sendProtocolMessage(connection, {
-        event: '__error__',
-        payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
-        wskit: { streamId },
-      });
-      return;
-    }
     ensureSchemaOnce(runtime);
     const row = DurableStreamRuntime.findResumeRow(runtime, connection, { resumeScope, streamId });
     await DurableStreamRuntime.resumeDurableStream(runtime, connection, {

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -56,8 +57,8 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     waitUntilImpl: vi.fn(),
-    requireStorage: () => baseStorage(),
-    getTimers: () => undefined,
+    getStorage: () => baseStorage(),
+    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),

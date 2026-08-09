@@ -328,19 +328,11 @@ export interface EngineAccess {
    */
   extendContext(factory: (baseCtx: unknown) => Record<string, unknown>): void;
 
-  /**
-   * Read the adapter storage dependency.
-   *
-   * This throws if the current adapter did not provide storage.
-   */
-  requireStorage(): ContextApi.StorageProvider;
+  /** The adapter's SQL and key-value storage. Every adapter provides this. */
+  readonly storage: ContextApi.StorageProvider;
 
-  /**
-   * Read the adapter timer dependency.
-   *
-   * This throws if the current adapter did not provide timers.
-   */
-  requireTimers(): ContextApi.TimerProvider;
+  /** The adapter's durable alarm implementation. Every adapter provides this. */
+  readonly timers: ContextApi.TimerProvider;
 
   /**
    * Read the scope object the engine keeps open while it is running one

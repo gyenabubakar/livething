@@ -124,7 +124,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     __wskit: 'replay',
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.dedup, CAPABILITY_KIND.sequence],
     __validate(view) {
       if (!view.sequencePersistent) {
@@ -141,10 +141,10 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       const exclude = new Set(opts.exclude ?? []);
 
       engine.onBootSchema(() => {
-        ensureReplaySchema(engine.requireStorage().sql);
+        ensureReplaySchema(engine.storage.sql);
       });
       engine.onBoot(() => {
-        pruneExpiredReplayRows(engine.requireStorage().sql, opts.retention, Date.now());
+        pruneExpiredReplayRows(engine.storage.sql, opts.retention, Date.now());
       });
 
       const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
@@ -302,7 +302,7 @@ class ReplayInstaller {
     )
       return;
 
-    const { sql } = this.engine.requireStorage();
+    const { sql } = this.engine.storage;
     const scope = this.engine.getInvocationScope() as {
       pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
     } | null;
@@ -382,7 +382,7 @@ class ReplayInstaller {
     }
 
     const since = frame.payload.lastKnownSeq ?? 0;
-    const { sql } = this.engine.requireStorage();
+    const { sql } = this.engine.storage;
 
     const connectionId = readConnectionId(ctx as Record<PropertyKey, unknown>);
     if (!connectionId) return true;

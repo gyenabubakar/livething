@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { runIntercepts } from '~/intercept/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,11 +38,11 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     waitUntilImpl: vi.fn(),
-    requireStorage: () => ({
+    getStorage: () => ({
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
     }),
-    getTimers: () => undefined,
+    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),

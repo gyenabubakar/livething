@@ -1,21 +1,11 @@
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { createTestSql } from '~/_test/sql.ts';
+import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
-import type { AsyncContextFactory, KVProvider } from '~/context.ts';
-
-function memoryKV(): KVProvider {
-  const store = new Map<string, unknown>();
-  return {
-    get: async (key: string) => store.get(key) ?? null,
-    put: async (key: string, value: unknown) => void store.set(key, value),
-    delete: async (key: string) => void store.delete(key),
-    list: async () => ({ keys: [...store.keys()].map((name) => ({ name })) }),
-  } as unknown as KVProvider;
-}
+import type { AsyncContextFactory } from '~/context.ts';
 
 function passthroughAsyncContext(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {
@@ -49,7 +39,7 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
       engine = createEngine({
         env: {},
         platform: { kind: 'test' },
-        storage: { sql: createTestSql(), kv: memoryKV() },
+        storage: { sql: createTestSql(), kv: createTestKV() },
         timers: {
           setAlarm: vi.fn(async () => {}),
           deleteAlarm: vi.fn(async () => {}),

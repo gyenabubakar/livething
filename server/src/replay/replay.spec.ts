@@ -39,7 +39,7 @@ describe('replay', () => {
 
   it('declares dependencies and requires', () => {
     const p = replay();
-    expect(p.__requires).toEqual({ storage: true });
+    expect(p.__requires).toEqual({});
   });
 
   it('stores automatic replay options when provided', () => {
@@ -416,42 +416,40 @@ describe('replay', () => {
       onAfterSend() {},
       onBoot() {},
       onBootSchema() {},
-      requireStorage(): StorageProvider {
-        return {
-          sql: {
-            exec<TRow = unknown>() {
-              return {
-                toArray() {
-                  return rows as TRow[];
-                },
-                one() {
-                  return (rows[0] as TRow | undefined) ?? null;
-                },
-                raw() {
-                  return [];
-                },
-              };
-            },
-            transaction<T>(
-              fn: (tx: {
-                exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
-              }) => T,
-            ) {
-              return fn(this);
-            },
+      storage: {
+        sql: {
+          exec<TRow = unknown>() {
+            return {
+              toArray() {
+                return rows as TRow[];
+              },
+              one() {
+                return (rows[0] as TRow | undefined) ?? null;
+              },
+              raw() {
+                return [];
+              },
+            };
           },
-          kv: {
-            async get() {
-              return undefined;
-            },
-            async set() {},
-            async delete() {},
-            async list() {
-              return [];
-            },
+          transaction<T>(
+            fn: (tx: {
+              exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
+            }) => T,
+          ) {
+            return fn(this);
           },
-        };
-      },
+        },
+        kv: {
+          async get() {
+            return undefined;
+          },
+          async set() {},
+          async delete() {},
+          async list() {
+            return [];
+          },
+        },
+      } satisfies StorageProvider,
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
@@ -469,7 +467,7 @@ describe('replay', () => {
       | 'onBeforeSend'
       | 'onBoot'
       | 'onProtocolMessage'
-      | 'requireStorage'
+      | 'storage'
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
@@ -565,53 +563,51 @@ describe('replay', () => {
         onAfterSend() {},
         onBoot() {},
         onBootSchema() {},
-        requireStorage(): StorageProvider {
-          return {
-            sql: {
-              exec<TRow = unknown>(query: string, ...params: unknown[]) {
-                const normalized = query.replaceAll(/\s+/g, ' ').trim();
-                const isWatermarkRead = normalized.startsWith(
-                  'SELECT evicted_through_seq FROM __wskit_replay_watermark',
-                );
-                // Faithfully key the watermark read on the scope_key param, so a
-                // handler that reads the WRONG scope's watermark fails the test.
-                const scopeKey = String(params[0] ?? '');
-                if (isWatermarkRead) watermarkReads.push(scopeKey);
-                return {
-                  toArray() {
-                    return [] as TRow[];
-                  },
-                  one() {
-                    if (isWatermarkRead && scopeKey in watermarks) {
-                      return { evicted_through_seq: watermarks[scopeKey] } as TRow;
-                    }
-                    return null;
-                  },
-                  raw() {
-                    return [];
-                  },
-                };
-              },
-              transaction<T>(
-                fn: (tx: {
-                  exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
-                }) => T,
-              ) {
-                return fn(this);
-              },
+        storage: {
+          sql: {
+            exec<TRow = unknown>(query: string, ...params: unknown[]) {
+              const normalized = query.replaceAll(/\s+/g, ' ').trim();
+              const isWatermarkRead = normalized.startsWith(
+                'SELECT evicted_through_seq FROM __wskit_replay_watermark',
+              );
+              // Faithfully key the watermark read on the scope_key param, so a
+              // handler that reads the WRONG scope's watermark fails the test.
+              const scopeKey = String(params[0] ?? '');
+              if (isWatermarkRead) watermarkReads.push(scopeKey);
+              return {
+                toArray() {
+                  return [] as TRow[];
+                },
+                one() {
+                  if (isWatermarkRead && scopeKey in watermarks) {
+                    return { evicted_through_seq: watermarks[scopeKey] } as TRow;
+                  }
+                  return null;
+                },
+                raw() {
+                  return [];
+                },
+              };
             },
-            kv: {
-              async get() {
-                return undefined;
-              },
-              async set() {},
-              async delete() {},
-              async list() {
-                return [];
-              },
+            transaction<T>(
+              fn: (tx: {
+                exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
+              }) => T,
+            ) {
+              return fn(this);
             },
-          };
-        },
+          },
+          kv: {
+            async get() {
+              return undefined;
+            },
+            async set() {},
+            async delete() {},
+            async list() {
+              return [];
+            },
+          },
+        } satisfies StorageProvider,
         sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
           replays.push(args);
         },

@@ -39,7 +39,7 @@ function harness(
     addChannelHandleAugmenter: () => {},
     hasReadReceiptsChannel: () => true,
     onProtocolMessage: (event: string, handler: Handler) => handlers.set(event, handler),
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     channelMemberCount: () => opts.memberCount ?? 1,
     broadcastToChannel: (b: Record<string, unknown>) => broadcasts.push(b),
     sendProtocolFrame: (connectionId: string, frame: unknown) =>

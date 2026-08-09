@@ -37,7 +37,7 @@ type SubscribeFromServerFn = (
 export function persistMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
   if (!key.userId) return;
-  PersistenceStorage.insertMembership(core.requireStorage().sql, key);
+  PersistenceStorage.insertMembership(core.storage.sql, key);
 }
 
 /**
@@ -48,7 +48,7 @@ export function persistMembership(core: EngineCore, key: MembershipKey): void {
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
   if (!key.userId) return;
-  PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
+  PersistenceStorage.deleteMembership(core.storage.sql, key);
 }
 
 /**
@@ -58,7 +58,7 @@ export function deleteDurableMembership(core: EngineCore, key: MembershipKey): v
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
   if (!core.persistenceEnabled) return false;
   if (!key.userId) return false;
-  return PersistenceStorage.membershipExists(core.requireStorage().sql, key);
+  return PersistenceStorage.membershipExists(core.storage.sql, key);
 }
 
 /**
@@ -85,7 +85,7 @@ export async function purgeUser(core: EngineCore, userId: string): Promise<void>
   }
 
   if (core.persistenceEnabled) {
-    const sql = core.requireStorage().sql;
+    const sql = core.storage.sql;
     const rows = PersistenceStorage.listMembershipsByUser(sql, userId);
     for (const row of rows) {
       channels.set(
@@ -114,7 +114,7 @@ export async function purgeUser(core: EngineCore, userId: string): Promise<void>
   }
 
   if (core.persistenceEnabled) {
-    const sql = core.requireStorage().sql;
+    const sql = core.storage.sql;
     PersistenceStorage.purgeMembershipsByUser(sql, userId);
     PersistenceStorage.purgeTagsByUser(sql, userId);
   }
@@ -137,7 +137,7 @@ export async function autoRejoinIdentity(
   connection: RuntimeConnection,
 ): Promise<void> {
   if (!core.persistenceEnabled) return;
-  const sql = core.requireStorage().sql;
+  const sql = core.storage.sql;
   await runAutoRejoin(
     {
       sql,

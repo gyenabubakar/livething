@@ -9,7 +9,7 @@ import type * as PublicApi from '~/context.ts';
 export function createTaskContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const { sql, kv } = createLazyStorageView(deps.getStorage());
   const ctx: PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> = {
     sql,
     kv,

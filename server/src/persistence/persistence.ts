@@ -36,15 +36,15 @@ export function persistence(): PersistencePrimitive {
     __wskit: 'persistence',
     __kind: 'infrastructure',
     __identity: [PERSISTENCE_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __setup(engine) {
       engine.setPersistenceEnabled(true);
       engine.setPersistenceService(persistenceService);
       engine.onBootSchema(() => {
-        ensurePersistenceSchema(engine.requireStorage().sql);
+        ensurePersistenceSchema(engine.storage.sql);
       });
       engine.onBoot(() => {
-        const dropped = reconcilePersistenceOnBoot(engine.requireStorage().sql, (name, scope) =>
+        const dropped = reconcilePersistenceOnBoot(engine.storage.sql, (name, scope) =>
           engine.isDurableMembershipPairPersistent(name, scope),
         );
         if (dropped > 0) {

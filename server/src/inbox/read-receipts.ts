@@ -37,7 +37,7 @@ export function readReceipts(options: ResolvedReadReceiptsOptions): ReadReceipts
     __wskit: 'read-receipts',
     __kind: 'infrastructure',
     __identity: [READ_RECEIPTS_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [
       CAPABILITY_KIND.inbox,
       CAPABILITY_KIND.sequence,
@@ -107,7 +107,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     if (!isMember(ctx, channelName, channelFamily)) return true;
 
     const cursors = advanceReadThrough(
-      engine.requireStorage().sql,
+      engine.storage.sql,
       {
         channelName,
         channelFamily,
@@ -168,7 +168,7 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
     ];
     if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
 
-    const userIds = listReaders(engine.requireStorage().sql, {
+    const userIds = listReaders(engine.storage.sql, {
       channelName,
       channelFamily,
       seq: frame.payload.seq,
@@ -206,7 +206,7 @@ function settleInboxOnRead(
 ): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
   if (!inboxConfig) return undefined;
-  applyInboxAck(engine.requireStorage().sql, {
+  applyInboxAck(engine.storage.sql, {
     userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,

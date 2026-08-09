@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
 import { dispatchRuntime, outgoingRuntime } from '~/_engine/engine.deps.ts';
+import { createTestStorage } from '~/_test/sql.ts';
 import { bench, describe } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -13,6 +14,7 @@ function makeCore(): EngineCore {
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       core = createEngine({
+        storage: createTestStorage(),
         env: {},
         platform: {},
         timers: {

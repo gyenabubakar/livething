@@ -89,7 +89,7 @@ export interface DurableStreamRuntime {
 
   persistAttachment(connection: RuntimeConnection): void;
 
-  /** SQLite handle. Undefined when storage was not configured (engine asserts). */
+  /** SQLite handle. */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
   };

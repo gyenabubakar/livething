@@ -49,9 +49,9 @@ export class EngineCore {
 
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
-  storage?: PublicApi.StorageProvider;
+  storage: PublicApi.StorageProvider;
   env: Record<string, unknown>;
-  timers?: PublicApi.TimerProvider;
+  timers: PublicApi.TimerProvider;
   platform: unknown;
   waitUntilImpl: (promise: Promise<unknown>) => void;
   logger: PublicApi.Logger;
@@ -203,7 +203,6 @@ export class EngineCore {
   readonly scheduledDlqPersisted = new Map<string, string>();
   readonly installedFeatures = new Set<symbol>();
 
-  alarmHandle: unknown = null;
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
   /**
@@ -213,6 +212,12 @@ export class EngineCore {
   asyncContext: EngineAsyncContext;
 
   constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+    if (options.storage === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
+    }
+    if (options.timers === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
+    }
     if (options.env === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide env.`);
     }
@@ -257,24 +262,6 @@ export class EngineCore {
 
   setInstanceId(id: string): void {
     this.engineInstanceId = id;
-  }
-
-  storageOrUndefined(): PublicApi.StorageProvider | undefined {
-    return this.storage;
-  }
-
-  requireStorage(): PublicApi.StorageProvider {
-    if (!this.storage) {
-      throw new Error(`[wskit] storage not provided by adapter "${this.options.adapterId}".`);
-    }
-    return this.storage;
-  }
-
-  requireTimers(): PublicApi.TimerProvider {
-    if (!this.timers) {
-      throw new Error(`[wskit] timers not provided by adapter "${this.options.adapterId}".`);
-    }
-    return this.timers;
   }
 
   generateId(prefix = 'id'): string {

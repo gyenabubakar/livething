@@ -41,9 +41,9 @@ describe('inbox capability — option resolution and validation', () => {
     expect(inbox({}).options.maxReceiptAudience).toBe(256);
   });
 
-  it('declares its required capabilities and storage', () => {
+  it('declares its required capabilities', () => {
     const primitive = inbox({});
-    expect(primitive.__requires).toEqual({ storage: true });
+    expect(primitive.__requires).toEqual({});
     expect(primitive.__requiresCapabilities).toEqual([
       'channels',
       'persistence',

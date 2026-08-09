@@ -28,7 +28,7 @@ function createCore(inboxChannels: Map<string, ResolvedInboxOptions> = new Map()
   let idCounter = 0;
   const core = {
     inboxChannels,
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     generateId: (prefix = 'id') => `${prefix}_${++idCounter}`,
   } as unknown as EngineCore;
   return { core, sql };

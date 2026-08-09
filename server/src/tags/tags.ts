@@ -125,7 +125,7 @@ export function tagGroups<TKind extends TagKind>(
     __wskit: 'tag-groups',
     __kind: 'infrastructure',
     __identity: [key],
-    __requires: kind === 'persistent' ? { storage: true } : {},
+    __requires: {},
     __requiresCapabilities: kind === 'persistent' ? [CAPABILITY_KIND.persistence] : [],
     kind,
     groups,

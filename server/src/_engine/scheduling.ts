@@ -13,7 +13,7 @@ function buildAccess(
   createTaskContext: () => unknown,
 ): ScheduledPrimitiveTypes.ScheduledRuntimeAccess {
   return {
-    requireStorage: () => core.requireStorage(),
+    getStorage: () => core.storage,
     getTimers: () => core.timers,
     generateId: (prefix) => core.generateId(prefix),
     getScheduledRuns: () => core.scheduledRuns,
@@ -91,15 +91,6 @@ export function rescheduleAlarm(core: EngineCore): void {
   Scheduled.rescheduleScheduledAlarm({
     getTimers: () => core.timers,
     getScheduledRuns: () => core.scheduledRuns,
-    getAlarmHandle: () => core.alarmHandle,
-    setAlarmHandle: (handle) => {
-      core.alarmHandle = handle;
-    },
-    onAlarm: async () => {
-      for (const hook of core.hooks.alarm) {
-        await hook();
-      }
-    },
   });
 }
 

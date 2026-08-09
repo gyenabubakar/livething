@@ -8,6 +8,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { createTestStorage } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -20,10 +22,10 @@ function buildEngine(handler: ServerDefinition): Engine {
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
-        storage: undefined,
+        storage: createTestStorage(),
         env: {},
         platform: {},
-        timers: undefined as never,
+        timers: createTestTimers(),
         waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });

@@ -54,7 +54,7 @@ export function fanOutToInbox(
   const config = core.inboxChannels.get(channelKeyFor(opts.channelName, opts.channelFamily));
   if (!config) return;
 
-  const { sql } = core.requireStorage();
+  const { sql } = core.storage;
   const userIds = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
     (userId) => userId !== '',
   );
@@ -118,7 +118,7 @@ function memberCountKey(channelName: string, channelFamily: string | null, userI
  */
 export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
   if (!connection.userId) return;
-  const { sql } = core.requireStorage();
+  const { sql } = core.storage;
 
   const watermarks = loadInboxWatermarks(sql, connection.userId);
   for (const watermark of watermarks) {
@@ -176,7 +176,7 @@ export function clearInboxForChannel(
 ): void {
   if (!key.userId) return;
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
-  const { sql } = core.requireStorage();
+  const { sql } = core.storage;
   const { userId } = key;
   deleteInboxRowsForChannel(sql, {
     userId,
@@ -224,7 +224,7 @@ function applyRetention(
   },
 ): number | null {
   if (!opts.config.retention) return null;
-  const { sql } = core.requireStorage();
+  const { sql } = core.storage;
   const evictedThrough = pruneInboxRetention(sql, {
     userId: opts.userId,
     channelName: opts.channelName,

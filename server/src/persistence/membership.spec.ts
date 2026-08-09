@@ -14,7 +14,7 @@ import type { SQLProvider } from '~/context.ts';
 function makeCore(sql: SQLProvider): EngineCore {
   return {
     persistenceEnabled: true,
-    requireStorage: () => ({ sql }),
+    storage: { sql },
   } as unknown as EngineCore;
 }
 

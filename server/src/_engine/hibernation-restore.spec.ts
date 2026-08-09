@@ -2,22 +2,12 @@ import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
-import { createTestSql } from '~/_test/sql.ts';
+import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { AsyncContextFactory, KVProvider, SQLProvider } from '~/context.ts';
-
-function memoryKV(): KVProvider {
-  const store = new Map<string, unknown>();
-  return {
-    get: async (key: string) => store.get(key) ?? null,
-    put: async (key: string, value: unknown) => void store.set(key, value),
-    delete: async (key: string) => void store.delete(key),
-    list: async () => ({ keys: [...store.keys()].map((name) => ({ name })) }),
-  } as unknown as KVProvider;
-}
 
 function passthroughAsyncContext(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {
@@ -102,7 +92,7 @@ function buildEngine(storage: { sql: SQLProvider; kv: KVProvider }): Engine {
 
 describe('hibernation restore — live delivery to a passive member', () => {
   it('reaches a member hibernated at broadcast time without it sending a message first', async () => {
-    const storage = { sql: createTestSql(), kv: memoryKV() };
+    const storage = { sql: createTestSql(), kv: createTestKV() };
     const engine = buildEngine(storage);
     await engine.initialize();
 

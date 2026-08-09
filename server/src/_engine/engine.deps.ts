@@ -73,7 +73,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     logger: core.logger,
     platform: core.platform,
     waitUntilImpl: core.waitUntilImpl,
-    requireStorage: () => core.requireStorage(),
+    getStorage: () => core.storage,
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
@@ -309,7 +309,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     logger: core.logger,
     activeStreams: core.activeStreams,
-    sql: core.storageOrUndefined()?.sql,
+    sql: core.storage.sql,
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
@@ -435,7 +435,7 @@ function buildConnectionRuntime(core: EngineCore) {
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
             core.persistenceService?.restorePersistentTags({
-              sql: core.requireStorage().sql,
+              sql: core.storage.sql,
               tagMembers: core.tagMembers,
               connection,
               getSchema: (group: string) => core.getTagGroupSchema('persistent', group),

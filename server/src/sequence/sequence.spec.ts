@@ -93,29 +93,22 @@ function installSequence(
       stampHandlers.push(handler);
     },
     setSequencePersistent() {},
-    requireStorage() {
-      return {
-        sql,
-        kv: {
-          async get() {
-            return undefined;
-          },
-          async set() {},
-          async delete() {},
-          async list() {
-            return [];
-          },
+    storage: {
+      sql,
+      kv: {
+        async get() {
+          return undefined;
         },
-      };
+        async set() {},
+        async delete() {},
+        async list() {
+          return [];
+        },
+      },
     },
   } as Pick<
     EngineAccess,
-    | 'installOnce'
-    | 'onBoot'
-    | 'onBootSchema'
-    | 'onWSKitStamp'
-    | 'requireStorage'
-    | 'setSequencePersistent'
+    'installOnce' | 'onBoot' | 'onBootSchema' | 'onWSKitStamp' | 'storage' | 'setSequencePersistent'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);
@@ -150,10 +143,10 @@ describe('sequence', () => {
     expect(p.__requires).toEqual({});
   });
 
-  it('requires storage when persistence is enabled', () => {
+  it('durable sequence tracking has empty requires', () => {
     const p = sequence({ persist: true });
     expect(p.persist).toBe(true);
-    expect(p.__requires).toEqual({ storage: true });
+    expect(p.__requires).toEqual({});
   });
 
   it('registers its stamp hook only once', () => {

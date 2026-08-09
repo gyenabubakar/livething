@@ -46,7 +46,7 @@ function createScheduledRuntime(
 
   const runtime: ScheduledRuntimeAccess & { alarms: number } = {
     alarms: 0,
-    requireStorage: () => ({
+    getStorage: () => ({
       sql,
       kv: {
         get: async () => undefined,
@@ -365,20 +365,15 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
-  it('clears the native alarm when the scheduled queue empties', () => {
+  it('clears the durable alarm when the scheduled queue empties', () => {
     const deleteAlarm = vi.fn(async () => {});
     const runtime = {
       getScheduledRuns: () => new Map<string, ScheduledRun>(),
-      timers: {
+      getTimers: () => ({
         setAlarm: vi.fn(async () => {}),
         deleteAlarm,
-      },
-      getTimers() {
-        return this.timers;
-      },
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
+        getAlarm: vi.fn(async () => null),
+      }),
     };
 
     rescheduleScheduledAlarm(runtime);
@@ -389,20 +384,9 @@ describe('scheduled/runtime', () => {
     expect(deleteAlarm).toHaveBeenCalledTimes(1);
   });
 
-  it('skips deleteAlarm when the adapter does not provide it', () => {
+  it('sets the durable alarm to the earliest queued run time', () => {
+    const setAlarm = vi.fn(async () => {});
     const runtime = {
-      getScheduledRuns: () => new Map<string, ScheduledRun>(),
-      getTimers: () => undefined,
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-
-    expect(() => rescheduleScheduledAlarm(runtime)).not.toThrow();
-  });
-
-  it('uses timer alarms when available and falls back to timeouts otherwise', () => {
-    const withAlarm = {
       getScheduledRuns: () =>
         new Map<string, ScheduledRun>([
           [
@@ -418,55 +402,16 @@ describe('scheduled/runtime', () => {
             },
           ],
         ]),
-      timers: {
-        setAlarm: vi.fn(async () => {}),
-      },
-      getTimers() {
-        return this.timers;
-      },
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
+      getTimers: () => ({
+        setAlarm,
+        deleteAlarm: vi.fn(async () => {}),
+        getAlarm: vi.fn(async () => null),
+      }),
     };
 
-    rescheduleScheduledAlarm(withAlarm);
-    expect(withAlarm.timers.setAlarm).toHaveBeenCalled();
+    rescheduleScheduledAlarm(runtime);
 
-    const timeoutCallback = vi.fn();
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
-      callback: Parameters<typeof setTimeout>[0],
-    ) => {
-      timeoutCallback.mockImplementation(callback as () => void);
-      return 'timeout-1' as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout);
-    const withoutAlarm = {
-      getScheduledRuns: () =>
-        new Map<string, ScheduledRun>([
-          [
-            'a',
-            {
-              id: 'a',
-              taskId: 'flush',
-              time: 500,
-              data: undefined,
-              attempts: 0,
-              recurring: false,
-              retry: true,
-            },
-          ],
-        ]),
-      getTimers: () => undefined,
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-    const now = vi.spyOn(Date, 'now').mockReturnValue(250);
-
-    rescheduleScheduledAlarm(withoutAlarm);
-
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 250);
-    now.mockRestore();
-    setTimeoutSpy.mockRestore();
+    expect(setAlarm).toHaveBeenCalledWith(500);
   });
 
   it('retries with custom backoff schedule and dead-letters after exhausting it', async () => {

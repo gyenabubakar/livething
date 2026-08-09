@@ -52,7 +52,7 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
     __wskit: 'last-seen',
     __kind: 'infrastructure',
     __identity: [LAST_SEEN_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.persistence],
     options,
     __setup(engine) {
@@ -60,7 +60,7 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
         engine.setLastSeenService(buildLastSeenService(engine));
 
         engine.onBootSchema(() => {
-          ensureLastSeenSchema(engine.requireStorage().sql);
+          ensureLastSeenSchema(engine.storage.sql);
         });
 
         engine.extendContext(buildLastSeenContext(engine));
@@ -80,7 +80,7 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
 function buildLastSeenService(engine: EngineAccess): LastSeenService {
   return {
     at(userId: string): number | null {
-      return readLastSeen(engine.requireStorage().sql, userId);
+      return readLastSeen(engine.storage.sql, userId);
     },
     online(userId: string): boolean {
       return engine.isUserOnline(userId);
@@ -93,10 +93,10 @@ function buildLastSeenContext(engine: EngineAccess) {
   return (): Record<string, unknown> => ({
     lastSeen: {
       at(userId: string): number | null {
-        return readLastSeen(engine.requireStorage().sql, userId);
+        return readLastSeen(engine.storage.sql, userId);
       },
       atMany(userIds: string[]): Map<string, number> {
-        return readLastSeenMany(engine.requireStorage().sql, userIds);
+        return readLastSeenMany(engine.storage.sql, userIds);
       },
       online(userId: string): boolean {
         return engine.isUserOnline(userId);
@@ -112,7 +112,7 @@ function stampFromContext(engine: EngineAccess, ctx: unknown): void {
   ];
   const userId = connection?.userId ?? '';
   if (!userId) return;
-  stampLastSeen(engine.requireStorage().sql, { userId, now: Date.now() });
+  stampLastSeen(engine.storage.sql, { userId, now: Date.now() });
 }
 
 /**
@@ -130,7 +130,7 @@ function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
     const previous = lastStampByUserId.get(userId);
     if (previous !== undefined && now - previous < throttleMs) return;
     lastStampByUserId.set(userId, now);
-    stampLastSeen(engine.requireStorage().sql, { userId, now });
+    stampLastSeen(engine.storage.sql, { userId, now });
   });
 }
 

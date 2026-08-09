@@ -51,7 +51,7 @@ export function recordedGenerateFactory(
     __wskit: 'recorded-stream-generate',
     __kind: 'handler',
     __identity: [RECORDED_STREAM_GENERATE_KEY, input.event],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.persistence],
     event: input.event,
     validator: input.validator,

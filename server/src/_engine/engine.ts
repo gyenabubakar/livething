@@ -137,15 +137,6 @@ export class Engine<TApi = unknown> {
           reason: 'Server shutting down',
         }),
 
-      alarmState: {
-        get current() {
-          return core.alarmHandle;
-        },
-        set current(value: unknown | null) {
-          core.alarmHandle = value;
-        },
-      },
-
       logger: core.logger,
     });
   }

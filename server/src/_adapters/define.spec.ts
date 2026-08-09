@@ -1,3 +1,4 @@
+import { createTestStorage } from '~/_test/sql.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { AsyncContextFactory, Logger, TimerProvider } from '~/context.ts';
@@ -39,6 +40,7 @@ describe('adapter', () => {
     };
 
     return {
+      storage: createTestStorage(),
       env: { KEY: 'value' },
       platform: { kind: 'test' },
       timers,

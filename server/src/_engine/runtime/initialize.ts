@@ -9,16 +9,6 @@ import type { Primitive, ValidationView } from '~/primitive.ts';
 /** Throw if the adapter is missing something the handler said it needs. */
 function validateRequires(core: EngineCore): void {
   const requires = core.compiled.requires;
-  if (requires.storage && !core.storage) {
-    throw new Error(
-      `[wskit] Handler requires storage, but adapter "${core.options.adapterId}" did not provide it.`,
-    );
-  }
-  if (requires.timers && !core.timers) {
-    throw new Error(
-      `[wskit] Handler requires timers, but adapter "${core.options.adapterId}" did not provide it.`,
-    );
-  }
   if (requires.hibernation && !core.options.hibernation) {
     throw new Error(
       `[wskit] Handler requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
@@ -126,7 +116,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     env: core.env,
     logger: core.logger,
     platform: core.platform,
-    requireStorage: () => core.requireStorage(),
+    getStorage: () => core.storage,
   });
   // Inbound onion: new-model plugin inits run before the app's. Their
   // handlers are already wrapped in a plugin-scoped context.

@@ -70,6 +70,8 @@ export function createEngineAccess(
 ): EngineAccessModule.EngineAccess {
   let onUpgradeCalled = false;
   return {
+    storage: core.storage,
+    timers: core.timers,
     installOnce: (key, install) => {
       if (core.installedFeatures.has(key)) return;
       core.installedFeatures.add(key);
@@ -201,8 +203,6 @@ export function createEngineAccess(
     extendContext: (factory) => {
       core.hooks.contextExtenders.push(factory);
     },
-    requireStorage: () => core.requireStorage(),
-    requireTimers: () => core.requireTimers(),
     getInvocationScope: () => getInvocationScope(core.asyncContext),
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;

@@ -44,7 +44,7 @@ function createRuntime(
     },
     persistAttachment: () => {},
     persistenceEnabled: false,
-    requireStorage: () => {
+    getStorage: () => {
       throw new Error('unused');
     },
   } as unknown as TagsRuntime;
@@ -227,7 +227,7 @@ function createPersistentRuntime(
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
     persistenceEnabled: true,
-    requireStorage: () => ({ sql: { exec } }),
+    getStorage: () => ({ sql: { exec } }),
   } as unknown as TagsRuntime;
 }
 
@@ -288,7 +288,7 @@ function runtimeWithSchema(schema: unknown): TagsRuntime {
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
     persistenceEnabled: false,
-    requireStorage: () => ({ sql: { exec: () => {} } }),
+    getStorage: () => ({ sql: { exec: () => {} } }),
   } as unknown as TagsRuntime;
 }
 

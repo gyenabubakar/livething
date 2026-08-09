@@ -120,8 +120,8 @@ export interface EngineOptions {
    */
   hibernation?: HibernationApi;
 
-  /** Adapter-provided storage surface. Omit when the runtime has no durable storage. */
-  storage?: StorageProvider;
+  /** Adapter-provided SQL and key-value storage surface. Every adapter provides this. */
+  storage: StorageProvider;
 
   /** Env bindings exposed to every runtime context. */
   env: Record<string, unknown>;
@@ -129,8 +129,8 @@ export interface EngineOptions {
   /** Adapter-specific platform object exposed as `ctx.platform`. */
   platform: unknown;
 
-  /** Timer implementation for in-memory timers and durable alarms. Omit when the runtime has no timer support. */
-  timers?: TimerProvider;
+  /** Adapter-provided durable alarm implementation. Every adapter provides this. */
+  timers: TimerProvider;
 
   /** Factory for the async-context implementation used by this runtime. */
   asyncContextFactory: AsyncContextFactory;

@@ -28,7 +28,7 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
     addChannelHandleAugmenter: () => {},
     setInboxService: () => {},
     registerInboxChannel: () => {},
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     channelMemberCount: () => opts.memberCount ?? 1,
     broadcastToChannel: (b: Record<string, unknown>) => broadcasts.push(b),
     sendProtocolFrame: (connectionId: string, frame: unknown) =>

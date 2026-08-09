@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { SQLProvider, SqlResult } from '~/context.ts';
+import type { KVProvider, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
 
 /** Options for {@link createTestSql}. */
 export interface TestSqlOptions {
@@ -71,4 +71,41 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
 
 function emptyResult<TRow>(): SqlResult<TRow> {
   return { toArray: () => [], one: () => null, raw: () => [] };
+}
+
+/**
+ * An in-memory `KVProvider` for any test that needs a `storage.kv` value but
+ * isn't exercising kv behavior itself. Backed by a plain `Map`, so it never
+ * persists across instances.
+ */
+export function createTestKV(): KVProvider {
+  const store = new Map<string, unknown>();
+  return {
+    async get(key) {
+      return store.get(key);
+    },
+    async set(key, value) {
+      store.set(key, value);
+    },
+    async delete(key) {
+      store.delete(key);
+    },
+    async list(prefix) {
+      const keys = [...store.keys()];
+      return prefix ? keys.filter((key) => key.startsWith(prefix)) : keys;
+    },
+  };
+}
+
+/**
+ * A real `StorageProvider` for tests that need to build an engine — real
+ * SQLite via {@link createTestSql} paired with an in-memory `kv`. Every
+ * `EngineOptions` needs a `storage` value; use this shared implementation
+ * rather than hand-rolling one per spec.
+ */
+export function createTestStorage(
+  options: TestSqlOptions = {},
+): StorageProvider & { db: DatabaseSync } {
+  const sql = createTestSql(options);
+  return { sql, kv: createTestKV(), db: sql.db };
 }

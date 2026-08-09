@@ -37,7 +37,7 @@ export interface TagsRuntime {
 
   persistenceEnabled: boolean;
 
-  requireStorage(): { sql: Pick<SQLProvider, 'exec'> };
+  getStorage(): { sql: Pick<SQLProvider, 'exec'> };
 }
 
 function assertGroupDeclared(
@@ -137,7 +137,7 @@ export function buildGroupHandle(
       // Durable write before the live mutation, so a failed SQL write cannot
       // leave the tag live with nothing saved.
       if (persistsDurably) {
-        insertTag(runtime.requireStorage().sql, { userId: connection.userId, group, key });
+        insertTag(runtime.getStorage().sql, { userId: connection.userId, group, key });
       }
       addConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },
@@ -155,7 +155,7 @@ export function buildGroupHandle(
       if (!readBag(connection, kind).get(group)?.has(key)) return;
       // Durable delete before the live mutation, for the same reason as add().
       if (persistsDurably) {
-        deleteTag(runtime.requireStorage().sql, { userId: connection.userId, group, key });
+        deleteTag(runtime.getStorage().sql, { userId: connection.userId, group, key });
       }
       removeConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },

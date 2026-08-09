@@ -20,7 +20,7 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     platform: {},
     waitUntilImpl: vi.fn(),
-    requireStorage: () => ({}) as never,
+    getStorage: () => ({}) as never,
     broadcastToConnections: vi.fn(),
     broadcastToChannel: vi.fn(),
     getChannelMembers: vi.fn(() => []),

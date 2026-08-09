@@ -9,10 +9,10 @@ import type * as PublicApi from '~/context.ts';
 export function createInitContext(
   deps: Pick<
     EngineContextTypes.CreateTaskContextDeps,
-    'env' | 'logger' | 'platform' | 'requireStorage'
+    'env' | 'logger' | 'platform' | 'getStorage'
   >,
 ): PublicApi.InitContext<Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const { sql, kv } = createLazyStorageView(deps.getStorage());
   return {
     sql,
     kv,
@@ -28,7 +28,7 @@ export function createInitContext(
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): PublicApi.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const { sql, kv } = createLazyStorageView(deps.getStorage());
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {

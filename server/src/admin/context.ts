@@ -24,7 +24,7 @@ function toTarget(name: string, instance?: string): string | { family: string; n
 export function createAdminContext(
   deps: CreateAdminContextDeps,
 ): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const { sql, kv } = createLazyStorageView(deps.getStorage());
 
   const channels: PublicApi.AdminChannels = {
     get(name: string, instance?: string): PublicApi.AdminChannelHandle {

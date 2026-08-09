@@ -55,7 +55,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
     __wskit: 'inbox',
     __kind: 'infrastructure',
     __identity: [INBOX_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [
       CAPABILITY_KIND.channels,
       CAPABILITY_KIND.persistence,
@@ -83,8 +83,8 @@ export function inbox(config: InboxOptions): InboxPrimitive {
       engine.registerInboxChannel(channelKey, options);
 
       engine.onBootSchema(() => {
-        ensureInboxSchema(engine.requireStorage().sql);
-        ensureReceiptsSchema(engine.requireStorage().sql);
+        ensureInboxSchema(engine.storage.sql);
+        ensureReceiptsSchema(engine.storage.sql);
       });
 
       engine.extendContext(buildInboxContext(engine, channelKey));
@@ -139,7 +139,7 @@ function buildReceivedHandler(deps: {
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
     if (userId && isMember(ctx, channelName, channelFamily)) {
-      applyInboxAck(engine.requireStorage().sql, {
+      applyInboxAck(engine.storage.sql, {
         userId,
         channelName,
         channelFamily,
@@ -148,7 +148,7 @@ function buildReceivedHandler(deps: {
       });
 
       const cursors = advanceReceivedThrough(
-        engine.requireStorage().sql,
+        engine.storage.sql,
         {
           channelName,
           channelFamily,
@@ -194,7 +194,7 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
     ];
     if (!connection || !hasChannelMembership(connection, channelName, channelFamily)) return true;
 
-    const userIds = listReceivers(engine.requireStorage().sql, {
+    const userIds = listReceivers(engine.storage.sql, {
       channelName,
       channelFamily,
       seq: frame.payload.seq,

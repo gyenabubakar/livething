@@ -66,7 +66,6 @@ describe('plugin onion ordering — shutdown', () => {
       createShutdownContext: () => ({}),
       cancelActiveStreamsForConnection: async () => {},
       handleConnectionClose: async () => {},
-      alarmState: { current: null },
     } as any);
     expect(trace).toEqual(['app', 'p2', 'p1']);
   });

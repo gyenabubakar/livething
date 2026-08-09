@@ -518,7 +518,6 @@ describe('connection runtime', () => {
         await closeWait;
         order.push('close-end');
       },
-      alarmState: { current: null },
     });
 
     await new Promise((r) => setTimeout(r, 0));
@@ -532,10 +531,6 @@ describe('connection runtime', () => {
   it('runs plugin onShutdown hooks during engine shutdown', async () => {
     const events: string[] = [];
     const closed: Array<{ code: number; reason: string }> = [];
-    const cleared: unknown[] = [];
-    const clearTimeoutSpy = vi
-      .spyOn(globalThis, 'clearTimeout')
-      .mockImplementation((handle) => void cleared.push(handle));
     const connections = new Map([
       [
         'conn_1',
@@ -573,24 +568,17 @@ describe('connection runtime', () => {
       async handleConnectionClose(connection) {
         events.push(`close:${connection.id}`);
       },
-      alarmState: { current: 'alarm-handle' },
     });
 
     // handleConnectionClose is awaited per-connection so onDisconnect
     // and channel cleanup land before shutdown returns.
     expect(events).toEqual(['server-shutdown', 'plugin-shutdown', 'close:conn_1']);
     expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
-    expect(cleared).toEqual(['alarm-handle']);
-    clearTimeoutSpy.mockRestore();
   });
 
   it('continues shutdown cleanup when a server onShutdown hook throws', async () => {
     const closed: Array<{ code: number; reason: string }> = [];
     const cancelled: string[] = [];
-    const cleared: unknown[] = [];
-    const clearTimeoutSpy = vi
-      .spyOn(globalThis, 'clearTimeout')
-      .mockImplementation((handle) => void cleared.push(handle));
     const errorLog: Array<{ message: string; fields?: Record<string, unknown> }> = [];
 
     const connections = new Map([
@@ -639,7 +627,6 @@ describe('connection runtime', () => {
       async handleConnectionClose(connection) {
         cancelled.push(connection.id);
       },
-      alarmState: { current: 'alarm-handle' },
       logger: {
         error(message: string, fields?: Record<string, unknown>) {
           errorLog.push({ message, fields });
@@ -647,7 +634,7 @@ describe('connection runtime', () => {
       },
     });
 
-    // Per-connection close, socket close, and alarm clear all run despite throws.
+    // Per-connection close and socket close both run despite throws.
     // (Order between conn_1 and conn_2 close-callback invocations is not
     // guaranteed because they run in parallel via Promise.all; check as a set.)
     expect(new Set(cancelled)).toEqual(new Set(['conn_1', 'conn_2']));
@@ -655,12 +642,10 @@ describe('connection runtime', () => {
       { code: 1001, reason: 'Server shutting down' },
       { code: 1001, reason: 'Server shutting down' },
     ]);
-    expect(cleared).toEqual(['alarm-handle']);
     expect(errorLog.map((e) => e.message)).toEqual([
       '[wskit] shutdown hook threw',
       '[wskit] plugin shutdown hook threw',
     ]);
-    clearTimeoutSpy.mockRestore();
   });
 
   it('runs lifecycle hooks inside the connection async context', async () => {
@@ -853,7 +838,6 @@ describe('connection runtime', () => {
       connections: new Map([[connection.id, connection]]) as never,
       usersByKey: new Map() as never,
       wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
-      timers: undefined,
       logger,
       async cancelActiveStreamsForConnection() {
         events.push('streams-cancelled');

@@ -795,7 +795,6 @@ export async function handleShutdown(
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
-    alarmState: { current: unknown | null };
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
 ): Promise<void> {
@@ -811,9 +810,9 @@ export async function handleShutdown(
     }
   }
 
-  // Shutdown is a best-effort drain: a throwing hook must not block
-  // stream cancellation, socket close, or alarm clear. Each hook runs
-  // inside its own try/catch with logging; cleanup below always runs.
+  // Shutdown is a best-effort drain: a throwing hook must not block stream
+  // cancellation or socket close. Each hook runs inside its own try/catch
+  // with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
     try {
       await hook(runtime.createShutdownContext());
@@ -863,9 +862,4 @@ export async function handleShutdown(
       }
     }),
   );
-
-  if (runtime.alarmState.current !== null) {
-    clearTimeout(runtime.alarmState.current as ReturnType<typeof setTimeout>);
-    runtime.alarmState.current = null;
-  }
 }

@@ -201,7 +201,7 @@ export function buildConnectionContext(
   },
 ): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const { sql, kv } = createLazyStorageView(deps.getStorage());
 
   const locals = new Map<LocalKey<unknown>, unknown>();
 
@@ -232,7 +232,7 @@ export function buildConnectionContext(
     },
 
     setAlarm: (time) => {
-      void deps.getTimers()?.setAlarm?.(time);
+      void deps.getTimers().setAlarm(time);
     },
 
     ...(deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps) ?? {}),
@@ -299,7 +299,7 @@ export function buildConnectionContext(
             ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
             persistAttachment: deps.persistAttachment,
             persistenceEnabled: deps.persistenceEnabled,
-            requireStorage: deps.requireStorage,
+            getStorage: deps.getStorage,
           },
           connection,
         ));

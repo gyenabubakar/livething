@@ -43,7 +43,7 @@ function harness(options: LastSeenOptions = {}): Captured {
     onDisconnect: (hook: (ctx: unknown) => void) => captured.disconnectHooks.push(hook),
     onMessageActivity: (hook: (connectionId: string) => void) =>
       captured.messageActivityHooks.push(hook),
-    requireStorage: () => ({ sql }),
+    storage: { sql },
     isUserOnline: (userId: string) => captured.online.has(userId),
     getConnectionIdentity: (connectionId: string) => captured.userIdByConnection.get(connectionId),
   } as unknown as EngineAccess;

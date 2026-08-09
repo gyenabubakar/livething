@@ -65,9 +65,6 @@ function baseDispatchRuntime(
     generateId() {
       return 'id_1';
     },
-    requireTimers() {
-      return { setTimeout: () => undefined, clearTimeout() {} };
-    },
     buildConnectionContext(connection: RuntimeConnection) {
       return { id: connection.id };
     },
@@ -802,7 +799,6 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   function makeRuntime(id: string, row: Record<string, unknown> | null) {
     return {
       compiled: baseCompiled() as any,
-      timers: undefined,
       connections: new Map(),
       usersByKey: new Map(),
       channelMembers: new Map(),

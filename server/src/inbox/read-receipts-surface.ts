@@ -15,7 +15,7 @@ export function buildReadReceiptsSurface(
   const { channelName, channelFamily } = scope;
   return {
     readersOf(seq: number): string[] {
-      return listReaders(engine.requireStorage().sql, { channelName, channelFamily, seq });
+      return listReaders(engine.storage.sql, { channelName, channelFamily, seq });
     },
   };
 }

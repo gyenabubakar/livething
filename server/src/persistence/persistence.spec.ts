@@ -3,8 +3,8 @@ import { persistence } from '~/persistence/persistence.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('persistence()', () => {
-  it('declares storage as a requirement', () => {
-    expect(persistence().__requires.storage).toBe(true);
+  it('declares no runtime capability requirements', () => {
+    expect(persistence().__requires).toEqual({});
   });
 
   it('flips engine persistence on during setup', () => {
@@ -16,12 +16,12 @@ describe('persistence()', () => {
       setPersistenceService() {},
       onBoot() {},
       onBootSchema() {},
-      requireStorage: () => ({
+      storage: {
         sql: {
           exec: () => ({ toArray: () => [], one: () => null, raw: () => [] }),
           transaction: () => ({}),
         },
-      }),
+      },
     } as never);
     expect(enabled).toBe(true);
   });
@@ -37,7 +37,7 @@ describe('persistence()', () => {
       onBootSchema(handler: () => void) {
         schemaHooks.push(handler);
       },
-      requireStorage: () => ({ sql }),
+      storage: { sql },
     } as never);
 
     expect(schemaHooks).toHaveLength(1);

@@ -56,12 +56,10 @@ export async function withInvocationScope<T>(
     }
 
     if (scope.pendingSnapshotFlushes.size > 0) {
-      const sql = core.storageOrUndefined()?.sql;
+      const sql = core.storage.sql;
 
-      if (sql) {
-        for (const entry of scope.pendingSnapshotFlushes.values()) {
-          entry.flush(sql);
-        }
+      for (const entry of scope.pendingSnapshotFlushes.values()) {
+        entry.flush(sql);
       }
     }
   }

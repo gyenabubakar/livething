@@ -85,8 +85,6 @@ export function mergeRequires(
   target: PrimitiveCore.RequiresManifest,
   source: PrimitiveCore.RequiresManifest,
 ): void {
-  if (source.storage) target.storage = true;
-  if (source.timers) target.timers = true;
   if (source.hibernation) target.hibernation = true;
 }
 
