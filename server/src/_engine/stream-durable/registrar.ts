@@ -1,7 +1,9 @@
 import { registerScheduledService } from '~/_engine/scheduling.ts';
 import { definePrimitive } from '~/primitive.ts';
 import { registerActiveStreamOps } from '~/stream/active-ops.ts';
+import type { EngineCore } from '~/_engine/core.ts';
 import { durableStreamService } from './dispatch.ts';
+import { purgeStreamsByUser } from './storage.ts';
 
 /**
  * Both `resumableStream()` and `recordedStream()` share one durable-stream
@@ -20,6 +22,10 @@ function makeDurableRegistrar(tag: string, key: symbol) {
     setup(engine) {
       engine.installOnce(DURABLE_STREAM_SERVICE_KEY, () => {
         engine.setDurableStreamService(durableStreamService);
+
+        engine.onPurgeUser((core, userId) => {
+          purgeStreamsByUser((core as EngineCore).storage.sql, userId);
+        });
       });
       registerActiveStreamOps(engine);
       registerScheduledService(engine);

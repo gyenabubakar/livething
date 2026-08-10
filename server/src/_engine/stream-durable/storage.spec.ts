@@ -190,3 +190,108 @@ describe('durable-stream/storage', () => {
     ).not.toThrow();
   });
 });
+
+describe('durable-stream/storage — purgeStreamsByUser', () => {
+  let sql: ReturnType<typeof createTestSql>;
+  beforeEach(() => {
+    sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+  });
+
+  it("drops the purged user's stream and chunk rows, leaving another user's stream intact", () => {
+    Storage.insertStream(sql, {
+      userId: 'u-1',
+      streamId: 's-1',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+    });
+    Storage.appendChunk(sql, {
+      userId: 'u-1',
+      streamId: 's-1',
+      seq: 1,
+      messageId: 'm-1',
+      payload: '{}',
+      now: 1_001,
+    });
+    Storage.insertStream(sql, {
+      userId: 'u-2',
+      streamId: 's-2',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+    });
+    Storage.appendChunk(sql, {
+      userId: 'u-2',
+      streamId: 's-2',
+      seq: 1,
+      messageId: 'm-1',
+      payload: '{}',
+      now: 1_001,
+    });
+
+    Storage.purgeStreamsByUser(sql, 'u-1');
+
+    expect(Storage.readStream(sql, 'u-1', 's-1')).toBeNull();
+    expect(Storage.readChunksSince(sql, { userId: 'u-1', streamId: 's-1', since: 0 })).toEqual([]);
+    expect(Storage.readStream(sql, 'u-2', 's-2')).not.toBeNull();
+    expect(Storage.readChunksSince(sql, { userId: 'u-2', streamId: 's-2', since: 0 })).toHaveLength(
+      1,
+    );
+  });
+
+  it('drops subscriber rows the purged user owns as a stream, and rows where they merely subscribe to someone else', () => {
+    Storage.insertStream(sql, {
+      userId: '__bcast:top__',
+      streamId: 's-owned-by-purged',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+      broadcast: true,
+    });
+    Storage.seedSubscriber(sql, {
+      storageUserId: '__bcast:top__',
+      streamId: 's-owned-by-purged',
+      subscriberUserId: 'u-1',
+    });
+    Storage.insertStream(sql, {
+      userId: '__bcast:other__',
+      streamId: 's-owned-by-other',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+      broadcast: true,
+    });
+    Storage.seedSubscriber(sql, {
+      storageUserId: '__bcast:other__',
+      streamId: 's-owned-by-other',
+      subscriberUserId: 'u-1',
+    });
+    Storage.seedSubscriber(sql, {
+      storageUserId: '__bcast:other__',
+      streamId: 's-owned-by-other',
+      subscriberUserId: 'u-2',
+    });
+
+    Storage.purgeStreamsByUser(sql, 'u-1');
+
+    expect(
+      Storage.getSubscriber(sql, {
+        storageUserId: '__bcast:other__',
+        streamId: 's-owned-by-other',
+        subscriberUserId: 'u-1',
+      }),
+    ).toBeNull();
+    expect(
+      Storage.getSubscriber(sql, {
+        storageUserId: '__bcast:other__',
+        streamId: 's-owned-by-other',
+        subscriberUserId: 'u-2',
+      }),
+    ).not.toBeNull();
+  });
+});

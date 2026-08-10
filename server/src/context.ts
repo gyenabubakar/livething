@@ -1160,8 +1160,10 @@ export interface AdminContext<
 
   /**
    * Drop a user everywhere: leave every channel they belong to (live and
-   * durable), remove their persistent tags, and close every live socket they
-   * hold. The one call the auth-webhook case (`user.deleted`) needs.
+   * durable), remove their persistent tags, wipe their inbox rows and read
+   * receipts, their last-seen mark, their durable streams (and any broadcast
+   * stream they merely subscribe to), and close every live socket they hold.
+   * The one call the auth-webhook case (`user.deleted`) needs.
    */
   purgeUser(userId: string): Promise<void>;
 

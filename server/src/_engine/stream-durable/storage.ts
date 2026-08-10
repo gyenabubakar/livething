@@ -509,6 +509,19 @@ export function findExpiredSuspended(sql: SqlExec, now: number): SweepCandidate[
   }));
 }
 
+/**
+ * Delete every durable-stream row a user owns, plus their chunks and
+ * subscriber rows, plus every row where they merely subscribe to someone
+ * else's broadcast stream. Used by `purgeUser`. Explicit — does not rely on
+ * `ON DELETE CASCADE` being enforced by the storage backend.
+ */
+export function purgeStreamsByUser(sql: SqlExec, userId: string): void {
+  sql.exec('DELETE FROM __wskit_stream_chunks WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __wskit_stream_subscribers WHERE user_id = ?', userId);
+  sql.exec('DELETE FROM __wskit_stream_subscribers WHERE subscriber_user_id = ?', userId);
+  sql.exec('DELETE FROM __wskit_streams WHERE user_id = ?', userId);
+}
+
 /** Ended streams whose retention window has elapsed since `ended_at`. */
 export function findExpiredEnded(sql: SqlExec, now: number): SweepCandidate[] {
   const rows = sql

@@ -45,6 +45,11 @@ export function readLastSeen(sql: Pick<SQLProvider, 'exec'>, userId: string): nu
   return row ? Number(row.last_seen_at) : null;
 }
 
+/** Delete a user's last-seen row. Used by `purgeUser`. */
+export function purgeLastSeenByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec('DELETE FROM __wskit_last_seen WHERE user_id = ?', userId);
+}
+
 /** Read last-seen timestamps for many users in one query, keyed by user id. */
 export function readLastSeenMany(
   sql: Pick<SQLProvider, 'exec'>,

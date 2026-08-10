@@ -6,6 +6,7 @@ import {
   ensureReceiptsSchema,
   listReaders,
   listReceivers,
+  purgeReceiptsByUser,
 } from './receipts-storage.ts';
 
 function setup() {
@@ -119,5 +120,27 @@ describe('receipts-storage — enumeration', () => {
     expect(listReceivers(sql, { channelName: 'room', channelFamily: 'rooms', seq: 1 })).toEqual([
       'alice',
     ]);
+  });
+});
+
+describe('receipts-storage — purgeReceiptsByUser', () => {
+  it("drops one user id's receipt rows across channels, leaving another user id intact", () => {
+    const sql = setup();
+    advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough: 5, now: 1 });
+    advanceReceivedThrough(sql, {
+      channelName: 'other-room',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 2,
+      now: 1,
+    });
+    advanceReceivedThrough(sql, { ...room, userId: 'bob', receivedThrough: 5, now: 1 });
+
+    purgeReceiptsByUser(sql, 'alice');
+
+    expect(listReceivers(sql, { ...room, seq: 1 })).toEqual(['bob']);
+    expect(listReceivers(sql, { channelName: 'other-room', channelFamily: null, seq: 1 })).toEqual(
+      [],
+    );
   });
 });

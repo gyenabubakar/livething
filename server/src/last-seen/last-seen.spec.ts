@@ -13,6 +13,7 @@ interface Captured {
   disconnectHooks: Array<(ctx: unknown) => void>;
   messageActivityHooks: Array<(connectionId: string) => void>;
   contextExtenders: Array<() => Record<string, unknown>>;
+  purgeUserHooks: Array<(core: unknown, userId: string) => void>;
   service?: LastSeenService;
   online: Set<string>;
   userIdByConnection: Map<string, string>;
@@ -26,6 +27,7 @@ function harness(options: LastSeenOptions = {}): Captured {
     disconnectHooks: [],
     messageActivityHooks: [],
     contextExtenders: [],
+    purgeUserHooks: [],
     online: new Set(),
     userIdByConnection: new Map(),
   };
@@ -37,6 +39,8 @@ function harness(options: LastSeenOptions = {}): Captured {
       captured.service = service;
     },
     onBootSchema: (run: () => void) => bootSchemaHooks.push(run),
+    onPurgeUser: (hook: (core: unknown, userId: string) => void) =>
+      captured.purgeUserHooks.push(hook),
     extendContext: (factory: () => Record<string, unknown>) =>
       captured.contextExtenders.push(factory),
     onConnect: (hook: (ctx: unknown) => void) => captured.connectHooks.push(hook),
@@ -104,6 +108,19 @@ describe('lastSeen connection tracking', () => {
   it('does not register an activity hook in connection mode', () => {
     const h = harness();
     expect(h.messageActivityHooks).toHaveLength(0);
+  });
+
+  it("registers a purgeUser hook that deletes one user's row, leaving another user's row intact", () => {
+    const h = harness();
+    expect(h.purgeUserHooks).toHaveLength(1);
+
+    stampLastSeen(h.sql, { userId: 'alice', now: 1 });
+    stampLastSeen(h.sql, { userId: 'bob', now: 2 });
+
+    h.purgeUserHooks[0]!({ storage: { sql: h.sql } }, 'alice');
+
+    expect(readLastSeen(h.sql, 'alice')).toBeNull();
+    expect(readLastSeen(h.sql, 'bob')).toBe(2);
   });
 });
 

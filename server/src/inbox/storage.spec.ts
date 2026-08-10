@@ -12,6 +12,7 @@ import {
   loadInboxWatermarks,
   loadUndeliveredRows,
   pruneInboxRetention,
+  purgeInboxByUser,
 } from './storage.ts';
 import type { InboxFrame } from './storage.ts';
 
@@ -398,5 +399,37 @@ describe('inbox/storage — retention and watermark', () => {
 
     clearInboxWatermarks(sql, 'alice');
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+  });
+});
+
+describe('inbox/storage — purgeInboxByUser', () => {
+  it("drops one user id's inbox rows and watermarks, leaving another user id intact", () => {
+    const sql = setup();
+    insertInboxRows(sql, {
+      userIds: ['alice', 'bob'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 1000,
+    });
+    bumpInboxWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      evictedThroughSeq: 5,
+    });
+    bumpInboxWatermark(sql, {
+      userId: 'bob',
+      channelName: 'room',
+      channelFamily: null,
+      evictedThroughSeq: 5,
+    });
+
+    purgeInboxByUser(sql, 'alice');
+
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
+    expect(loadInboxWatermarks(sql, 'bob')).toHaveLength(1);
   });
 });

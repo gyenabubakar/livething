@@ -460,6 +460,15 @@ export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: str
 }
 
 /**
+ * Delete every inbox row and overflow watermark for one user, across every
+ * channel. Used by `purgeUser`.
+ */
+export function purgeInboxByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec('DELETE FROM __wskit_inbox WHERE user_id = ?', userId);
+  clearInboxWatermarks(sql, userId);
+}
+
+/**
  * Drop a member's overflow watermark for one channel. Used when they leave it, so
  * a later reconnect does not emit a gap for a channel they are no longer in.
  */

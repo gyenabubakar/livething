@@ -1,4 +1,6 @@
+import { purgeReceiptsByUser } from '~/inbox/receipts-storage.ts';
 import { clearInboxForChannel, drainInboxOnReconnect, fanOutToInbox } from '~/inbox/runtime.ts';
+import { purgeInboxByUser } from '~/inbox/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
@@ -26,5 +28,10 @@ const INBOX_RUNTIME_KEY = Symbol('inbox-runtime');
 export function registerInboxRuntime(engine: EngineAccess): void {
   engine.installOnce(INBOX_RUNTIME_KEY, () => {
     engine.setInboxService(inboxService);
+
+    engine.onPurgeUser((core, userId) => {
+      purgeInboxByUser((core as EngineCore).storage.sql, userId);
+      purgeReceiptsByUser((core as EngineCore).storage.sql, userId);
+    });
   });
 }

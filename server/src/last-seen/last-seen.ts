@@ -2,11 +2,13 @@ import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertOneOf, assertPositiveInteger } from '~/_engine/validation.ts';
 import {
   ensureLastSeenSchema,
+  purgeLastSeenByUser,
   readLastSeen,
   readLastSeenMany,
   stampLastSeen,
 } from '~/last-seen/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { EngineCore } from '~/_engine/core.ts';
 import type { LastSeenService } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { LastSeenOptions, ResolvedLastSeenOptions } from '~/last-seen/types.ts';
@@ -59,6 +61,10 @@ export function lastSeen(config: LastSeenOptions = {}): LastSeenPrimitive {
 
         engine.onBootSchema(() => {
           ensureLastSeenSchema(engine.storage.sql);
+        });
+
+        engine.onPurgeUser((core, userId) => {
+          purgeLastSeenByUser((core as EngineCore).storage.sql, userId);
         });
 
         engine.extendContext(buildLastSeenContext(engine));
