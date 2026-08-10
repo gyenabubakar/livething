@@ -47,7 +47,8 @@ const CREATE_REPLAY_WATERMARK_TABLE_SQL = `
   )
 `;
 
-const REPLAY_SCHEMA_SQL = [
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const REPLAY_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_REPLAY_TABLE_SQL,
   CREATE_REPLAY_SEQ_INDEX_SQL,
   CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL,

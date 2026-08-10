@@ -25,7 +25,11 @@ const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
 // All three DDL statements in one multi-statement string. Cloudflare's SQL
 // `exec` accepts semicolon-separated statements, so this is one round trip
 // instead of three.
-const MEMBERSHIP_SCHEMA_SQL = [
+// @__PURE__ tells the bundler this call has no side effects, so it can be
+// dropped when nothing imports this const — otherwise a bundler must keep
+// any module-scope function call, and every DDL string comes along for
+// the ride even when a consumer only wants an unrelated query helper.
+const MEMBERSHIP_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_MEMBERSHIPS_TABLE_SQL,
   CREATE_MEMBERSHIPS_USER_INDEX_SQL,
   CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL,

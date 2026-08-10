@@ -61,6 +61,8 @@ const SERVER_ENGINES = {
   sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
   tags: { marker: '__wskit_tags', label: 'tags storage engine' },
   replay: { marker: '__wskit_replay', label: 'replay engine' },
+  inbox: { marker: '__wskit_inbox', label: 'inbox engine' },
+  lastSeen: { marker: '__wskit_last_seen', label: 'last-seen engine' },
   keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
   dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
   request: { marker: '__wskit: "request"', label: 'request engine' },
@@ -127,6 +129,22 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'tags', source: importStar(f('tags.js')), owns: 'tags', alsoPulls: [] },
+    // Inbox reads channel membership to resolve who a channel's messages go to,
+    // so it pulls in the membership table's SQL (channelStorage), not the wire
+    // runtime — inbox is a channel-only capability, so `channels()` is always
+    // listed alongside it anyway.
+    {
+      name: 'inbox',
+      source: importStar(f('inbox.js')),
+      owns: 'inbox',
+      alsoPulls: ['channelStorage'],
+    },
+    {
+      name: 'last-seen',
+      source: importStar(f('last-seen.js')),
+      owns: 'lastSeen',
+      alsoPulls: [],
+    },
     { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
     { name: 'plugin', source: importStar(f('plugin.js')), owns: 'plugin', alsoPulls: [] },
   ];

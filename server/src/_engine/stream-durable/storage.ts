@@ -141,7 +141,8 @@ interface SubscriberRef {
 // All four statements (the PRAGMA + three CREATEs) bundled into one round
 // trip. The PRAGMA is repeated every boot anyway since SQLite resets it
 // per-connection, so it stays at the front of the bundle.
-const DURABLE_STREAM_SCHEMA_SQL = [
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const DURABLE_STREAM_SCHEMA_SQL = /* @__PURE__ */ [
   'PRAGMA foreign_keys = ON',
   CREATE_STREAMS_TABLE_SQL,
   CREATE_STREAMS_STATUS_INDEX_SQL,

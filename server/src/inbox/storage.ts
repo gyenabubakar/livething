@@ -33,7 +33,8 @@ const CREATE_INBOX_WATERMARK_TABLE_SQL = `
   )
 `;
 
-const INBOX_SCHEMA_SQL = [
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const INBOX_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_INBOX_TABLE_SQL,
   CREATE_INBOX_MEMBER_INDEX_SQL,
   CREATE_INBOX_WATERMARK_TABLE_SQL,

@@ -19,7 +19,11 @@ const CREATE_RECEIPTS_READ_INDEX_SQL = `
   ON __wskit_inbox_receipts (channel_name, channel_family, read_through)
 `;
 
-const RECEIPTS_SCHEMA_SQL = [CREATE_RECEIPTS_TABLE_SQL, CREATE_RECEIPTS_READ_INDEX_SQL].join(';\n');
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const RECEIPTS_SCHEMA_SQL = /* @__PURE__ */ [
+  CREATE_RECEIPTS_TABLE_SQL,
+  CREATE_RECEIPTS_READ_INDEX_SQL,
+].join(';\n');
 
 /** Create the receipts cursor table and its read-through index. Idempotent. */
 export function ensureReceiptsSchema(sql: Pick<SQLProvider, 'exec'>): void {

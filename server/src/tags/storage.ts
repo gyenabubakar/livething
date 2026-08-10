@@ -25,7 +25,8 @@ const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
 // All three DDL statements in one multi-statement string. Cloudflare's SQL
 // `exec` accepts semicolon-separated statements, so this is one round trip
 // instead of three.
-const TAGS_SCHEMA_SQL = [
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const TAGS_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_TAGS_TABLE_SQL,
   CREATE_TAGS_USER_INDEX_SQL,
   CREATE_TAGS_GROUP_KEY_INDEX_SQL,
