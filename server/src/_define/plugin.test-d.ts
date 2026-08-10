@@ -16,7 +16,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { inbox } from '~/inbox/capability.ts';
+import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -306,4 +306,16 @@ define({
   scope: 'plugin',
   // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
   capabilities: [inbox()],
+});
+
+define({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — readReceipts() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [readReceipts()],
+});
+
+define({
+  scope: 'plugin',
+  // @ts-expect-error — readReceipts() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [readReceipts()],
 });

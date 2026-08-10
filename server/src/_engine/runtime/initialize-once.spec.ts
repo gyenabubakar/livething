@@ -37,7 +37,9 @@ function buildEngine(handler: ServerDefinition): Engine {
   return captured;
 }
 
-function assembleWith(base: ReturnType<typeof define>): ServerDefinition {
+function assembleWith(
+  base: ReturnType<typeof define<Record<string, never>, unknown, readonly []>>,
+): ServerDefinition {
   return base.assemble({ handlers: [base.on('noop', { input: v.object({}), run() {} })] });
 }
 

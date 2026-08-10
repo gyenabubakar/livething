@@ -66,6 +66,7 @@ import type {
 } from './app-ctx.ts';
 import type {
   AnyCapability,
+  BrandIsWidened,
   BrandsOf,
   ChannelOnlyCapability,
   Contribution,
@@ -666,11 +667,18 @@ type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> 
  * Both are always-present, non-null members here (unlike the nullable
  * `handle.inbox()` / `handle.readReceipts()` methods on a `ctx.channels.get(...)`
  * handle, which may name any channel).
+ *
+ * `TChannelBrand` widened all the way to `string` (a capabilities array typed
+ * with the bare `string` brand rather than a literal union) means every brand
+ * check below would pass at once, so that case grants nothing instead.
  */
-type ChannelCapabilityArm<TChannelBrand extends string> = ('inbox' extends TChannelBrand
-  ? { readonly inbox: ChannelInbox }
-  : {}) &
-  ('readReceipts' extends TChannelBrand ? { readonly readReceipts: ChannelReadReceipts } : {});
+type ChannelCapabilityArm<TChannelBrand extends string> =
+  BrandIsWidened<TChannelBrand> extends true
+    ? {}
+    : ('inbox' extends TChannelBrand ? { readonly inbox: ChannelInbox } : {}) &
+        ('readReceipts' extends TChannelBrand
+          ? { readonly readReceipts: ChannelReadReceipts }
+          : {});
 
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
 export type ChannelCtx<
@@ -1431,13 +1439,21 @@ export interface ChannelInterceptMethods<
  * `inbox()` listed on the SAME channel. An invalid combination collapses the
  * accepted element type to `never`, so `readReceipts()` without `inbox()` in
  * the same array is a compile error at the call site.
+ *
+ * A `T` whose brand has widened to `string` (rather than a literal union)
+ * can't be checked for that rule at all — 'readReceipts' extends BrandsOf<T>`
+ * would pass regardless of what's actually listed — so it is rejected the
+ * same way: the accepted element brand collapses to `never`, and the widened
+ * array fails to satisfy it at the call site.
  */
 type ValidChannelCapabilities<T extends readonly ChannelOnlyCapability<{}, never, string>[]> =
-  'readReceipts' extends BrandsOf<T>
-    ? 'inbox' extends BrandsOf<T>
-      ? T
-      : readonly ChannelOnlyCapability<{}, never, Exclude<BrandsOf<T>, 'readReceipts'>>[]
-    : T;
+  BrandIsWidened<NonNullable<T[number]['__brand']>> extends true
+    ? readonly ChannelOnlyCapability<{}, never, never>[]
+    : 'readReceipts' extends BrandsOf<T>
+      ? 'inbox' extends BrandsOf<T>
+        ? T
+        : readonly ChannelOnlyCapability<{}, never, Exclude<BrandsOf<T>, 'readReceipts'>>[]
+      : T;
 
 /** Builder method granted by the `channels()` capability. */
 export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {

@@ -10,6 +10,8 @@ import { dedup } from '~/dedup/capability.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { expectTypeOf } from 'vitest';
+import type { ChannelOnlyCapability } from '~/_define/capability.ts';
+import type { ChannelCtx } from '~/_define/define.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 const base = define({
@@ -109,5 +111,19 @@ export const handleFromGetHandle = base.on('from-get-handle', {
     expectTypeOf(handle.readReceipts).toBeFunction();
   },
 });
+
+// A `capabilities` array typed exactly as the `capabilities` config field's own
+// type — `ChannelOnlyCapability<{}, never, string>[]` — is a widened brand, not
+// a literal union, so `base.channel(...)` rejects it outright rather than
+// silently granting nothing it lists.
+declare const widenedCaps: ChannelOnlyCapability<{}, never, string>[];
+// @ts-expect-error — a widened capabilities array is rejected outright.
+base.channel('widened-bypass', { capabilities: widenedCaps });
+
+// The same widened brand reaching `ChannelCtx` directly (the type that grants
+// `ctx.channel.inbox` / `ctx.channel.readReceipts`) does not grant either arm.
+type WidenedChannelCtx = ChannelCtx<{}, Record<string, never>, {}, {}, {}, readonly [], {}, string>;
+expectTypeOf<WidenedChannelCtx['channel']>().not.toHaveProperty('inbox');
+expectTypeOf<WidenedChannelCtx['channel']>().not.toHaveProperty('readReceipts');
 
 export type {};

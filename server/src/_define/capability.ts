@@ -205,10 +205,26 @@ export function defineHostCapability<TKind extends string, TArgs extends readonl
  */
 export type AnyCapability = Capability<any, string, string>;
 
-/** The union of builder-method brands granted across a list of capabilities. @internal */
-export type BrandsOf<TCaps extends readonly AnyCapability[]> = NonNullable<
-  TCaps[number]['__brand']
->;
+/**
+ * The union of builder-method brands granted across a list of capabilities.
+ * When a `capabilities` array is annotated with a widened type (e.g.
+ * `AnyCapability[]`), the brand union collapses to the full `string` type,
+ * which would make every `'x' extends BrandsOf<TCaps>` gate pass at once.
+ * Collapsing that case to `never` instead closes every gate together. @internal
+ */
+export type BrandsOf<TCaps extends readonly AnyCapability[]> =
+  string extends NonNullable<TCaps[number]['__brand']>
+    ? never
+    : NonNullable<TCaps[number]['__brand']>;
+
+/**
+ * True when a brand union has widened all the way to the full `string` type —
+ * e.g. a `capabilities` array annotated with a literal `string` brand instead
+ * of staying inferred as a literal union. Used where a brand reaches a type
+ * directly (not through `BrandsOf`), so it still needs an explicit widened
+ * check. @internal
+ */
+export type BrandIsWidened<TBrand extends string> = string extends TBrand ? true : false;
 
 /** The union of feature flags turned on across a list of capabilities. @internal */
 export type FeaturesOf<TCaps extends readonly AnyCapability[]> =
