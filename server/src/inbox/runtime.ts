@@ -13,11 +13,25 @@ import {
   loadUndeliveredRows,
   pruneInboxRetention,
 } from '~/inbox/storage.ts';
+import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
+
+/**
+ * Whether an engine channel scope belongs to the given channel key (channel
+ * name for a static channel, family key for a dynamic family). Shared by
+ * `inbox()` and `readReceipts()` to gate their wire handlers and context
+ * extenders to their own channel.
+ */
+export function scopeMatchesChannel(
+  scope: EngineChannelMeta | undefined,
+  channelKey: string,
+): boolean {
+  return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
+}
 
 /**
  * The default member cap for the live delivered/read receipt fan-out. Above it

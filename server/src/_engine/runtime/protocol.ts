@@ -189,15 +189,15 @@ export const SubscribeOkFrame = v.object({
   payload: NoPayload,
   // `source` is who initiated the subscribe: 'client' (the client's own
   // subscribe call, so it resolves that pending promise) or 'server' (the server
-  // subscribed it, so there is no client promise to settle). `channelPersistent`
-  // tells the client whether this channel auto-rejoins on reconnect (server
-  // -driven) so it knows not to re-subscribe it itself. `inbox` marks a channel
-  // whose delivery is inbox-backed, so the client acks only these with
-  // `__received__` and stays quiet on the rest.
+  // subscribed it, so there is no client promise to settle). `channelMembership`
+  // tells the client whether this channel auto-rejoins on reconnect ('persistent',
+  // server-driven) or not ('ephemeral') so it knows not to re-subscribe it itself.
+  // `inbox` marks a channel whose delivery is inbox-backed, so the client acks
+  // only these with `__received__` and stays quiet on the rest.
   __wskit: v.strictObject({
     ...RequiredChannelScope,
     source: Source,
-    channelPersistent: v.optional(v.boolean()),
+    channelMembership: v.picklist(['persistent', 'ephemeral']),
     inbox: v.optional(v.boolean()),
     readReceipts: v.optional(v.boolean()),
   }),

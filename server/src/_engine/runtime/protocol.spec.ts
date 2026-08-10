@@ -67,7 +67,7 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
   __subscribeOk__: {
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { channel: 'room', source: 'client', channelPersistent: false },
+    __wskit: { channel: 'room', source: 'client', channelMembership: 'ephemeral' },
   },
   __unsubscribeOk__: {
     event: '__unsubscribeOk__',

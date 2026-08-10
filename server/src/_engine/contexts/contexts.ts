@@ -198,6 +198,7 @@ export function buildConnectionContext(
     channel?: EngineCompileTypes.CompiledChannel;
     channelName?: string;
     channelFamily?: string | null;
+    isSubscribeGate?: boolean;
   },
 ): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
@@ -213,6 +214,7 @@ export function buildConnectionContext(
     [ENGINE_CHANNEL_META]: {
       channelName: scope?.channelName,
       channelFamily: scope?.channelFamily,
+      isSubscribeGate: scope?.isSubscribeGate,
     } satisfies EngineContextTypes.EngineChannelMeta,
 
     [ENGINE_INTERNAL_CONNECTION]: connection,

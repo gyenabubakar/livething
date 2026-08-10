@@ -164,7 +164,12 @@ interface ChannelRuntime extends ChannelHooks {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: { channel?: CompiledChannel; channelName?: string; channelFamily?: string | null },
+    scope?: {
+      channel?: CompiledChannel;
+      channelName?: string;
+      channelFamily?: string | null;
+      isSubscribeGate?: boolean;
+    },
   ): Record<PropertyKey, unknown>;
 
   persistAttachment(connection: RuntimeConnection): void;
@@ -422,6 +427,22 @@ async function runSubscribeFlow(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
+  // `check`/`commit`/`revalidate` run inline in the `base.channel(...)` config,
+  // alongside the `capabilities` array they would need to infer their brand
+  // from, so they are typed with no channel-only members (`ctx.channel.inbox`,
+  // `ctx.channel.readReceipts`). Build a separate ctx carrying the
+  // `isSubscribeGate` marker for them, so the channel-only context extenders
+  // skip attaching those members here — the shared `ctx` above (used for
+  // `subscribe` below) is untouched. Built lazily, and only when a gate hook
+  // is actually registered for this channel.
+  let gateCtx: Record<PropertyKey, unknown> | undefined;
+  function buildGateCtx(): Record<PropertyKey, unknown> {
+    return (gateCtx ??= runtime.buildConnectionContext(connection, {
+      ...scope,
+      isSubscribeGate: true,
+    }));
+  }
+
   // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
   // `revalidate` instead — no payload, revocation only — so a payload-gated
   // `check` is never handed an undefined payload on reconnect.
@@ -430,7 +451,7 @@ async function runSubscribeFlow(
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
       try {
-        await revalidateHook(ctx);
+        await revalidateHook(buildGateCtx());
       } catch (error) {
         // A config error is a framework misconfig, not a revocation — let it
         // propagate so auto-rejoin keeps the membership instead of dropping it.
@@ -460,7 +481,7 @@ async function runSubscribeFlow(
           throw error;
         }
       }
-      checkResult = await checkHook.handler(ctx, validatedData);
+      checkResult = await checkHook.handler(buildGateCtx(), validatedData);
     }
   }
 
@@ -486,7 +507,7 @@ async function runSubscribeFlow(
   if (!rejoining) {
     const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
     if (commitHook) {
-      const r: unknown = commitHook.handler(ctx, checkResult);
+      const r: unknown = commitHook.handler(buildGateCtx(), checkResult);
       // Detect any thenable — a native Promise, a cross-realm Promise, or a
       // custom `{ then() {} }` — not just `instanceof Promise`. An async-like
       // commit must fail before membership is written.
@@ -518,14 +539,15 @@ async function runSubscribeFlow(
   const wskit = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
-  // delay or block it from reaching the client. The persistent flag tells the
-  // client to leave this channel to server-driven auto-rejoin on reconnect
-  // rather than re-subscribing it itself. The inbox flag tells the client to ack
-  // this channel's messages (and only inbox channels) with `__received__`.
+  // delay or block it from reaching the client. The membership value tells the
+  // client whether to leave this channel to server-driven auto-rejoin on
+  // reconnect ('persistent') rather than re-subscribing it itself
+  // ('ephemeral'). The inbox flag tells the client to ack this channel's
+  // messages (and only inbox channels) with `__received__`.
   const confirmation: Record<string, unknown> = {
     ...wskit,
     source,
-    channelPersistent: isDurable,
+    channelMembership: isDurable ? 'persistent' : 'ephemeral',
   };
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.inbox = true;

@@ -471,7 +471,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -489,7 +489,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'server', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'server', channel: 'general', channelMembership: 'persistent' },
       });
 
       expect(() => room.send('send-message', { text: 'hi' })).toThrow();
@@ -519,7 +519,7 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       const leave = room.unsubscribe();
@@ -577,7 +577,7 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       const leave = room.unsubscribe();

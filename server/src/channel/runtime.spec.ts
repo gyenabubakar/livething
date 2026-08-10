@@ -192,7 +192,7 @@ describe('channel runtime', () => {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'client',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       },
       {
@@ -1014,7 +1014,7 @@ describe('subscribeConnectionAsServer', () => {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'server',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       },
       {
@@ -1085,7 +1085,7 @@ describe('subscribeConnectionAsServer', () => {
       channel: 'room:general',
       channelFamily: 'rooms',
       source: 'server',
-      channelPersistent: true,
+      channelMembership: 'persistent',
     });
   });
 
@@ -1345,7 +1345,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: { channel: 'lobby', source: 'server', channelPersistent: false },
+        wskit: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
       },
       {
         connectionId: 'target',

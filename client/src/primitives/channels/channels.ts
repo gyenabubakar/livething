@@ -202,7 +202,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               }
               helpers.log.info(`channel '${name}' subscribed (${source})`);
               warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
-              state.persistent = wskit?.channelPersistent === true;
+              state.persistent = wskit?.channelMembership === 'persistent';
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));
               // Forward so inbox() (after channels) can read `__wskit.inbox`; stays channel-scoped.

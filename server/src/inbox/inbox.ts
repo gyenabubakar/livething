@@ -8,7 +8,11 @@ import {
   ensureReceiptsSchema,
   listReceivers,
 } from '~/inbox/receipts-storage.ts';
-import { applyInboxAck, DEFAULT_MAX_RECEIPT_AUDIENCE } from '~/inbox/runtime.ts';
+import {
+  applyInboxAck,
+  DEFAULT_MAX_RECEIPT_AUDIENCE,
+  scopeMatchesChannel,
+} from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
 import { buildInboxSurface } from '~/inbox/surface.ts';
@@ -121,7 +125,9 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
       [ENGINE_CHANNEL_META]?: EngineChannelMeta;
     };
     const scope = ctx[ENGINE_CHANNEL_META];
-    if (!ctx.channel || !scopeMatchesChannel(scope, channelKey)) return {};
+    if (!ctx.channel || !scopeMatchesChannel(scope, channelKey) || scope?.isSubscribeGate) {
+      return {};
+    }
 
     ctx.channel.inbox = buildInboxSurface(engine, {
       channelName: scope?.channelName ?? channelKey,
@@ -219,10 +225,6 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
     });
     return true;
   };
-}
-
-function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: string): boolean {
-  return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
 }
 
 /** True when the acking socket is still a current member of the channel. */

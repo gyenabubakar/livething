@@ -97,7 +97,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       // Drop → reconnect. A persistent channel is auto-rejoined by the server, so
@@ -177,7 +177,7 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
       first.emit({
         event: '__subscribeOk__',
@@ -186,7 +186,7 @@ describe('channels-reconnect-skips-persistent', () => {
           source: 'client',
           channel: 'room:1',
           channelFamily: 'rooms',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       });
 
@@ -219,7 +219,7 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -297,7 +297,7 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -699,7 +699,7 @@ describe('BUG persistence-flip', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -758,7 +758,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       MockWebSocket.last().emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
       MockWebSocket.last().serverClose(1006);
       vi.advanceTimersByTime(1500);

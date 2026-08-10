@@ -5,7 +5,7 @@ import { registerReadReceiptsHandleAugmenter } from '~/inbox/read-receipts-augme
 import { buildReadReceiptsSurface } from '~/inbox/read-receipts-surface.ts';
 import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
 import { advanceReadThrough, listReaders } from '~/inbox/receipts-storage.ts';
-import { applyInboxAck } from '~/inbox/runtime.ts';
+import { applyInboxAck, scopeMatchesChannel } from '~/inbox/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type {
@@ -72,7 +72,9 @@ function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
       [ENGINE_CHANNEL_META]?: EngineChannelMeta;
     };
     const scope = ctx[ENGINE_CHANNEL_META];
-    if (!ctx.channel || !scopeMatchesChannel(scope, channelKey)) return {};
+    if (!ctx.channel || !scopeMatchesChannel(scope, channelKey) || scope?.isSubscribeGate) {
+      return {};
+    }
 
     ctx.channel.readReceipts = buildReadReceiptsSurface(engine, {
       channelName: scope?.channelName ?? channelKey,
@@ -210,10 +212,6 @@ function settleInboxOnRead(
     onDelivered: inboxConfig.onDelivered,
   });
   return inboxConfig;
-}
-
-function scopeMatchesChannel(scope: EngineChannelMeta | undefined, channelKey: string): boolean {
-  return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
 }
 
 /**

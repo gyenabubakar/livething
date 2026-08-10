@@ -35,8 +35,8 @@ export interface WSKitEnvelope {
   /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
   unsubscribeId?: string;
 
-  /** Set to `true` on `__subscribeOk__` when the server manages rejoining the channel on reconnect, so the client should not re-subscribe it. */
-  channelPersistent?: boolean;
+  /** Set on `__subscribeOk__` to `'persistent'` when the server manages rejoining the channel on reconnect (so the client should not re-subscribe it) or `'ephemeral'` otherwise. */
+  channelMembership?: 'persistent' | 'ephemeral';
 
   /** Set to `true` on `__subscribeOk__` when the channel is inbox-backed, so the client acks its messages with `__received__` and stays quiet on other channels. */
   inbox?: boolean;

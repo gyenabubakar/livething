@@ -749,17 +749,35 @@ export type ChannelConfig<
   };
   /** Schema validating the payload a client sends on subscribe. */
   readonly subscribe?: TSubscribe;
-  /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
+  /**
+   * Async gate before the subscriber is counted. Return a value forwarded to
+   * `commit`; throw to reject. Written inside this same config object, before
+   * `capabilities` can be read back, so `ctx.channel.inbox` and
+   * `ctx.channel.readReceipts` are not available here — read them in
+   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   */
   check?: (
     ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
     input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
-  /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
+  /**
+   * Sync gate after the subscriber is counted (members include the joiner).
+   * Throw to reject. Written inside this same config object, before
+   * `capabilities` can be read back, so `ctx.channel.inbox` and
+   * `ctx.channel.readReceipts` are not available here — read them in
+   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   */
   commit?: (
     ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
     checkResult: Awaited<TCheckResult>,
   ) => void;
-  /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
+  /**
+   * Re-authorize on auto-rejoin after reconnect (persistent memberships).
+   * Throw to drop. Written inside this same config object, before
+   * `capabilities` can be read back, so `ctx.channel.inbox` and
+   * `ctx.channel.readReceipts` are not available here — read them in
+   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   */
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
   /** Whether membership survives a reconnect (default `'persistent'`). */
   readonly membership?: 'persistent' | 'ephemeral';
