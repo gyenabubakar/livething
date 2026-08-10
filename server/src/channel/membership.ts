@@ -22,7 +22,7 @@ type SubscribeFromServerFn = (
 
 /**
  * Write a durable channel-membership row. The caller should check
- * `isChannelPersistent(...)` first.
+ * `isChannelDurable(...)` first.
  *
  * Skips the write for an empty user id. A durable membership row exists only
  * to auto-rejoin the same user on a future reconnect, which needs a stable

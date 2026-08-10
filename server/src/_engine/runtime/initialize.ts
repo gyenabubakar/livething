@@ -28,8 +28,8 @@ function validatePrimitives(core: EngineCore): void {
     const view: ValidationView = {
       sequencePersistent: core.sequencePersistent,
       channelKey,
-      isChannelPersistent(key: string): boolean {
-        return core.isChannelPersistent(key);
+      isChannelDurable(key: string): boolean {
+        return core.isChannelDurable(key);
       },
     };
     for (const primitive of primitives) {

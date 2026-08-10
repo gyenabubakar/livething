@@ -109,8 +109,8 @@ export class EngineCore {
    */
   freshBoot = false;
 
-  /** Per-channel `persistent` overrides. Explicit `false` opts out. */
-  readonly channelPersistenceOverrides = new Map<string, boolean>();
+  /** Per-channel `membership` overrides. Explicit `'ephemeral'` opts out. */
+  readonly channelDurabilityOverrides = new Map<string, boolean>();
 
   /**
    * Resolved inbox settings per channel key, populated by the `inbox()`
@@ -276,8 +276,8 @@ export class EngineCore {
     return this.tagGroupsRegistered.ephemeral || this.tagGroupsRegistered.persistent;
   }
 
-  isChannelPersistent(channelKey: string): boolean {
-    return this.channelPersistenceOverrides.get(channelKey) !== false;
+  isChannelDurable(channelKey: string): boolean {
+    return this.channelDurabilityOverrides.get(channelKey) !== false;
   }
 
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {
@@ -295,15 +295,15 @@ export class EngineCore {
 
   /**
    * Does a `(channelName, channelFamily)` pair from a durable row still match a
-   * persistent channel? Used by boot reconcile to find orphan rows from
-   * removed or `persistent: false` channels.
+   * durable channel? Used by boot reconcile to find orphan rows from
+   * removed or `membership: 'ephemeral'` channels.
    */
-  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean {
+  isDurableMembershipPairDurable(channelName: string, channelFamily: string | null): boolean {
     if (channelFamily === null) {
       const channel = this.compiled.channels.get(channelName);
-      return channel ? this.isChannelPersistent(channel.key) : false;
+      return channel ? this.isChannelDurable(channel.key) : false;
     }
     const family = this.compiled.channelFamilies.get(channelFamily);
-    return family ? this.isChannelPersistent(family.key) : false;
+    return family ? this.isChannelDurable(family.key) : false;
   }
 }

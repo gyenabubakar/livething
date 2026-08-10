@@ -295,7 +295,7 @@ describe('connection runtime', () => {
       },
     );
 
-    // Well past any interval the engine used to default to.
+    // A generous interval — long enough that any ping timer would have fired.
     vi.advanceTimersByTime(120_000);
     expect(sent).not.toContain('ping');
 

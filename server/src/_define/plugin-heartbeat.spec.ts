@@ -58,7 +58,7 @@ async function openConnection(engine: Engine) {
 }
 
 describe('plugin onPing / onPong', () => {
-  it('a plugin can register onPing / onPong — no longer rejected at assemble', async () => {
+  it('a plugin can register onPing / onPong', async () => {
     const seen: string[] = [];
     const ph = define({ scope: 'plugin' });
     const beat = ph.on('beat', { input: v.object({}), run() {} });

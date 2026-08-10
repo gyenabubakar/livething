@@ -17,7 +17,7 @@ type RawRow = { channel_name: string; channel_family: string };
  */
 export function reconcileMembershipOnBoot(
   sql: Pick<SQLProvider, 'exec'>,
-  isPairPersistent: (channelName: string, channelFamily: string | null) => boolean,
+  isPairDurable: (channelName: string, channelFamily: string | null) => boolean,
 ): number {
   const pairs = sql
     .exec<RawRow>('SELECT DISTINCT channel_name, channel_family FROM __wskit_channel_memberships')
@@ -29,7 +29,7 @@ export function reconcileMembershipOnBoot(
 
   let dropped = 0;
   for (const pair of pairs) {
-    if (isPairPersistent(pair.channelName, pair.channelFamily)) continue;
+    if (isPairDurable(pair.channelName, pair.channelFamily)) continue;
     deleteMembershipsByChannel(sql, pair.channelName, pair.channelFamily);
     dropped++;
   }

@@ -285,9 +285,9 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   8. channel membership reconcile (cleanup SELECT)
     //   9-10. scheduled bootstrap loads queued runs + dlq
     //   11. scheduled persist-after-restore — one INSERT for the new recurring
-    //       run added by ensureRecurringRuns. The diff-based persist no longer
-    //       emits DELETE-all / reinsert-all per call, so the empty-load case
-    //       costs zero extra writes; only genuine new rows are written.
+    //       run added by ensureRecurringRuns. The diff-based persist only
+    //       writes genuine new rows, so the empty-load case costs zero extra
+    //       writes.
     //
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
@@ -349,12 +349,16 @@ describe('engine declaredErrorCodes', () => {
 describe('revalidate requires a persistent channel', () => {
   const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
 
-  it('throws at boot when a `persistent: false` channel has a .revalidate() hook', async () => {
+  it("throws at boot when a `membership: 'ephemeral'` channel has a .revalidate() hook", async () => {
     const base = define({
       env: t<Record<string, unknown>>(),
       capabilities: [channels()],
     });
-    const room = base.channel('room', { ...channelOutgoing, persistent: false, revalidate() {} });
+    const room = base.channel('room', {
+      ...channelOutgoing,
+      membership: 'ephemeral',
+      revalidate() {},
+    });
     const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(

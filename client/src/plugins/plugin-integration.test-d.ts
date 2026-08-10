@@ -65,7 +65,7 @@ socket.on('__acme:presence::here', (data) => {
   expectTypeOf(data).not.toBeAny();
 });
 
-// The CLAIMED namespace is gone from the top level — reach it through the plugin.
+// The CLAIMED namespace is not reachable at the top level — reach it through the plugin.
 // @ts-expect-error — '__acme:chat::message' is claimed by the Chat plugin
 socket.on('__acme:chat::message', () => {});
 // @ts-expect-error — '__acme:chat::typing' is claimed by the Chat plugin

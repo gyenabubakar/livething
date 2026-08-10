@@ -11,7 +11,7 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
-import { persistentMarker } from '~/channel/marker.ts';
+import { membershipMarker } from '~/channel/marker.ts';
 import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
@@ -138,7 +138,9 @@ export class ChannelBuilder {
       }
       register(this.__key, serverRequests);
     }
-    if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
+    if (cfg.membership !== undefined) {
+      this.children.push(membershipMarker(cfg.membership === 'persistent'));
+    }
     if (cfg.replay !== undefined) {
       const build = deps.buildBuiltinReplay;
       if (!build) {
@@ -338,8 +340,8 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
 /**
  * Enable channels — subscription scopes with their own events, gates, and
  * lifecycle. Listing this grants `base.channel(...)` and the `ctx.channels`
- * accessor. Channel membership is durable by default (set `persistent: false`
- * on a channel to opt out); channel streams need the matching stream
+ * accessor. Channel membership is durable by default (set `membership:
+ * 'ephemeral'` on a channel to opt out); channel streams need the matching stream
  * capability, and a custom channel replay needs `replay.custom()`.
  *
  * @example

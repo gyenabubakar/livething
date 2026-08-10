@@ -742,8 +742,8 @@ export type ChannelConfig<
   ) => void;
   /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
-  /** Keep membership durable (default true); set false to opt out. */
-  readonly persistent?: boolean;
+  /** Whether membership survives a reconnect (default `'persistent'`). */
+  readonly membership?: 'persistent' | 'ephemeral';
   /**
    * Per-channel built-in replay opt-in/out, cascading from `define`. `true` is
    * shorthand for history mode with defaults; `false` opts this channel out.

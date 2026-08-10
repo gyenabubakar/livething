@@ -1,36 +1,36 @@
 import type { Primitive } from '~/primitive.ts';
 
-/** The TypeScript type returned by `persistentMarker(enabled)`. */
-export interface PersistentMarkerPrimitive extends Primitive<'persistent-marker'> {
-  /** Whether the channel opts into persistence. `false` is the only useful value today. */
-  readonly enabled: boolean;
+/** The TypeScript type returned by `membershipMarker(durable)`. */
+export interface MembershipMarkerPrimitive extends Primitive<'membership-marker'> {
+  /** Whether the channel opts into durable membership. `false` is the only useful value today. */
+  readonly durable: boolean;
 }
 
 /** @internal */
-const PERSISTENT_MARKER_KEY = Symbol('persistent-marker');
+const MEMBERSHIP_MARKER_KEY = Symbol('membership-marker');
 
 /**
- * Channel-scope marker that records the dev's per-channel `persistent` choice
+ * Channel-scope marker that records the dev's per-channel `membership` choice
  * on the engine. The engine reads this back per channel-key at runtime to
  * decide whether to write a durable membership row on subscribe and whether to
- * drop the row on disconnect. A channel with no explicit choice is persistent
+ * drop the row on disconnect. A channel with no explicit choice is durable
  * by default; this marker only exists for a channel that states one.
  *
  * @internal
  */
-export function persistentMarker(enabled: boolean): PersistentMarkerPrimitive {
+export function membershipMarker(durable: boolean): MembershipMarkerPrimitive {
   return {
-    __wskit: 'persistent-marker',
+    __wskit: 'membership-marker',
     __kind: 'infrastructure',
-    __identity: [PERSISTENT_MARKER_KEY],
+    __identity: [MEMBERSHIP_MARKER_KEY],
     __requires: {},
-    enabled,
+    durable,
     __setup(engine) {
       const scope = engine.getScopeInfo();
       if (!scope.channelKey) return;
-      engine.setChannelPersistent(scope.channelKey, enabled);
+      engine.setChannelDurable(scope.channelKey, durable);
     },
   };
 }
 
-persistentMarker.__key = PERSISTENT_MARKER_KEY;
+membershipMarker.__key = MEMBERSHIP_MARKER_KEY;

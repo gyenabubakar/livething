@@ -138,7 +138,7 @@ function createRuntime(
       },
       async handleValidationError() {},
       async handleRuntimeError() {},
-      isChannelPersistent: () => false,
+      isChannelDurable: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
       hasDurableMembership: () => true,
@@ -147,9 +147,10 @@ function createRuntime(
 }
 
 describe('createChannelMembershipKey', () => {
-  it('produces distinct keys for previously colliding (family, name) pairs', () => {
-    // Family 'rooms' + name 'private::lobby' would have collided with family
-    // 'rooms::private' + name 'lobby' under the old `${scope}::${name}` join.
+  it('produces distinct keys for pairs that would collide under a naive join', () => {
+    // Family 'rooms' + name 'private::lobby' must stay distinct from family
+    // 'rooms::private' + name 'lobby', even though a plain `${scope}::${name}`
+    // join would produce the same string for both.
     const a = createChannelMembershipKey('private::lobby', 'rooms');
     const b = createChannelMembershipKey('lobby', 'rooms::private');
     expect(a).not.toBe(b);
@@ -372,7 +373,7 @@ describe('channel runtime', () => {
     });
   });
 
-  it('keeps the legacy channel-not-subscribed error for a no-id leave of a non-member', async () => {
+  it('returns the channel-not-subscribed error for a no-id leave of a non-member', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -605,7 +606,7 @@ describe('channel runtime', () => {
       subscribeConnection(
         {
           ...runtime,
-          isChannelPersistent: () => true,
+          isChannelDurable: () => true,
           persistMembership: () => {
             throw new Error('storage down');
           },
@@ -1049,7 +1050,7 @@ describe('subscribeConnectionAsServer', () => {
     // Persistent channel, but the saved membership is already gone — rejoin must not resurrect it.
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => false,
     };
 
@@ -1071,7 +1072,7 @@ describe('subscribeConnectionAsServer', () => {
     const target = createConnection('target', { userId: 't' });
     connections.set(target.id, target);
 
-    const persistentRuntime = { ...runtime, isChannelPersistent: () => true };
+    const persistentRuntime = { ...runtime, isChannelDurable: () => true };
 
     await subscribeConnectionAsServer(persistentRuntime, target, {
       channelName: 'room:general',
@@ -1097,7 +1098,7 @@ describe('subscribeConnectionAsServer', () => {
     const revalidateHook = vi.fn();
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
       revalidateHooks: new Map([['rooms', [revalidateHook]]]),
@@ -1126,7 +1127,7 @@ describe('subscribeConnectionAsServer', () => {
     const onSubscribeHook = vi.fn();
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
@@ -1150,7 +1151,7 @@ describe('subscribeConnectionAsServer', () => {
 
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       revalidateHooks: new Map([
         [
@@ -1190,7 +1191,7 @@ describe('subscribeConnectionAsServer', () => {
 
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       revalidateHooks: new Map([
         [
@@ -1507,9 +1508,9 @@ describe('channel runtime bug tests', () => {
     const persistentRuntime = {
       ...runtime,
       // Simulate the channel definition being gone (hot-reload / upgrade).
-      // isChannelPersistent is not called when channel is undefined, but we still
+      // isChannelDurable is not called when channel is undefined, but we still
       // pass it to indicate intent. The fallback path in leaveChannel uses '' as key.
-      isChannelPersistent: (key: string) => key === '' || key === 'rooms',
+      isChannelDurable: (key: string) => key === '' || key === 'rooms',
     };
 
     await leaveChannel(persistentRuntime as never, connection, {

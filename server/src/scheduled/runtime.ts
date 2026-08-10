@@ -528,13 +528,11 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     scheduledRuns.delete(run.id);
   }
 
-  // The pre-run persist used to live here as an at-most-once safety net: it
-  // wrote the "claimed" state before executing tasks so a crash mid-execution
-  // could not re-fire them on the next wake. It has been removed in favour of
-  // at-least-once delivery — the single persist at the end captures both the
-  // claim and the post-run state in one transaction. A DO crash between claim
-  // and persist leaves the run row in storage, and the next wake re-fires it.
-  // Match Cloudflare Queues semantics; handlers must be idempotent.
+  // Delivery is at-least-once: the single persist at the end of this function
+  // captures both the claim and the post-run state in one transaction. A DO
+  // crash between claim and persist leaves the run row in storage, and the
+  // next wake re-fires it. Matches Cloudflare Queues semantics; handlers must
+  // be idempotent.
 
   const results = await Promise.allSettled(
     due.map(async (run) => {

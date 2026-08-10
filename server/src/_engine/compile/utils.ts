@@ -32,11 +32,11 @@ export function collectUnique<T>(
 /**
  * Insert into a compile-time map and throw if the key already exists. Each
  * primitive kind (incoming, outgoing, request, stream variants, scheduled,
- * channel) owns its own slot on `CompiledServer`, and a duplicate
- * declaration in the same slot was previously silent — the second declaration
- * just overwrote the first. With this helper, a duplicate fails build with a
- * clear `WSKitConfigError` so the engine refuses to construct and the server
- * doesn't start with a half-broken contract.
+ * channel) owns its own slot on `CompiledServer`, and without this check a
+ * duplicate declaration in the same slot would silently overwrite the first.
+ * With this helper, a duplicate fails build with a clear `WSKitConfigError`
+ * so the engine refuses to construct and the server doesn't start with a
+ * half-broken contract.
  */
 export function setUniqueOrThrow<V>(
   map: Map<string, V>,

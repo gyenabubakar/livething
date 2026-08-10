@@ -187,11 +187,12 @@ interface ChannelRuntime extends ChannelHooks {
 
   /**
    * Whether the given channel-key should write durable memberships. Returns
-   * `false` only when the channel set `persistent: false` in its definition —
-   * every other channel is durable by default. The runtime gates every
-   * membership write through this so an opted-out channel pays no SQL cost.
+   * `false` only when the channel set `membership: 'ephemeral'` in its
+   * definition — every other channel is durable by default. The runtime gates
+   * every membership write through this so an opted-out channel pays no SQL
+   * cost.
    */
-  isChannelPersistent(channelKey: string): boolean;
+  isChannelDurable(channelKey: string): boolean;
 
   /**
    * Insert or replace a durable membership row for the given user. Called
@@ -306,18 +307,18 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
-  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : disconnect;
+  const isDurable = scope.channel ? runtime.isChannelDurable(scope.channel.key) : disconnect;
 
   // A disconnect on a persistent channel only ends the session. Every other
   // path also changes group membership.
-  const isTrueLeave = !disconnect || !isPersistent;
+  const isTrueLeave = !disconnect || !isDurable;
 
   // Remove membership before running any async hooks. A concurrent leave
   // will see the member already gone and stop early.
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  if (isTrueLeave && (isPersistent || !scope.channel) && !keepDurableRow) {
+  if (isTrueLeave && (isDurable || !scope.channel) && !keepDurableRow) {
     runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
     if (connection.userId) {
       runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
@@ -467,13 +468,13 @@ async function runSubscribeFlow(
     return;
   }
 
-  const isPersistent = runtime.isChannelPersistent(scope.channel.key);
+  const isDurable = runtime.isChannelDurable(scope.channel.key);
 
   // Re-check durable membership here — a leave that finished after phase 1
   // may have already cleared the row.
   if (
     rejoining &&
-    isPersistent &&
+    isDurable &&
     !runtime.hasDurableMembership(connection.userId, scope.channelName, scope.channelFamily)
   ) {
     return;
@@ -502,7 +503,7 @@ async function runSubscribeFlow(
   // Write the durable membership row first. If the SQL write throws, the
   // connection must not already be a live member of a channel it was never
   // saved into.
-  if (isPersistent) {
+  if (isDurable) {
     runtime.persistMembership(connection.userId, scope.channelName, scope.channelFamily);
   }
 
@@ -524,7 +525,7 @@ async function runSubscribeFlow(
   const confirmation: Record<string, unknown> = {
     ...wskit,
     source,
-    channelPersistent: isPersistent,
+    channelPersistent: isDurable,
   };
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.inbox = true;
@@ -704,7 +705,7 @@ export interface UnsubscribeConnectionOptions extends ChannelMembership {
  * is judged against current membership. An id-bearing leave for a channel the
  * connection is no longer in (a resend after the first ack was lost on a drop)
  * is re-acked without re-running hooks or broadcasts. A leave with no id for a
- * non-member keeps the legacy `ChannelNotSubscribed` error — the reliable client
+ * non-member gets the `ChannelNotSubscribed` error — the reliable client
  * always sends an id, so only low-level senders hit that path. An unknown channel
  * is always `ChannelNotFound`.
  */

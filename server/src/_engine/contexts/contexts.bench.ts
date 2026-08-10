@@ -67,7 +67,7 @@ describe('buildConnectionContext', () => {
     buildCtx(connection);
   });
 
-  // Forces the deferred buildChannelsApi — what the old eager build did
+  // Forces the deferred buildChannelsApi, simulating a build that runs
   // unconditionally on every message.
   bench('build + access ctx.channels', () => {
     const ctx = buildCtx(connection) as Record<string, unknown>;
@@ -75,14 +75,14 @@ describe('buildConnectionContext', () => {
   });
 });
 
-// A dispatch with 3 intercepts: the old path built a fresh context for
-// each intercept plus the handler (4 builds); 2a builds one and shares it.
+// A dispatch with 3 intercepts: compares one shared context against a fresh
+// context built for each intercept plus the handler (4 builds).
 describe('context builds for a 3-intercept dispatch', () => {
-  bench('one shared context (2a)', () => {
+  bench('one shared context', () => {
     buildCtx(connection);
   });
 
-  bench('a fresh context per intercept + handler (before 2a)', () => {
+  bench('a fresh context per intercept + handler', () => {
     for (let i = 0; i < 4; i++) {
       buildCtx(connection);
     }

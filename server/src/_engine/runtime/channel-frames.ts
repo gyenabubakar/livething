@@ -38,7 +38,7 @@ interface ChannelRuntime
     opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
   ): Promise<void>;
 
-  isChannelPersistent(channelKey: string): boolean;
+  isChannelDurable(channelKey: string): boolean;
 
   persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
   deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;

@@ -10,8 +10,8 @@ import { WSKitConfigError } from '@wskit/core';
  * - `cfg{{x}}`             `{{`/`}}` are literal braces → matches `cfg{x}`
  *
  * Each `{name}` matches one or more characters (lazily up to the next literal,
- * greedily to the end when trailing), the same reach the old `.+` regex had. A
- * literal must separate two params so a multi-param template is never ambiguous.
+ * greedily to the end when trailing). A literal must separate two params so a
+ * multi-param template is never ambiguous.
  */
 export interface CompiledChannelTemplate {
   /** The original template string, kept for error messages and reconstruction. */

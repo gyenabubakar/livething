@@ -50,8 +50,8 @@ function sentTo(connection: RuntimeConnection): boolean {
   return (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls.length > 0;
 }
 
-describe('broadcastToConnections — includeSelf (replaces excludeSelf, default flipped to false)', () => {
-  it('omitting includeSelf excludes the sender by default — same behavior as the old excludeSelf: true default', () => {
+describe('broadcastToConnections — includeSelf (defaults to false)', () => {
+  it('omitting includeSelf excludes the sender by default', () => {
     const runtime = createRuntime();
     const sender = createConnection('sender');
     const other = createConnection('other');

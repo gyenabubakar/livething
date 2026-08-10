@@ -50,8 +50,8 @@ describe('wire-string length caps', () => {
   });
 
   it('caps streamId consistently between protocol frames and user-event __wskit', () => {
-    // Regression: user-event __wskit.streamId used to be unbounded while the
-    // protocol frames capped it at 128.
+    // Regression: user-event __wskit.streamId must be capped at 128, the same
+    // as protocol frames.
     const tooLong = v.safeParse(WSKitProtocolSchema, { streamId: 's'.repeat(ID_MAX + 1) });
     expect(tooLong.success).toBe(false);
     const ok = v.safeParse(WSKitProtocolSchema, { streamId: 's'.repeat(ID_MAX) });

@@ -141,7 +141,7 @@ describe('kick(userRef, { revoke: true })', () => {
       sendProtocolMessage() {},
       broadcastToChannel() {},
       async handleValidationError() {},
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       persistMembership() {},
       deleteDurableMembership,
       hasDurableMembership: () => true,
@@ -257,7 +257,9 @@ describe('durable membership is the channel default', () => {
     return { engine, sql };
   }
 
-  function makeHandler(channelConfig: { persistent?: boolean } = {}): ServerDefinition {
+  function makeHandler(
+    channelConfig: { membership?: 'persistent' | 'ephemeral' } = {},
+  ): ServerDefinition {
     const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
     const room = base.channel('room', channelConfig);
     const noop = room.on('noop', { run() {} });
@@ -288,7 +290,7 @@ describe('durable membership is the channel default', () => {
     );
   }
 
-  it('writes a membership row on subscribe when no `persistent` setting is given', async () => {
+  it('writes a membership row on subscribe when no `membership` setting is given', async () => {
     const { engine, sql } = await buildEngine(makeHandler());
     const { handle } = await connectUser(engine, 'alice');
 
@@ -312,8 +314,8 @@ describe('durable membership is the channel default', () => {
     expect(hasChannelMembership(second, 'room', null)).toBe(true);
   });
 
-  it('writes no row and does not rejoin when the channel opts out with `persistent: false`', async () => {
-    const handler = makeHandler({ persistent: false });
+  it("writes no row and does not rejoin when the channel opts out with `membership: 'ephemeral'`", async () => {
+    const handler = makeHandler({ membership: 'ephemeral' });
     const { engine, sql } = await buildEngine(handler);
     const { handle: firstHandle } = await connectUser(engine, 'alice');
     await subscribeToRoom(firstHandle);

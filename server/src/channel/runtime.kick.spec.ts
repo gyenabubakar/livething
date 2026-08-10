@@ -125,7 +125,7 @@ describe('channels.kick end-to-end', () => {
         broadcasts.push({ channelName, event, payload, excludeConnectionId });
       },
       async handleValidationError() {},
-      isChannelPersistent: () => false,
+      isChannelDurable: () => false,
       persistMembership() {},
       deleteDurableMembership() {},
     };
@@ -246,7 +246,7 @@ describe('channels.kick end-to-end', () => {
       sendProtocolMessage() {},
       broadcastToChannel() {},
       async handleValidationError() {},
-      isChannelPersistent: () => false,
+      isChannelDurable: () => false,
       persistMembership() {},
       deleteDurableMembership() {},
     };
@@ -340,7 +340,7 @@ describe('channels.kick end-to-end', () => {
       sendProtocolMessage() {},
       broadcastToChannel() {},
       async handleValidationError() {},
-      isChannelPersistent: (_key: string) => true,
+      isChannelDurable: (_key: string) => true,
       persistMembership() {},
       deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null) {
         deletedRows.push({ userId, channelName, channelFamily });

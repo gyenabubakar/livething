@@ -56,7 +56,7 @@ const handleTriggerServerSubscribeDynamic = base.on('trigger-server-subscribe-dy
 const room = base.channel(['room', 'room:{id}'], {
   // Ephemeral: the leave test drops a connection and expects the
   // onUnsubscribe system broadcast, which needs a true leave on disconnect.
-  persistent: false,
+  membership: 'ephemeral',
   outgoing: {
     emits: {
       'room-message': t<{ channel: string; text: string; from: string; kind: string }>(),

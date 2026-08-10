@@ -154,7 +154,7 @@ archiveRoom.sessionEnd((ctx) => {
 });
 
 const typingIndicator = base.channel('typing-indicator', {
-  persistent: false,
+  membership: 'ephemeral',
   outgoing: {
     emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
   },

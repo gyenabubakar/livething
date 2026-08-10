@@ -416,13 +416,13 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Record a per-channel `persistent` override. The engine reads
-   * this back at runtime via `isChannelPersistent(channelKey)` to decide
+   * Record a per-channel `membership` override. The engine reads
+   * this back at runtime via `isChannelDurable(channelKey)` to decide
    * whether to write a durable membership row on subscribe.
    *
    * @internal
    */
-  setChannelPersistent(channelKey: string, enabled: boolean): void;
+  setChannelDurable(channelKey: string, durable: boolean): void;
 
   /**
    * Record a channel's resolved inbox settings. The inbox fan-out, ack, and
@@ -440,10 +440,10 @@ export interface EngineAccess {
 
   /**
    * Check whether a durable-row `(channel_name, channel_family)` pair still
-   * maps to a registered persistent channel. Used by boot-time reconcile.
+   * maps to a registered durable channel. Used by boot-time reconcile.
    * @internal
    */
-  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean;
+  isDurableMembershipPairDurable(channelName: string, channelFamily: string | null): boolean;
 
   /**
    * Read the engine's logger. Used by primitives that emit boot-time or

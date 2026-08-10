@@ -5,8 +5,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 /**
  * A plugin that observes the same ping/pong frames the app does. It proves a
- * plugin's `onPing` / `onPong` fire over the wire — a plugin used to be rejected
- * for listing them. Its markers ride under the plugin's own namespace.
+ * plugin's `onPing` / `onPong` fire over the wire. Its markers ride under the
+ * plugin's own namespace.
  */
 const probe = define({
   scope: 'plugin',

@@ -42,9 +42,9 @@ function getDb(platform: Platform): DrizzleSqliteDODatabase<typeof schema> {
 // Last-connection fields and the hook counters are also kept per DO: the tests
 // pair the id observed at connect with the same connection's later reads, and a
 // module-level counter would be shared across every DO on the isolate (state
-// bleed under parallel load). This in-memory-per-DO map mirrors the old plugin
-// setup() closure — fine for within-session counts; for durable counts use the
-// DO's SQL the way shutdown_count does.
+// bleed under parallel load). This in-memory-per-DO map is fine for
+// within-session counts; for durable counts use the DO's SQL the way
+// shutdown_count does.
 interface DoState {
   lastGeneratedId: string | null;
   lastState: LastConnectionState | null;

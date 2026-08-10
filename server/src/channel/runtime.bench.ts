@@ -84,7 +84,7 @@ function createRuntime(memberCount: number) {
     wskitStampHooks: [],
     handleValidationError: async () => {},
     handleRuntimeError: async () => {},
-    isChannelPersistent: () => false,
+    isChannelDurable: () => false,
     persistMembership: () => {},
     deleteDurableMembership: () => {},
     hasDurableMembership: () => false,

@@ -264,7 +264,7 @@ function buildChannelRuntime(core: EngineCore) {
         opts,
       ),
 
-    isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
+    isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
 
     persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
       core.channelMembershipService?.persistMembership(core, {

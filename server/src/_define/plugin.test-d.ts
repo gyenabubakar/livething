@@ -153,7 +153,7 @@ expectTypeOf<LeakClient['outgoing']>().toHaveProperty('__acme:leak::pl-also-in')
 // are concrete literals, not a `__id::${string}` index signature.
 expectTypeOf<LeakClient['incoming']>().not.toHaveProperty('__acme:leak::nope');
 
-// The client no longer carries a `plugins` key — plugin events live in the
+// The client does not carry a `plugins` key — plugin events live in the
 // normal maps, not a separate grouping.
 expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 
@@ -271,7 +271,7 @@ plugin('acme:bad', {
 
 ({
   env: t<Record<string, never>>(),
-  // @ts-expect-error — the field is `scope`; the old boolean form is gone.
+  // @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
   scoped: true,
 }) satisfies DefineConfig<Record<string, never>>;
 
@@ -283,8 +283,8 @@ plugin('acme:bad', {
 }) satisfies ScopedDefineConfig;
 
 // And end to end, so the overload itself is covered: a typo'd flag on a real
-// call is rejected, with TypeScript pointing at the field that replaced it.
-// @ts-expect-error — the field is `scope`; the old boolean form is gone.
+// call is rejected, with TypeScript pointing at the correct field.
+// @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
 define({ env: t<Record<string, never>>(), scoped: true });
 
 // ---------------------------------------------------------------------------

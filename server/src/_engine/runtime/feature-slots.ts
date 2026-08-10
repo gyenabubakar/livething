@@ -113,8 +113,8 @@ export type RequestDispatch = (
 /**
  * Durable channel-membership operations. Set by the `channels()` capability,
  * so a handler without it never pulls the membership storage or rejoin code.
- * Each op already no-ops for a channel opted out with `persistent: false`, so
- * an unset slot is the same as the opted-out path.
+ * Each op already no-ops for a channel opted out with `membership: 'ephemeral'`,
+ * so an unset slot is the same as the opted-out path.
  */
 export interface ChannelMembershipService {
   persistMembership(core: any, key: MembershipKey): void;

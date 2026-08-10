@@ -20,7 +20,7 @@ const rooms = base.channel(['rooms', 'rooms'], {
   // Ephemeral: the replay-after-reconnect test closes the socket and opens a
   // fresh one, then sends an explicit __subscribe__ itself rather than
   // relying on auto-rejoin — it needs a real subscribe/ack cycle to run.
-  persistent: false,
+  membership: 'ephemeral',
   replay: true,
   outgoing: { emits: { 'room-message': t<v.InferOutput<typeof RoomMessage>>() } },
 });

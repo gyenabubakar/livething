@@ -52,7 +52,7 @@ export const handleServerDrop = base.on('server-drop', {
 });
 
 export const chat = base.channel('chat', {
-  persistent: true,
+  membership: 'persistent',
   capabilities: [inbox()],
   outgoing: {
     emits: {
@@ -62,7 +62,7 @@ export const chat = base.channel('chat', {
 });
 
 export const plain = base.channel('plain', {
-  persistent: true,
+  membership: 'persistent',
   outgoing: {
     emits: {
       'room-msg': t<RoomMsg>(),

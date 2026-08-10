@@ -39,8 +39,8 @@ export interface ValidationView {
   readonly sequencePersistent: boolean;
   /** The channel key this primitive is scoped to, if any. */
   readonly channelKey?: string;
-  /** Whether the named channel persists its membership. */
-  isChannelPersistent(channelKey: string): boolean;
+  /** Whether the named channel keeps its membership durable. */
+  isChannelDurable(channelKey: string): boolean;
 }
 
 /**

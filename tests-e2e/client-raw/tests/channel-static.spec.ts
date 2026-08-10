@@ -87,7 +87,7 @@ test.describe('channel-static', () => {
     page,
   }, testInfo) => {
     // The raw driver sends `__unsubscribe__` with no `unsubscribeId`. A leave with
-    // no id for a non-member keeps the legacy error — only id-bearing leaves (which
+    // no id for a non-member gets this error — only id-bearing leaves (which
     // the reliable client always sends) are idempotently re-acked.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('unsubscribe-room').click();

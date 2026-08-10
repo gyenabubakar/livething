@@ -27,8 +27,8 @@ test.describe('heartbeat hooks — no keepalive() listed', () => {
     await openRig(page, room);
     const sock = await connect(page, { path: '/ws/heartbeat', username: 'alice', room });
 
-    // Well past the 30s interval the engine used to ping at by default. Kept
-    // short enough for a test: any old default would have fired several times.
+    // Long enough that a periodic ping timer would have fired at least once,
+    // short enough to keep the test fast.
     await page.waitForTimeout(3_000);
 
     expect(await rawFrames(page, sock)).not.toContain('ping');

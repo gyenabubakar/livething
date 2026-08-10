@@ -164,7 +164,7 @@ test.describe('persistence', () => {
     expect(echoToAlice.payload.from).toBe('bob');
   });
 
-  test('.persistent(false) channel does NOT auto-rejoin on reconnect', async ({
+  test("membership: 'ephemeral' channel does NOT auto-rejoin on reconnect", async ({
     page,
   }, testInfo) => {
     const room = `persist-ephemeral-${testInfo.testId}-${Date.now()}`;

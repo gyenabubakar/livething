@@ -217,8 +217,8 @@ export function createEngineAccess(
     setSequencePersistent: (enabled) => {
       core.sequencePersistent = enabled;
     },
-    setChannelPersistent: (channelKey, enabled) => {
-      core.channelPersistenceOverrides.set(channelKey, enabled);
+    setChannelDurable: (channelKey, durable) => {
+      core.channelDurabilityOverrides.set(channelKey, durable);
     },
     registerInboxChannel: (channelKey, options) => {
       core.inboxChannels.set(channelKey, options);
@@ -254,8 +254,8 @@ export function createEngineAccess(
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
     },
-    isDurableMembershipPairPersistent: (channelName, channelFamily) =>
-      core.isDurableMembershipPairPersistent(channelName, channelFamily),
+    isDurableMembershipPairDurable: (channelName, channelFamily) =>
+      core.isDurableMembershipPairDurable(channelName, channelFamily),
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;

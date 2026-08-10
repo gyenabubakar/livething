@@ -350,8 +350,7 @@ export interface PersistReplayMessageOptions {
    * the reducer to merge the two — all in memory. When the handler
    * finishes, the engine walks the queue and writes one row per unique key.
    *
-   * Pass `null` (or leave it out) to keep the old behaviour where each call
-   * writes to SQL right away.
+   * Pass `null` (or leave it out) to have each call write to SQL right away.
    */
   scope?: {
     pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
