@@ -561,8 +561,8 @@ export type AppCtx<
  * listed. Without it the underlying engine service is absent and the operation
  * would quietly do nothing, so reading it is a compile error instead.
  *
- * `purgeUser` is deliberately not gated: it belongs to the admin surface itself
- * and throws a directed error when `persistence()` is missing.
+ * `purgeUser` is deliberately not gated: it belongs to the admin surface
+ * itself and no-ops when there is nothing durable to clean up.
  *
  * @template TSlots The merged contract slots — drives the typed `broadcast`.
  * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.

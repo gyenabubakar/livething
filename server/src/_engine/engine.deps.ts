@@ -146,7 +146,6 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),
-    persistenceEnabled: core.persistenceEnabled,
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
     getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
     channelHandleAugmenters: core.channelHandleAugmenters,
@@ -434,19 +433,15 @@ function buildConnectionRuntime(core: EngineCore) {
       EngineHibernation.deleteConnectionState(core, connectionId),
 
     // Hibernation snapshots only carry ephemeral tags, so the wake path reloads
-    // persistent tags by user id. Wired only when persistence is on.
-    ...(core.persistenceEnabled
-      ? {
-          reloadPersistentTags: (connection: RuntimeConnection) =>
-            core.tagPersistenceService?.restorePersistentTags({
-              sql: core.storage.sql,
-              tagMembers: core.tagMembers,
-              connection,
-              getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
-              logger: core.logger,
-            }),
-        }
-      : {}),
+    // persistent tags by user id.
+    reloadPersistentTags: (connection: RuntimeConnection) =>
+      core.tagPersistenceService?.restorePersistentTags({
+        sql: core.storage.sql,
+        tagMembers: core.tagMembers,
+        connection,
+        getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
+        logger: core.logger,
+      }),
 
     buildConnectionContext: buildCtx,
 
@@ -466,35 +461,29 @@ function buildConnectionRuntime(core: EngineCore) {
         connection,
         { error, event },
       ),
-    // Only wire auto-rejoin when persistence is on. Otherwise the connect path
-    // adds a microtask and shifts `runConnectionLifecycle('connect')` timing.
-    ...(core.persistenceEnabled
-      ? {
-          autoRejoinIdentity: (connection: RuntimeConnection) => {
-            if (core.freshBoot) {
-              core.freshBoot = false;
-              return Promise.resolve();
-            }
-            const rejoined =
-              core.channelMembershipService?.autoRejoinIdentity(
-                core,
-                (ref: PublicApi.ConnectionRef, opts: unknown) =>
-                  core.channelService?.subscribeFromServer(
-                    core,
-                    ref,
-                    opts as Parameters<
-                      NonNullable<EngineCore['channelService']>['subscribeFromServer']
-                    >[2],
-                  ) ?? Promise.resolve(),
-                connection,
-              ) ?? Promise.resolve();
-            // Drain the reconnecting member's owed inbox rows after the rejoin
-            // loop has restored its channel memberships.
-            if (!core.inboxService) return rejoined;
-            return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
-          },
-        }
-      : {}),
+    autoRejoinIdentity: (connection: RuntimeConnection) => {
+      if (core.freshBoot) {
+        core.freshBoot = false;
+        return Promise.resolve();
+      }
+      const rejoined =
+        core.channelMembershipService?.autoRejoinIdentity(
+          core,
+          (ref: PublicApi.ConnectionRef, opts: unknown) =>
+            core.channelService?.subscribeFromServer(
+              core,
+              ref,
+              opts as Parameters<
+                NonNullable<EngineCore['channelService']>['subscribeFromServer']
+              >[2],
+            ) ?? Promise.resolve(),
+          connection,
+        ) ?? Promise.resolve();
+      // Drain the reconnecting member's owed inbox rows after the rejoin
+      // loop has restored its channel memberships.
+      if (!core.inboxService) return rejoined;
+      return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
+    },
   };
 }
 

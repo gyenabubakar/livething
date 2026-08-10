@@ -16,7 +16,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
+import { rateLimit } from '~/rate-limit/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
@@ -238,7 +238,7 @@ const depHost = define({ scope: 'plugin' });
 // A host-owned engine factory is accepted.
 plugin('acme:ok', {
   handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
-  dependsOn: [persistence],
+  dependsOn: [rateLimit],
 });
 plugin('acme:behavior', {
   handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),

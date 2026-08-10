@@ -14,7 +14,6 @@ import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { replay } from '~/replay/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
@@ -43,13 +42,7 @@ const tinyHandler = tinyBase.assemble({
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
-  capabilities: [
-    persistence(),
-    requests(),
-    stream(),
-    channels(),
-    emits({ notify: EmptyOut, joined: EmptyOut }),
-  ],
+  capabilities: [requests(), stream(), channels(), emits({ notify: EmptyOut, joined: EmptyOut })],
 });
 const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
 lobby.on('say', { input: Text, run() {} });
@@ -91,7 +84,6 @@ const heavyBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
-    persistence(),
     dedup(),
     sequence({ persist: true }),
     replay.history(),

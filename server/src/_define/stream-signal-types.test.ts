@@ -1,7 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
@@ -31,7 +30,7 @@ describe('ctx.stream.signal type', () => {
   it('is an AbortSignal in a resumable stream run (alongside cursor)', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [persistence(), resumableStream()],
+      capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
       input: v.object({}),
@@ -47,7 +46,7 @@ describe('ctx.stream.signal type', () => {
   it('is an AbortSignal in a recorded stream run', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [persistence(), recordedStream()],
+      capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
       input: v.object({}),

@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
@@ -20,7 +19,6 @@ const base = define({
       ephemeral('color', v.picklist(['red', 'blue', 'green'])),
       persistent('favorite', t<string>()),
     ]),
-    persistence(),
     emits({ ping: t<{ n: number }>() }),
   ],
 });

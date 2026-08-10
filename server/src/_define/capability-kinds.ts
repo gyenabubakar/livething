@@ -14,7 +14,6 @@ export const CAPABILITY_KIND = {
   dedup: 'dedup',
   sequence: 'sequence',
   keepalive: 'keepalive',
-  persistence: 'persistence',
   rateLimit: 'rate-limit',
   replay: 'replay',
   replayCustom: 'replay-custom',
@@ -46,7 +45,6 @@ export const HOST_ONLY_CAPABILITY_KINDS: ReadonlySet<string> = new Set([
   CAPABILITY_KIND.dedup,
   CAPABILITY_KIND.sequence,
   CAPABILITY_KIND.keepalive,
-  CAPABILITY_KIND.persistence,
   CAPABILITY_KIND.rateLimit,
   CAPABILITY_KIND.replay,
 ]);

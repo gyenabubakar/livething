@@ -1,7 +1,6 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
-import { persistence } from '@wskit/server/persistence';
 import { replay } from '@wskit/server/replay';
 import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
@@ -20,7 +19,6 @@ const base = define({
     emits({ 'top-beacon': t<v.InferOutput<typeof TopBeacon>>() }),
     sequence({ persist: true }),
     dedup(),
-    persistence(),
     channels(),
     replay.custom(),
   ],

@@ -42,7 +42,6 @@ function setup(taggedCount: number, totalConnections: number) {
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
-    persistenceEnabled: false,
     getStorage: () => ({ sql: { exec: () => ({ toArray: () => [] }) } }),
   } as unknown as TagsRuntime;
 

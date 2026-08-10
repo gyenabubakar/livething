@@ -8,7 +8,7 @@ import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
+import { rateLimit } from '~/rate-limit/capability.ts';
 import { replay } from '~/replay/replay.ts';
 import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
@@ -191,12 +191,12 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
-      dependsOn: [persistence, keepalive],
+      dependsOn: [rateLimit, keepalive],
     });
     const base = define({
       env: t<Env>(),
       capabilities: [
-        persistence(),
+        rateLimit(),
         keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }),
         Dep(),
       ],
@@ -225,9 +225,9 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
-      dependsOn: [persistence, keepalive],
+      dependsOn: [rateLimit, keepalive],
     });
-    const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
+    const base = define({ env: t<Env>(), capabilities: [rateLimit(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
@@ -236,9 +236,9 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
-      dependsOn: [persistence],
+      dependsOn: [rateLimit],
     });
-    // dedup() is a host engine too, but a different one — it must NOT count as persistence().
+    // dedup() is a host engine too, but a different one — it must NOT count as rateLimit().
     const base = define({ env: t<Env>(), capabilities: [dedup(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
@@ -248,9 +248,9 @@ describe('plugin() — scoped handler + manifest', () => {
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
       handler: h.assemble({ handlers: [tick] }),
-      dependsOn: [persistence],
+      dependsOn: [rateLimit],
     });
-    const base = define({ env: t<Env>(), capabilities: [persistence(), Dep()] });
+    const base = define({ env: t<Env>(), capabilities: [rateLimit(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 

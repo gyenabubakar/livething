@@ -9,7 +9,6 @@ import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -72,13 +71,7 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTy
 // ---------------------------------------------------------------------------
 const streamBase = define({
   env: t<{}>(),
-  capabilities: [
-    emits({ noop: t<{}>() }),
-    persistence(),
-    stream(),
-    resumableStream(),
-    recordedStream(),
-  ],
+  capabilities: [emits({ noop: t<{}>() }), stream(), resumableStream(), recordedStream()],
 });
 
 const plainStream = streamBase.stream('plain', {

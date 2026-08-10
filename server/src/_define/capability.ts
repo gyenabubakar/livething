@@ -115,9 +115,9 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
 
 /**
  * A capability the **host** owns and a plugin can never list — the global
- * engines (`dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
- * `replay`). It carries a `__hostOnly` marker so `define({ scope: 'plugin' })`
- * rejects it at compile time; a plugin declares a prerequisite on it instead.
+ * engines (`dedup`, `sequence`, `keepalive`, `rateLimit`, `replay`). It
+ * carries a `__hostOnly` marker so `define({ scope: 'plugin' })` rejects it
+ * at compile time; a plugin declares a prerequisite on it instead.
  */
 export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
   TSlots,
@@ -149,8 +149,8 @@ export function stampKind<TCap extends AnyCapability>(cap: TCap, kind: string): 
 /**
  * Build a plain host capability factory in one call.
  *
- * Most host engines (`dedup`, `keepalive`, `persistence`, `sequence`) do nothing
- * but wrap a single runtime primitive, flag one feature, and stamp their kind.
+ * Most host engines (`dedup`, `keepalive`, `sequence`) do nothing but wrap a
+ * single runtime primitive, flag one feature, and stamp their kind.
  * This collapses that shared boilerplate: the `kind` doubles as the feature flag
  * and the identity token, and `build` turns the factory's arguments into the one
  * primitive the capability contributes. Engines with a build seam or extra

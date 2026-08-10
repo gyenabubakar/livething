@@ -32,7 +32,7 @@ function buildEngine(handler: ServerDefinition): Engine {
 }
 
 describe('tags() runtime install', () => {
-  it('creates the tag table and its indexes at boot, without persistence() listed', async () => {
+  it('creates the tag table and its indexes at boot', async () => {
     const base = define({
       env: t<Record<string, never>>(),
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],

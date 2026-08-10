@@ -3,7 +3,6 @@ import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
 import { inbox, readReceipts } from '@wskit/server/inbox';
-import { persistence } from '@wskit/server/persistence';
 import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -22,7 +21,6 @@ const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
-    persistence(),
     channels(),
     sequence({ persist: true }),
     dedup(),

@@ -1,7 +1,6 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { Disconnect } from '@wskit/server/errors';
-import { persistence } from '@wskit/server/persistence';
 import { requests } from '@wskit/server/requests';
 import { resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -24,7 +23,6 @@ const base = define({
       ? allowAnonymous(request)
       : requireUsername(request),
   capabilities: [
-    persistence(),
     channels(),
     requests(),
     resumableStream(),

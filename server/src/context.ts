@@ -693,8 +693,8 @@ export interface ChannelHandle<
    * reconnect (use this to revoke a user's group membership in response to
    * an external event — an auth provider webhook, an admin action, etc.).
    * Defaults to `false`: the user is booted now but auto-rejoins later. A
-   * no-op per connection when persistence is off or the channel is
-   * ephemeral — there is no durable row to drop either way.
+   * no-op per connection when the channel is ephemeral — there is no durable
+   * row to drop either way.
    */
   kick(
     target:

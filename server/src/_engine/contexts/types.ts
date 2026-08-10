@@ -120,12 +120,6 @@ export interface ContextCommonDeps {
   usesTags: boolean;
 
   /**
-   * Whether the contract enabled persistence via `persistence: true`.
-   * Persistent tag writes are no-ops when this is `false`.
-   */
-  persistenceEnabled: boolean;
-
-  /**
    * Check whether a given `(kind, group)` is declared on this engine. The tag
    * runtime throws when a handler accesses an undeclared group.
    */

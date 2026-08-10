@@ -404,15 +404,6 @@ export interface EngineAccess {
   setSequencePersistent(enabled: boolean): void;
 
   /**
-   * Tell the engine the contract enabled persistence via `persistence: true`.
-   * The engine then creates the identity-keyed durable tables at boot and
-   * starts writing channel memberships and persistent tags across reconnects.
-   *
-   * @internal
-   */
-  setPersistenceEnabled(enabled: boolean): void;
-
-  /**
    * Register a set of declared tag groups of one kind. Used by the contract's
    * `tagGroups` config. Throws if a `(kind, name)` is declared twice in the
    * same contract.

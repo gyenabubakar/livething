@@ -22,7 +22,6 @@ import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { replay } from '~/replay/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
@@ -122,13 +121,7 @@ const tinyHandler = tinyBase.assemble({
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
-  capabilities: [
-    persistence(),
-    requests(),
-    stream(),
-    channels(),
-    emits({ notify: EmptyOut, joined: EmptyOut }),
-  ],
+  capabilities: [requests(), stream(), channels(), emits({ notify: EmptyOut, joined: EmptyOut })],
 });
 const mediumLobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
 mediumLobby.on('say', { input: Text, run() {} });
@@ -170,7 +163,6 @@ const heavyBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
-    persistence(),
     dedup(),
     sequence({ persist: true }),
     replay.history(),
@@ -248,7 +240,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     expect(execCount).toBe(0);
   });
 
-  it('medium (persistence + hibernation): cold boot exec budget', async () => {
+  it('medium (channels + hibernation): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(mediumHandler);
     if (execCount !== 5) {
       // eslint-disable-next-line no-console
@@ -257,8 +249,9 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // 1 sentinel SELECT + 2 schema hooks (persistence, hibernation) + 1 mark
-    // + 1 cleanup (persistence reconcile SELECT). No replay/sequence/scheduled.
+    // 1 sentinel SELECT + 2 schema hooks (channel membership, hibernation) + 1
+    // mark + 1 cleanup (channel membership reconcile SELECT). No
+    // replay/sequence/scheduled.
     expect(execCount).toBe(5);
   });
 
@@ -271,11 +264,11 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // 1 sentinel SELECT (returns row) + 1 cleanup (persistence reconcile).
+    // 1 sentinel SELECT (returns row) + 1 cleanup (channel membership reconcile).
     expect(execCount).toBe(2);
   });
 
-  it('heavy (persistence + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
+  it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler);
     if (execCount !== 11) {
       // eslint-disable-next-line no-console
@@ -286,10 +279,10 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Breakdown:
     //   1. sentinel SELECT (throws — no table yet)
-    //   2-6. five schema hooks: persistence, connections (hibernation),
+    //   2-6. five schema hooks: channel membership, connections (hibernation),
     //        sequence, replay, scheduled
     //   7. mark sentinel (bundled CREATE meta + INSERT)
-    //   8. persistence reconcile (cleanup SELECT)
+    //   8. channel membership reconcile (cleanup SELECT)
     //   9-10. scheduled bootstrap loads queued runs + dlq
     //   11. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist no longer
@@ -315,7 +308,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Breakdown:
     //   1. sentinel SELECT (returns row)
-    //   2. persistence reconcile (cleanup SELECT)
+    //   2. channel membership reconcile (cleanup SELECT)
     //   3-4. scheduled bootstrap loads queued runs + dlq
     //
     // The recurring '__wskit:stream-durable-sweep' task (installed whenever a
@@ -356,9 +349,12 @@ describe('engine declaredErrorCodes', () => {
 describe('revalidate requires a persistent channel', () => {
   const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
 
-  it('throws at boot when a non-persistent channel has a .revalidate() hook', async () => {
-    const base = define({ env: t<Record<string, unknown>>(), capabilities: [channels()] });
-    const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
+  it('throws at boot when a `persistent: false` channel has a .revalidate() hook', async () => {
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [channels()],
+    });
+    const room = base.channel('room', { ...channelOutgoing, persistent: false, revalidate() {} });
     const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).rejects.toThrow(
@@ -366,21 +362,10 @@ describe('revalidate requires a persistent channel', () => {
     );
   });
 
-  it('throws when a `persistent: false` channel has a .revalidate() hook', async () => {
-    const base = define({
-      env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), channels()],
-    });
-    const room = base.channel('room', { ...channelOutgoing, persistent: false, revalidate() {} });
-    const handler = base.assemble({ handlers: [room] });
-
-    await expect(initWithFakeStorage(handler)).rejects.toThrow(/is not persistent/);
-  });
-
   it('boots fine when a persistent channel has a .revalidate() hook', async () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), channels()],
+      capabilities: [channels()],
     });
     const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
     const handler = base.assemble({ handlers: [room] });

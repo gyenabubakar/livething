@@ -16,9 +16,7 @@ const RoomFull = error('room-full', v.object({ limit: v.number() }));
 // namespace, so this fixture exercises that the typed client can drive each
 // direction without the `__` prefix being mistaken for a protocol frame.
 //
-// It lists no persistence and no dependsOn — the persistence the durable
-// streams need is auto-derived from the streams the plugin owns, and the host
-// must provide persistence().
+// It declares no dependsOn — its durable streams work on any host.
 const h = define({
   scope: 'plugin',
   capabilities: [

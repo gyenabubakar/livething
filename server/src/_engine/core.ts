@@ -66,8 +66,6 @@ export class EngineCore {
   hibernationEnabled = false;
   replayEnabled = false;
   sequencePersistent = false;
-  /** Set by `persistence: true`. Turns on durable tables and membership writes. */
-  persistenceEnabled = false;
   incomingDedupCap = 0;
 
   /**
@@ -274,16 +272,11 @@ export class EngineCore {
     return this.hibernationEnabled;
   }
 
-  usesPersistence(): boolean {
-    return this.persistenceEnabled;
-  }
-
   usesTags(): boolean {
     return this.tagGroupsRegistered.ephemeral || this.tagGroupsRegistered.persistent;
   }
 
   isChannelPersistent(channelKey: string): boolean {
-    if (!this.persistenceEnabled) return false;
     return this.channelPersistenceOverrides.get(channelKey) !== false;
   }
 
@@ -306,7 +299,6 @@ export class EngineCore {
    * removed or `persistent: false` channels.
    */
   isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean {
-    if (!this.persistenceEnabled) return false;
     if (channelFamily === null) {
       const channel = this.compiled.channels.get(channelName);
       return channel ? this.isChannelPersistent(channel.key) : false;

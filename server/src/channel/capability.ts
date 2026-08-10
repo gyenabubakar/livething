@@ -342,9 +342,9 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
 /**
  * Enable channels — subscription scopes with their own events, gates, and
  * lifecycle. Listing this grants `base.channel(...)` and the `ctx.channels`
- * accessor. Persistent membership additionally needs the `persistence()`
- * capability; channel streams need the matching stream capability, and a custom
- * channel replay needs `replay.custom()`.
+ * accessor. Channel membership is durable by default (set `persistent: false`
+ * on a channel to opt out); channel streams need the matching stream
+ * capability, and a custom channel replay needs `replay.custom()`.
  *
  * @example
  * ```ts

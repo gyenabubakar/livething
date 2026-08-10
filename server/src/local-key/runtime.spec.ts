@@ -75,7 +75,6 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     attachPluginApis: vi.fn(),
     contextExtenders: [],
     usesTags: false,
-    persistenceEnabled: false,
     isTagGroupDeclared: vi.fn(() => false),
     instanceId: undefined,
     hibernationEnabled: false,

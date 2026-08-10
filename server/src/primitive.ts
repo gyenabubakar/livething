@@ -122,16 +122,16 @@ export interface PrimitiveConfig<
   /**
    * Either a static manifest or a function that computes the manifest from
    * the factory's arguments. Use a function when the requirements depend on
-   * what the developer passes (e.g. a primitive that needs storage only if
-   * persistence is enabled).
+   * what the developer passes (e.g. a primitive that needs storage only for
+   * one of its config variants).
    */
   readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
 
   /**
    * Capability identity tokens this primitive needs co-listed. Either a static
    * list or a function computing it from the factory's arguments (use the
-   * function form when the requirement is conditional, e.g. persistent tag
-   * groups need persistence but ephemeral ones do not).
+   * function form when the requirement is conditional on what the developer
+   * passes).
    */
   readonly requiresCapabilities?: readonly string[] | ((...args: TArgs) => readonly string[]);
 

@@ -22,8 +22,8 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
  * Durable channel-membership operations, reached through the engine's
  * `channelMembershipService` slot. Registered by the `channels()` capability —
  * a handler without it never pulls the membership storage or rejoin code.
- * Each op already no-ops when persistence is off, so an unset slot behaves
- * the same as the disabled path.
+ * Each op already no-ops for a channel opted out with `persistent: false`, so
+ * an unset slot behaves the same as the opted-out path.
  */
 export const channelMembershipService: ChannelMembershipService = {
   persistMembership,

@@ -13,11 +13,8 @@ const PERSISTENT_MARKER_KEY = Symbol('persistent-marker');
  * Channel-scope marker that records the dev's per-channel `persistent` choice
  * on the engine. The engine reads this back per channel-key at runtime to
  * decide whether to write a durable membership row on subscribe and whether to
- * drop the row on disconnect.
- *
- * On a persistence-disabled server (no `persistence: true`) the marker is a
- * pure no-op — the engine never consults the registry because every channel
- * stays ephemeral regardless.
+ * drop the row on disconnect. A channel with no explicit choice is persistent
+ * by default; this marker only exists for a channel that states one.
  *
  * @internal
  */

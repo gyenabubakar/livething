@@ -1,6 +1,5 @@
 import { define, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { persistence } from '@wskit/server/persistence';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -16,7 +15,7 @@ const StopPayload = v.object({});
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [persistence(), channels(), stream(), resumableStream(), recordedStream()],
+  capabilities: [channels(), stream(), resumableStream(), recordedStream()],
 });
 
 const handleStartConcurrent = base.stream('start-concurrent', {

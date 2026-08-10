@@ -58,6 +58,10 @@ const handleTriggerServerSubscribe = base.on('trigger-server-subscribe', {
 });
 
 const room = base.channel('room', {
+  // Ephemeral: these tests assert that a dropped connection is a true leave
+  // (onUnsubscribe fires, __memberLeave__ broadcasts), which only holds when
+  // membership does not survive a reconnect.
+  persistent: false,
   outgoing: {
     emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },
@@ -128,6 +132,10 @@ const handleRoomStream = room.stream('start-channel-stream', {
 });
 
 const room2 = base.channel('room2', {
+  // Ephemeral for the same reason as `room` — the multi-channel throw tests
+  // drop a connection that is a member of both and expect a true leave on
+  // this channel too.
+  persistent: false,
   outgoing: {
     emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },

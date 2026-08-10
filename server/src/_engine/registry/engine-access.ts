@@ -217,9 +217,6 @@ export function createEngineAccess(
     setSequencePersistent: (enabled) => {
       core.sequencePersistent = enabled;
     },
-    setPersistenceEnabled: (enabled) => {
-      core.persistenceEnabled = enabled;
-    },
     setChannelPersistent: (channelKey, enabled) => {
       core.channelPersistenceOverrides.set(channelKey, enabled);
     },
@@ -247,12 +244,6 @@ export function createEngineAccess(
     },
     registerTagGroups: (kind, groups) => {
       core.tagGroupsRegistered[kind] = true;
-      if (kind === 'persistent' && !core.persistenceEnabled) {
-        const sample = groups[0]?.name;
-        throw new Error(
-          `[wskit] persistent tag group '${sample}' requires persistence. Set 'persistence: true' in your contract, or move '${sample}' to the 'ephemeral' kind.`,
-        );
-      }
       for (const group of groups) {
         if (core.declaredTagGroups[kind].has(group.name)) {
           throw new Error(

@@ -39,13 +39,11 @@ const repoRoot = resolve(here, '..');
 // server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
 // streams likewise carry no durable marker — there is nothing to persist.
 //
-// `persistence()` owns no storage engine of its own: it is a switch that tells
-// `channels()` and `tags()` to write their tables durably. Those two
-// capabilities create and own their tables unconditionally, so `channel` and
-// `channelStorage` are split apart — `channel` is the wire runtime, present
-// wherever a channel is targeted (for example channel-scoped requests or
-// replay); `channelStorage` is the membership table, owned only by
-// `channels()` itself.
+// Channel membership is durable by default, and `channels()` creates and owns
+// its table unconditionally, so `channel` and `channelStorage` are split
+// apart — `channel` is the wire runtime, present wherever a channel is
+// targeted (for example channel-scoped requests or replay); `channelStorage`
+// is the membership table, owned only by `channels()` itself.
 // ---------------------------------------------------------------------------
 const SERVER_DIST = resolve(repoRoot, 'server/dist');
 
@@ -100,15 +98,6 @@ function serverScenarios(f) {
       owns: 'rateLimit',
       alsoPulls: [],
     },
-    // `persistence()` owns no storage of its own — it is a switch that tells
-    // `channels()` and `tags()` (which create and own their own tables
-    // regardless) to start writing durably.
-    {
-      name: 'persistence',
-      source: importStar(f('persistence.js')),
-      owns: null,
-      alsoPulls: [],
-    },
     // Replay can be channel-scoped, so it pulls the channel runtime.
     { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
     // Durable streams schedule background sweeps to retire their stored state, so
@@ -129,8 +118,8 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     // `channels()` owns both the wire runtime and the membership table it
-    // creates and manages — the storage exists regardless of whether
-    // `persistence()` is listed; that only gates whether writes are durable.
+    // creates and manages — a channel is durable by default, and
+    // `persistent: false` opts a channel out per channel.
     {
       name: 'channels',
       source: importStar(f('channels.js')),

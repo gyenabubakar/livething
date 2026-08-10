@@ -41,10 +41,6 @@
       "types": "./dist/rate-limit/capability.d.ts",
       "import": "./dist/rate-limit.js"
     },
-    "./persistence": {
-      "types": "./dist/persistence/capability.d.ts",
-      "import": "./dist/persistence.js"
-    },
     "./replay": {
       "types": "./dist/replay/capability.d.ts",
       "import": "./dist/replay.js"

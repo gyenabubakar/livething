@@ -3,7 +3,6 @@ import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
 import { inbox } from '@wskit/server/inbox';
-import { persistence } from '@wskit/server/persistence';
 import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -21,7 +20,7 @@ import type { RoomMsg } from './events.ts';
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [persistence(), channels(), sequence({ persist: true }), dedup(), inbox()],
+  capabilities: [channels(), sequence({ persist: true }), dedup(), inbox()],
 });
 
 export const handleServerDrop = base.on('server-drop', {

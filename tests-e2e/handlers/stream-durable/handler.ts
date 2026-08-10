@@ -1,6 +1,5 @@
 import { define, t } from '@wskit/server';
 import { Disconnect, StreamAborted } from '@wskit/server/errors';
-import { persistence } from '@wskit/server/persistence';
 import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -20,7 +19,7 @@ const StopPayload = v.object({});
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [persistence(), recordedStream(), resumableStream()],
+  capabilities: [recordedStream(), resumableStream()],
 });
 
 const handleCountTokens = base.recordedStream('count-tokens', {

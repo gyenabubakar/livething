@@ -32,7 +32,7 @@ function buildEngine(handler: ServerDefinition): Engine {
 }
 
 describe('channels() runtime install', () => {
-  it('creates the membership table and its indexes at boot, without persistence() listed', async () => {
+  it('creates the membership table and its indexes at boot', async () => {
     const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
     const handler = base.assemble({ handlers: [] });
     const engine = buildEngine(handler);

@@ -8,7 +8,6 @@ import {
   insertMembership,
   listMembershipsByUser as listMembershipRows,
 } from '~/channel/storage.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag, listTagsByUser } from '~/tags/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -88,7 +87,6 @@ function withChannelsAndTags(): ServerDefinition {
   const base = define({
     env: t<Record<string, never>>(),
     capabilities: [
-      persistence(),
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
     ],

@@ -10,8 +10,8 @@ import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 /**
  * A host capability factory accepted by a plugin's `dependsOn` — only the
- * host-owned engines (`persistence`, `dedup`, `sequence`, `keepalive`,
- * `rateLimit`, `replay`), which carry `__hostOnly: true`. A behavior capability
+ * host-owned engines (`dedup`, `sequence`, `keepalive`, `rateLimit`,
+ * `replay`), which carry `__hostOnly: true`. A behavior capability
  * a plugin can own itself (`requests`, `channels`, streams, …) is not assignable
  * and is rejected at compile time: a plugin lists those in its own
  * `capabilities` rather than depending on the host for them. Plugin factories
@@ -142,7 +142,7 @@ export interface PluginManifest<
    */
   readonly handler: ScopedHandler<TContract, TScopedCtx, TApi>;
   /**
-   * Host capability factories the host must list (e.g. `requests`, `persistence`).
+   * Host capability factories the host must list (e.g. `requests`, `rateLimit`).
    * A missing prerequisite is a build error. Only host capability factories are
    * accepted — a plugin factory is rejected at compile time, because the
    * dependency matcher reads a host capability's identity token, which plugin
@@ -191,8 +191,7 @@ export interface PluginCapability<
   /**
    * Capability identity tokens the host must provide: the explicit `dependsOn`
    * plus the host-owned requirements auto-derived from the plugin's own
-   * capabilities (e.g. a plugin durable stream implies persistence). Checked at
-   * the host's `assemble()`. @internal
+   * capabilities. Checked at the host's `assemble()`. @internal
    */
   readonly __pluginRequiredKinds: readonly string[];
   /** Whether the plugin opted its hooks into observing host traffic. @internal */
@@ -273,7 +272,7 @@ function assertSupported(id: string, primitive: Primitive): void {
   if (ALLOWED_PLUGIN_KINDS.has(primitive.__wskit)) return;
   throw new Error(
     `[wskit] plugin('${id}') uses '${primitive.__wskit}', which a plugin cannot contribute. ` +
-      'Host-owned engines (dedup, persistence, replay, rateLimit, …) belong on the host — list ' +
+      'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
       'them there and reach them from the plugin with dependsOn.',
   );
 }
@@ -361,7 +360,7 @@ export function plugin<
   writable.__pluginId = id;
   writable.__pluginDependsOn = manifest.dependsOn ?? [];
   // Host requirements = explicit dependsOn + what the plugin's own capabilities
-  // imply (e.g. a durable stream needs persistence, recorded at assemble).
+  // imply, recorded at assemble.
   const explicitKinds = (manifest.dependsOn ?? [])
     .map((factory) => factory.__capabilityKind)
     .filter((kind): kind is string => typeof kind === 'string');

@@ -298,7 +298,6 @@ export function buildConnectionContext(
               payload: unknown,
             ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
             persistAttachment: deps.persistAttachment,
-            persistenceEnabled: deps.persistenceEnabled,
             getStorage: deps.getStorage,
           },
           connection,

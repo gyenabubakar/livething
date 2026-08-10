@@ -116,8 +116,8 @@ interface ConnectionRuntime {
 
   /**
    * Re-subscribe a fresh connection to every persistent channel its user id
-   * was in. Present when persistence is enabled; called from
-   * `acceptConnection` between the initial row write and `onConnect`.
+   * was in. Called from `acceptConnection` between the initial row write and
+   * `onConnect`.
    */
   autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
 
@@ -125,8 +125,7 @@ interface ConnectionRuntime {
 
   /**
    * Reload a user's persistent tags into the live index on wake. The
-   * hibernation snapshot only carries ephemeral tags. Present only when
-   * persistence is enabled.
+   * hibernation snapshot only carries ephemeral tags.
    */
   reloadPersistentTags?(connection: EngineRuntimeTypes.RuntimeConnection): void;
 }
@@ -472,8 +471,9 @@ export function acceptConnection(
   const ctx = runtime.buildConnectionContext(connection);
   // Auto-rejoin runs before onConnect so handlers see the connection already
   // back in its persistent channels. The branch keeps the synchronous start of
-  // `runConnectionLifecycle` for engines without persistence — an unconditional
-  // `.then()` chain would shift onConnect's timing by a microtask.
+  // `runConnectionLifecycle` for an engine with no `channels()` capability —
+  // an unconditional `.then()` chain would shift onConnect's timing by a
+  // microtask.
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)

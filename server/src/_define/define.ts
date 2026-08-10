@@ -150,8 +150,8 @@ export interface DefineConfig<
 /**
  * A capability a plugin is allowed to list — every capability except a
  * host-owned one. Host-owned engines (`dedup`/`sequence`/`keepalive`/
- * `persistence`/`rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one
- * inside `define({ scope: 'plugin' })` is a compile error. A plugin declares a
+ * `rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one inside
+ * `define({ scope: 'plugin' })` is a compile error. A plugin declares a
  * prerequisite on them instead.
  */
 export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
@@ -732,7 +732,7 @@ export type ChannelConfig<
   ) => void;
   /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
   revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
-  /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
+  /** Keep membership durable (default true); set false to opt out. */
   readonly persistent?: boolean;
   /**
    * Per-channel built-in replay opt-in/out, cascading from `define`. `true` is
@@ -2120,10 +2120,9 @@ export function define(config: any): any {
         }
       }
 
-      // Enforce every primitive's capability requirements (durable streams and
-      // persistent tags need persistence, etc.) against what is listed. On an
-      // app a missing one throws; on a plugin a host-owned requirement is
-      // returned as a host dependency the host must satisfy.
+      // Enforce every primitive's capability requirements against what is
+      // listed. On an app a missing one throws; on a plugin a host-owned
+      // requirement is returned as a host dependency the host must satisfy.
       const { hostDependencies } = resolveCapabilityRequirements(
         primitives,
         config.capabilities ?? [],

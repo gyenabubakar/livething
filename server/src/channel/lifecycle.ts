@@ -17,9 +17,8 @@ export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
  * NOT fired on plain disconnect of a persistent channel — that case fires
  * `onSessionEnd` instead.
  *
- * On ephemeral channels (no `persistence: true`, or `persistent: false` on the
- * channel) disconnect IS a true leave, so this hook fires together with
- * `onSessionEnd` for every leave path.
+ * On an ephemeral channel (`persistent: false`) disconnect IS a true leave, so
+ * this hook fires together with `onSessionEnd` for every leave path.
  */
 export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
@@ -182,8 +181,8 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
         throw new Error(
           `[wskit] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-            `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
-            `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
+            `Remove \`persistent: false\` from this channel, or remove the .revalidate() hook (use \`.check()\` ` +
+            `for first-subscribe authorization).`,
         );
       }
     },

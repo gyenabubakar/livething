@@ -187,9 +187,9 @@ interface ChannelRuntime extends ChannelHooks {
 
   /**
    * Whether the given channel-key should write durable memberships. Returns
-   * `false` when persistence is disabled at the server level OR the channel
-   * set `persistent: false` in its definition. The runtime gates every
-   * persistence write through this so persistence-disabled servers pay no SQL cost.
+   * `false` only when the channel set `persistent: false` in its definition —
+   * every other channel is durable by default. The runtime gates every
+   * membership write through this so an opted-out channel pays no SQL cost.
    */
   isChannelPersistent(channelKey: string): boolean;
 
@@ -840,8 +840,8 @@ export interface KickChannelMembersOptions {
   /**
    * When true, also delete each kicked connection's durable membership row so
    * the user does not auto-rejoin on reconnect. Defaults to `false` (boot now,
-   * rejoin later). A no-op per connection when persistence is off or the
-   * channel is ephemeral — there is no durable row to drop either way.
+   * rejoin later). A no-op per connection when the channel is ephemeral —
+   * there is no durable row to drop either way.
    */
   revoke?: boolean;
 }

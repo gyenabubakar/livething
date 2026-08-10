@@ -1,6 +1,5 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import * as v from 'valibot';
@@ -10,7 +9,7 @@ import { stream } from './capability.ts';
 
 const base = define({
   env: t<{ SECRET: string }>(),
-  capabilities: [persistence(), stream(), resumableStream(), recordedStream()],
+  capabilities: [stream(), resumableStream(), recordedStream()],
 });
 
 const feed = base.stream('feed', {

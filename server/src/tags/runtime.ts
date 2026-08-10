@@ -35,8 +35,6 @@ export interface TagsRuntime {
 
   persistAttachment(connection: RuntimeConnection): void;
 
-  persistenceEnabled: boolean;
-
   getStorage(): { sql: Pick<SQLProvider, 'exec'> };
 }
 
@@ -108,7 +106,7 @@ export function buildGroupHandle(
   const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 
-  const persistsDurably = runtime.persistenceEnabled && connection.userId.length > 0;
+  const persistsDurably = connection.userId.length > 0;
 
   return {
     __wskit: 'group-handle',

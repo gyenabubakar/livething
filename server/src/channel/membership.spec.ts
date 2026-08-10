@@ -1,19 +1,29 @@
-import { createTestSql } from '~/_test/sql.ts';
+import { adapter } from '~/_adapters/define.ts';
+import { t } from '~/_api/definitions.ts';
+import { define } from '~/_define/define.ts';
+import { createTestKV, createTestSql } from '~/_test/sql.ts';
+import { channels } from '~/channel/capability.ts';
 import {
   deleteDurableMembership,
   hasDurableMembership,
   persistMembership,
 } from '~/channel/membership.ts';
-import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
-import { ensureMembershipSchema } from '~/channel/storage.ts';
+import {
+  addChannelMembership,
+  hasChannelMembership,
+  kickChannelMembers,
+  leaveChannel,
+} from '~/channel/runtime.ts';
+import { ensureMembershipSchema, listMembershipsByUser } from '~/channel/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
+import type { Engine } from '~/_engine/engine.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { SQLProvider } from '~/context.ts';
+import type { AsyncContextFactory, SQLProvider } from '~/context.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 
 function makeCore(sql: SQLProvider): EngineCore {
   return {
-    persistenceEnabled: true,
     storage: { sql },
   } as unknown as EngineCore;
 }
@@ -195,5 +205,131 @@ describe('kick(userRef, { revoke: true })', () => {
     );
 
     expect(deleteDurableMembership).not.toHaveBeenCalled();
+  });
+});
+
+describe('durable membership is the channel default', () => {
+  function passthroughAsyncContext(): AsyncContextFactory {
+    return function createAsyncContext<TStore>() {
+      let current: TStore | undefined;
+      return {
+        run<R>(store: TStore, callback: () => R): R {
+          const prev = current;
+          current = store;
+          try {
+            return callback();
+          } finally {
+            current = prev;
+          }
+        },
+        getStore: () => current,
+      };
+    };
+  }
+
+  /** Build and initialize a real engine, exposing its core's real SQLite storage. */
+  async function buildEngine(
+    handler: ServerDefinition,
+  ): Promise<{ engine: Engine; sql: SQLProvider }> {
+    const sql = createTestSql();
+    let engine!: Engine;
+    const server = adapter({
+      id: 'test',
+      asyncContextFactory: passthroughAsyncContext(),
+      setup(createEngine) {
+        engine = createEngine({
+          env: {},
+          platform: { kind: 'test' },
+          storage: { sql, kv: createTestKV() },
+          timers: {
+            setAlarm: vi.fn(async () => {}),
+            deleteAlarm: vi.fn(async () => {}),
+            getAlarm: vi.fn(async () => null),
+          },
+          waitUntil: () => {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    });
+    server(handler, {} as never);
+    await engine.initialize();
+    return { engine, sql };
+  }
+
+  function makeHandler(channelConfig: { persistent?: boolean } = {}): ServerDefinition {
+    const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
+    const room = base.channel('room', channelConfig);
+    const noop = room.on('noop', { run() {} });
+    return base.assemble({ handlers: [noop] });
+  }
+
+  /** Connect one user, wait for connect + auto-rejoin to settle, and return the live connection. */
+  async function connectUser(engine: Engine, identity: string) {
+    const before = new Set(engine.core.connections.keys());
+    const handle = engine.accept(Symbol(identity || 'anon'), {
+      send: vi.fn(),
+      close: vi.fn(),
+      bufferedAmount: () => 0,
+      identity,
+    });
+    const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
+    await connection.lifecycleReady;
+    return { handle, connection };
+  }
+
+  async function subscribeToRoom(handle: ReturnType<Engine['accept']>): Promise<void> {
+    await handle.handleMessage(
+      JSON.stringify({
+        event: '__subscribe__',
+        payload: {},
+        __wskit: { channel: 'room', channelFamily: null },
+      }),
+    );
+  }
+
+  it('writes a membership row on subscribe when no `persistent` setting is given', async () => {
+    const { engine, sql } = await buildEngine(makeHandler());
+    const { handle } = await connectUser(engine, 'alice');
+
+    await subscribeToRoom(handle);
+
+    const rows = listMembershipsByUser(sql, 'alice');
+    expect(rows).toEqual([expect.objectContaining({ channelName: 'room', channelFamily: null })]);
+  });
+
+  it('auto-rejoins the user into that channel after a reconnect', async () => {
+    const handler = makeHandler();
+    const { engine, sql } = await buildEngine(handler);
+    const { handle: firstHandle } = await connectUser(engine, 'alice');
+    await subscribeToRoom(firstHandle);
+    expect(listMembershipsByUser(sql, 'alice')).toHaveLength(1);
+
+    // A fresh connection for the same user, with no client-side subscribe —
+    // any membership must come from the engine's own auto-rejoin.
+    const { connection: second } = await connectUser(engine, 'alice');
+
+    expect(hasChannelMembership(second, 'room', null)).toBe(true);
+  });
+
+  it('writes no row and does not rejoin when the channel opts out with `persistent: false`', async () => {
+    const handler = makeHandler({ persistent: false });
+    const { engine, sql } = await buildEngine(handler);
+    const { handle: firstHandle } = await connectUser(engine, 'alice');
+    await subscribeToRoom(firstHandle);
+
+    expect(listMembershipsByUser(sql, 'alice')).toHaveLength(0);
+
+    const { connection: second } = await connectUser(engine, 'alice');
+    expect(hasChannelMembership(second, 'room', null)).toBe(false);
+  });
+
+  it('writes no row for an anonymous connection even on a default (persistent) channel', async () => {
+    const { engine, sql } = await buildEngine(makeHandler());
+    const { handle } = await connectUser(engine, '');
+
+    await subscribeToRoom(handle);
+
+    expect(listMembershipsByUser(sql, '')).toHaveLength(0);
   });
 });

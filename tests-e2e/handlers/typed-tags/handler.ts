@@ -1,6 +1,5 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { persistence } from '@wskit/server/persistence';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -21,7 +20,6 @@ const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
-    persistence(),
     channels(),
     tags((ephemeral, persistent) => [
       ephemeral('user', t<string>()),

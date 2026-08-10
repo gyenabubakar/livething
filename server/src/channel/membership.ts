@@ -22,8 +22,7 @@ type SubscribeFromServerFn = (
 
 /**
  * Write a durable channel-membership row. The caller should check
- * `isChannelPersistent(...)` first — we still gate on `persistenceEnabled`
- * here as a safety net.
+ * `isChannelPersistent(...)` first.
  *
  * Skips the write for an empty user id. A durable membership row exists only
  * to auto-rejoin the same user on a future reconnect, which needs a stable
@@ -34,7 +33,6 @@ type SubscribeFromServerFn = (
  * also skips durable writes when there is no user id.
  */
 export function persistMembership(core: EngineCore, key: MembershipKey): void {
-  if (!core.persistenceEnabled) return;
   if (!key.userId) return;
   ChannelStorage.insertMembership(core.storage.sql, key);
 }
@@ -45,7 +43,6 @@ export function persistMembership(core: EngineCore, key: MembershipKey): void {
  * an empty user id — nothing was ever written for one (see persistMembership).
  */
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
-  if (!core.persistenceEnabled) return;
   if (!key.userId) return;
   ChannelStorage.deleteMembership(core.storage.sql, key);
 }
@@ -55,7 +52,6 @@ export function deleteDurableMembership(core: EngineCore, key: MembershipKey): v
  * Always false for an empty user id — anonymous connections never get a row.
  */
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
-  if (!core.persistenceEnabled) return false;
   if (!key.userId) return false;
   return ChannelStorage.membershipExists(core.storage.sql, key);
 }
@@ -114,14 +110,13 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
 /**
  * Re-join every durable channel the user had before. Called from
  * `acceptConnection` between the connection-row write and `onConnect`.
- * No-op when persistence is off or the user has no stored rows.
+ * No-op when the user has no stored rows.
  */
 export async function autoRejoinIdentity(
   core: EngineCore,
   subscribeFromServer: SubscribeFromServerFn,
   connection: RuntimeConnection,
 ): Promise<void> {
-  if (!core.persistenceEnabled) return;
   const sql = core.storage.sql;
   await runAutoRejoin(
     {

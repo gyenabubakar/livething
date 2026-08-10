@@ -6,7 +6,6 @@ import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
 import { intercepts } from '~/intercept/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { scopeUpgradeHelpers } from '~/plugin-scope.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -149,13 +148,13 @@ describe('plugin namespacing — errors', () => {
   });
 });
 
-describe('plugin namespacing — durable kinds need persistence on the host', () => {
-  it('compiles a plugin channel with persistence listed', () => {
+describe('plugin namespacing — durable kinds', () => {
+  it('compiles a plugin channel', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
     const room = h.channel('room');
     room.on('say', { input: v.object({}), run() {} });
     const Plug = plugin('acme:room', { handler: h.assemble({ handlers: [room] }) });
-    const base = define({ env: t<Env>(), capabilities: [persistence(), Plug()] });
+    const base = define({ env: t<Env>(), capabilities: [Plug()] });
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
   });
 });

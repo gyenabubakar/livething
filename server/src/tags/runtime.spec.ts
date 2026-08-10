@@ -43,7 +43,6 @@ function createRuntime(
       sent.push(connection.id);
     },
     persistAttachment: () => {},
-    persistenceEnabled: false,
     getStorage: () => {
       throw new Error('unused');
     },
@@ -226,7 +225,6 @@ function createPersistentRuntime(
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
-    persistenceEnabled: true,
     getStorage: () => ({ sql: { exec } }),
   } as unknown as TagsRuntime;
 }
@@ -287,7 +285,6 @@ function runtimeWithSchema(schema: unknown): TagsRuntime {
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
-    persistenceEnabled: false,
     getStorage: () => ({ sql: { exec: () => {} } }),
   } as unknown as TagsRuntime;
 }

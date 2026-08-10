@@ -1,6 +1,5 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { persistence } from '@wskit/server/persistence';
 import { scheduled } from '@wskit/server/scheduled';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -10,7 +9,6 @@ const base = define({
   env: t<Env>(),
   upgrade: requireUsername,
   capabilities: [
-    persistence(),
     channels(),
     scheduled({ 'admin-announce': { data: t<{ text: string }>() } }),
     emits({
@@ -43,8 +41,9 @@ const handleAnnounceTask = base.scheduled('admin-announce', {
  * works when driven from a Worker over the DO stub — not just `broadcast`.
  *
  * The capability list is what makes the gated members exist: `channels()` for
- * `ctx.channels`, `scheduled()` for `ctx.schedule` / `ctx.cancelScheduled`, and
- * `persistence()` so `purgeUser` has durable state to wipe.
+ * `ctx.channels`, and `scheduled()` for `ctx.schedule` / `ctx.cancelScheduled`.
+ * `purgeUser` needs no capability of its own — it wipes whatever durable state
+ * the listed capabilities own.
  */
 export const adminHandler = base.assemble({
   handlers: [noop, handleJoinLobby, handleAnnounceTask, lobby],
