@@ -16,6 +16,7 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { inbox } from '~/inbox/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -285,3 +286,24 @@ plugin('acme:bad', {
 // call is rejected, with TypeScript pointing at the field that replaced it.
 // @ts-expect-error — the field is `scope`; the old boolean form is gone.
 define({ env: t<Record<string, never>>(), scoped: true });
+
+// ---------------------------------------------------------------------------
+// `inbox()` / `readReceipts()` are channel-only capabilities — the
+// `__channelOnly` brand rejects them from the host's and a plugin's top-level
+// `capabilities`. The gate lives on `define(...)`'s own generic constraint,
+// not on `DefineConfig`/`ScopedDefineConfig` themselves (their `TCaps` bound
+// is the wider `AnyCapability`), so — unlike the `satisfies` checks above —
+// this one only fires through a real call, the same way the `scope` overload
+// check just above does.
+// ---------------------------------------------------------------------------
+define({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [inbox()],
+});
+
+define({
+  scope: 'plugin',
+  // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [inbox()],
+});

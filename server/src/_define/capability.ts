@@ -135,6 +135,35 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
 }
 
 /**
+ * A capability that only makes sense inside a channel's own `capabilities`
+ * list — `inbox()` and `readReceipts()`. It carries a `__channelOnly` marker so
+ * `define({ capabilities })` and `define({ scope: 'plugin', capabilities })`
+ * reject it at compile time; a channel declares it as a prerequisite the same
+ * way a plugin declares a host-owned one.
+ */
+export type ChannelOnlyCapability<
+  TSlots = {},
+  TFeature extends string = never,
+  TBrand extends string = never,
+> = Capability<TSlots, TFeature, TBrand> & { readonly __channelOnly: true };
+
+/** Build a channel-only capability — like `capability()`, but marked `__channelOnly`. */
+export function channelOnlyCapability<
+  TSlots = {},
+  TFeature extends string = never,
+  TBrand extends string = never,
+>(
+  primitives: readonly Primitive[],
+  features: readonly TFeature[] = [],
+): ChannelOnlyCapability<TSlots, TFeature, TBrand> {
+  return capability<TSlots, TFeature, TBrand, { readonly __channelOnly: true }>(
+    primitives,
+    features,
+    { __channelOnly: true },
+  );
+}
+
+/**
  * Stamp a capability instance with its identity token, mirroring the token its
  * factory carries (see {@link withCapabilityKind}). Returns the same instance so
  * factories can `return stampKind(cap, '<kind>')`.

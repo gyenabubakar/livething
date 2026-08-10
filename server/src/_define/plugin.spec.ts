@@ -3,9 +3,11 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
+import { channels } from '~/channel/capability.ts';
 import { channel } from '~/channel/channel.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { inbox } from '~/inbox/capability.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
@@ -388,5 +390,39 @@ describe('plugin() — auto-derived host dependencies', () => {
       capabilities: [dedup(), sequence({ persist: true }), Presence()],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
+  });
+});
+
+describe("plugin() — a plugin's own capability satisfies its own nested primitive's requirement", () => {
+  /** A plugin that owns its channel — lists channels() itself, puts inbox() on that channel. */
+  function buildFeed() {
+    const h = define({ scope: 'plugin', capabilities: [channels()] });
+    const room = h.channel('room', { capabilities: [inbox()] });
+    return plugin('acme:feed', { handler: h.assemble({ handlers: [room] }) });
+  }
+
+  it('assembles cleanly on a host that does not list channels() — the plugin owns it', () => {
+    const Feed = buildFeed();
+    const base = define({
+      env: t<Env>(),
+      capabilities: [sequence({ persist: true }), dedup(), Feed()],
+    });
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
+  });
+
+  it('still requires the host to provide sequence(), naming the plugin', () => {
+    const Feed = buildFeed();
+    const base = define({ env: t<Env>(), capabilities: [dedup(), Feed()] });
+    expect(() => base.assemble({ handlers: [] })).toThrow(
+      "[wskit] plugin('acme:feed') needs the sequence() capability the host does not list.",
+    );
+  });
+
+  it('still requires the host to provide dedup(), naming the plugin', () => {
+    const Feed = buildFeed();
+    const base = define({ env: t<Env>(), capabilities: [sequence({ persist: true }), Feed()] });
+    expect(() => base.assemble({ handlers: [] })).toThrow(
+      "[wskit] plugin('acme:feed') needs the dedup() capability the host does not list.",
+    );
   });
 });

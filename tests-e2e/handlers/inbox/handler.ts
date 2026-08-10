@@ -20,7 +20,7 @@ import type { RoomMsg } from './events.ts';
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [channels(), sequence({ persist: true }), dedup(), inbox()],
+  capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 
 export const handleServerDrop = base.on('server-drop', {
@@ -32,7 +32,7 @@ export const handleServerDrop = base.on('server-drop', {
 
 const chat = base.channel('chat', {
   persistent: true,
-  inbox: true,
+  capabilities: [inbox()],
   outgoing: {
     emits: {
       'room-msg': t<RoomMsg>(),

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 interface WaitForTextOptions {
   text: string | RegExp;
@@ -334,5 +335,75 @@ test.describe('plugins handler', () => {
       expect(ids).toHaveLength(3);
       for (const id of ids) expect(id).toBe(expectedId);
     }).toPass({ timeout: 5_000 });
+  });
+});
+
+// Raw-wire coverage for `inbox()` on a plugin-owned channel. Every wire string
+// here — the channel key, the `chat` event, and the `said` broadcast — carries
+// the plugin's `__e2e:feed::` prefix. This proves the namespacing pass and the
+// inbox storage agree on that same namespaced channel name: a durable row
+// written under one name and read under another would drop delivery silently,
+// which no unit test (mocking either side) would catch.
+test.describe('plugins handler — inbox() on a plugin channel', () => {
+  const CHANNEL = '__e2e:feed::room';
+
+  test('an offline member on a plugin channel is drained on reconnect and its ack stops re-delivery', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-plugin-inbox`;
+    await page.goto('/');
+    await installRig(page);
+
+    const alice = await connect(page, { path: '/ws/plugins', username: 'inbox-alice', room });
+    const bob = await connect(page, { path: '/ws/plugins', username: 'inbox-bob', room });
+
+    await send(page, alice, { event: '__subscribe__', payload: {}, __wskit: { channel: CHANNEL } });
+    await waitForFrame(page, alice, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+    });
+    await send(page, bob, { event: '__subscribe__', payload: {}, __wskit: { channel: CHANNEL } });
+    await waitForFrame(page, bob, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === CHANNEL,
+    });
+
+    // Alice goes offline before bob's broadcast.
+    await closeSocket(page, alice);
+
+    await send(page, bob, {
+      event: '__e2e:feed::chat',
+      payload: { text: 'while-offline' },
+      __wskit: { channel: CHANNEL },
+    });
+    await page.waitForTimeout(300);
+
+    // Reconnect under the same username — persistence auto-rejoins the plugin
+    // channel and the inbox drain re-delivers the held row.
+    const aliceAgain = await connect(page, { path: '/ws/plugins', username: 'inbox-alice', room });
+    const drained = await waitForFrame(page, aliceAgain, {
+      match: (f) => f.event === '__e2e:feed::said' && f.payload.text === 'while-offline',
+    });
+    expect(drained.__wskit?.channel).toBe(CHANNEL);
+    const seq = drained.__wskit?.seq as number;
+    expect(typeof seq).toBe('number');
+
+    // Ack it, settling the durable row.
+    await send(page, aliceAgain, {
+      event: '__received__',
+      payload: { receivedThrough: seq },
+      __wskit: { channel: CHANNEL },
+    });
+    await page.waitForTimeout(300);
+    await closeSocket(page, aliceAgain);
+
+    // A further reconnect must NOT re-deliver it.
+    const aliceThird = await connect(page, { path: '/ws/plugins', username: 'inbox-alice', room });
+    await page.waitForTimeout(600);
+    const redelivered = (await frames(page, aliceThird)).filter(
+      (f) => f.event === '__e2e:feed::said' && f.payload.text === 'while-offline',
+    );
+    expect(redelivered).toHaveLength(0);
+
+    await closeSocket(page, bob);
+    await closeSocket(page, aliceThird);
   });
 });

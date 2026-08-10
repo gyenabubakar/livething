@@ -32,7 +32,6 @@ import type {
   UserRef,
 } from '~/context.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import type { InboxConfig, ReadReceiptsConfig } from '~/inbox/types.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame, OutgoingFrame } from '~/intercept/intercept.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
@@ -51,6 +50,7 @@ import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // that list no plugins. Type imports are free.
 import {
   assertHostObservationGranted,
+  assertNoChannelOnlyCapabilities,
   assertPluginDependencies,
   assertUniquePluginIds,
 } from './plugin-checks.ts';
@@ -65,6 +65,7 @@ import type {
 import type {
   AnyCapability,
   BrandsOf,
+  ChannelOnlyCapability,
   Contribution,
   MergeSlots,
   SlotOr,
@@ -155,6 +156,15 @@ export interface DefineConfig<
  * prerequisite on them instead.
  */
 export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
+
+/**
+ * A capability accepted at the host or plugin top level — every capability
+ * except a channel-only one. Channel-only capabilities (`inbox()`,
+ * `readReceipts()`) carry a `__channelOnly` marker, so listing one in
+ * `define({ capabilities })` or `define({ scope: 'plugin', capabilities })` is
+ * a compile error — they only belong inside a channel's own `capabilities`.
+ */
+export type TopLevelCapability = AnyCapability & { __channelOnly?: never };
 
 /**
  * The configuration for a **plugin's** scoped handler (`scope: 'plugin'`).
@@ -740,18 +750,12 @@ export type ChannelConfig<
    */
   readonly replay?: boolean;
   /**
-   * Guaranteed per-member delivery. `true` uses the defaults (delete a member's
-   * copy once it acks); an object tunes `onDelivered`, `retention`, and
-   * `broadcastReceipts`. Requires the `inbox()` capability.
+   * This channel's own channel-only capabilities — `inbox()` for guaranteed
+   * per-member delivery, `readReceipts()` (needs `inbox()` on the same
+   * channel) for the read cursor. Unlike the host's `capabilities`, this list
+   * is scoped to the one channel.
    */
-  readonly inbox?: InboxConfig;
-  /**
-   * Read receipts (the blue check) on an inbox channel. `true` uses the default
-   * broadcast cap; `{ maxReceiptAudience }` tunes it. Requires `readReceipts()`.
-   * Delivered acknowledgement is tracked by `inbox`; its live tick opts in with
-   * `broadcastReceipts`.
-   */
-  readonly readReceipts?: ReadReceiptsConfig;
+  readonly capabilities?: readonly ChannelOnlyCapability<{}, never, string>[];
 } & ChannelRateLimitField<TCaps>;
 
 /**
@@ -764,26 +768,21 @@ export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = Chan
   Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
 
 /**
- * The client-visible capability flags a channel's config turns on. Merged into
- * the channel's contract slice so `InferClient` gates `receiversOf` to inbox
- * channels and `markAsRead`/`readersOf` to channels with `readReceipts`. `TInbox`/
- * `TReadReceipts` are the raw config values inferred at the `channel(...)` call;
- * a truthy one lands the flag, `false`/absent lands nothing.
+ * The client-visible capability flags a channel's own `capabilities` list
+ * turns on. Merged into the channel's contract slice so `InferClient` gates
+ * `receiversOf` to inbox channels and `markAsRead`/`readersOf` to channels
+ * with `readReceipts`. `TBrand` is the union of brands carried by the
+ * channel's `capabilities` array (see `BrandsOf`) — `inbox()`/`readReceipts()`
+ * each stamp their own brand, so their presence in that list lands the flag.
  */
-type ChannelCapabilityFlags<TInbox, TReadReceipts> = (TInbox extends false
-  ? {}
-  : [TInbox] extends [undefined]
-    ? {}
-    : { inbox: true }) &
-  (TReadReceipts extends false
-    ? {}
-    : [TReadReceipts] extends [undefined]
-      ? {}
-      : { readReceipts: true });
+type ChannelCapabilityFlags<TBrand extends string> = ('inbox' extends TBrand
+  ? { inbox: true }
+  : {}) &
+  ('readReceipts' extends TBrand ? { readReceipts: true } : {});
 
 /** Intersect a channel's capability flags onto its contract slice. */
-type ChannelFlagsContribution<TKey extends string, TInbox, TReadReceipts> = Contribution<{
-  channels: { [K in TKey]: ChannelCapabilityFlags<TInbox, TReadReceipts> };
+type ChannelFlagsContribution<TKey extends string, TBrand extends string> = Contribution<{
+  channels: { [K in TKey]: ChannelCapabilityFlags<TBrand> };
 }>;
 
 /** The channel's own contract slice — declared from its config and pattern. */
@@ -1315,6 +1314,19 @@ export interface ChannelInterceptMethods<
   ): void;
 }
 
+/**
+ * Validates a channel's own `capabilities` array: `readReceipts()` needs
+ * `inbox()` listed on the SAME channel. An invalid combination collapses the
+ * accepted element type to `never`, so `readReceipts()` without `inbox()` in
+ * the same array is a compile error at the call site.
+ */
+type ValidChannelCapabilities<T extends readonly ChannelOnlyCapability<{}, never, string>[]> =
+  'readReceipts' extends BrandsOf<T>
+    ? 'inbox' extends BrandsOf<T>
+      ? T
+      : readonly ChannelOnlyCapability<{}, never, Exclude<BrandsOf<T>, 'readReceipts'>>[]
+    : T;
+
 /** Builder method granted by the `channels()` capability. */
 export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Declare a static channel. */
@@ -1324,8 +1336,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
-    const TInbox extends InboxConfig | undefined = undefined,
-    const TReadReceipts extends ReadReceiptsConfig | undefined = undefined,
+    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     name: TName,
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
@@ -1333,8 +1344,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
         readonly emits?: TEmits;
         readonly requests?: TRequests;
       };
-      readonly inbox?: TInbox;
-      readonly readReceipts?: TReadReceipts;
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
     },
   ): ChannelObject<
     TSlots,
@@ -1348,7 +1358,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TCaps,
     ServerRequestMap<TRequests>
   > &
-    ChannelFlagsContribution<TName, TInbox, TReadReceipts>;
+    ChannelFlagsContribution<TName, BrandsOf<TCapabilities>>;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
@@ -1357,8 +1367,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
-    const TInbox extends InboxConfig | undefined = undefined,
-    const TReadReceipts extends ReadReceiptsConfig | undefined = undefined,
+    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     pattern: readonly [TFamily, TPattern],
     config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
@@ -1366,8 +1375,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
         readonly emits?: TEmits;
         readonly requests?: TRequests;
       };
-      readonly inbox?: TInbox;
-      readonly readReceipts?: TReadReceipts;
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
     },
   ): ChannelObject<
     TSlots,
@@ -1381,7 +1389,7 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TCaps,
     ServerRequestMap<TRequests>
   > &
-    ChannelFlagsContribution<TFamily, TInbox, TReadReceipts>;
+    ChannelFlagsContribution<TFamily, BrandsOf<TCapabilities>>;
 }
 
 /** Builder method granted by the `replay.custom()` capability. */
@@ -1726,13 +1734,13 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
 export function define<
   TEnv = unknown,
   TMeta = unknown,
-  const TCaps extends readonly GrantableCapability[] = readonly [],
+  const TCaps extends readonly (GrantableCapability & TopLevelCapability)[] = readonly [],
 >(
   config: DefineConfig<TEnv, TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
 export function define<
   TMeta = unknown,
-  const TCaps extends readonly PluginSafeCapability[] = readonly [],
+  const TCaps extends readonly (PluginSafeCapability & TopLevelCapability)[] = readonly [],
 >(
   config: ScopedDefineConfig<TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps, true>;
@@ -1833,8 +1841,6 @@ export function define(config: any): any {
       const streamBuilders: Record<string, unknown> = {};
       let buildCustomReplay: unknown;
       let buildBuiltinReplay: unknown;
-      let buildInbox: unknown;
-      let buildReadReceipts: unknown;
       let buildRequest: unknown;
       let registerServerRequests: unknown;
       for (const cap of config.capabilities ?? []) {
@@ -1849,10 +1855,6 @@ export function define(config: any): any {
         if (customReplay) buildCustomReplay = customReplay;
         const builtinReplay = (cap as { __buildBuiltinReplay?: unknown }).__buildBuiltinReplay;
         if (builtinReplay) buildBuiltinReplay = builtinReplay;
-        const inbox = (cap as { __buildInbox?: unknown }).__buildInbox;
-        if (inbox) buildInbox = inbox;
-        const readReceipts = (cap as { __buildReadReceipts?: unknown }).__buildReadReceipts;
-        if (readReceipts) buildReadReceipts = readReceipts;
         const request = (cap as { __buildRequest?: unknown }).__buildRequest;
         if (request) buildRequest = request;
         const registerSR = (cap as { __registerServerRequests?: unknown }).__registerServerRequests;
@@ -1867,8 +1869,6 @@ export function define(config: any): any {
         streamBuilders,
         buildCustomReplay,
         buildBuiltinReplay,
-        buildInbox,
-        buildReadReceipts,
         buildRequest,
         registerServerRequests,
       });
@@ -1941,6 +1941,7 @@ export function define(config: any): any {
       assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertHostObservationGranted(config.capabilities ?? []);
+      assertNoChannelOnlyCapabilities(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
       const scheduledBodies = new Map<
         string,

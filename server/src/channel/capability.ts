@@ -24,6 +24,17 @@ import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
 
+/**
+ * The seam every channel-only capability (`inbox()`, `readReceipts()`, and any
+ * future one) attaches onto itself so `ChannelBuilder` can pull its primitive
+ * out of the channel's own `capabilities` list, and read its declared identity,
+ * without importing that capability's engine or knowing its name. @internal
+ */
+interface ChannelOnlyBuilder {
+  readonly __capabilityKind?: string;
+  __buildChannelPrimitive?: () => Primitive;
+}
+
 /** The capability name a channel stream of each kind needs listed. */
 const CHANNEL_STREAM_CAPABILITY = {
   plain: 'stream()',
@@ -52,10 +63,6 @@ export interface ChannelDeps {
   }) => Primitive;
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
-  /** Inbox builder, present only when `inbox()` is listed. */
-  readonly buildInbox?: (inboxConfig: unknown) => Primitive;
-  /** Read-receipts builder, present only when `readReceipts()` is listed. */
-  readonly buildReadReceipts?: (readReceiptsConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
   readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
   /**
@@ -100,6 +107,8 @@ export class ChannelBuilder {
   private readonly children: Primitive[] = [];
   private readonly once = new Set<string>();
   private readonly deps: ChannelDeps;
+  /** Capability kinds declared by this channel's own `capabilities` list. */
+  private readonly capabilityKinds = new Set<string>();
 
   constructor(pattern: unknown, config: any, deps: ChannelDeps) {
     this.deps = deps;
@@ -140,25 +149,9 @@ export class ChannelBuilder {
       }
       this.children.push(build(cfg.replay));
     }
-    if (cfg.inbox !== undefined && cfg.inbox !== false) {
-      const build = deps.buildInbox;
-      if (!build) {
-        throw new Error(
-          `[wskit] channel '${this.__key}' sets inbox but the inbox() capability is not ` +
-            'listed. Add inbox() to capabilities.',
-        );
-      }
-      this.children.push(build(cfg.inbox));
-    }
-    if (cfg.readReceipts !== undefined && cfg.readReceipts !== false) {
-      const build = deps.buildReadReceipts;
-      if (!build) {
-        throw new Error(
-          `[wskit] channel '${this.__key}' sets readReceipts but the readReceipts() capability is ` +
-            'not listed. Add readReceipts() to capabilities.',
-        );
-      }
-      this.children.push(build(cfg.readReceipts));
+    for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
+      if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
+      if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
     }
     if (cfg.check) {
       this.children.push(
@@ -263,7 +256,10 @@ export class ChannelBuilder {
 
   /** Build the channel primitive from everything registered so far. @internal */
   __build(): Primitive {
-    return channelFactory(this.pattern as any, ...(this.children as any[]));
+    const primitive = channelFactory(this.pattern as any, ...(this.children as any[]));
+    (primitive as { __capabilityKinds?: ReadonlySet<string> }).__capabilityKinds =
+      this.capabilityKinds;
+    return primitive;
   }
 
   /** Borrow a stream capability's builder, adapting the generator to the channel ctx. */

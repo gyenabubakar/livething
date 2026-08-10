@@ -30,9 +30,6 @@ export type InboxOptions =
   | (InboxOptionsBase & { readonly onDelivered?: 'delete'; readonly retention?: InboxRetention })
   | (InboxOptionsBase & { readonly onDelivered: 'retain'; readonly retention: InboxRetention });
 
-/** The channel config value accepted for `inbox`: on/off or an options object. */
-export type InboxConfig = boolean | InboxOptions;
-
 /** Read-receipts settings accepted for one channel. */
 export interface ReadReceiptsOptions {
   /**
@@ -42,6 +39,3 @@ export interface ReadReceiptsOptions {
    */
   readonly maxReceiptAudience?: number;
 }
-
-/** The channel config value accepted for `readReceipts`: on/off or an options object. */
-export type ReadReceiptsConfig = boolean | ReadReceiptsOptions;

@@ -24,8 +24,6 @@ const base = define({
     channels(),
     sequence({ persist: true }),
     dedup(),
-    inbox(),
-    readReceipts(),
     emits({
       'cursor-answer': t<{ kind: 'received' | 'read'; seq: number; identities: string[] }>(),
     }),
@@ -41,8 +39,7 @@ export const handleServerDrop = base.on('server-drop', {
 
 export const chat = base.channel('chat', {
   persistent: true,
-  inbox: { broadcastReceipts: true },
-  readReceipts: true,
+  capabilities: [inbox({ broadcastReceipts: true }), readReceipts()],
   outgoing: {
     emits: {
       'room-msg': t<RoomMsg>(),

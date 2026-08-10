@@ -6,7 +6,10 @@
  * from it would pull the plugin factory, the wire-namespacing pass, and the
  * plugin-scoped context into every app, plugins or not.
  */
-import { capabilityDisplayName } from '~/_define/capability-kinds.ts';
+import {
+  capabilityDisplayName,
+  CHANNEL_ONLY_CAPABILITY_KINDS,
+} from '~/_define/capability-kinds.ts';
 import type { AnyCapability } from '~/_define/capability.ts';
 import type { PluginCapability } from '~/_define/plugin.ts';
 
@@ -69,6 +72,25 @@ export function assertHostObservationGranted(
     logger.warn(
       `[wskit] plugin "${pluginCap.__pluginId}" is granted host-traffic observation ` +
         "(its intercept/outgoing see the app's frames)",
+    );
+  }
+}
+
+/**
+ * Backstop the compile gate on `DefineConfig.capabilities` /
+ * `ScopedDefineConfig.capabilities`: a channel-only capability (`inbox()`,
+ * `readReceipts()`) listed at the host or plugin top level throws a clear
+ * build error. Covers the dynamic case where a capability array is built at
+ * runtime and the `__channelOnly` brand never fires at the call site.
+ */
+export function assertNoChannelOnlyCapabilities(capabilities: readonly AnyCapability[]): void {
+  for (const cap of capabilities) {
+    const kind = cap.__capabilityKind;
+    if (!kind || !CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) continue;
+    const name = capabilityDisplayName(kind);
+    throw new Error(
+      `[wskit] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
+        `base.channel(name, { capabilities: [${name}] }) — not in define({ capabilities: [...] }).`,
     );
   }
 }

@@ -148,6 +148,14 @@ export interface ChannelPrimitive<
   /** The primitives that define this channel's behaviour. */
   readonly primitives: TPrimitives;
   /**
+   * The capability kinds this channel's own `capabilities` list declares
+   * (e.g. `inbox()`, `readReceipts()`). Read by `resolveCapabilityRequirements`
+   * as the channel's local requirement scope. Attached after construction by
+   * `ChannelBuilder`, since the factory here has no view of a channel's
+   * capabilities list. @internal
+   */
+  readonly __capabilityKinds?: ReadonlySet<string>;
+  /**
    * Build-seam: compile this channel primitive into a `CompiledChannel`. Carried
    * on the primitive so the core compile step never imports the channel compile
    * code; a handler with no channels ships none of it. @internal

@@ -1,6 +1,7 @@
 import { define, emits, errors, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { error } from '@wskit/server/errors';
+import { inbox } from '@wskit/server/inbox';
 import { plugin } from '@wskit/server/plugin';
 import { requests } from '@wskit/server/requests';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
@@ -16,7 +17,10 @@ const RoomFull = error('room-full', v.object({ limit: v.number() }));
 // namespace, so this fixture exercises that the typed client can drive each
 // direction without the `__` prefix being mistaken for a protocol frame.
 //
-// It declares no dependsOn — its durable streams work on any host.
+// It declares no explicit dependsOn — its durable streams work on any host, and
+// the `room` channel's `inbox()` capability requires `sequence({ persist: true })`
+// and `dedup()`, which the host must list; that requirement is auto-derived from
+// the plugin's own capabilities, so it needs no dependsOn entry here.
 const h = define({
   scope: 'plugin',
   capabilities: [
@@ -34,7 +38,14 @@ const h = define({
 // and sending `chat` on the channel echoes a `said` back — this proves a client
 // can SEND on a plugin channel (outgoing child events must be namespaced too, not
 // just the incoming ones the server broadcasts).
+//
+// `inbox()` proves guaranteed per-member delivery works through a plugin's
+// namespace: the channel's wire key is rewritten to `__e2e:feed::room`, and
+// inbox's durable rows must be keyed by that same namespaced name on both the
+// write side (broadcast fan-out) and the read side (`__received__` acks) — a
+// mismatch there would silently drop delivery.
 const room = h.channel('room', {
+  capabilities: [inbox()],
   outgoing: { emits: { joined: t<{ who: string }>(), said: t<{ text: string }>() } },
   // A declared error thrown from a channel lifecycle handler leaves the server
   // namespaced (`__e2e:feed::room-full`); the client plugin must reject the

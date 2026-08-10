@@ -1,5 +1,7 @@
 import { define, emits, t } from '@wskit/server';
+import { dedup } from '@wskit/server/dedup';
 import { observeHost } from '@wskit/server/plugin';
+import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
@@ -46,6 +48,8 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
+    sequence({ persist: true }),
+    dedup(),
     Feed(),
     observeHost(Drizzle()),
     emits({
