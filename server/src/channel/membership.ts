@@ -121,7 +121,6 @@ export async function autoRejoinIdentity(
   await runAutoRejoin(
     {
       sql,
-      tagMembers: core.tagMembers,
       subscribeConnectionAsServer: async (target, opts) => {
         const ref: PublicApi.ConnectionRef = {
           __wskit: 'connection-ref',
@@ -132,8 +131,6 @@ export async function autoRejoinIdentity(
         return subscribeFromServer(ref, opts);
       },
       sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),
-      getTagGroupSchema: (group) => core.getTagGroupSchema('persistent', group),
-      restorePersistentTags: (opts) => core.tagPersistenceService?.restorePersistentTags(opts),
       logger: core.logger,
     },
     connection,

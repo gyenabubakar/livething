@@ -3,8 +3,6 @@ import { deleteMembership, listMembershipsByUser } from '~/channel/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { Logger, SQLProvider } from '~/context.ts';
-import type { RestorePersistentTagsOptions } from '~/tags/rejoin.ts';
-import type { Validator } from '~/types.ts';
 
 export interface RejoinSubscribeOptions {
   channelName: string;
@@ -23,8 +21,6 @@ export interface RejoinSubscribeOptions {
  */
 export interface RejoinRuntime {
   sql: Pick<SQLProvider, 'exec'>;
-
-  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 
   /**
    * Server-side subscribe primitive (from #11). The rejoin path invokes this
@@ -47,16 +43,6 @@ export interface RejoinRuntime {
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: SendProtocolMessageOptions,
   ): void;
-
-  /** Returns a persistent tag group's validator, or undefined when it has none. */
-  getTagGroupSchema?(group: string): Validator | undefined;
-
-  /**
-   * Restore the user's persistent tags into the live index. Set by the
-   * `tags()` capability's registered service; absent (a no-op) when `tags()`
-   * is not listed.
-   */
-  restorePersistentTags?(opts: RestorePersistentTagsOptions): void;
 
   logger?: Pick<Logger, 'error'>;
 }
@@ -90,16 +76,6 @@ export async function autoRejoinIdentity(
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): Promise<void> {
   if (!connection.userId) return;
-
-  // Restore persistent tags first — channel auto-rejoin's check hook
-  // can read them via `ctx.tags.persistent(...)`.
-  runtime.restorePersistentTags?.({
-    sql: runtime.sql,
-    tagMembers: runtime.tagMembers,
-    connection,
-    getSchema: runtime.getTagGroupSchema,
-    logger: runtime.logger,
-  });
 
   const rows = listMembershipsByUser(runtime.sql, connection.userId);
   if (rows.length === 0) return;

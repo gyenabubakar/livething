@@ -67,6 +67,14 @@ export function inbox(config: InboxOptions): InboxPrimitive {
           '[wskit] inbox requires `sequence: { persist: true }` for durable delivery.',
         );
       }
+      if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
+        throw new Error(
+          `[wskit] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
+            `delivery silently degrades to live-only — inbox fans out to the durable membership roster, ` +
+            `which stays empty on an ephemeral channel. Remove \`membership: 'ephemeral'\` from this ` +
+            `channel, or remove inbox().`,
+        );
+      }
     },
     options,
     __setup(engine) {

@@ -56,21 +56,13 @@ export const handleSendRoomMsg = chat.on('send-room-msg', {
 
 const AskCursor = v.object({ kind: v.picklist(['received', 'read']), seq: v.number() });
 
-// The cursor surfaces attach at runtime with no static ctx type yet (deferred
-// capability-owned ctx extensions), so the handler casts to reach them.
-interface ChannelReceiptsCtx {
-  inbox: { receiversOf(seq: number): string[] };
-  readReceipts: { readersOf(seq: number): string[] };
-}
-
 export const handleAskCursor = chat.on('ask-cursor', {
   input: AskCursor,
   run(ctx, input) {
-    const receiptsCtx = ctx.channel as unknown as ChannelReceiptsCtx;
     const identities =
       input.kind === 'read'
-        ? receiptsCtx.readReceipts.readersOf(input.seq)
-        : receiptsCtx.inbox.receiversOf(input.seq);
+        ? ctx.channel.readReceipts.readersOf(input.seq)
+        : ctx.channel.inbox.receiversOf(input.seq);
     ctx.send('cursor-answer', { kind: input.kind, seq: input.seq, identities });
   },
 });

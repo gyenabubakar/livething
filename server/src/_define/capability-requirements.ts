@@ -1,4 +1,8 @@
-import { capabilityDisplayName, HOST_ONLY_CAPABILITY_KINDS } from '~/_define/capability-kinds.ts';
+import {
+  capabilityDisplayName,
+  CHANNEL_ONLY_CAPABILITY_KINDS,
+  HOST_ONLY_CAPABILITY_KINDS,
+} from '~/_define/capability-kinds.ts';
 import type { AnyCapability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -83,9 +87,21 @@ export function resolveCapabilityRequirements(
             continue;
           }
           const name = capabilityDisplayName(kind);
-          const where = channelLocal
-            ? `this channel's capabilities, or to define({ capabilities: [...] })`
-            : 'capabilities';
+          // A channel-only capability (inbox, readReceipts) can only ever be
+          // listed inside a channel's own `capabilities`; a host-only one
+          // (dedup, sequence, keepalive, rateLimit, replay) can only ever be
+          // listed at the top level. Naming the other location would send the
+          // author to a fix that is itself a build error.
+          let where: string;
+          if (CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) {
+            where = "this channel's capabilities";
+          } else if (HOST_ONLY_CAPABILITY_KINDS.has(kind)) {
+            where = 'define({ capabilities: [...] })';
+          } else {
+            where = channelLocal
+              ? `this channel's capabilities, or to define({ capabilities: [...] })`
+              : 'capabilities';
+          }
           throw new Error(
             `[wskit] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
           );

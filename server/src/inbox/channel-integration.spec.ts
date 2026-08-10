@@ -98,7 +98,7 @@ describe('a host missing sequence()/dedup() fails the build, naming what to add 
     const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
     const chat = base.channel('chat', { capabilities: [inbox()] });
     expect(() => base.assemble({ handlers: [chat] })).toThrow(
-      "[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to this channel's capabilities, or to define({ capabilities: [...] }).",
+      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
     );
   });
 

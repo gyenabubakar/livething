@@ -31,7 +31,7 @@ describe('autoRejoinIdentity', () => {
     const sendProtocolMessage = vi.fn();
 
     await autoRejoinIdentity(
-      { sql, tagMembers: new Map(), subscribeConnectionAsServer: subscribe, sendProtocolMessage },
+      { sql, subscribeConnectionAsServer: subscribe, sendProtocolMessage },
       fakeConnection(''),
     );
     expect(subscribe).not.toHaveBeenCalled();
@@ -55,59 +55,12 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
-        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
       fakeConnection('u-42'),
     );
     expect(subscribe).not.toHaveBeenCalled();
-  });
-
-  it('calls restorePersistentTags before subscribing, when the dep is set', async () => {
-    const sql = createTestSql();
-    ensureMembershipSchema(sql);
-    insertMembership(sql, { userId: 'u-42', channelName: 'lobby', channelFamily: null });
-    const order: string[] = [];
-    const restorePersistentTags = vi.fn(() => {
-      order.push('restore');
-    });
-    const subscribe = vi.fn(async () => {
-      order.push('subscribe');
-    });
-
-    await autoRejoinIdentity(
-      {
-        sql,
-        tagMembers: new Map(),
-        subscribeConnectionAsServer: subscribe,
-        sendProtocolMessage: () => {},
-        restorePersistentTags,
-      },
-      fakeConnection('u-42'),
-    );
-
-    expect(order).toEqual(['restore', 'subscribe']);
-  });
-
-  it('skips restorePersistentTags entirely when the dep is unset (tags() not listed)', async () => {
-    const sql = createTestSql();
-    ensureMembershipSchema(sql);
-    insertMembership(sql, { userId: 'u-42', channelName: 'lobby', channelFamily: null });
-    const subscribe = vi.fn(async () => {});
-
-    await expect(
-      autoRejoinIdentity(
-        {
-          sql,
-          tagMembers: new Map(),
-          subscribeConnectionAsServer: subscribe,
-          sendProtocolMessage: () => {},
-        },
-        fakeConnection('u-42'),
-      ),
-    ).resolves.not.toThrow();
-    expect(subscribe).toHaveBeenCalledTimes(1);
   });
 
   it('calls subscribeConnectionAsServer for every stored membership', async () => {
@@ -130,7 +83,6 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
-        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
@@ -162,7 +114,6 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
-        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: (_c, { event, payload, wskit }: SendProtocolMessageOptions) =>
           sent.push({ event, payload, wskit }),
@@ -192,7 +143,6 @@ describe('autoRejoinIdentity', () => {
       autoRejoinIdentity(
         {
           sql,
-          tagMembers: new Map(),
           subscribeConnectionAsServer: subscribe,
           sendProtocolMessage: () => sent.push(1),
         },
@@ -218,7 +168,6 @@ describe('autoRejoinIdentity', () => {
       autoRejoinIdentity(
         {
           sql,
-          tagMembers: new Map(),
           subscribeConnectionAsServer: subscribe,
           sendProtocolMessage: () => sent.push(1),
         },
@@ -246,7 +195,6 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
-        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },

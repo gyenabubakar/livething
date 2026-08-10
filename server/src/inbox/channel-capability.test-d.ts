@@ -47,4 +47,67 @@ expectTypeOf<Client['channels']['with-both']['readReceipts']>().toEqualTypeOf<tr
 expectTypeOf<Client['channels']['with-neither']>().not.toHaveProperty('inbox');
 expectTypeOf<Client['channels']['with-neither']>().not.toHaveProperty('readReceipts');
 
+// `ctx.channel.inbox` is a non-null property inside the owning channel's own
+// handler when that channel lists `inbox()` — not a cast, not the nullable
+// `handle.inbox()` method.
+export const handleInboxBackfill = withInbox.on('backfill', {
+  run(ctx) {
+    expectTypeOf(ctx.channel.inbox.backfill).toBeFunction();
+    ctx.channel.inbox.backfill('user-1', []);
+    expectTypeOf(ctx.channel.inbox.receiversOf(1)).toEqualTypeOf<string[]>();
+  },
+});
+
+// Reading `ctx.channel.inbox` on a channel that never listed `inbox()` is a compile error.
+export const handleNoInbox = withNeither.on('no-inbox', {
+  run(ctx) {
+    // @ts-expect-error — this channel has no inbox() capability listed.
+    ctx.channel.inbox;
+  },
+});
+
+// `ctx.channel.readReceipts` is a non-null property inside the owning channel's
+// own handler when that channel lists `readReceipts()`.
+export const handleReadReceipts = withBoth.on('mark-read', {
+  run(ctx) {
+    expectTypeOf(ctx.channel.readReceipts.readersOf).toBeFunction();
+    // `withBoth` also lists `inbox()`, so both arms are present together.
+    expectTypeOf(ctx.channel.inbox.backfill).toBeFunction();
+  },
+});
+
+// Reading `ctx.channel.readReceipts` on a channel that lists `inbox()` but not
+// `readReceipts()` is a compile error.
+export const handleNoReadReceipts = withInbox.on('no-read-receipts', {
+  run(ctx) {
+    // @ts-expect-error — this channel has inbox() but not readReceipts() listed.
+    ctx.channel.readReceipts;
+  },
+});
+
+const handlerWithArms = base.assemble({
+  handlers: [
+    withInbox,
+    withBoth,
+    withNeither,
+    handleInboxBackfill,
+    handleNoInbox,
+    handleReadReceipts,
+    handleNoReadReceipts,
+  ],
+});
+type ClientWithArms = InferClient<typeof handlerWithArms>;
+expectTypeOf<ClientWithArms['channels']['with-inbox']['inbox']>().toEqualTypeOf<true>();
+
+// A handle from `ctx.channels.get(...)` still returns the nullable method form —
+// it may name any channel, so it cannot promise the capability is present.
+export const handleFromGetHandle = base.on('from-get-handle', {
+  run(ctx) {
+    const handle = ctx.channels.get(withInbox);
+    expectTypeOf(handle.inbox()).toEqualTypeOf<ReturnType<typeof handle.inbox>>();
+    expectTypeOf(handle.inbox).toBeFunction();
+    expectTypeOf(handle.readReceipts).toBeFunction();
+  },
+});
+
 export type {};

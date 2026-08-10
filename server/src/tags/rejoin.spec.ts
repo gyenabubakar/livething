@@ -66,11 +66,15 @@ describe('restorePersistentTags', () => {
     expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
   });
 
-  it('no-ops for a connection with no user id', () => {
-    const sql = createTestSql();
+  it('no-ops for a connection with no user id, without querying storage', () => {
+    let statements = 0;
+    const sql = createTestSql({ onExec: () => (statements += 1) });
     ensureTagsSchema(sql);
+    statements = 0;
+
     const connection = tagConnection('');
     expect(() => restorePersistentTags({ sql, tagMembers: new Map(), connection })).not.toThrow();
     expect(connection.tags.persistent.size).toBe(0);
+    expect(statements).toBe(0);
   });
 });

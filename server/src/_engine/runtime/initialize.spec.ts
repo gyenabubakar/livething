@@ -17,20 +17,27 @@ import { InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { connectionRuntime } from '~/_engine/engine.deps.ts';
+import { tagRefIndexKey } from '~/_engine/runtime/tag-index.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { channels } from '~/channel/capability.ts';
+import { insertMembership } from '~/channel/storage.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { inbox } from '~/inbox/capability.ts';
 import { replay } from '~/replay/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
+import { tags } from '~/tags/capability.ts';
+import { insertTag } from '~/tags/storage.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
 function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
@@ -375,5 +382,121 @@ describe('revalidate requires a persistent channel', () => {
     const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
+  });
+});
+
+describe('inbox requires a persistent channel', () => {
+  const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
+
+  it("throws at boot when a `membership: 'ephemeral'` channel has inbox()", async () => {
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [channels(), sequence({ persist: true }), dedup()],
+    });
+    const room = base.channel('room', {
+      ...channelOutgoing,
+      membership: 'ephemeral',
+      capabilities: [inbox()],
+    });
+    const handler = base.assemble({ handlers: [room] });
+
+    await expect(initWithFakeStorage(handler)).rejects.toThrow(
+      /Channel "room" has inbox\(\) but is not persistent/,
+    );
+  });
+
+  it('boots fine when a persistent channel has inbox()', async () => {
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [channels(), sequence({ persist: true }), dedup()],
+    });
+    const room = base.channel('room', { ...channelOutgoing, capabilities: [inbox()] });
+    const handler = base.assemble({ handlers: [room] });
+
+    await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
+  });
+});
+
+describe('tags() restores persistent tags on reconnect', () => {
+  function fakeConnection(id: string, userId: string): EngineRuntimeTypes.RuntimeConnection {
+    return {
+      id,
+      userId,
+      wsKey: {},
+      descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    } as unknown as EngineRuntimeTypes.RuntimeConnection;
+  }
+
+  /** A warm boot (older schema version present) creates real tables and leaves `freshBoot` false. */
+  async function bootWarm(handler: ServerDefinition): Promise<Engine> {
+    const { storage } = makeFakeStorage({ warmedSchemaVersion: '0' });
+    const engine = buildEngine(handler);
+    engine.core.storage = storage as never;
+    await engine.initialize();
+    return engine;
+  }
+
+  it('restores a persistent tag on reconnect even with no channels() capability', async () => {
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [tags((_ephemeral, persistent) => [persistent('role', t<string>())])],
+    });
+    const handler = base.assemble({
+      handlers: [base.on('noop', { input: v.object({}), run() {} })],
+    });
+    const engine = await bootWarm(handler);
+
+    // A previous session already ran `ctx.tags.persistent('role').add('admin')` —
+    // the row is durable, but no live connection carries it yet.
+    insertTag(engine.core.storage.sql, { userId: 'u-1', group: 'role', key: 'admin' });
+
+    const connection = fakeConnection('c-1', 'u-1');
+    await connectionRuntime(engine.core).autoRejoinIdentity(connection);
+
+    const members = engine.core.tagMembers.get(tagRefIndexKey('persistent', 'role', 'admin'));
+    expect(members?.has(connection)).toBe(true);
+    expect(connection.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+
+  it('restores exactly once when both tags() and channels() are listed', async () => {
+    const base = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [
+        tags((_ephemeral, persistent) => [persistent('role', t<string>())]),
+        channels(),
+      ],
+    });
+    const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
+    const handler = base.assemble({ handlers: [room] });
+    const engine = await bootWarm(handler);
+
+    insertTag(engine.core.storage.sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    insertMembership(engine.core.storage.sql, {
+      userId: 'u-1',
+      channelName: 'room',
+      channelFamily: null,
+    });
+
+    const calls: unknown[] = [];
+    const original = engine.core.tagPersistenceService!.restorePersistentTags;
+    engine.core.tagPersistenceService = {
+      restorePersistentTags: (opts) => {
+        calls.push(opts);
+        return original(opts);
+      },
+    };
+
+    const connection = fakeConnection('c-1', 'u-1');
+    engine.core.connections.set(connection.id, connection);
+    await connectionRuntime(engine.core).autoRejoinIdentity(connection);
+
+    expect(calls).toHaveLength(1);
+    const members = engine.core.tagMembers.get(tagRefIndexKey('persistent', 'role', 'admin'));
+    expect(members?.has(connection)).toBe(true);
   });
 });

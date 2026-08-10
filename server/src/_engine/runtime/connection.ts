@@ -469,11 +469,13 @@ export function acceptConnection(
   connection.pendingWrites = { active: true };
 
   const ctx = runtime.buildConnectionContext(connection);
-  // Auto-rejoin runs before onConnect so handlers see the connection already
-  // back in its persistent channels. The branch keeps the synchronous start of
-  // `runConnectionLifecycle` for an engine with no `channels()` capability —
-  // an unconditional `.then()` chain would shift onConnect's timing by a
-  // microtask.
+  // Auto-rejoin (channel membership and persistent tags) runs before onConnect
+  // so handlers see the connection already restored. `engine.deps.ts` wires
+  // `autoRejoinIdentity` on every real engine regardless of which capabilities
+  // are listed, so a real engine always takes the async branch below — the
+  // synchronous branch only fires for a runtime bag that omits the field
+  // entirely, which only a test harness does. An unconditional `.then()`
+  // chain would shift `onConnect`'s timing by a microtask for those tests.
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)

@@ -22,6 +22,8 @@ import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 import type {
+  ChannelInbox,
+  ChannelReadReceipts,
   ChannelRecipient,
   ConnectionInfo,
   ConnectionRef,
@@ -657,6 +659,19 @@ type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> 
       } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
     : {};
 
+/**
+ * The `inbox`/`readReceipts` arms added to `ctx.channel` when this channel's OWN
+ * `capabilities` list (not the host's) carries the matching brand — `inbox()`
+ * lands `ctx.channel.inbox`, `readReceipts()` lands `ctx.channel.readReceipts`.
+ * Both are always-present, non-null members here (unlike the nullable
+ * `handle.inbox()` / `handle.readReceipts()` methods on a `ctx.channels.get(...)`
+ * handle, which may name any channel).
+ */
+type ChannelCapabilityArm<TChannelBrand extends string> = ('inbox' extends TChannelBrand
+  ? { readonly inbox: ChannelInbox }
+  : {}) &
+  ('readReceipts' extends TChannelBrand ? { readonly readReceipts: ChannelReadReceipts } : {});
+
 /** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
 export type ChannelCtx<
   TSlots,
@@ -666,9 +681,11 @@ export type ChannelCtx<
   TOutgoing,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
-    ChannelRequestArm<TServerRequests, TCaps>;
+    ChannelRequestArm<TServerRequests, TCaps> &
+    ChannelCapabilityArm<TChannelBrand>;
 };
 
 /** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
@@ -677,8 +694,10 @@ export type ChannelGateCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
+  TChannelBrand extends string = never,
 > = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
-  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
+  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
+    ChannelCapabilityArm<TChannelBrand>;
 };
 
 /**
@@ -811,6 +830,7 @@ type ChannelStreamConfig<
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -820,7 +840,16 @@ type ChannelStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
@@ -839,6 +868,7 @@ type ChannelRecordedStreamConfig<
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -850,7 +880,16 @@ type ChannelRecordedStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
@@ -870,6 +909,7 @@ type ChannelResumableStreamConfig<
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -881,7 +921,16 @@ type ChannelResumableStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase &
         NudgesHandle<TNudges> & {
           /** The cursor recorded on the last run, or `null` on the first run. */
@@ -914,6 +963,7 @@ interface ChannelStreamMethod<
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a plain stream scoped to this channel. */
   stream<
@@ -933,7 +983,8 @@ interface ChannelStreamMethod<
       TChunk,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -958,6 +1009,7 @@ interface ChannelResumableStreamMethod<
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a resumable stream scoped to this channel. */
   resumableStream<
@@ -979,7 +1031,8 @@ interface ChannelResumableStreamMethod<
       TCursor,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -1009,6 +1062,7 @@ interface ChannelRecordedStreamMethod<
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a recorded stream scoped to this channel. */
   recordedStream<
@@ -1028,7 +1082,8 @@ interface ChannelRecordedStreamMethod<
       TChunk,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -1058,6 +1113,7 @@ export type ChannelStreamMethods<
   TBrand extends string,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = ('stream' extends TBrand
   ? ChannelStreamMethod<
       TSlots,
@@ -1069,7 +1125,8 @@ export type ChannelStreamMethods<
       TAddressing,
       TSubscribe,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >
   : {}) &
   ('resumableStream' extends TBrand
@@ -1083,7 +1140,8 @@ export type ChannelStreamMethods<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {}) &
   ('recordedStream' extends TBrand
@@ -1097,7 +1155,8 @@ export type ChannelStreamMethods<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {});
 
@@ -1112,6 +1171,7 @@ export type ChannelObject<
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = ChannelObjectCore<
   TSlots,
   TEnv,
@@ -1122,7 +1182,8 @@ export type ChannelObject<
   TAddressing,
   TSubscribe,
   TCaps,
-  TServerRequests
+  TServerRequests,
+  TChannelBrand
 > &
   ChannelStreamMethods<
     TSlots,
@@ -1135,7 +1196,8 @@ export type ChannelObject<
     TSubscribe,
     BrandsOf<TCaps>,
     TCaps,
-    TServerRequests
+    TServerRequests,
+    TChannelBrand
   > &
   ChannelRefForm<TParams, TOutgoing, TAddressing, TServerRequests>;
 
@@ -1172,6 +1234,7 @@ export type ChannelObjectCore<
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = Omit<
   ChannelBuilder,
   | 'on'
@@ -1201,7 +1264,8 @@ export type ChannelObjectCore<
     TAddressing,
     TSubscribe,
     TCaps,
-    TServerRequests
+    TServerRequests,
+    TChannelBrand
   > &
   ('requests' extends BrandsOf<TCaps>
     ? ChannelRequestMethods<
@@ -1214,10 +1278,13 @@ export type ChannelObjectCore<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {}) &
-  ('intercepts' extends BrandsOf<TCaps> ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps> : {});
+  ('intercepts' extends BrandsOf<TCaps>
+    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand>
+    : {});
 
 /** The `on` / lifecycle methods every channel object carries. */
 export interface ChannelCoreMethods<
@@ -1231,6 +1298,7 @@ export interface ChannelCoreMethods<
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a client→server event handler scoped to this channel. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
@@ -1238,7 +1306,16 @@ export interface ChannelCoreMethods<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests>,
+        ctx: ChannelCtx<
+          TSlots,
+          TEnv,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand
+        >,
         input: InferInput<TInput>,
       ): void | Promise<void>;
     } & RateLimitField<TCaps>,
@@ -1250,15 +1327,21 @@ export interface ChannelCoreMethods<
 
   /** Runs after a client subscribes to this channel. */
   subscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+    ) => void | Promise<void>,
   ): void;
   /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
   unsubscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+    ) => void | Promise<void>,
   ): void;
   /** Runs on every session end, including a plain disconnect. */
   sessionEnd(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+    ) => void | Promise<void>,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
   replay(hooks: CustomReplayHooks): void;
@@ -1276,6 +1359,7 @@ export interface ChannelRequestMethods<
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a client→server request handler scoped to this channel. */
   request<
@@ -1287,7 +1371,16 @@ export interface ChannelRequestMethods<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests>,
+        ctx: ChannelCtx<
+          TSlots,
+          TEnv,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand
+        >,
         input: InferInput<TInput>,
       ): TResponse | Promise<TResponse>;
     } & RateLimitField<TCaps>,
@@ -1304,11 +1397,12 @@ export interface ChannelInterceptMethods<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[],
+  TChannelBrand extends string = never,
 > {
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
       frame: InterceptFrame,
     ) => unknown | void,
   ): void;
@@ -1356,7 +1450,8 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     'static',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>
+    ServerRequestMap<TRequests>,
+    BrandsOf<TCapabilities>
   > &
     ChannelFlagsContribution<TName, BrandsOf<TCapabilities>>;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
@@ -1387,7 +1482,8 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     'dynamic',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>
+    ServerRequestMap<TRequests>,
+    BrandsOf<TCapabilities>
   > &
     ChannelFlagsContribution<TFamily, BrandsOf<TCapabilities>>;
 }

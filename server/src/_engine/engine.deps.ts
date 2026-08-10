@@ -408,6 +408,22 @@ export function connectionRuntime(core: EngineCore) {
   return (depsMemoFor(core).connection ??= buildConnectionRuntime(core));
 }
 
+/**
+ * Put a connection's persistent tags back into the live index. Reached
+ * through the engine's `tagPersistenceService` slot, set by the `tags()`
+ * capability — a handler that never lists `tags()` leaves the slot unset and
+ * this is a no-op. Called on fresh connect and on hibernation wake.
+ */
+function reloadPersistentTags(core: EngineCore, connection: RuntimeConnection): void {
+  core.tagPersistenceService?.restorePersistentTags({
+    sql: core.storage.sql,
+    tagMembers: core.tagMembers,
+    connection,
+    getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
+    logger: core.logger,
+  });
+}
+
 function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
@@ -434,14 +450,7 @@ function buildConnectionRuntime(core: EngineCore) {
 
     // Hibernation snapshots only carry ephemeral tags, so the wake path reloads
     // persistent tags by user id.
-    reloadPersistentTags: (connection: RuntimeConnection) =>
-      core.tagPersistenceService?.restorePersistentTags({
-        sql: core.storage.sql,
-        tagMembers: core.tagMembers,
-        connection,
-        getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
-        logger: core.logger,
-      }),
+    reloadPersistentTags: (connection: RuntimeConnection) => reloadPersistentTags(core, connection),
 
     buildConnectionContext: buildCtx,
 
@@ -466,6 +475,11 @@ function buildConnectionRuntime(core: EngineCore) {
         core.freshBoot = false;
         return Promise.resolve();
       }
+      // Restore persistent tags before channel auto-rejoin so its check/revalidate
+      // hooks can read them via `ctx.tags.persistent(...)`. Independent of
+      // `channelMembershipService` — a handler with `tags()` and no `channels()`
+      // still gets its tags back.
+      reloadPersistentTags(core, connection);
       const rejoined =
         core.channelMembershipService?.autoRejoinIdentity(
           core,

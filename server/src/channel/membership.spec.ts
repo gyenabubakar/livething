@@ -152,11 +152,26 @@ describe('kick(userRef, { revoke: true })', () => {
     const connection = makeConnection('conn_1', 'user-1');
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     addChannelMembership(channelMembers, connection, { channelName: 'room', channelFamily: null });
-    const deleteDurableMembership = vi.fn();
+
+    // Seed a real durable row and route the mocked runtime dep through the
+    // real `deleteDurableMembership` so the row's absence can be proven
+    // against actual storage, not just a spy's call count.
+    const sql = createTestSql();
+    ensureMembershipSchema(sql);
+    const core = makeCore(sql);
+    persistMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null });
+
+    const calls: Array<{ userId: string; channelName: string; channelFamily: string | null }> = [];
+    const deleteDurableMembershipSpy = vi.fn(
+      (userId: string, channelName: string, channelFamily: string | null) => {
+        calls.push({ userId, channelName, channelFamily });
+        deleteDurableMembership(core, { userId, channelName, channelFamily });
+      },
+    );
     const runtime = makeRuntime(
       channelMembers,
       new Map([[connection.id, connection]]),
-      deleteDurableMembership,
+      deleteDurableMembershipSpy,
     );
 
     await kickChannelMembers(
@@ -174,8 +189,13 @@ describe('kick(userRef, { revoke: true })', () => {
       },
     );
 
-    expect(deleteDurableMembership).toHaveBeenCalledTimes(1);
+    // The revoked user id — not the connection id — is what must reach the
+    // durable delete, or the row survives and the user auto-rejoins.
+    expect(calls).toEqual([{ userId: 'user-1', channelName: 'room', channelFamily: null }]);
     expect(connection.channelMemberships.size).toBe(0);
+    expect(
+      hasDurableMembership(core, { userId: 'user-1', channelName: 'room', channelFamily: null }),
+    ).toBe(false);
   });
 
   it('leaves a non-member connection of the same user id untouched', async () => {

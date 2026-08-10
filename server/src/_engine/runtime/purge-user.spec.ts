@@ -97,46 +97,55 @@ function withChannelsAndTags(): ServerDefinition {
 }
 
 describe('admin().purgeUser()', () => {
-  it('deletes a user membership rows and tag rows, and closes its live sockets', async () => {
+  it('deletes a user membership rows and tag rows, and closes only its live sockets', async () => {
     const { engine, sql } = await buildEngine(withChannelsAndTags());
 
     insertMembership(sql, { userId: 'alice', channelName: 'lobby', channelFamily: null });
     insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
+    const otherConnection = fakeConnection('conn-2', 'bob');
+    engine.core.connections.set(otherConnection.id, otherConnection);
 
     await engine.admin().purgeUser('alice');
 
     expect(listMembershipRows(sql, 'alice')).toHaveLength(0);
     expect(listTagsByUser(sql, 'alice')).toHaveLength(0);
     expect(connection.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+    expect(otherConnection.descriptor.close).not.toHaveBeenCalled();
   });
 
-  it('leaves a different user id untouched', async () => {
+  it('leaves a different user id untouched, including its live socket', async () => {
     const { engine, sql } = await buildEngine(withChannelsAndTags());
 
     insertMembership(sql, { userId: 'alice', channelName: 'lobby', channelFamily: null });
     insertMembership(sql, { userId: 'bob', channelName: 'lobby', channelFamily: null });
     insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
     insertTag(sql, { userId: 'bob', group: 'favorite', key: 'green' });
+    const bobConnection = fakeConnection('conn-bob', 'bob');
+    engine.core.connections.set(bobConnection.id, bobConnection);
 
     await engine.admin().purgeUser('alice');
 
     expect(listMembershipRows(sql, 'bob')).toHaveLength(1);
     expect(listTagsByUser(sql, 'bob')).toHaveLength(1);
+    expect(bobConnection.descriptor.close).not.toHaveBeenCalled();
   });
 
-  it('with neither channels() nor tags() listed, closes sockets and touches no storage', async () => {
+  it("with neither channels() nor tags() listed, closes only the purged user's sockets and touches no storage", async () => {
     const base = define({ env: t<Record<string, never>>(), capabilities: [] });
     const handler = base.assemble({ handlers: [] });
     const { engine, sql } = await buildEngine(handler);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
+    const otherConnection = fakeConnection('conn-2', 'bob');
+    engine.core.connections.set(otherConnection.id, otherConnection);
     expect(engine.core.hooks.purgeUser).toHaveLength(0);
 
     await expect(engine.admin().purgeUser('alice')).resolves.toBeUndefined();
 
     expect(connection.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+    expect(otherConnection.descriptor.close).not.toHaveBeenCalled();
     // No capability ever created the durable tables, so nothing to query — the
     // call above completing without throwing is itself the "touches no storage" proof.
     expect(
