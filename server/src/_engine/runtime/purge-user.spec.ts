@@ -2,12 +2,30 @@ import { CloseCodes } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import {
+  ensureDurableStreamSchema,
+  getSubscriber,
+  insertStream,
+  readStream,
+  seedSubscriber,
+} from '~/_engine/stream-durable/storage.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import {
   insertMembership,
   listMembershipsByUser as listMembershipRows,
 } from '~/channel/storage.ts';
+import { dedup } from '~/dedup/capability.ts';
+import { inbox, readReceipts } from '~/inbox/capability.ts';
+import {
+  advanceReceivedThrough,
+  listReceivers as listReceiptRowsForSeq,
+} from '~/inbox/receipts-storage.ts';
+import { insertInboxRows, loadUndeliveredRows } from '~/inbox/storage.ts';
+import { lastSeen } from '~/last-seen/capability.ts';
+import { readLastSeen, stampLastSeen } from '~/last-seen/storage.ts';
+import { sequence } from '~/sequence/capability.ts';
+import { resumableStream } from '~/stream-resumable/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag, listTagsByUser } from '~/tags/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -95,6 +113,138 @@ function withChannelsAndTags(): ServerDefinition {
   const noop = lobby.on('noop', { run() {} });
   return base.assemble({ handlers: [noop] });
 }
+
+function withEveryOwningCapability(): ServerDefinition {
+  const base = define({
+    env: t<Record<string, never>>(),
+    capabilities: [
+      channels(),
+      tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
+      sequence({ persist: true }),
+      dedup(),
+      lastSeen(),
+      resumableStream(),
+    ],
+  });
+  const lobby = base.channel('lobby');
+  const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
+  const lobbyNoop = lobby.on('noop', { run() {} });
+  const chatNoop = chat.on('noop', { run() {} });
+  return base.assemble({ handlers: [lobbyNoop, chatNoop] });
+}
+
+describe('admin().purgeUser() — every owning capability enabled together', () => {
+  it('removes one user from all seven tables while leaving another user intact', async () => {
+    const { engine, sql } = await buildEngine(withEveryOwningCapability());
+    const now = Date.now();
+
+    insertMembership(sql, { userId: 'alice', channelName: 'lobby', channelFamily: null });
+    insertMembership(sql, { userId: 'bob', channelName: 'lobby', channelFamily: null });
+
+    insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
+    insertTag(sql, { userId: 'bob', group: 'favorite', key: 'green' });
+
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'chat',
+      channelFamily: null,
+      frame: { seq: 1, messageId: 'm-alice', event: 'msg', payload: { text: 'hi' } },
+      now,
+    });
+    insertInboxRows(sql, {
+      userIds: ['bob'],
+      channelName: 'chat',
+      channelFamily: null,
+      frame: { seq: 2, messageId: 'm-bob', event: 'msg', payload: { text: 'yo' } },
+      now,
+    });
+
+    advanceReceivedThrough(sql, {
+      channelName: 'chat',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 1,
+      now,
+    });
+    advanceReceivedThrough(sql, {
+      channelName: 'chat',
+      channelFamily: null,
+      userId: 'bob',
+      receivedThrough: 2,
+      now,
+    });
+
+    stampLastSeen(sql, { userId: 'alice', now });
+    stampLastSeen(sql, { userId: 'bob', now });
+
+    ensureDurableStreamSchema(sql);
+    insertStream(sql, {
+      userId: 'alice',
+      streamId: 'alice-stream',
+      event: 'progress',
+      payload: '{}',
+      kind: 'resumable',
+      now,
+    });
+    insertStream(sql, {
+      userId: 'bob',
+      streamId: 'bob-stream',
+      event: 'progress',
+      payload: '{}',
+      kind: 'resumable',
+      now,
+    });
+    seedSubscriber(sql, {
+      storageUserId: 'bob',
+      streamId: 'bob-stream',
+      subscriberUserId: 'alice',
+    });
+
+    const aliceConnection = fakeConnection('conn-alice', 'alice');
+    engine.core.connections.set(aliceConnection.id, aliceConnection);
+    const bobConnection = fakeConnection('conn-bob', 'bob');
+    engine.core.connections.set(bobConnection.id, bobConnection);
+
+    await engine.admin().purgeUser('alice');
+
+    expect(listMembershipRows(sql, 'alice')).toHaveLength(0);
+    expect(listMembershipRows(sql, 'bob')).toHaveLength(1);
+
+    expect(listTagsByUser(sql, 'alice')).toHaveLength(0);
+    expect(listTagsByUser(sql, 'bob')).toHaveLength(1);
+
+    expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(0);
+    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
+    expect(
+      sql
+        .exec<{ n: number }>('SELECT COUNT(*) AS n FROM __wskit_inbox WHERE user_id = ?', 'bob')
+        .one(),
+    ).toMatchObject({ n: 1 });
+
+    expect(
+      listReceiptRowsForSeq(sql, { channelName: 'chat', channelFamily: null, seq: 1 }),
+    ).not.toContain('alice');
+    expect(
+      listReceiptRowsForSeq(sql, { channelName: 'chat', channelFamily: null, seq: 2 }),
+    ).toContain('bob');
+
+    expect(readLastSeen(sql, 'alice')).toBeNull();
+    expect(readLastSeen(sql, 'bob')).not.toBeNull();
+
+    expect(readStream(sql, 'alice', 'alice-stream')).toBeNull();
+    expect(readStream(sql, 'bob', 'bob-stream')).not.toBeNull();
+    expect(
+      getSubscriber(sql, {
+        storageUserId: 'bob',
+        streamId: 'bob-stream',
+        subscriberUserId: 'alice',
+      }),
+    ).toBeNull();
+
+    expect(aliceConnection.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+    expect(bobConnection.descriptor.close).not.toHaveBeenCalled();
+  });
+});
 
 describe('admin().purgeUser()', () => {
   it('deletes a user membership rows and tag rows, and closes only its live sockets', async () => {

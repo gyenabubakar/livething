@@ -5,6 +5,8 @@ import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
 import { channels } from '~/channel/capability.ts';
 import { channel } from '~/channel/channel.ts';
+import { buildChannelFamilyExtra } from '~/channel/context.ts';
+import { createChannelMembershipKey, subscribeConnection } from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
@@ -424,5 +426,155 @@ describe("plugin() — a plugin's own capability satisfies its own nested primit
     expect(() => base.assemble({ handlers: [] })).toThrow(
       "[wskit] plugin('acme:feed') needs the dedup() capability the host does not list.",
     );
+  });
+});
+
+describe("plugin() — a plugin's dynamic channel family stays subscribable and isolated", () => {
+  function createTestConnection(id: string) {
+    return {
+      id,
+      userId: id,
+      wsKey: Symbol(id),
+      descriptor: {
+        send() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        identity: id,
+      },
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good' as const,
+    };
+  }
+
+  /** A minimal ChannelRuntime driven off the real compiled channel families of an assembled define. */
+  function createChannelTestRuntime(compiled: {
+    channels: Map<any, any>;
+    channelFamilies: Map<any, any>;
+  }) {
+    const connections = new Map<string, ReturnType<typeof createTestConnection>>();
+    return {
+      connections,
+      runtime: {
+        compiled,
+        connections,
+        channelMembers: new Map(),
+        checkHooks: new Map(),
+        revalidateHooks: new Map(),
+        commitHooks: new Map(),
+        subscribeHooks: new Map(),
+        unsubscribeHooks: new Map(),
+        sessionEndHooks: new Map(),
+        toConnectionInfo() {
+          throw new Error('unused');
+        },
+        buildConnectionContext(connection: ReturnType<typeof createTestConnection>) {
+          return { id: connection.id };
+        },
+        persistAttachment() {},
+        sendProtocolMessage() {},
+        broadcastToChannel() {},
+        async handleValidationError() {},
+        async handleRuntimeError() {},
+        isChannelDurable: () => false,
+        persistMembership: () => {},
+        deleteDurableMembership: () => {},
+        hasDurableMembership: () => true,
+      },
+    };
+  }
+
+  function buildThreadFeed() {
+    const h = define({ scope: 'plugin', capabilities: [channels()] });
+    const thread = h.channel(['thread', 'thread:{id}'], {});
+    return plugin('acme:feed', { handler: h.assemble({ handlers: [thread] }) });
+  }
+
+  it('subscribes to a plugin-owned dynamic family by its namespaced family key and bare concrete name, capturing {id}', async () => {
+    const Feed = buildThreadFeed();
+    const base = define({
+      env: t<Env>(),
+      capabilities: [sequence({ persist: true }), dedup(), Feed()],
+    });
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const { runtime, connections } = createChannelTestRuntime(compiled);
+
+    const connection = createTestConnection('conn_1');
+    connections.set(connection.id, connection);
+
+    const channelFamily = '__acme:feed::thread';
+    const channelName = 'thread:t1';
+
+    await subscribeConnection(runtime as any, connection as any, {
+      channelName,
+      channelFamily,
+      data: undefined,
+    });
+
+    expect(
+      connection.channelMemberships.has(createChannelMembershipKey(channelName, channelFamily)),
+    ).toBe(true);
+
+    const resolved = compiled.channelFamilies.get(channelFamily);
+    const extra = buildChannelFamilyExtra(
+      connection as any,
+      { channel: resolved, channelName, channelFamily },
+      {
+        broadcastToChannel: vi.fn(),
+        getChannelMembers: vi.fn(),
+        kickChannelMembers: vi.fn(),
+        sendThroughPipeline: vi.fn(),
+        sendToChannelRecipient: vi.fn(),
+        subscribeConnectionAsServer: vi.fn(),
+      } as any,
+    );
+    expect(extra.channel?.params).toEqual({ id: 't1' });
+  });
+
+  it("keeps a plugin's dynamic family isolated from a host family sharing the same bare key/template", async () => {
+    const Feed = buildThreadFeed();
+    const base = define({
+      env: t<Env>(),
+      capabilities: [sequence({ persist: true }), dedup(), channels(), Feed()],
+    });
+    const hostThread = base.channel(['thread', 'thread:{id}'], {});
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [hostThread] }));
+    const { runtime, connections } = createChannelTestRuntime(compiled);
+
+    const hostSubscriber = createTestConnection('host_conn');
+    const pluginSubscriber = createTestConnection('plugin_conn');
+    connections.set(hostSubscriber.id, hostSubscriber);
+    connections.set(pluginSubscriber.id, pluginSubscriber);
+
+    // Both subscribe by the same bare concrete name — isolation must come
+    // entirely from the namespaced family key, since lookup resolves the
+    // family first.
+    await subscribeConnection(runtime as any, hostSubscriber as any, {
+      channelName: 'thread:t1',
+      channelFamily: 'thread',
+      data: undefined,
+    });
+    await subscribeConnection(runtime as any, pluginSubscriber as any, {
+      channelName: 'thread:t1',
+      channelFamily: '__acme:feed::thread',
+      data: undefined,
+    });
+
+    const hostKey = createChannelMembershipKey('thread:t1', 'thread');
+    const pluginKey = createChannelMembershipKey('thread:t1', '__acme:feed::thread');
+    expect(hostKey).not.toBe(pluginKey);
+    expect(hostSubscriber.channelMemberships.has(hostKey)).toBe(true);
+    expect(hostSubscriber.channelMemberships.has(pluginKey)).toBe(false);
+    expect(pluginSubscriber.channelMemberships.has(pluginKey)).toBe(true);
+    expect(pluginSubscriber.channelMemberships.has(hostKey)).toBe(false);
+
+    const memberList = (runtime as unknown as { channelMembers: Map<string, Set<{ id: string }>> })
+      .channelMembers;
+    expect([...(memberList.get(hostKey) ?? [])].map((m) => m.id)).toEqual([hostSubscriber.id]);
+    expect([...(memberList.get(pluginKey) ?? [])].map((m) => m.id)).toEqual([pluginSubscriber.id]);
   });
 });

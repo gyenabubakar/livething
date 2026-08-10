@@ -73,6 +73,7 @@
       { "name": "MULTI_STATE_SERVER", "class_name": "MultiStateServer" },
       { "name": "DURABLE_CONFIG_SERVER", "class_name": "DurableConfigServer" },
       { "name": "INBOX_SERVER", "class_name": "InboxServer" },
+      { "name": "INBOX_DYNAMIC_SERVER", "class_name": "InboxDynamicServer" },
       { "name": "RECEIPTS_SERVER", "class_name": "ReceiptsServer" },
       { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
       { "name": "INBOX_HANDLE_SERVER", "class_name": "InboxHandleServer" },
@@ -188,6 +189,10 @@
     {
       "tag": "v15",
       "new_sqlite_classes": ["AdminServer"],
+    },
+    {
+      "tag": "v16",
+      "new_sqlite_classes": ["InboxDynamicServer"],
     },
   ],
 }

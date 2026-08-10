@@ -69,12 +69,32 @@ const roomChat = room.on('chat', {
 // Client → plugin-owned DYNAMIC channel family: subscribing to `thread:<id>`
 // broadcasts a `posted` naming the concrete thread, so the client can prove it
 // addressed a specific member — not one shared channel.
+//
+// `inbox()` here proves the same namespacing guarantee as `room` above, but for
+// a dynamic family: the wire key becomes `__e2e:feed::thread:<id>` and the
+// durable rows must be keyed by that namespaced (family, name) pair on both the
+// fan-out write and the `__received__` read — a plugin-family channel is exactly
+// the case where the namespace prefix and the `{id}` interpolation could disagree.
 const thread = h.channel(['thread', 'thread:{id}'], {
-  outgoing: { emits: { posted: t<{ thread: string }>() } },
+  membership: 'persistent',
+  capabilities: [inbox()],
+  outgoing: {
+    emits: {
+      posted: t<{ thread: string }>(),
+      'thread-msg': t<{ thread: string; text: string }>(),
+    },
+  },
 });
 
 thread.subscribe((ctx) => {
   ctx.channel.broadcast('posted', { thread: ctx.channel.name }, { includeSelf: true });
+});
+
+const threadPost = thread.on('post', {
+  input: v.object({ text: v.string() }),
+  run(ctx, payload) {
+    ctx.channel.broadcast('thread-msg', { thread: ctx.channel.name, text: payload.text });
+  },
 });
 
 // Client → plugin incoming event, plugin emits back.
@@ -155,6 +175,17 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 
 export const Feed = plugin('e2e:feed', {
   handler: h.assemble({
-    handlers: [hello, echo, feed, nudgeable, feedPlain, feedRecorded, room, roomChat, thread],
+    handlers: [
+      hello,
+      echo,
+      feed,
+      nudgeable,
+      feedPlain,
+      feedRecorded,
+      room,
+      roomChat,
+      thread,
+      threadPost,
+    ],
   }),
 });

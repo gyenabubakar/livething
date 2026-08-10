@@ -56,6 +56,7 @@ export { CtxLocalsServer } from './ctx-locals.ts';
 export { MultiStateServer } from './multi-state.ts';
 export { DurableConfigServer } from './durable-config.ts';
 export { InboxServer } from './inbox.ts';
+export { InboxDynamicServer } from './inbox-dynamic.ts';
 export { ReceiptsServer } from './receipts.ts';
 export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
@@ -219,6 +220,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/multi-state': 'MULTI_STATE_SERVER',
   '/ws/durable-config': 'DURABLE_CONFIG_SERVER',
   '/ws/inbox': 'INBOX_SERVER',
+  '/ws/inbox-dynamic': 'INBOX_DYNAMIC_SERVER',
   '/ws/receipts': 'RECEIPTS_SERVER',
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
   '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
