@@ -8,8 +8,11 @@
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
+import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
+import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { requests } from '~/request/capability.ts';
+import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
@@ -107,3 +110,42 @@ expectTypeOf<StreamClient['streams']['resume']['nudges']>().toHaveProperty('fast
 // A recorded stream is persistent; with no cursor declared, the field is tidied.
 expectTypeOf<StreamClient['streams']['record']['kind']>().toEqualTypeOf<'persistent'>();
 expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
+
+// ---------------------------------------------------------------------------
+// Gap — a channel's own `capabilities` (`inbox()` / `readReceipts()`) must
+// produce the `inbox: true` / `readReceipts: true` flags InferClient exposes.
+// ---------------------------------------------------------------------------
+const flagsBase = define({
+  env: t<{}>(),
+  capabilities: [channels(), sequence({ persist: true }), dedup()],
+});
+
+const flaggedChannel = flagsBase.channel('flagged', {
+  capabilities: [inbox(), readReceipts()],
+  outgoing: { emits: { joined: t<{ id: string }>() } },
+});
+const flaggedChannelHandler = flaggedChannel.on('join', {
+  input: v.object({ id: v.string() }),
+  run() {},
+});
+
+const plainChannel = flagsBase.channel('plain', {});
+
+// The flags ride on the channel's own contribution, not its handlers' — so the
+// channel itself, not just handlers built from it, must reach `assemble`.
+const flagsDef = flagsBase.assemble({
+  handlers: [flaggedChannel, plainChannel, flaggedChannelHandler],
+});
+type FlagsClient = InferClient<typeof flagsDef>;
+
+expectTypeOf<FlagsClient['channels']['flagged']['inbox']>().toEqualTypeOf<true>();
+expectTypeOf<FlagsClient['channels']['flagged']['readReceipts']>().toEqualTypeOf<true>();
+expectTypeOf<FlagsClient['channels']['flagged']['incoming']['joined']>().toEqualTypeOf<{
+  id: string;
+}>();
+expectTypeOf<FlagsClient['channels']['flagged']['outgoing']['join']>().toEqualTypeOf<{
+  id: string;
+}>();
+
+expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('inbox');
+expectTypeOf<FlagsClient['channels']['plain']>().not.toHaveProperty('readReceipts');
