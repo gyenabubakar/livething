@@ -7,7 +7,6 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
-import { createLazyStorageView } from './lazy-storage.ts';
 import type * as EngineContextTypes from './types.ts';
 
 /**
@@ -202,7 +201,7 @@ export function buildConnectionContext(
   },
 ): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.getStorage());
+  const { sql, kv } = deps.getStorageView();
 
   const locals = new Map<LocalKey<unknown>, unknown>();
 

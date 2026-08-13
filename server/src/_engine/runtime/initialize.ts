@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { commonDeps } from '~/_engine/engine.deps.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
 import { createInitContext } from '~/lifecycle/context.ts';
@@ -116,7 +117,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     env: core.env,
     logger: core.logger,
     platform: core.platform,
-    getStorage: () => core.storage,
+    getStorageView: commonDeps(core).getStorageView,
   });
   // Inbound onion: new-model plugin inits run before the app's. Their
   // handlers are already wrapped in a plugin-scoped context.

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
@@ -68,12 +69,14 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 }
 
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
+  let storageView: ReturnType<typeof createLazyStorageView> | undefined;
   return {
     env: core.env,
     logger: core.logger,
     platform: core.platform,
     waitUntilImpl: core.waitUntilImpl,
     getStorage: () => core.storage,
+    getStorageView: () => (storageView ??= createLazyStorageView(core.storage)),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),

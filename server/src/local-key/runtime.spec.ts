@@ -42,6 +42,10 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
     }),
+    getStorageView: () => ({
+      sql: { exec: vi.fn(), transaction: vi.fn() },
+      kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+    }),
     getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),

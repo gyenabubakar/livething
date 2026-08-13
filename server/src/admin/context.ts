@@ -1,6 +1,5 @@
 import { ChannelNotFound } from '@wskit/core';
 import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
-import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -24,7 +23,7 @@ function toTarget(name: string, instance?: string): string | { family: string; n
 export function createAdminContext(
   deps: CreateAdminContextDeps,
 ): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.getStorage());
+  const { sql, kv } = deps.getStorageView();
 
   const channels: PublicApi.AdminChannels = {
     get(name: string, instance?: string): PublicApi.AdminChannelHandle {

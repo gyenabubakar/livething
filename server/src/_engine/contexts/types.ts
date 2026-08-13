@@ -54,6 +54,9 @@ export interface ContextCommonDeps {
 
   getStorage(): PublicApi.StorageProvider;
 
+  /** The engine's shared `sql` / `kv` view, built once and reused by every context. */
+  getStorageView(): { sql: PublicApi.SQLProvider; kv: PublicApi.KVProvider };
+
   getTimers(): PublicApi.TimerProvider;
 
   scheduleTask(taskId: string, time: number, data: unknown): void;

@@ -58,6 +58,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     platform: {},
     waitUntilImpl: vi.fn(),
     getStorage: () => baseStorage(),
+    getStorageView: () => baseStorage(),
     getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),

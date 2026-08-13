@@ -1,5 +1,4 @@
 import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
-import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -9,10 +8,10 @@ import type * as PublicApi from '~/context.ts';
 export function createInitContext(
   deps: Pick<
     EngineContextTypes.CreateTaskContextDeps,
-    'env' | 'logger' | 'platform' | 'getStorage'
+    'env' | 'logger' | 'platform' | 'getStorageView'
   >,
 ): PublicApi.InitContext<Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.getStorage());
+  const { sql, kv } = deps.getStorageView();
   return {
     sql,
     kv,
@@ -28,7 +27,7 @@ export function createInitContext(
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): PublicApi.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.getStorage());
+  const { sql, kv } = deps.getStorageView();
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
