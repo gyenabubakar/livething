@@ -16,7 +16,7 @@ export type PrimitiveFactory = {
 
 /**
  * What a plugin's `setup` returns. Both fields are optional: a plugin that only
- * taps the pipeline needs neither, one with an API sets `api`, one holding
+ * watches the pipeline needs neither, one with an API sets `api`, one holding
  * resources sets `dispose`.
  */
 export interface PluginInstance<TApi = void> {
@@ -64,7 +64,7 @@ export interface PluginDef<P extends SocketContract, TApi> {
   dependencies?: readonly PrimitiveFactory[];
 
   /**
-   * Let this plugin's `onIncoming`/`onOutgoing` taps see the whole app's frames,
+   * Let this plugin's `onIncoming`/`onOutgoing` handlers see the whole app's frames,
    * not just its own namespace. Off by default (least privilege): a plugin
    * observes only its own traffic. When set to the literal `true`, registering the
    * plugin bare is a type error — the app must wrap it in `observeHost(...)` to
@@ -95,7 +95,7 @@ export interface PluginFactory<
 > {
   (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
     readonly _plugin: { readonly id: TId };
-    /** Whether the plugin opted its taps into observing host traffic. @internal */
+    /** Whether the plugin opted its handlers into observing host traffic. @internal */
     readonly __observesHostTraffic: boolean;
     /** Set once `observeHost(...)` wraps this plugin; the runtime grant gate reads it. @internal */
     readonly __hostObservationGranted?: boolean;

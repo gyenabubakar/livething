@@ -225,7 +225,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   }
 
   // Whether a frame belongs to this plugin's namespace: a `__<id>::` event, or an
-  // error frame whose code is namespaced. Raw taps see only these unless the
+  // error frame whose code is namespaced. Raw handlers see only these unless the
   // plugin was granted host observation.
   function inNamespace(message: WireMessage): boolean {
     if (message.event.startsWith(ownPrefix)) return true;
@@ -443,7 +443,7 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
 
 /**
  * Grant a plugin that declared `observesHostTraffic: true` the right to see the
- * whole app's frames in its `onIncoming`/`onOutgoing` taps. Wrap the registered
+ * whole app's frames in its `onIncoming`/`onOutgoing` handlers. Wrap the registered
  * plugin where you pass it to `client()`:
  *
  * ```ts

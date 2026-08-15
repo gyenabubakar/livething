@@ -728,7 +728,7 @@ describe('scoped errors — onError()', () => {
   });
 });
 
-describe('generic taps and lifecycle', () => {
+describe('generic message handlers and lifecycle', () => {
   it('a host-observing plugin sees every frame, including other namespaces', () => {
     const events: string[] = [];
     const Watcher = plugin()({
@@ -751,7 +751,7 @@ describe('generic taps and lifecycle', () => {
     expect(events).toContain('__other:plugin::ping');
   });
 
-  it('a plain plugin only taps its own namespace', () => {
+  it('a plain plugin only sees its own namespace', () => {
     const events: string[] = [];
     const Watcher = plugin()({
       id: 'acme:watcher',

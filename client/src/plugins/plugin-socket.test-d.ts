@@ -69,7 +69,7 @@ expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeO
   WSKitError<'room-full', { limit: number }>
 >();
 
-// The always-present taps and tools are there too.
+// The always-present message handlers and tools are there too.
 expectTypeOf<ChatSocket['onIncoming']>().toBeFunction();
 expectTypeOf<ChatSocket['onOutgoing']>().toBeFunction();
 expectTypeOf<ChatSocket['onOpen']>().toBeFunction();
@@ -80,7 +80,7 @@ expectTypeOf<ChatSocket['hasPrimitive']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['get']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['subscribe']>().toBeFunction();
 
-// A plugin with no contract (observe-only) has the taps and tools but none of the
+// A plugin with no contract (observe-only) has the message handlers and tools but none of the
 // typed verbs.
 type PlainSocket = PluginSocket;
 expectTypeOf<PlainSocket['onIncoming']>().toBeFunction();

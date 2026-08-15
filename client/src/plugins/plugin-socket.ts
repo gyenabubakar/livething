@@ -33,8 +33,8 @@ type PluginChannels<P extends SocketContract> =
 
 /**
  * The parts of the plugin socket that are always there, whatever the plugin's
- * contract. Two groups: raw message taps that see every frame (for cross-cutting
- * work), and small tools that read state or ask the socket to act now.
+ * contract. Two groups: raw message handlers that see every frame (for
+ * cross-cutting work), and small tools that read state or ask the socket to act now.
  */
 export interface PluginBase {
   /**
@@ -114,7 +114,7 @@ type PluginErrorHandling<P extends SocketContract> = WhenPresent<
  * namespace: you use plain names and the socket writes `__<id>::<name>` on the
  * wire for you. A verb only appears when the contract has that section, so a
  * plugin with no requests has no `request`. On top of the verbs it always has the
- * raw taps and tools from {@link PluginBase}.
+ * raw message handlers and tools from {@link PluginBase}.
  */
 export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   Messaging<IncomingOf<P> & object, OutgoingOf<P> & object> &
