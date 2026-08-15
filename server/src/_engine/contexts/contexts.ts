@@ -146,42 +146,128 @@ function buildUserHandle(
   };
 }
 
-/** Build the top-level send/broadcast/close/user/connection messaging surface for a connection ctx. */
-function buildMessagingApi(
+/**
+ * Attach the top-level send/broadcast/close/user/connection messaging surface
+ * to a connection ctx. Written onto the target rather than returned so the
+ * per-frame context build never pays for an object spread.
+ */
+function assignMessagingApi(
+  target: Record<PropertyKey, unknown>,
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: MessagingDeps,
-): Pick<
-  PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'close' | 'connection' | 'connections' | 'send' | 'setMeta' | 'user' | 'users'
-> {
-  return {
-    send: (event, payload) =>
-      deps.sendThroughPipeline(connection, { routing: undefined, event, payload }),
+): void {
+  target.send = (event: string, payload: unknown) =>
+    deps.sendThroughPipeline(connection, { routing: undefined, event, payload });
 
-    broadcast: (event, payload, options) => {
-      deps.broadcastToConnections([...deps.connections.values()], {
-        event,
-        payload,
-        options,
-        excludeConnectionId: connection.id,
-      });
-    },
-
-    connection: buildConnectionRef(connection.id, connection.userId, deps.instanceId),
-
-    connections: buildConnectionsManager(deps),
-
-    user: buildUserHandle(userKeyOf(connection), deps),
-
-    users: { get: (id) => buildUserHandle(id, deps) },
-
-    setMeta: (patch) => {
-      Object.assign(connection.meta, patch);
-      deps.persistAttachment(connection);
-    },
-
-    close: (code, reason) => connection.descriptor.close(code, reason),
+  target.broadcast = (event: string, payload: unknown, options?: PublicApi.BroadcastOptions) => {
+    deps.broadcastToConnections(deps.connections.values(), {
+      event,
+      payload,
+      options,
+      excludeConnectionId: connection.id,
+    });
   };
+
+  target.connection = buildConnectionRef(connection.id, connection.userId, deps.instanceId);
+
+  target.connections = buildConnectionsManager(deps);
+
+  target.user = buildUserHandle(userKeyOf(connection), deps);
+
+  target.users = { get: (id: string) => buildUserHandle(id, deps) };
+
+  target.setMeta = (patch: Record<string, unknown>) => {
+    Object.assign(connection.meta, patch);
+    deps.persistAttachment(connection);
+  };
+
+  target.close = (code?: number, reason?: string) => connection.descriptor.close(code, reason);
+}
+
+/**
+ * Per-instance slots the lazily-built `ctx.channels` / `ctx.tags` accessors
+ * memoize into. Symbol-keyed so they stay invisible to the public ctx type and
+ * to any enumeration of the context.
+ */
+const CHANNELS_API = Symbol('wskit-ctx-channels');
+const TAGS_API = Symbol('wskit-ctx-tags');
+
+/**
+ * The shared prototype every context built from one dep bag inherits.
+ *
+ * Defining an accessor on an object is an order of magnitude more expensive
+ * than writing a data property, and these four are the same for every context
+ * the engine builds, so they are created once per engine rather than once per
+ * frame. Each reads the connection back off the instance, keeping the live-read
+ * semantics an inline getter had.
+ */
+const contextPrototypes = new WeakMap<EngineContextTypes.BuildConnectionContextDeps, object>();
+
+function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): object {
+  const cached = contextPrototypes.get(deps);
+  if (cached) return cached;
+
+  function connectionOf(ctx: unknown): EngineRuntimeTypes.RuntimeConnection {
+    return (ctx as Record<PropertyKey, unknown>)[
+      ENGINE_INTERNAL_CONNECTION
+    ] as EngineRuntimeTypes.RuntimeConnection;
+  }
+
+  const proto: Record<PropertyKey, unknown> = {
+    // Live reads, not snapshots — so a context reused across a dispatch's
+    // intercepts and handler always reflects current values.
+    get connectionCount() {
+      return deps.connections.size;
+    },
+
+    get bufferedAmount() {
+      return connectionOf(this).descriptor.bufferedAmount();
+    },
+  };
+
+  // `ctx.channels` exists only when the `channels()` capability is listed, and
+  // is built on first access. Defined conditionally (not a throwing getter) so a
+  // channel-less handler simply has no `channels` property — enumerating the
+  // context never trips it.
+  const channelContext = deps.channelContext;
+  if (channelContext) {
+    Object.defineProperty(proto, 'channels', {
+      configurable: true,
+      enumerable: true,
+      get(this: Record<PropertyKey, unknown>) {
+        return (this[CHANNELS_API] ??= channelContext.buildChannelsApi(connectionOf(this), deps));
+      },
+    });
+  }
+
+  // `ctx.tags` exists only on tag-enabled servers, and is built on first
+  // access — most handlers never touch it.
+  const buildTags = deps.buildTagsApi;
+  if (deps.usesTags && buildTags) {
+    const tagsRuntime = {
+      tagMembers: deps.tagMembers,
+      isTagGroupDeclared: deps.isTagGroupDeclared,
+      getTagGroupSchema: deps.getTagGroupSchema,
+      toConnectionInfo: deps.toConnectionInfo,
+      sendThroughPipeline: (
+        target: EngineRuntimeTypes.RuntimeConnection,
+        event: string,
+        payload: unknown,
+      ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
+      persistAttachment: deps.persistAttachment,
+      getStorage: deps.getStorage,
+    };
+    Object.defineProperty(proto, 'tags', {
+      configurable: true,
+      enumerable: true,
+      get(this: Record<PropertyKey, unknown>) {
+        return (this[TAGS_API] ??= buildTags(tagsRuntime, connectionOf(this)));
+      },
+    });
+  }
+
+  contextPrototypes.set(deps, proto);
+  return proto;
 }
 
 /**
@@ -203,109 +289,47 @@ export function buildConnectionContext(
   Record<PropertyKey, unknown> {
   const { sql, kv } = deps.getStorageView();
 
-  const locals = new Map<LocalKey<unknown>, unknown>();
+  // Allocated on the first `provide()` — most handlers never touch locals.
+  let locals: Map<LocalKey<unknown>, unknown> | undefined;
 
-  const base: Omit<
-    PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-    'channels' | 'latency' | 'quality' | 'schedule' | 'cancelScheduled'
-  > &
-    Record<PropertyKey, unknown> = {
-    [ENGINE_CHANNEL_META]: {
-      channelName: scope?.channelName,
-      channelFamily: scope?.channelFamily,
-      isSubscribeGate: scope?.isSubscribeGate,
-    } satisfies EngineContextTypes.EngineChannelMeta,
+  const base = Object.create(contextPrototype(deps)) as Record<PropertyKey, unknown>;
 
-    [ENGINE_INTERNAL_CONNECTION]: connection,
+  base[ENGINE_CHANNEL_META] = {
+    channelName: scope?.channelName,
+    channelFamily: scope?.channelFamily,
+    isSubscribeGate: scope?.isSubscribeGate,
+  } satisfies EngineContextTypes.EngineChannelMeta;
 
-    meta: connection.meta,
+  base[ENGINE_INTERNAL_CONNECTION] = connection;
 
-    ...buildMessagingApi(connection, deps),
+  base.meta = connection.meta;
 
-    // Live reads, not snapshots — so a context reused across a dispatch's
-    // intercepts and handler always reflects current values.
-    get connectionCount() {
-      return deps.connections.size;
-    },
+  assignMessagingApi(base, connection, deps);
 
-    get bufferedAmount() {
-      return connection.descriptor.bufferedAmount();
-    },
-
-    setAlarm: (time) => {
-      void deps.getTimers().setAlarm(time);
-    },
-
-    ...(deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps) ?? {}),
-
-    sql,
-    kv,
-    env: deps.env,
-    log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
-    platform: deps.platform,
-
-    provide<T>(key: LocalKey<T>, value: T): void {
-      locals.set(key, value);
-    },
-
-    inject<T>(key: LocalKey<T>): T | undefined {
-      return locals.get(key) as T | undefined;
-    },
-
-    matches(key: string, frame: InterceptFrame) {
-      return frameMatches(deps.compiled, key, frame);
-    },
-
-    unsafeCast(key: string, frame: InterceptFrame) {
-      return frameUnsafeCast(deps.compiled, key, frame);
-    },
+  base.setAlarm = (time: number) => {
+    void deps.getTimers().setAlarm(time);
   };
 
-  // `ctx.channels` exists only when the `channels()` capability is listed, and
-  // is built on first access. Defined conditionally (not a throwing getter) so a
-  // channel-less handler simply has no `channels` property — enumerating the
-  // context never trips it.
-  const channelContext = deps.channelContext;
-  if (channelContext) {
-    let channelsApi: ReturnType<typeof channelContext.buildChannelsApi> | undefined;
-    Object.defineProperty(base, 'channels', {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return (channelsApi ??= channelContext.buildChannelsApi(connection, deps));
-      },
-    });
-  }
+  const channelExtra = deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps);
+  if (channelExtra?.channel) base.channel = channelExtra.channel;
 
-  // `ctx.tags` exists only on tag-enabled servers, and is built on first
-  // access — most handlers never touch it.
-  const buildTags = deps.buildTagsApi;
-  if (deps.usesTags && buildTags) {
-    let tagsApi: ReturnType<typeof buildTags> | undefined;
-    Object.defineProperty(base, 'tags', {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return (tagsApi ??= buildTags(
-          {
-            tagMembers: deps.tagMembers,
-            isTagGroupDeclared: deps.isTagGroupDeclared,
-            getTagGroupSchema: deps.getTagGroupSchema,
-            toConnectionInfo: deps.toConnectionInfo,
-            sendThroughPipeline: (
-              target: EngineRuntimeTypes.RuntimeConnection,
-              event: string,
-              payload: unknown,
-            ) => deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
-            persistAttachment: deps.persistAttachment,
-            getStorage: deps.getStorage,
-          },
-          connection,
-        ));
-      },
-    });
-  }
+  base.sql = sql;
+  base.kv = kv;
+  base.env = deps.env;
+  base.log = deps.logger;
+  base.waitUntil = deps.waitUntilImpl;
+  base.platform = deps.platform;
+
+  base.provide = <T>(key: LocalKey<T>, value: T): void => {
+    (locals ??= new Map()).set(key, value);
+  };
+
+  base.inject = <T>(key: LocalKey<T>): T | undefined => locals?.get(key) as T | undefined;
+
+  base.matches = (key: string, frame: InterceptFrame) => frameMatches(deps.compiled, key, frame);
+
+  base.unsafeCast = (key: string, frame: InterceptFrame) =>
+    frameUnsafeCast(deps.compiled, key, frame);
 
   for (const extend of deps.contextExtenders ?? []) {
     Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));

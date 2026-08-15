@@ -65,7 +65,7 @@ export function createAdminContext(
 
   return {
     broadcast: (event, payload) => {
-      deps.broadcastToConnections([...deps.connections.values()], { event, payload });
+      deps.broadcastToConnections(deps.connections.values(), { event, payload });
     },
     channels,
     purgeUser: (userId) => deps.purgeUser(userId),

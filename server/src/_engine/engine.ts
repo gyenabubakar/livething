@@ -169,13 +169,15 @@ export class Engine<TApi = unknown> {
     if (!this.usesHibernation()) return;
     const runtime = EngineDeps.connectionRuntime(this.core);
     const restored = new Set<string>();
-    for (const wsKey of sockets) {
-      withInvocationScope(this.core, () => {
-        EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
-      });
-      const id = this.core.wsToConnectionId.get(wsKey);
-      if (id) restored.add(id);
-    }
+    EngineHibernation.withPreloadedConnectionRows(this.core, () => {
+      for (const wsKey of sockets) {
+        withInvocationScope(this.core, () => {
+          EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
+        });
+        const id = this.core.wsToConnectionId.get(wsKey);
+        if (id) restored.add(id);
+      }
+    });
     EngineHibernation.reconcileConnections(this.core, restored);
   }
 

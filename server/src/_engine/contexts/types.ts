@@ -64,7 +64,7 @@ export interface ContextCommonDeps {
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
 
   broadcastToConnections(
-    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
 

@@ -236,7 +236,9 @@ describe('ctx.broadcast includeSelf', () => {
     const ctx = buildConnectionContext(deps, self);
     ctx.broadcast('message', { text: 'hello' });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+    const [conns, opts] = broadcastToConnections.mock.calls[0]!;
+    expect([...(conns as Iterable<unknown>)]).toEqual([self, peer]);
+    expect(opts).toEqual({
       event: 'message',
       payload: { text: 'hello' },
       options: undefined,
@@ -259,7 +261,9 @@ describe('ctx.broadcast includeSelf', () => {
     const ctx = buildConnectionContext(deps, self);
     ctx.broadcast('message', { text: 'hello' }, { includeSelf: true });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+    const [conns, opts] = broadcastToConnections.mock.calls[0]!;
+    expect([...(conns as Iterable<unknown>)]).toEqual([self, peer]);
+    expect(opts).toEqual({
       event: 'message',
       payload: { text: 'hello' },
       options: { includeSelf: true },

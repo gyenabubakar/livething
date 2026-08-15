@@ -397,30 +397,15 @@ export function broadcastToConnections(
     | 'waitUntil'
     | 'wskitStampHooks'
   >,
-  connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+  connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: BroadcastToConnectionsOptions,
 ): void {
   const { event, payload, options, excludeConnectionId } = opts;
-  if (connections.length === 0) return;
 
-  let prepared: PreparedBroadcast;
-  try {
-    prepared = prepareBroadcast(runtime, {
-      routing: {
-        channel: options?.channel,
-        channelFamily: options?.channelFamily,
-      },
-      event,
-      payload,
-    });
-  } catch (error) {
-    // A payload or declaration error fails the same way for every peer — log once.
-    runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
-      event,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
+  // Prepared on the first eligible peer, so a broadcast that reaches nobody
+  // never pays to serialize, and the caller can hand over a live view of the
+  // connections rather than a copy of it.
+  let prepared: PreparedBroadcast | undefined;
 
   for (const connection of connections) {
     if (
@@ -429,6 +414,27 @@ export function broadcastToConnections(
       connection.id === excludeConnectionId
     )
       continue;
+
+    if (!prepared) {
+      try {
+        prepared = prepareBroadcast(runtime, {
+          routing: {
+            channel: options?.channel,
+            channelFamily: options?.channelFamily,
+          },
+          event,
+          payload,
+        });
+      } catch (error) {
+        // A payload or declaration error fails the same way for every peer — log once.
+        runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+
     // One bad peer must not stop the rest of the broadcast — log and continue.
     try {
       sendPrepared(runtime, connection, prepared);

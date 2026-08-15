@@ -49,7 +49,7 @@ describe('createAdminContext', () => {
     createAdminContext(deps).broadcast('ping', { n: 1 });
     expect(deps.broadcastToConnections).toHaveBeenCalledTimes(1);
     const [conns, opts] = (deps.broadcastToConnections as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(conns).toHaveLength(3);
+    expect([...(conns as Iterable<unknown>)]).toHaveLength(3);
     expect(opts).toEqual({ event: 'ping', payload: { n: 1 } });
   });
 

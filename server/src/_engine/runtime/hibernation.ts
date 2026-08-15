@@ -60,7 +60,28 @@ export function readConnectionState(
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
   if (!core.hibernationEnabled) return null;
+  const preloaded = core.preloadedConnectionRows;
+  if (preloaded) return preloaded.get(connectionId) ?? null;
   return ConnectionStore.readConnectionRow(core.storage.sql, connectionId);
+}
+
+/**
+ * Read every persisted row once and serve the boot restore's per-socket lookups
+ * from it, so waking N sockets costs one query rather than N. The callback owns
+ * the whole restore pass; the preload is dropped afterwards so later wakes go
+ * back to reading live rows.
+ */
+export function withPreloadedConnectionRows(core: EngineCore, run: () => void): void {
+  if (!core.hibernationEnabled) {
+    run();
+    return;
+  }
+  core.preloadedConnectionRows = ConnectionStore.readAllConnectionRows(core.storage.sql);
+  try {
+    run();
+  } finally {
+    core.preloadedConnectionRows = undefined;
+  }
 }
 
 /**

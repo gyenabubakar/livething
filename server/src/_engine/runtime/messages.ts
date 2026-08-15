@@ -122,7 +122,7 @@ interface DispatchRuntime
   ): Promise<void>;
 
   broadcastToConnections(
-    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
 

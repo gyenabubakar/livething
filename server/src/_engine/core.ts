@@ -19,6 +19,7 @@ import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -201,6 +202,13 @@ export class EngineCore {
   readonly scheduledRunsPersisted = new Map<string, string>();
   readonly scheduledDlqPersisted = new Map<string, string>();
   readonly installedFeatures = new Set<symbol>();
+
+  /**
+   * Every persisted connection row, read in one query for the duration of the
+   * boot restore pass. Unset at every other moment, when a wake reads its own
+   * row live.
+   */
+  preloadedConnectionRows: Map<string, ConnectionStore.StoredConnectionRow> | undefined;
 
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);

@@ -134,6 +134,36 @@ export function readConnectionRow(
 }
 
 /**
+ * Read every persisted connection row in one query, keyed by connection id.
+ * The boot restore path wakes each surviving socket in turn; without this it
+ * would issue one `SELECT` per socket.
+ */
+export function readAllConnectionRows(
+  sql: Pick<SQLProvider, 'exec'>,
+): Map<string, StoredConnectionRow> {
+  const rows = sql
+    .exec<RawRow>(
+      `
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
+        FROM __wskit_connections
+      `,
+    )
+    .toArray();
+  const byId = new Map<string, StoredConnectionRow>();
+  for (const raw of rows) {
+    byId.set(raw.connection_id, {
+      connection_id: raw.connection_id,
+      user_id: raw.user_id,
+      meta: parseObject(raw.meta),
+      ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
+      ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
+      active_stream_ids: parseStringArray(raw.active_stream_ids),
+    });
+  }
+  return byId;
+}
+
+/**
  * Delete one connection row on real disconnect.
  */
 export function deleteConnectionRow(sql: Pick<SQLProvider, 'exec'>, connectionId: string): void {

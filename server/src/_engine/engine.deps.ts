@@ -367,7 +367,7 @@ function buildDispatchRuntime(core: EngineCore) {
       ),
 
     broadcastToConnections: (
-      connections: readonly RuntimeConnection[],
+      connections: Iterable<RuntimeConnection>,
       opts: {
         event: string;
         payload: unknown;
