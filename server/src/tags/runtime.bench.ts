@@ -1,4 +1,4 @@
-import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
+import { addConnectionTag, removeConnectionTag } from '~/_engine/runtime/tag-index.ts';
 import { buildGroupHandle } from '~/tags/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -73,3 +73,20 @@ for (const [taggedCount, total] of [
     });
   });
 }
+
+// Tag add/remove maintains two index entries per tag (the group and the ref), so
+// a churn loop isolates the cost of building those two keys.
+describe('tag index churn · 1000 add/remove cycles', () => {
+  const tagMembers = new Map<string, Set<RuntimeConnection>>();
+  const connections: RuntimeConnection[] = [];
+  for (let i = 0; i < 1000; i++) connections.push(createConnection(`t${i}`));
+
+  bench('add then remove one ephemeral tag per connection', () => {
+    for (const connection of connections) {
+      addConnectionTag(tagMembers, connection, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    }
+    for (const connection of connections) {
+      removeConnectionTag(tagMembers, connection, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    }
+  });
+});
