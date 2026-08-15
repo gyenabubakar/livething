@@ -371,12 +371,15 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * nothing to the socket's type; its API is reached with `Plugin.use(socket)`,
  * which keeps TypeScript fast.
  *
- * You call it in two steps, like `client()`: first the contract and api types,
- * then the definition. The `id` is inferred as a literal from the second call, so
- * the app socket knows which namespace this plugin claims.
+ * You call it in two steps, like `client()`: first the contract type, then the
+ * definition. The `id` is inferred as a literal from the second call, so the app
+ * socket knows which namespace this plugin claims, and the API type is inferred
+ * from what `setup` returns — a plugin with no `api` gets `void`. Pass a second
+ * type argument, `plugin<ChatContract, ChatApi>()`, only to pin the API to a type
+ * you declared yourself.
  *
  * ```ts
- * const Chat = plugin<ChatContract, ChatApi>()({
+ * const Chat = plugin<ChatContract>()({
  *   id: 'acme:chat',
  *   dependencies: [clientRequests],
  *   setup(socket) {
@@ -396,9 +399,13 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * ```
  */
 export function plugin<P extends SocketContract = {}, TApi = void>() {
-  return function define<const TId extends string, const TObservesHost extends boolean = false>(
-    def: PluginDef<P, TApi> & { id: TId; observesHostTraffic?: TObservesHost },
-  ): PluginFactory<TApi, TId, P, TObservesHost> {
+  return function define<
+    const TId extends string,
+    const TObservesHost extends boolean = false,
+    TSetupApi = TApi,
+  >(
+    def: PluginDef<P, TSetupApi> & { id: TId; observesHostTraffic?: TObservesHost },
+  ): PluginFactory<TSetupApi, TId, P, TObservesHost> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
     const observesHostTraffic = def.observesHostTraffic === true;
@@ -433,9 +440,9 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
       },
       {
         id,
-        use: (socket: object): TApi => usePlugin(socket, id) as TApi,
+        use: (socket: object): TSetupApi => usePlugin(socket, id) as TSetupApi,
       },
-    ) as unknown as PluginFactory<TApi, TId, P, TObservesHost>;
+    ) as unknown as PluginFactory<TSetupApi, TId, P, TObservesHost>;
 
     return factory;
   };

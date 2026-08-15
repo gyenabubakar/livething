@@ -108,3 +108,33 @@ const Logger = plugin()({ id: 'acme:logger', observesHostTraffic: true, setup: (
 client<NoChatContract>()(connect('wss://example.com'), Logger());
 // Wrapping it in observeHost(...) grants the privilege and it registers.
 client<NoChatContract>()(connect('wss://example.com'), observeHost(Logger()));
+
+// The API type comes from what `setup` returns, so a plugin only needs its
+// contract type argument. `use()` still gives the full API.
+const Inferred = plugin<ChatWire>()({
+  id: 'acme:inferred',
+  dependencies: [clientRequests],
+  setup: (socket) => ({
+    api: () => ({
+      send: (text: string) => socket.request('send-message', { text }),
+      seen: 0,
+    }),
+  }),
+});
+expectTypeOf(Inferred.use({})).toEqualTypeOf<{
+  send: (text: string) => Promise<{ id: string }>;
+  seen: number;
+}>();
+
+// With no contract at all the API is still inferred.
+const Counter = plugin()({
+  id: 'acme:counter',
+  setup: () => ({ api: () => ({ count: (): number => 1 }) }),
+});
+expectTypeOf(Counter.use({})).toEqualTypeOf<{ count: () => number }>();
+
+// A plugin whose `setup` returns no `api` is `void`, as before.
+expectTypeOf(Watcher.use({})).toEqualTypeOf<void>();
+
+// The explicit second type argument still pins the API when you want it.
+expectTypeOf(Chat.use({})).toEqualTypeOf<ChatApi>();
