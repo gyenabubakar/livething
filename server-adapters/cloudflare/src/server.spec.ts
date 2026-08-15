@@ -7,7 +7,7 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
-import type { WSKitAdmin } from './server.ts';
+import type { WSKitAdmin } from './admin.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
