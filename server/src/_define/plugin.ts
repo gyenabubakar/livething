@@ -225,15 +225,17 @@ export type GrantableCapability = AnyCapability & {
  * A client plugin author passes this to `plugin<...>()` instead of hand-writing
  * the contract, so the two halves stay in step:
  *
+ * Derive it beside the server plugin and export the result, the way `InferClient`
+ * is used for a whole app. The client half then imports one plain type.
+ *
  * ```ts
  * // server plugin
  * export const Presence = plugin('acme:presence', { handler, api });
+ * export type PresenceWire = InferPluginClient<typeof Presence>;
  *
- * // client plugin — derive the contract from the server plugin
- * import type { InferPluginClient } from '@wskit/server/plugin';
- * import { Presence } from './server-plugin';
+ * // client plugin
+ * import type { PresenceWire } from './server-plugin';
  *
- * type PresenceWire = InferPluginClient<typeof Presence>;
  * const PresenceClient = plugin<PresenceWire, PresenceApi>()({
  *   id: 'acme:presence',
  *   setup(socket) { ... },
