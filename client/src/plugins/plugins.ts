@@ -99,8 +99,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   let disposed = false;
   let instance: PluginInstance<TApi> | null = null;
 
-  let userIncoming: IncomingHook | null = null;
-  let userOutgoing: IncomingHook | null = null;
+  // Stored pre-wrapped in the `runMessageHook` shape (a hook returning nothing
+  // passes the message through), so no wrapper closure is built per frame.
+  let userIncoming: ((message: WireMessage) => WireMessage) | null = null;
+  let userOutgoing: ((message: WireMessage) => WireMessage) | null = null;
   let userOpen: OpenHook | null = null;
   let userReconnect: OpenHook | null = null;
   let userClose: CloseHook | null = null;
@@ -177,9 +179,9 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     },
 
     onIncoming: (handler: IncomingHook) =>
-      void (userIncoming = once('onIncoming', userIncoming, handler)),
+      void (userIncoming = once('onIncoming', userIncoming, (m) => handler(m) ?? m)),
     onOutgoing: (handler: IncomingHook) =>
-      void (userOutgoing = once('onOutgoing', userOutgoing, handler)),
+      void (userOutgoing = once('onOutgoing', userOutgoing, (m) => handler(m) ?? m)),
     onOpen: (handler: OpenHook) => void (userOpen = once('onOpen', userOpen, handler)),
     onReconnect: (handler: OpenHook) =>
       void (userReconnect = once('onReconnect', userReconnect, handler)),
@@ -295,8 +297,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     onIncoming(message) {
       let current = message;
       if (userIncoming && (observing || inNamespace(current))) {
-        const run = userIncoming;
-        const result = runMessageHook((m) => run(m) ?? m, current, report);
+        const result = runMessageHook(userIncoming, current, report);
         if (result === null) return null;
         current = result;
       }
@@ -310,8 +311,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     onOutgoing(message) {
       if (!userOutgoing || !(observing || inNamespace(message))) return message;
-      const run = userOutgoing;
-      return runMessageHook((m) => run(m) ?? m, message, report);
+      return runMessageHook(userOutgoing, message, report);
     },
 
     onOpen() {

@@ -529,7 +529,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                   state.resumeTimer = null;
                 }
                 if (seq !== undefined) state.lastSeq = seq;
-                helpers.log.info(`stream '${streamId}' chunk received`);
+                if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
                 state.queue.push(message.payload);
                 startChunkTimer(state);
               }

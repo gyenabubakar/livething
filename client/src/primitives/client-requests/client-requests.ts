@@ -155,7 +155,9 @@ export function clientRequests(
               : null;
           }
 
-          helpers.log.info(`matched response for request '${correlationId}'`);
+          if (helpers.log.debug) {
+            helpers.log.info(`matched response for request '${correlationId}'`);
+          }
 
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
           else waiter.resolve(message.payload);

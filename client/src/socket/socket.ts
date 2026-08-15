@@ -163,6 +163,7 @@ export class WSKitSocket {
   private readonly _intercepts: readonly InterceptFn[];
 
   private readonly _logger: PrimitiveLogger = {
+    debug: false,
     info: (...args) => this._logAt('log', ...args),
     warn: (...args) => this._logAt('warn', ...args),
     error: (...args) => this._logAt('error', ...args),
@@ -173,6 +174,7 @@ export class WSKitSocket {
   constructor(config: SocketConfig) {
     this._config = config;
     this._debug = config.debug ?? false;
+    this._logger.debug = this._debug;
     this._lazy = config.lazy ?? false;
     this._parse = config.parse ?? defaultParse;
     this._serialize = config.serialize ?? defaultSerialize;
@@ -330,6 +332,7 @@ export class WSKitSocket {
 
   setDebug(enabled: boolean): void {
     this._debug = enabled;
+    this._logger.debug = enabled;
   }
 
   /** @internal — the set of actions a primitive can call on the socket. */
@@ -677,7 +680,7 @@ export class WSKitSocket {
       try {
         const result = primitive.onIncoming!(message);
         if (result === null) {
-          this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
+          if (this._debug) this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
           return;
         }
         message = result;
@@ -703,7 +706,7 @@ export class WSKitSocket {
         } catch (error) {
           if (error === Block) {
             // An intentional drop: stop the chain and drop the message.
-            this._log(`intercept dropped '${message.event}'`);
+            if (this._debug) this._log(`intercept dropped '${message.event}'`);
             return;
           }
           // A real error is isolated like an onIncoming throw above: log it and
@@ -802,12 +805,12 @@ export class WSKitSocket {
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
     if (this._outgoingFallback?.(outgoing, options)) {
-      this._log(`send('${outgoing.event}') buffered`);
+      if (this._debug) this._log(`send('${outgoing.event}') buffered`);
       return 'buffered';
     }
 
     if (this._state !== 'open' || !this.ws) {
-      this._log(`send('${outgoing.event}') not sent — not connected`);
+      if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);
       // connecting/reconnecting still has a flush coming; closed does not.
       return this._state === 'connecting' || this._state === 'reconnecting'
         ? 'connecting'

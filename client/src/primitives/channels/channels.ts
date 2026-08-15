@@ -6,7 +6,6 @@ import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
 import {
   buildChannelMessaging,
   buildFamilyHandle,
-  channelEventPrefix,
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
@@ -28,17 +27,10 @@ const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
  * channel travels as `__<id>::<room>` and its emits as `__<id>::<event>`, but
  * the client contract registers each handler under the bare `<event>` — so an
  * event sharing the channel's `__<id>::` prefix is delivered under its short
- * name. The namespace sits on the channel name for a static channel, but on the
- * family KEY for a dynamic member (whose channel name is a plain instance value),
- * so the prefix comes from the family key when there is one. A non-plugin channel
- * and any event that doesn't carry the prefix pass through untouched.
+ * name. A non-plugin channel (whose prefix is `''`) and any event that doesn't
+ * carry the prefix pass through untouched.
  */
-function channelEventName(
-  channelName: string,
-  familyKey: string | undefined,
-  event: string,
-): string {
-  const prefix = channelEventPrefix(channelName, familyKey);
+function channelEventName(prefix: string, event: string): string {
   return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
@@ -181,9 +173,6 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           const familyKey = wskit?.channelFamily;
           const state = stateFor(name, familyKey);
-          function notifyFamily(notify: (family: FamilyState) => void): void {
-            if (familyKey) notify(familyFor(familyKey));
-          }
 
           switch (message.event) {
             case '__subscribeOk__': {
@@ -204,7 +193,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
               state.persistent = wskit?.channelMembership === 'persistent';
               state.markSubscribed(source);
-              notifyFamily((family) => family.fireSubscribed(name, source));
+              if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
               // Forward so inbox() (after channels) can read `__wskit.inbox`; stays channel-scoped.
               return message;
             }
@@ -265,7 +254,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
               state.fireKicked(typeof reason === 'string' ? reason : '');
               state.markUnsubscribed();
-              notifyFamily((family) => family.fireUnsubscribed(name));
+              if (familyKey) familyFor(familyKey).fireUnsubscribed(name);
 
               // Forward so inbox() can forget this scope's ack tracking on a kick.
               return message;
@@ -295,11 +284,11 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
 
-              const event = channelEventName(name, familyKey, message.event);
-              if (helpers.config.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
+              const event = channelEventName(state.eventPrefix, message.event);
+              if (helpers.log.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
 
               state.dispatch(event, message.payload);
-              notifyFamily((family) => family.dispatch(event, message.payload, name));
+              if (familyKey) familyFor(familyKey).dispatch(event, message.payload, name);
 
               return message;
             }

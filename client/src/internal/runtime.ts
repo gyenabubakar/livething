@@ -128,6 +128,13 @@ export type InterceptFn = (message: WireMessage) => WireMessage | void;
  * never repeat that check. They map to `console.log` / `console.warn` / `console.error`.
  */
 export interface PrimitiveLogger {
+  /**
+   * Whether debug mode is on right now. `info`/`warn`/`error` already check it,
+   * so read this only to skip building a message that would be thrown away —
+   * worth it on a per-frame path, pointless anywhere else.
+   */
+  debug: boolean;
+
   info(...args: unknown[]): void;
   warn(...args: unknown[]): void;
   error(...args: unknown[]): void;
