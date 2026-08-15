@@ -47,10 +47,10 @@ export type {
   FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/index.ts';
-export { requestResponse } from '~/primitives/request-response/index.ts';
-export type { RequestResponseOptions } from '~/primitives/request-response/index.ts';
-export { serverRequest } from '~/primitives/server-request/index.ts';
-export type { ServerRequestOptions } from '~/primitives/server-request/index.ts';
+export { clientRequests } from '~/primitives/client-requests/index.ts';
+export type { ClientRequestsOptions } from '~/primitives/client-requests/index.ts';
+export { serverRequests } from '~/primitives/server-requests/index.ts';
+export type { ServerRequestsOptions } from '~/primitives/server-requests/index.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
@@ -84,7 +84,7 @@ export type {
   OutgoingOf,
   ChannelsOf,
   StreamsOf,
-  RequestsOf,
+  ClientRequestsOf,
   ErrorsOf,
   Requires,
   Simplify,

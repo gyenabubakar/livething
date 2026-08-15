@@ -5,7 +5,7 @@ describe('PersistenceClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<PersistenceClient['incoming']>().not.toBeAny();
     expectTypeOf<PersistenceClient['outgoing']>().not.toBeAny();
-    expectTypeOf<PersistenceClient['requests']>().not.toBeAny();
+    expectTypeOf<PersistenceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<PersistenceClient['streams']>().not.toBeAny();
     expectTypeOf<PersistenceClient['channels']>().not.toBeAny();
     expectTypeOf<PersistenceClient['errors']>().not.toBeAny();
@@ -100,8 +100,8 @@ describe('PersistenceClient — channels', () => {
 });
 
 describe('PersistenceClient — empty slots', () => {
-  it('exposes the exec-counter requests', () => {
-    expectTypeOf<keyof PersistenceClient['requests']>().toEqualTypeOf<
+  it('exposes the exec-counter clientRequests', () => {
+    expectTypeOf<keyof PersistenceClient['clientRequests']>().toEqualTypeOf<
       'record-exec' | 'read-exec-count'
     >();
   });

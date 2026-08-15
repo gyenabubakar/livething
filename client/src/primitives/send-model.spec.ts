@@ -1,14 +1,14 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface C {
   outgoing: { typing: { id: string } };
-  requests: { echo: { payload: { id: string }; response: { ok: boolean } } };
+  clientRequests: { echo: { payload: { id: string }; response: { ok: boolean } } };
   streams: {
     feed: { payload: { id: string }; chunk: { text: string }; kind: 'ephemeral'; nudges: never };
   };
@@ -29,7 +29,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     const socket = client<C>()(
       connect('wss://test'),
       buffering({ enabled: true, flushInterval: 100 }),
-      requestResponse(),
+      clientRequests(),
     );
     socket.connect();
     let ws = MockWebSocket.last();
@@ -85,7 +85,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
 
 describe('send-and-await frames are held (not dropped) before open without buffering', () => {
   it('holds a request made before open and flushes it when the socket opens', async () => {
-    const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
+    const socket = client<C>()(connect('wss://test', { lazy: true }), clientRequests());
     const pending = socket.request('echo', { id: 'r' });
     void pending.catch(() => undefined);
 
@@ -109,7 +109,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
   it('request rejects with disconnected without waiting for the request timeout', async () => {
     vi.useFakeTimers();
     try {
-      const socket = client<C>()(connect('wss://test'), requestResponse({ timeout: 10_000 }));
+      const socket = client<C>()(connect('wss://test'), clientRequests({ timeout: 10_000 }));
       const settled = vi.fn();
       socket.request('echo', { id: 'r' }).then(
         () => settled('resolved'),

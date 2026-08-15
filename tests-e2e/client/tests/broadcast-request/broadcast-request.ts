@@ -1,8 +1,8 @@
-import { channels, client, connect, serverRequest } from '@wskit/client';
+import { channels, client, connect, serverRequests } from '@wskit/client';
 import type { BroadcastRequestClient } from '@wskit/tests-e2e-handlers/broadcast-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequest() against the real `broadcast-request`
+// Drives @wskit/client's serverRequests() against the real `broadcast-request`
 // handler, typed by the same contract the server implements
 // (BroadcastRequestClient = InferClient<handler>). Members join the `lobby`
 // channel; the server fans a broadcast request out to every member and resolves
@@ -28,7 +28,7 @@ export function setup(): void {
 
   const socket = client<BroadcastRequestClient>()(
     connect(wsUrl('broadcast-request')),
-    serverRequest(),
+    serverRequests(),
     channels(),
   );
 

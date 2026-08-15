@@ -6,9 +6,9 @@ import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts
 import type { FrameOwner, SendResult, WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
-  RequestResponseOptions,
-  RequestResponseTypeFn,
-} from '~/primitives/request-response/types.ts';
+  ClientRequestsOptions,
+  ClientRequestsTypeFn,
+} from '~/primitives/client-requests/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
 
 interface Pending {
@@ -27,13 +27,13 @@ interface Pending {
  * `disconnected` — a lazy socket connects on first use, and `buffering()` holds
  * sends made while offline.
  */
-export function requestResponse(
-  options: RequestResponseOptions = {},
-): Primitive<RequestResponseTypeFn> {
+export function clientRequests(
+  options: ClientRequestsOptions = {},
+): Primitive<ClientRequestsTypeFn> {
   const defaultTimeout = options.timeout ?? 10_000;
 
   return {
-    _tag: 'requestResponse',
+    _tag: 'clientRequests',
     setup(helpers) {
       const pending = new Map<string, Pending>();
       // frames for requests made before the socket is open when no buffering is
@@ -124,7 +124,7 @@ export function requestResponse(
       }
 
       return {
-        id: 'requestResponse',
+        id: 'clientRequests',
 
         onOpen() {
           const entries = [...outbox.values()];
@@ -142,7 +142,7 @@ export function requestResponse(
           if (typeof correlationId !== 'string') return message;
 
           // A server-originated request is not a reply to our own request — let
-          // the serverRequest primitive answer it, whatever order they run in. We
+          // the serverRequests primitive answer it, whatever order they run in. We
           // only ever claim a frame that matches one of our pending requests.
           if (message.__wskit?.source === 'server') return message;
 
@@ -193,4 +193,4 @@ export function requestResponse(
   };
 }
 
-requestResponse.tag = 'requestResponse';
+clientRequests.tag = 'clientRequests';

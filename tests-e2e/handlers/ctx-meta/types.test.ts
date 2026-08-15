@@ -5,7 +5,7 @@ describe('CtxMetaClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<CtxMetaClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['outgoing']>().not.toBeAny();
-    expectTypeOf<CtxMetaClient['requests']>().not.toBeAny();
+    expectTypeOf<CtxMetaClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['streams']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['channels']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['errors']>().not.toBeAny();
@@ -59,8 +59,8 @@ describe('CtxMetaClient — outgoing (server incoming)', () => {
 });
 
 describe('CtxMetaClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof CtxMetaClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof CtxMetaClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

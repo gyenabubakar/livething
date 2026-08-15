@@ -82,7 +82,7 @@ describe('plugin typing', () => {
     type C = InferClient<typeof handler>;
     expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
     expectTypeOf<C['outgoing']>().toHaveProperty('__acme:presence::heartbeat');
-    expectTypeOf<C['requests']>().toHaveProperty('__acme:presence::who-is-here');
+    expectTypeOf<C['clientRequests']>().toHaveProperty('__acme:presence::who-is-here');
     // The client carries no `plugins` key; the plugin api lives on the server ctx.
     expectTypeOf<C>().not.toHaveProperty('plugins');
   });

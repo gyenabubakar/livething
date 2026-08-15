@@ -1,4 +1,4 @@
-import { channels, client, connect, plugin, requestResponse, stream } from '@wskit/client';
+import { channels, client, clientRequests, connect, plugin, stream } from '@wskit/client';
 import { WSKitError } from '@wskit/client/errors';
 import type { StreamHandle } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
@@ -17,7 +17,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 interface FeedWire {
   incoming: { welcome: { name: string } };
   outgoing: { hello: { name: string } };
-  requests: { echo: { payload: { text: string }; response: { echoed: string } } };
+  clientRequests: { echo: { payload: { text: string }; response: { echoed: string } } };
   streams: {
     feed: { payload: { from: number }; chunk: { row: number } };
     nudgeable: {
@@ -44,7 +44,7 @@ interface FeedWire {
 interface FeedHost {
   incoming: { '__e2e:feed::welcome': { name: string } };
   outgoing: { '__e2e:feed::hello': { name: string } };
-  requests: {
+  clientRequests: {
     '__e2e:feed::echo': { payload: { text: string }; response: { echoed: string } };
   };
   streams: {
@@ -82,7 +82,7 @@ interface FeedApi {
 
 const Feed = plugin<FeedWire, FeedApi>()({
   id: 'e2e:feed',
-  dependencies: [requestResponse, stream, channels],
+  dependencies: [clientRequests, stream, channels],
   setup(socket) {
     const welcomeCbs = new Set<(name: string) => void>();
     const joinedCbs = new Set<(who: string) => void>();
@@ -171,7 +171,7 @@ export function setup(): void {
   // the plugin then owns them and the top-level socket exposes none.
   const socket = client<FeedHost>()(
     connect(wsUrl('plugins')),
-    requestResponse(),
+    clientRequests(),
     stream(),
     channels(),
     Feed(),

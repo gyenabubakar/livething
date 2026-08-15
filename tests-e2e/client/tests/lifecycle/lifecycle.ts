@@ -1,4 +1,4 @@
-import { client, connect, requestResponse } from '@wskit/client';
+import { client, clientRequests, connect } from '@wskit/client';
 import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -17,7 +17,7 @@ export function setup(): void {
     <span data-testid="ws-present"></span>
   `);
 
-  const socket = client<RequestClient>()(connect(wsUrl('request')), requestResponse());
+  const socket = client<RequestClient>()(connect(wsUrl('request')), clientRequests());
 
   let openCount = 0;
   socket.onOpen(() => {

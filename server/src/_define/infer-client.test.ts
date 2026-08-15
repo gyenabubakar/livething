@@ -61,8 +61,8 @@ describe('InferClient for define()', () => {
   });
 
   it('maps a base.request handler to a client request with inferred payload and response', () => {
-    expectTypeOf<C['requests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
-    expectTypeOf<C['requests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
+    expectTypeOf<C['clientRequests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
+    expectTypeOf<C['clientRequests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
   });
 
   it('rejects a builder method whose capability was not listed', () => {

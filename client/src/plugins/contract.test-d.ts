@@ -15,7 +15,7 @@ interface HostContract {
     'app-ping': { at: number };
     '__acme:chat::typing': { on: boolean };
   };
-  requests: {
+  clientRequests: {
     'app-balance': { payload: { user: string }; response: { balance: number } };
     '__acme:chat::send-message': { payload: { text: string }; response: { id: string } };
   };
@@ -37,7 +37,7 @@ expectTypeOf<ChatSlice['incoming']>().toEqualTypeOf<{
   typing: { from: string };
 }>();
 expectTypeOf<ChatSlice['outgoing']>().toEqualTypeOf<{ typing: { on: boolean } }>();
-expectTypeOf<ChatSlice['requests']>().toEqualTypeOf<{
+expectTypeOf<ChatSlice['clientRequests']>().toEqualTypeOf<{
   'send-message': { payload: { text: string }; response: { id: string } };
 }>();
 expectTypeOf<ChatSlice['channels']>().toEqualTypeOf<{
@@ -53,7 +53,7 @@ expectTypeOf<keyof ChatSlice['incoming']>().toEqualTypeOf<'message' | 'typing'>(
 type ChatClaimed = TopLevelContract<HostContract, 'acme:chat'>;
 expectTypeOf<ChatClaimed['incoming']>().toEqualTypeOf<{ 'app-notice': { text: string } }>();
 expectTypeOf<ChatClaimed['outgoing']>().toEqualTypeOf<{ 'app-ping': { at: number } }>();
-expectTypeOf<ChatClaimed['requests']>().toEqualTypeOf<{
+expectTypeOf<ChatClaimed['clientRequests']>().toEqualTypeOf<{
   'app-balance': { payload: { user: string }; response: { balance: number } };
 }>();
 expectTypeOf<ChatClaimed['channels']>().toEqualTypeOf<{

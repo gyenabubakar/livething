@@ -5,7 +5,7 @@ describe('ReplayMembershipGateClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplayMembershipGateClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplayMembershipGateClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplayMembershipGateClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['errors']>().not.toBeAny();
@@ -65,8 +65,8 @@ describe('ReplayMembershipGateClient — channels', () => {
 });
 
 describe('ReplayMembershipGateClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ReplayMembershipGateClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

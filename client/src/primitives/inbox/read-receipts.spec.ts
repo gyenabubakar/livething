@@ -1,10 +1,10 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { inbox } from '~/primitives/inbox/inbox.ts';
 import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CursorList } from '~/primitives/inbox/types.ts';
@@ -261,10 +261,10 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
     await expect(read).resolves.toEqual(['read-answer']);
   });
 
-  it('resolves a read query even though request-response runs first', async () => {
+  it('resolves a read query even though client-requests runs first', async () => {
     const socket = client<C>()(
       connect('wss://test'),
-      requestResponse(),
+      clientRequests(),
       channels(),
       dedup(),
       inbox(),

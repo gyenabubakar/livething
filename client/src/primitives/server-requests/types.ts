@@ -5,7 +5,7 @@ import type { TypeFn } from '~/primitives/types.ts';
  * Adds `socket.onRequest(...)` typed from the contract's `serverRequests` —
  * the requests the **server** asks this client, which it answers.
  */
-export interface ServerRequestTypeFn extends TypeFn {
+export interface ServerRequestsTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends {
     serverRequests: infer R extends Record<string, { payload: any; response: any }>;
   }
@@ -24,5 +24,5 @@ export interface ServerRequestTypeFn extends TypeFn {
     : {};
 }
 
-/** Options for `serverRequest()`. */
-export interface ServerRequestOptions {}
+/** Options for `serverRequests()`. */
+export interface ServerRequestsOptions {}

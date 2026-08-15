@@ -1,4 +1,4 @@
-import { channels, client, connect, dedup, requestResponse, stream } from '@wskit/client';
+import { channels, client, clientRequests, connect, dedup, stream } from '@wskit/client';
 import type { GroupFullSurfaceClient } from '@wskit/tests-e2e-handlers/group-full-surface';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -23,7 +23,7 @@ export function setup(): void {
 
   const socket = client<GroupFullSurfaceClient>()(
     connect(wsUrl('group-full-surface')),
-    requestResponse(),
+    clientRequests(),
     stream(),
     channels(),
     dedup(),

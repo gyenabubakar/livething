@@ -1,4 +1,4 @@
-import { buffering, client, connect, reconnection, requestResponse } from '@wskit/client';
+import { buffering, client, clientRequests, connect, reconnection } from '@wskit/client';
 import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -20,7 +20,7 @@ export function setup(): void {
 
   const socket = client<PersistenceClient>()(
     connect(wsUrl('persistence')),
-    requestResponse(),
+    clientRequests(),
     reconnection(),
     buffering({ enabled: true }),
   );

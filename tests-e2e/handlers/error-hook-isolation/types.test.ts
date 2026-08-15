@@ -5,32 +5,36 @@ describe('ErrorHookIsolationClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ErrorHookIsolationClient['incoming']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ErrorHookIsolationClient['requests']>().not.toBeAny();
+    expectTypeOf<ErrorHookIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['errors']>().not.toBeAny();
   });
 });
 
-describe('ErrorHookIsolationClient — requests', () => {
+describe('ErrorHookIsolationClient — clientRequests', () => {
   it('has do-request', () => {
-    expectTypeOf<ErrorHookIsolationClient['requests']>().toHaveProperty('do-request');
+    expectTypeOf<ErrorHookIsolationClient['clientRequests']>().toHaveProperty('do-request');
   });
 
   it('do-request has correct payload', () => {
-    expectTypeOf<ErrorHookIsolationClient['requests']['do-request']['payload']>().toEqualTypeOf<{
+    expectTypeOf<
+      ErrorHookIsolationClient['clientRequests']['do-request']['payload']
+    >().toEqualTypeOf<{
       text: string;
     }>();
   });
 
   it('do-request has correct response', () => {
-    expectTypeOf<ErrorHookIsolationClient['requests']['do-request']['response']>().toEqualTypeOf<{
+    expectTypeOf<
+      ErrorHookIsolationClient['clientRequests']['do-request']['response']
+    >().toEqualTypeOf<{
       text: string;
     }>();
   });
 
-  it('only do-request in requests', () => {
-    expectTypeOf<keyof ErrorHookIsolationClient['requests']>().toEqualTypeOf<'do-request'>();
+  it('only do-request in clientRequests', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['clientRequests']>().toEqualTypeOf<'do-request'>();
   });
 });
 

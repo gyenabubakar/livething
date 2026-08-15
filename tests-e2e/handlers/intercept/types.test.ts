@@ -5,7 +5,7 @@ describe('InterceptClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<InterceptClient['incoming']>().not.toBeAny();
     expectTypeOf<InterceptClient['outgoing']>().not.toBeAny();
-    expectTypeOf<InterceptClient['requests']>().not.toBeAny();
+    expectTypeOf<InterceptClient['clientRequests']>().not.toBeAny();
     expectTypeOf<InterceptClient['streams']>().not.toBeAny();
     expectTypeOf<InterceptClient['channels']>().not.toBeAny();
     expectTypeOf<InterceptClient['errors']>().not.toBeAny();
@@ -61,16 +61,16 @@ describe('InterceptClient — channels', () => {
   });
 });
 
-describe('InterceptClient — top-level requests', () => {
-  it('only intercept-req in top-level requests', () => {
-    expectTypeOf<keyof InterceptClient['requests']>().toEqualTypeOf<'intercept-req'>();
+describe('InterceptClient — top-level clientRequests', () => {
+  it('only intercept-req in top-level clientRequests', () => {
+    expectTypeOf<keyof InterceptClient['clientRequests']>().toEqualTypeOf<'intercept-req'>();
   });
 
   it('intercept-req has correct payload and response', () => {
-    expectTypeOf<InterceptClient['requests']['intercept-req']['payload']>().toEqualTypeOf<{
+    expectTypeOf<InterceptClient['clientRequests']['intercept-req']['payload']>().toEqualTypeOf<{
       text: string;
     }>();
-    expectTypeOf<InterceptClient['requests']['intercept-req']['response']>().toEqualTypeOf<{
+    expectTypeOf<InterceptClient['clientRequests']['intercept-req']['response']>().toEqualTypeOf<{
       text: string;
     }>();
   });

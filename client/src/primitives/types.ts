@@ -178,7 +178,7 @@ type SectionDeclared<TContract, Section extends string> = Section extends keyof 
 type AnyScopedSectionDeclared<TContract> =
   SectionDeclared<TContract, 'channels'> extends true
     ? true
-    : SectionDeclared<TContract, 'requests'> extends true
+    : SectionDeclared<TContract, 'clientRequests'> extends true
       ? true
       : SectionDeclared<TContract, 'serverRequests'> extends true
         ? true
@@ -188,7 +188,7 @@ type AnyScopedSectionDeclared<TContract> =
 
 /**
  * True when at least one channel family in the contract declares the given
- * section (`requests` / `serverRequests` / `streams`). A channel-handle method
+ * section (`clientRequests` / `serverRequests` / `streams`). A channel-handle method
  * is only worth stubbing when some channel actually uses it.
  */
 type AnyChannelSectionDeclared<TContract, Section extends string> = TContract extends {
@@ -211,19 +211,19 @@ type AnyChannelSectionDeclared<TContract, Section extends string> = TContract ex
  */
 type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
   TContract,
-  'requests'
+  'clientRequests'
 > extends true
   ? 'request' extends keyof Api
     ? {}
     : {
-        request: NeedsPrimitive<'[wskit] channel.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+        request: NeedsPrimitive<'[wskit] channel.request needs the clientRequests() primitive — add clientRequests() to client()'>;
       }
   : {}) &
   (AnyChannelSectionDeclared<TContract, 'serverRequests'> extends true
     ? 'onRequest' extends keyof Api
       ? {}
       : {
-          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
+          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
         }
     : {}) &
   (AnyChannelSectionDeclared<TContract, 'streams'> extends true
@@ -240,7 +240,7 @@ type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
  * When channels are installed but a channel-scoped primitive isn't, REPLACE the
  * `channel` accessor with one whose every handle (direct, family member, or via
  * `scope(...)`) carries the missing-primitive stub on the affected method. So
- * `channel('x').request(...)` stops compiling with a clear "add requestResponse()"
+ * `channel('x').request(...)` stops compiling with a clear "add clientRequests()"
  * message — the top-level guard, mirrored one level down. Returns `{}` (no
  * override) when every channel-scoped primitive in use is installed.
  */
@@ -271,18 +271,18 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
                 channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
           : {}) &
-          (SectionDeclared<TContract, 'requests'> extends true
+          (SectionDeclared<TContract, 'clientRequests'> extends true
             ? 'request' extends keyof Api
               ? {}
               : {
-                  request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+                  request: NeedsPrimitive<'[wskit] socket.request needs the clientRequests() primitive — add clientRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'serverRequests'> extends true
             ? 'onRequest' extends keyof Api
               ? {}
               : {
-                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
+                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'streams'> extends true

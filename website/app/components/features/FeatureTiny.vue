@@ -31,7 +31,7 @@ const primitives = [
   'keepalive',
   'quality',
   'channels',
-  'requestResponse',
+  'clientRequests',
   'stream',
   'dedup',
   'replay',

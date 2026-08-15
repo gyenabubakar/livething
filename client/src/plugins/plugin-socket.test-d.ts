@@ -6,7 +6,7 @@ import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 interface ChatContract {
   incoming: { message: { id: string; text: string } };
   outgoing: { typing: { on: boolean } };
-  requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
+  clientRequests: { 'send-message': { payload: { text: string }; response: { id: string } } };
   channels: {
     room: { incoming: { reaction: { emoji: string } } }; // static channel
     thread: { addressing: 'dynamic'; incoming: { post: { text: string } } }; // dynamic family
@@ -93,7 +93,7 @@ expectTypeOf<PlainSocket>().not.toHaveProperty('stream');
 expectTypeOf<PlainSocket>().not.toHaveProperty('onRequest');
 expectTypeOf<PlainSocket>().not.toHaveProperty('onError');
 
-// A plugin that only receives (incoming, no requests/channels/streams) has `on`
+// A plugin that only receives (incoming, no clientRequests/channels/streams) has `on`
 // but none of the other verbs.
 type ReceiveOnly = PluginSocket<{ incoming: { tick: { n: number } } }>;
 expectTypeOf<ReceiveOnly['on']>().toBeFunction();

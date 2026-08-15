@@ -146,7 +146,7 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ep
 type ClientFamily<TFamily> = {
   incoming: Slot<TFamily, 'outgoing'>;
   outgoing: Slot<TFamily, 'incoming'>;
-  requests: Slot<TFamily, 'requests'>;
+  clientRequests: Slot<TFamily, 'clientRequests'>;
   serverRequests: Slot<TFamily, 'serverRequests'>;
   streams: ClientStreams<TFamily>;
 } & ('subscribePayload' extends keyof TFamily
@@ -190,7 +190,7 @@ type PrefixKeys<TId extends string, TMap> = {
 export type ClientPluginContract<TContract> = {
   incoming: Slot<TContract, 'outgoing'>;
   outgoing: Slot<TContract, 'incoming'>;
-  requests: Slot<TContract, 'requests'>;
+  clientRequests: Slot<TContract, 'clientRequests'>;
   serverRequests: Slot<TContract, 'serverRequests'>;
   streams: ClientStreams<TContract>;
   channels: ClientChannelMap<Slot<TContract, 'channels'>>;
@@ -230,7 +230,7 @@ type ClientPluginsFragment<TPlugins> = UnionToIntersection<
 type EmptyPluginsFragment = {
   incoming: {};
   outgoing: {};
-  requests: {};
+  clientRequests: {};
   serverRequests: {};
   streams: {};
   channels: {};
@@ -308,7 +308,7 @@ type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
   /** Events the client sends — server `base.on(...)` plus plugin handlers under `__id::name`. */
   outgoing: Slot<TContract, 'incoming'> & PluginMapOf<TPlugins, 'outgoing'>;
   /** Request/response pairs the client can invoke, plus plugin requests under `__id::name`. */
-  requests: Slot<TContract, 'requests'> & PluginMapOf<TPlugins, 'requests'>;
+  clientRequests: Slot<TContract, 'clientRequests'> & PluginMapOf<TPlugins, 'clientRequests'>;
   /** Server→client request/response pairs the client answers, plus plugin ones under `__id::name`. */
   serverRequests: Slot<TContract, 'serverRequests'> & PluginMapOf<TPlugins, 'serverRequests'>;
   /**

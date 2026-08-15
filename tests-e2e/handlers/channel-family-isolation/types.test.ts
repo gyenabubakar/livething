@@ -5,7 +5,7 @@ describe('ChannelFamilyIsolationClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ChannelFamilyIsolationClient['incoming']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ChannelFamilyIsolationClient['requests']>().not.toBeAny();
+    expectTypeOf<ChannelFamilyIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['channels']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['errors']>().not.toBeAny();
@@ -150,8 +150,8 @@ describe('ChannelFamilyIsolationClient — channels', () => {
 });
 
 describe('ChannelFamilyIsolationClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ChannelFamilyIsolationClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ChannelFamilyIsolationClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

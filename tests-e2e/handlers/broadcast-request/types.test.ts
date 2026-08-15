@@ -9,7 +9,7 @@ describe('BroadcastRequestClient — no-any guard', () => {
   });
 });
 
-describe('BroadcastRequestClient — channel broadcast serverRequest flows through InferClient', () => {
+describe('BroadcastRequestClient — channel broadcast serverRequests flows through InferClient', () => {
   it('carries the lobby channel volunteer broadcast request, typed', () => {
     type LobbyRequests = BroadcastRequestClient['channels']['lobby']['serverRequests'];
     expectTypeOf<LobbyRequests>().toHaveProperty('volunteer');

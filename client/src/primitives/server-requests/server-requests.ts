@@ -2,9 +2,9 @@ import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
-  ServerRequestOptions,
-  ServerRequestTypeFn,
-} from '~/primitives/server-request/types.ts';
+  ServerRequestsOptions,
+  ServerRequestsTypeFn,
+} from '~/primitives/server-requests/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
 
 /** A registered handler that answers one server→client request event. */
@@ -27,15 +27,17 @@ function handlerKey(markers: ScopeMarkers, event: string): string {
  * server sends a request frame (a normal event carrying a `correlationId`), the
  * handler runs and its return value is sent back to the server as the answer.
  *
- * This is the mirror of `requestResponse()` (client→server). The two are
+ * This is the mirror of `clientRequests()` (client→server). The two are
  * order-independent: each claims only its own direction via `__wskit.source`
- * (`requestResponse` ignores `source: 'server'` frames; `serverRequest` ignores
+ * (`clientRequests` ignores `source: 'server'` frames; `serverRequests` ignores
  * everything else), so a reply to the client's own request and a server-initiated
  * request never reach the wrong primitive regardless of registration order.
  */
-export function serverRequest(_options: ServerRequestOptions = {}): Primitive<ServerRequestTypeFn> {
+export function serverRequests(
+  _options: ServerRequestsOptions = {},
+): Primitive<ServerRequestsTypeFn> {
   return {
-    _tag: 'serverRequest',
+    _tag: 'serverRequests',
 
     setup(helpers) {
       // Keyed by handlerKey(scope, event): a channel `onRequest` answers only its
@@ -93,7 +95,7 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
       }
 
       return {
-        id: 'serverRequest',
+        id: 'serverRequests',
 
         onIncoming(message) {
           const wskit = message.__wskit;
@@ -102,7 +104,7 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
 
           // Only a server-originated request is ours to answer. A reply to the
           // client's own request (source !== 'server') passes through for
-          // requestResponse to claim — even when it shares an event name with an
+          // clientRequests to claim — even when it shares an event name with an
           // onRequest handler, since source, not the name, decides direction.
           if (wskit?.source !== 'server') return message;
 
@@ -144,4 +146,4 @@ export function serverRequest(_options: ServerRequestOptions = {}): Primitive<Se
   };
 }
 
-serverRequest.tag = 'serverRequest';
+serverRequests.tag = 'serverRequests';

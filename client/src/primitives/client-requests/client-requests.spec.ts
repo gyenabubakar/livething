@@ -2,19 +2,19 @@ import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive } from '~/primitives/types.ts';
 
 interface C {
-  requests: {
+  clientRequests: {
     'get-balance': { payload: { user: string }; response: { balance: number } };
   };
 }
 
-function build(options?: Parameters<typeof requestResponse>[0]) {
-  const socket = client<C>()(connect('wss://test'), requestResponse(options));
+function build(options?: Parameters<typeof clientRequests>[0]) {
+  const socket = client<C>()(connect('wss://test'), clientRequests(options));
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -29,13 +29,13 @@ afterEach(() => {
   restore();
 });
 
-describe('requestResponse — buffered frame ownership', () => {
+describe('clientRequests — buffered frame ownership', () => {
   it('does not send a timed-out request after reconnect', async () => {
     vi.useFakeTimers();
     const socket = client<C>()(
       connect('wss://test'),
       buffering({ enabled: true }),
-      requestResponse({ timeout: 5000 }),
+      clientRequests({ timeout: 5000 }),
     );
     socket.connect();
     let ws = MockWebSocket.last();
@@ -61,7 +61,7 @@ describe('requestResponse — buffered frame ownership', () => {
   });
 
   it('rejects the exact request whose held frame cannot serialize on flush, later requests still flush', async () => {
-    const socket = client<C>()(connect('wss://test', { lazy: true }), requestResponse());
+    const socket = client<C>()(connect('wss://test', { lazy: true }), clientRequests());
     socket.onError(() => undefined);
     const circular: Record<string, unknown> = {};
     circular.self = circular;
@@ -80,7 +80,7 @@ describe('requestResponse — buffered frame ownership', () => {
   });
 });
 
-describe('requestResponse', () => {
+describe('clientRequests', () => {
   it('rejects and cleans up timer/pending when the payload will not serialize (#15)', async () => {
     vi.useFakeTimers();
     const { socket, ws } = build();
@@ -167,7 +167,7 @@ describe('requestResponse', () => {
   });
 
   it('sends a request made before open once the socket opens, instead of dropping it', async () => {
-    const socket = client<C>()(connect('wss://test'), requestResponse());
+    const socket = client<C>()(connect('wss://test'), clientRequests());
     socket.connect();
     const ws = MockWebSocket.last();
 
@@ -217,12 +217,12 @@ describe('requestResponse', () => {
   });
 });
 
-describe('requestResponse — unmatched-correlationId passthrough', () => {
+describe('clientRequests — unmatched-correlationId passthrough', () => {
   function buildWithSpy() {
     const seen: string[] = [];
     const spy = {
       _tag: 'incoming-spy',
-      dependencies: ['requestResponse'],
+      dependencies: ['clientRequests'],
       setup() {
         return {
           id: 'incoming-spy',
@@ -235,7 +235,7 @@ describe('requestResponse — unmatched-correlationId passthrough', () => {
     };
     const socket = client<C>()(
       connect('wss://test'),
-      requestResponse(),
+      clientRequests(),
       spy as unknown as Primitive,
     );
     socket.connect();
@@ -280,7 +280,7 @@ describe('requestResponse — unmatched-correlationId passthrough', () => {
     expect(seen).toEqual([]);
   });
 
-  it('forwards a server-source frame untouched for the serverRequest primitive', () => {
+  it('forwards a server-source frame untouched for the serverRequests primitive', () => {
     const { ws, seen } = buildWithSpy();
 
     ws.emit({

@@ -17,7 +17,7 @@ import type { Primitive } from '~/primitive.ts';
  * | --------------------------- | -------------------- | ------------------------- |
  * | `emits({ 'msg': … })`       | `incoming`           | events the client receives|
  * | `base.on('msg', …)`         | `outgoing`           | events the client sends   |
- * | `base.request('r', …)`      | `requests`           | req/response pairs        |
+ * | `base.request('r', …)`      | `clientRequests`     | req/response pairs        |
  * | `base.stream('s', …)`       | `streams`            | server-sent streams       |
  * | `base.resumableStream('s', …)` | `streams`         | server-sent streams       |
  * | `base.recordedStream('s', …)`  | `streams`         | server-sent streams       |
@@ -52,7 +52,7 @@ export interface ServerContract {
   readonly outgoing: Record<string, any>;
 
   /** Request/response pairs the client can invoke (declared with `base.request(...)`). */
-  readonly requests: Record<string, any>;
+  readonly clientRequests: Record<string, any>;
 
   /**
    * Server→client request/response pairs the client answers (declared with

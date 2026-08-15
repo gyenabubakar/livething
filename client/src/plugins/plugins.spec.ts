@@ -4,10 +4,10 @@ import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
 import { observeHost, plugin } from '~/plugins/plugins.ts';
 import { channels } from '~/primitives/channels/channels.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
-import { serverRequest } from '~/primitives/server-request/index.ts';
+import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +28,7 @@ interface AppContract {
   outgoing: {
     '__acme:chat::typing': { on: boolean };
   };
-  requests: {
+  clientRequests: {
     '__acme:chat::send-message': { payload: { text: string }; response: { id: string } };
   };
   serverRequests: {
@@ -48,7 +48,7 @@ interface AppContract {
 interface ChatWire {
   incoming: { message: { text: string } };
   outgoing: { typing: { on: boolean } };
-  requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
+  clientRequests: { 'send-message': { payload: { text: string }; response: { id: string } } };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
@@ -105,11 +105,11 @@ describe('plugin() registration and API', () => {
   it('throws at build when a declared dependency is missing', () => {
     const Chat = plugin<ChatWire>()({
       id: 'acme:chat',
-      dependencies: [requestResponse],
+      dependencies: [clientRequests],
       setup: () => ({}),
     });
     expect(() => client<AppContract>()(connect('wss://test'), Chat())).toThrow(
-      /requires requestResponse/,
+      /requires clientRequests/,
     );
   });
 });
@@ -233,7 +233,7 @@ describe('scoped send — send() and request()', () => {
   it('request() prefixes the event and resolves with the reply', async () => {
     const Chat = plugin<ChatWire, { send: (text: string) => Promise<{ id: string }> }>()({
       id: 'acme:chat',
-      dependencies: [requestResponse],
+      dependencies: [clientRequests],
       setup(socket) {
         return {
           api: () => ({ send: (text: string) => socket.request('send-message', { text }) }),
@@ -241,7 +241,7 @@ describe('scoped send — send() and request()', () => {
       },
     });
 
-    const { socket, ws } = build(requestResponse(), Chat());
+    const { socket, ws } = build(clientRequests(), Chat());
     const pending = Chat.use(socket).send('hello');
 
     const sent = ws.sentFrames().find((f) => f.event === '__acme:chat::send-message');
@@ -285,14 +285,14 @@ describe('scoped stream and onRequest', () => {
   it('onRequest() answers a namespaced server request', async () => {
     const Feed = plugin<FeedWire>()({
       id: 'acme:feed',
-      dependencies: [serverRequest],
+      dependencies: [serverRequests],
       setup(socket) {
         socket.onRequest('ping', () => ({ pong: true }));
         return {};
       },
     });
 
-    const { ws } = build(serverRequest(), Feed());
+    const { ws } = build(serverRequests(), Feed());
     ws.emit({
       event: '__acme:feed::ping',
       payload: { at: 1 },
@@ -373,19 +373,19 @@ describe('scoped stream and onRequest', () => {
   it('a plugin request rejection surfaces the plain error code', async () => {
     const Chat = plugin<
       {
-        requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
+        clientRequests: { 'send-message': { payload: { text: string }; response: { id: string } } };
         errors: { 'room-full': { limit: number } };
       },
       { send: () => Promise<{ id: string }> }
     >()({
       id: 'acme:chat',
-      dependencies: [requestResponse],
+      dependencies: [clientRequests],
       setup(socket) {
         return { api: () => ({ send: () => socket.request('send-message', { text: 'hi' }) }) };
       },
     });
 
-    const { socket, ws } = build(requestResponse(), Chat());
+    const { socket, ws } = build(clientRequests(), Chat());
     const pending = Chat.use(socket).send();
 
     const req = ws.sentFrames().find((f) => f.event === '__acme:chat::send-message');
@@ -989,7 +989,7 @@ describe('guards', () => {
 
   it('throws a clear error when a used verb’s primitive is not registered', () => {
     // The contract types `request`, but neither the plugin's dependencies nor the
-    // app registered requestResponse — calling it names what to add.
+    // app registered clientRequests — calling it names what to add.
     const Chat = plugin<ChatWire, { go: () => Promise<{ id: string }> }>()({
       id: 'acme:chat',
       setup(socket) {
@@ -998,7 +998,7 @@ describe('guards', () => {
     });
 
     const { socket } = build(Chat());
-    expect(() => Chat.use(socket).go()).toThrow(/requestResponse primitive isn't registered/);
+    expect(() => Chat.use(socket).go()).toThrow(/clientRequests primitive isn't registered/);
   });
 });
 

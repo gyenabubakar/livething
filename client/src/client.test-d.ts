@@ -5,11 +5,11 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { inbox } from '~/primitives/inbox/inbox.ts';
 import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
-import { serverRequest } from '~/primitives/server-request/index.ts';
+import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
 import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
@@ -18,7 +18,7 @@ import type { StreamHandle } from '~/types.ts';
 interface Full {
   incoming: { 'server-push': { value: number } };
   outgoing: { 'client-send': { text: string } };
-  requests: { 'do-request': { payload: { id: string }; response: { ok: boolean } } };
+  clientRequests: { 'do-request': { payload: { id: string }; response: { ok: boolean } } };
   serverRequests: {
     'ask-permission': { payload: { action: string }; response: { allowed: boolean } };
   };
@@ -37,7 +37,7 @@ interface Full {
     room: {
       incoming: { 'ch-push': { value: number } };
       outgoing: { 'ch-send': { text: string } };
-      requests: { 'ch-request': { payload: { id: string }; response: { ok: boolean } } };
+      clientRequests: { 'ch-request': { payload: { id: string }; response: { ok: boolean } } };
       serverRequests: {
         'ch-ask': { payload: { who: string }; response: { ok: boolean } };
       };
@@ -51,8 +51,8 @@ interface Full {
 const socket = client<Full>()(
   connect('wss://example.com'),
   channels(),
-  requestResponse(),
-  serverRequest(),
+  clientRequests(),
+  serverRequests(),
   stream(),
 );
 
@@ -144,9 +144,9 @@ expectTypeOf(socket.connect()).toEqualTypeOf<void>();
 const bare = client<Full>()(connect('wss://example.com'));
 // @ts-expect-error — socket.channel needs the channels() primitive
 bare.channel('room');
-// @ts-expect-error — socket.request needs the requestResponse() primitive
+// @ts-expect-error — socket.request needs the clientRequests() primitive
 bare.request('do-request', { id: '1' });
-// @ts-expect-error — socket.onRequest needs the serverRequest() primitive
+// @ts-expect-error — socket.onRequest needs the serverRequests() primitive
 bare.onRequest('ask-permission', () => ({ allowed: true }));
 // @ts-expect-error — socket.onStream needs the stream() primitive
 bare.onStream('plain-stream', { onChunk: () => {} });
@@ -163,9 +163,9 @@ const onlyRoom = channelsOnly.channel('room');
 expectTypeOf(onlyRoom.subscribe({ token: 't' })).resolves.toEqualTypeOf<void>();
 onlyRoom.on('ch-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
 onlyRoom.onSubscribed(() => {});
-// @ts-expect-error — channel.request needs the requestResponse() primitive
+// @ts-expect-error — channel.request needs the clientRequests() primitive
 onlyRoom.request('ch-request', { id: '1' });
-// @ts-expect-error — channel.onRequest needs the serverRequest() primitive
+// @ts-expect-error — channel.onRequest needs the serverRequests() primitive
 onlyRoom.onRequest('ch-ask', () => ({ ok: true }));
 // @ts-expect-error — channel.onStream needs the stream() primitive
 onlyRoom.onStream('ch-stream', { onChunk: () => {} });
@@ -174,7 +174,7 @@ onlyRoom.stream('ch-stream', {});
 // @ts-expect-error — channel.resumeStream needs the stream() primitive
 onlyRoom.resumeStream('ch-stream', 'id');
 
-const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), requestResponse());
+const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), clientRequests());
 expectTypeOf(
   channelsAndReq.channel('room').request('ch-request', { id: '1' }),
 ).resolves.toEqualTypeOf<{ ok: boolean }>();
@@ -184,8 +184,8 @@ channelsAndReq.channel('room').onStream('ch-stream', { onChunk: () => {} });
 const everything = client<Full>()(
   connect('wss://example.com'),
   channels(),
-  requestResponse(),
-  serverRequest(),
+  clientRequests(),
+  serverRequests(),
   stream(),
 );
 everything.channel('room').request('ch-request', { id: '1' });

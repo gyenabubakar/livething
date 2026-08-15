@@ -5,7 +5,7 @@ describe('ReplayFamilyKeyEqualsNameClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplayFamilyKeyEqualsNameClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplayFamilyKeyEqualsNameClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().not.toBeAny();
@@ -21,8 +21,8 @@ describe('ReplayFamilyKeyEqualsNameClient — top-level slots are empty', () => 
     expectTypeOf<keyof ReplayFamilyKeyEqualsNameClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof ReplayFamilyKeyEqualsNameClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ReplayFamilyKeyEqualsNameClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

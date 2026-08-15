@@ -5,7 +5,7 @@ describe('StreamBasicClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<StreamBasicClient['incoming']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['outgoing']>().not.toBeAny();
-    expectTypeOf<StreamBasicClient['requests']>().not.toBeAny();
+    expectTypeOf<StreamBasicClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['channels']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['errors']>().not.toBeAny();

@@ -1,9 +1,9 @@
 import type {
   ChannelsOf,
+  ClientRequestsOf,
   ErrorsOf,
   IncomingOf,
   OutgoingOf,
-  RequestsOf,
   ServerRequestsOf,
   SocketContract,
   StreamsOf,
@@ -50,7 +50,7 @@ type DropClaimed<TMap, TClaimed extends string> = {
 export type PluginSlice<TContract extends SocketContract, TId extends string> = {
   incoming: PickNamespace<TId, IncomingOf<TContract>>;
   outgoing: PickNamespace<TId, OutgoingOf<TContract>>;
-  requests: PickNamespace<TId, RequestsOf<TContract>>;
+  clientRequests: PickNamespace<TId, ClientRequestsOf<TContract>>;
   serverRequests: PickNamespace<TId, ServerRequestsOf<TContract>>;
   streams: PickNamespace<TId, StreamsOf<TContract>>;
   channels: PickNamespace<TId, ChannelsOf<TContract>>;
@@ -68,7 +68,7 @@ export type PluginSlice<TContract extends SocketContract, TId extends string> = 
 export type TopLevelContract<TContract extends SocketContract, TClaimed extends string = never> = {
   incoming: DropClaimed<IncomingOf<TContract>, TClaimed>;
   outgoing: DropClaimed<OutgoingOf<TContract>, TClaimed>;
-  requests: DropClaimed<RequestsOf<TContract>, TClaimed>;
+  clientRequests: DropClaimed<ClientRequestsOf<TContract>, TClaimed>;
   serverRequests: DropClaimed<ServerRequestsOf<TContract>, TClaimed>;
   streams: DropClaimed<StreamsOf<TContract>, TClaimed>;
   channels: DropClaimed<ChannelsOf<TContract>, TClaimed>;
@@ -103,7 +103,7 @@ export type NamespacedContract<P extends SocketContract, TId extends string> = R
   IncomingOf<P>
 > &
   RequiredSection<TId, 'outgoing', OutgoingOf<P>> &
-  RequiredSection<TId, 'requests', RequestsOf<P>> &
+  RequiredSection<TId, 'clientRequests', ClientRequestsOf<P>> &
   RequiredSection<TId, 'serverRequests', ServerRequestsOf<P>> &
   RequiredSection<TId, 'streams', StreamsOf<P>> &
   RequiredSection<TId, 'channels', ChannelsOf<P>> &

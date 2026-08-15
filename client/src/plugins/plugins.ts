@@ -27,7 +27,7 @@ import type { SocketContract } from '~/types.ts';
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
   throw new WSKitConfigError(
-    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [requestResponse, channels]).`,
+    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [clientRequests, channels]).`,
   );
 }
 
@@ -74,7 +74,7 @@ type CloseHook = (code: number, reason: string, suspended: boolean) => void;
 
 /**
  * A plugin only owns plain top-level frames in its namespace. A frame carrying a
- * channel, correlationId, or streamId belongs to the channels, requestResponse,
+ * channel, correlationId, or streamId belongs to the channels, clientRequests,
  * or stream primitive — those run before the plugin and handle it — so the plugin
  * leaves it alone even when the name is in the plugin's namespace.
  */
@@ -197,11 +197,11 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     // Primitive-backed verbs: clear throwers until applyAugmenters replaces the
     // ones whose primitive is registered.
-    request: missing('request', 'requestResponse'),
+    request: missing('request', 'clientRequests'),
     stream: missing('stream', 'stream'),
     onStream: missing('onStream', 'stream'),
     resumeStream: missing('resumeStream', 'stream'),
-    onRequest: missing('onRequest', 'serverRequest'),
+    onRequest: missing('onRequest', 'serverRequests'),
     channel: missing('channel', 'channels'),
   };
 
@@ -378,7 +378,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * ```ts
  * const Chat = plugin<ChatContract, ChatApi>()({
  *   id: 'acme:chat',
- *   dependencies: [requestResponse],
+ *   dependencies: [clientRequests],
  *   setup(socket) {
  *     const inbox: Message[] = [];
  *     socket.on('message', (m) => inbox.push(m));
@@ -391,7 +391,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  *   },
  * });
  *
- * const socket = client<AppContract>()(connect('wss://...'), requestResponse(), Chat());
+ * const socket = client<AppContract>()(connect('wss://...'), clientRequests(), Chat());
  * const chat = Chat.use(socket);
  * ```
  */

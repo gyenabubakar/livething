@@ -2,8 +2,8 @@ import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,7 @@ interface C {
     general: {
       incoming: { message: { text: string }; typing: { who: string }; feed: { token: string } };
       outgoing: { 'send-message': { text: string } };
-      requests: { history: { payload: { before: string }; response: { items: string[] } } };
+      clientRequests: { history: { payload: { before: string }; response: { items: string[] } } };
     };
     rooms: {
       addressing: 'dynamic';
@@ -780,7 +780,7 @@ describe('reliable leave', () => {
 
 describe('scoped request and ack', () => {
   it('channel request tags the channel and resolves', async () => {
-    const { socket, ws } = build(channels(), requestResponse());
+    const { socket, ws } = build(channels(), clientRequests());
     const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
       request(event: string, payload: unknown): Promise<unknown>;
     };
@@ -804,7 +804,7 @@ describe('scoped request and ack', () => {
   });
 
   it('channel request is guarded before subscribe', () => {
-    const { socket } = build(channels(), requestResponse());
+    const { socket } = build(channels(), clientRequests());
     const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
       request(event: string, payload: unknown): Promise<unknown>;
     };

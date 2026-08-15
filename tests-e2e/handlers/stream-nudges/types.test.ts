@@ -5,7 +5,7 @@ describe('StreamNudgesClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<StreamNudgesClient['incoming']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['outgoing']>().not.toBeAny();
-    expectTypeOf<StreamNudgesClient['requests']>().not.toBeAny();
+    expectTypeOf<StreamNudgesClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['streams']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['channels']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['errors']>().not.toBeAny();
@@ -91,8 +91,8 @@ describe('StreamNudgesClient — stream kind', () => {
 });
 
 describe('StreamNudgesClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof StreamNudgesClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof StreamNudgesClient['clientRequests']>().toBeNever();
   });
 
   it('channels is empty', () => {

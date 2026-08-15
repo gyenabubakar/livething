@@ -1,8 +1,8 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,19 +11,19 @@ interface C {
     general: {
       incoming: { message: { text: string } };
       outgoing: { 'send-message': { text: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
     rooms: {
       addressing: 'dynamic';
       incoming: { update: { body: string } };
       outgoing: { post: { body: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
     lobbies: {
       addressing: 'dynamic';
       incoming: { update: { body: string } };
       outgoing: { post: { body: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
   };
 }
@@ -243,7 +243,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       const socket = client<C>()(
         connect('wss://test'),
         channels(),
-        requestResponse(),
+        clientRequests(),
         reconnection(),
       );
       socket.connect();

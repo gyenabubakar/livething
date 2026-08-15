@@ -5,7 +5,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { observeHost, plugin } from '~/plugins/plugins.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { expectTypeOf } from 'vitest';
 
 // A contract shaped like `InferClient`: the app's own names, one plugin's names
@@ -21,7 +21,7 @@ interface HostContract {
     'app-ping': { at: number };
     '__acme:chat::typing': { on: boolean };
   };
-  requests: {
+  clientRequests: {
     '__acme:chat::send-message': { payload: { text: string }; response: { id: string } };
   };
 }
@@ -29,7 +29,7 @@ interface HostContract {
 interface ChatWire {
   incoming: { message: { id: string; text: string } };
   outgoing: { typing: { on: boolean } };
-  requests: { 'send-message': { payload: { text: string }; response: { id: string } } };
+  clientRequests: { 'send-message': { payload: { text: string }; response: { id: string } } };
 }
 
 interface ChatApi {
@@ -38,7 +38,7 @@ interface ChatApi {
 
 const Chat = plugin<ChatWire, ChatApi>()({
   id: 'acme:chat',
-  dependencies: [requestResponse],
+  dependencies: [clientRequests],
   setup: (socket) => ({
     api: () => ({ send: (text) => socket.request('send-message', { text }) }),
   }),
@@ -49,7 +49,7 @@ const Chat = plugin<ChatWire, ChatApi>()({
 expectTypeOf<typeof Chat.id>().toEqualTypeOf<'acme:chat'>();
 expectTypeOf<ReturnType<typeof Chat>['_plugin']['id']>().toEqualTypeOf<'acme:chat'>();
 
-const socket = client<HostContract>()(connect('wss://example.com'), requestResponse(), Chat());
+const socket = client<HostContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
 // The app's own top-level names stay, with exact payload types (never `any`).
 socket.on('app-notice', (data) => {
@@ -80,7 +80,7 @@ expectTypeOf(chat.send('hi')).resolves.toEqualTypeOf<{ id: string }>();
 expectTypeOf(chat).not.toBeAny();
 
 // With NO plugin registered, both namespaces stay at the top level, unchanged.
-const bare = client<HostContract>()(connect('wss://example.com'), requestResponse());
+const bare = client<HostContract>()(connect('wss://example.com'), clientRequests());
 bare.on('__acme:chat::message', (data) =>
   expectTypeOf(data).toEqualTypeOf<{ id: string; text: string }>(),
 );
@@ -93,10 +93,10 @@ interface NoChatContract {
   incoming: { 'app-notice': { text: string } };
 }
 // @ts-expect-error — NoChatContract has no __acme:chat:: names, so Chat can't register
-client<NoChatContract>()(connect('wss://example.com'), requestResponse(), Chat());
+client<NoChatContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
 // A contract that DOES declare the namespace accepts it.
-client<HostContract>()(connect('wss://example.com'), requestResponse(), Chat());
+client<HostContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
 // An observe-only plugin (no contract) requires nothing and registers anywhere.
 const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });

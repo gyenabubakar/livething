@@ -5,66 +5,68 @@ describe('RequestClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<RequestClient['incoming']>().not.toBeAny();
     expectTypeOf<RequestClient['outgoing']>().not.toBeAny();
-    expectTypeOf<RequestClient['requests']>().not.toBeAny();
+    expectTypeOf<RequestClient['clientRequests']>().not.toBeAny();
     expectTypeOf<RequestClient['streams']>().not.toBeAny();
     expectTypeOf<RequestClient['channels']>().not.toBeAny();
     expectTypeOf<RequestClient['errors']>().not.toBeAny();
   });
 });
 
-describe('RequestClient — top-level requests', () => {
+describe('RequestClient — top-level clientRequests', () => {
   it('has get-time', () => {
-    expectTypeOf<RequestClient['requests']>().toHaveProperty('get-time');
+    expectTypeOf<RequestClient['clientRequests']>().toHaveProperty('get-time');
   });
 
   it('get-time has correct payload and response', () => {
-    expectTypeOf<RequestClient['requests']['get-time']['payload']>().toEqualTypeOf<{}>();
-    expectTypeOf<RequestClient['requests']['get-time']['response']>().toEqualTypeOf<{
+    expectTypeOf<RequestClient['clientRequests']['get-time']['payload']>().toEqualTypeOf<{}>();
+    expectTypeOf<RequestClient['clientRequests']['get-time']['response']>().toEqualTypeOf<{
       now: string;
     }>();
   });
 
   it('has no-response request', () => {
-    expectTypeOf<RequestClient['requests']>().toHaveProperty('no-response');
+    expectTypeOf<RequestClient['clientRequests']>().toHaveProperty('no-response');
   });
 
   it('no-response has an empty payload and a void response (a void acknowledgement)', () => {
-    expectTypeOf<RequestClient['requests']['no-response']['payload']>().toEqualTypeOf<{}>();
-    expectTypeOf<RequestClient['requests']['no-response']['response']>().toEqualTypeOf<void>();
+    expectTypeOf<RequestClient['clientRequests']['no-response']['payload']>().toEqualTypeOf<{}>();
+    expectTypeOf<
+      RequestClient['clientRequests']['no-response']['response']
+    >().toEqualTypeOf<void>();
   });
 
   it('has double-response request', () => {
-    expectTypeOf<RequestClient['requests']>().toHaveProperty('double-response');
+    expectTypeOf<RequestClient['clientRequests']>().toHaveProperty('double-response');
   });
 
   it('double-response has correct response', () => {
-    expectTypeOf<RequestClient['requests']['double-response']['response']>().toEqualTypeOf<{
+    expectTypeOf<RequestClient['clientRequests']['double-response']['response']>().toEqualTypeOf<{
       count: number;
     }>();
   });
 
   it('has strict-echo request', () => {
-    expectTypeOf<RequestClient['requests']>().toHaveProperty('strict-echo');
+    expectTypeOf<RequestClient['clientRequests']>().toHaveProperty('strict-echo');
   });
 
   it('strict-echo payload is strict', () => {
-    expectTypeOf<RequestClient['requests']['strict-echo']['payload']>().toEqualTypeOf<{
+    expectTypeOf<RequestClient['clientRequests']['strict-echo']['payload']>().toEqualTypeOf<{
       id: string;
     }>();
   });
 
   it('strict-echo response is correct', () => {
-    expectTypeOf<RequestClient['requests']['strict-echo']['response']>().toEqualTypeOf<{
+    expectTypeOf<RequestClient['clientRequests']['strict-echo']['response']>().toEqualTypeOf<{
       echoed: string;
     }>();
   });
 
   it('has throwing-request', () => {
-    expectTypeOf<RequestClient['requests']>().toHaveProperty('throwing-request');
+    expectTypeOf<RequestClient['clientRequests']>().toHaveProperty('throwing-request');
   });
 
-  it('has the declared top-level requests', () => {
-    expectTypeOf<keyof RequestClient['requests']>().toEqualTypeOf<
+  it('has the declared top-level clientRequests', () => {
+    expectTypeOf<keyof RequestClient['clientRequests']>().toEqualTypeOf<
       | 'get-time'
       | 'no-response'
       | 'double-response'
@@ -85,18 +87,18 @@ describe('RequestClient — channels', () => {
     expectTypeOf<RequestClient['channels']>().toHaveProperty('room');
   });
 
-  it('room requests has get-channel-info', () => {
-    expectTypeOf<RequestClient['channels']['room']['requests']>().toHaveProperty(
+  it('room clientRequests has get-channel-info', () => {
+    expectTypeOf<RequestClient['channels']['room']['clientRequests']>().toHaveProperty(
       'get-channel-info',
     );
   });
 
   it('get-channel-info has correct payload and response', () => {
     expectTypeOf<
-      RequestClient['channels']['room']['requests']['get-channel-info']['payload']
+      RequestClient['channels']['room']['clientRequests']['get-channel-info']['payload']
     >().toEqualTypeOf<{}>();
     expectTypeOf<
-      RequestClient['channels']['room']['requests']['get-channel-info']['response']
+      RequestClient['channels']['room']['clientRequests']['get-channel-info']['response']
     >().toEqualTypeOf<{
       channel: string;
     }>();

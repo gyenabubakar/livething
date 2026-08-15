@@ -2,13 +2,13 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
-import { serverRequest } from '~/primitives/server-request/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
+import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 interface C {
-  requests: { 'get-balance': { payload: { user: string }; response: { balance: number } } };
+  clientRequests: { 'get-balance': { payload: { user: string }; response: { balance: number } } };
   serverRequests: {
     'ask-permission': { payload: { action: string }; response: { allowed: boolean } };
   };
@@ -23,7 +23,7 @@ interface C {
 }
 
 function build() {
-  const socket = client<C>()(connect('wss://test'), requestResponse(), serverRequest(), channels());
+  const socket = client<C>()(connect('wss://test'), clientRequests(), serverRequests(), channels());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -38,7 +38,7 @@ afterEach(() => {
   restore();
 });
 
-describe('serverRequest — answering server-initiated requests', () => {
+describe('serverRequests — answering server-initiated requests', () => {
   it('runs the handler and replies echoing the correlationId', async () => {
     const { socket, ws } = build();
     (socket as any).onRequest('ask-permission', (payload: { action: string }) => ({
@@ -155,7 +155,7 @@ describe('serverRequest — answering server-initiated requests', () => {
     });
 
     // A server→client request with NO channel marker must not reach the channel
-    // handler; with no top-level handler it fast-fails on the serverRequest flag.
+    // handler; with no top-level handler it fast-fails on the serverRequests flag.
     ws.emit({
       event: 'ask-permission',
       payload: { action: 'x' },
@@ -255,8 +255,8 @@ describe('serverRequest — answering server-initiated requests', () => {
 
   it('passes through an unmarked correlated frame with no handler (a reply)', async () => {
     const { socket, ws } = build();
-    // A reply to the client's own request: correlated, NOT marked serverRequest,
-    // no serverRequest handler. It must not be NAK'd — requestResponse claims it.
+    // A reply to the client's own request: correlated, NOT marked serverRequests,
+    // no serverRequests handler. It must not be NAK'd — clientRequests claims it.
     const pending = (socket as any).request('get-balance', { user: 'a' });
     const reqFrame = ws.sentFrames().find((f) => f.event === 'get-balance');
     const correlationId = reqFrame.__wskit.correlationId;

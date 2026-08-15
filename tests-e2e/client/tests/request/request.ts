@@ -1,4 +1,4 @@
-import { channels, client, connect, requestResponse } from '@wskit/client';
+import { channels, client, clientRequests, connect } from '@wskit/client';
 import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -20,7 +20,7 @@ export function setup(): void {
     <span data-testid="ch-result"></span>
   `);
 
-  const socket = client<RequestClient>()(connect(wsUrl('request')), requestResponse(), channels());
+  const socket = client<RequestClient>()(connect(wsUrl('request')), clientRequests(), channels());
 
   const room = socket.channel('room');
 

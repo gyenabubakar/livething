@@ -6,7 +6,7 @@ export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
 
 /**
  * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).
- * `on` and `send` are always present; augmenters (requestResponse, stream)
+ * `on` and `send` are always present; augmenters (clientRequests, stream)
  * add extra methods via the index signature. The typed view exposed to developers
  * is `ScopedMessaging` — this is the loose internal object the library builds
  * and extends at runtime.

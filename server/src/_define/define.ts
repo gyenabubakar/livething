@@ -236,7 +236,7 @@ export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = Re
   TPayload,
   TResponse
 > &
-  Contribution<{ requests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
+  Contribution<{ clientRequests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
 
 /** Configuration object for `base.request(...)`. */
 export type RequestConfig<
@@ -1413,7 +1413,9 @@ export interface ChannelRequestMethods<
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
-    { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
+    {
+      clientRequests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }>;
+    }
   >;
 }
 

@@ -5,7 +5,7 @@ describe('ReplaySnapshotClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplaySnapshotClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplaySnapshotClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplaySnapshotClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['streams']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['channels']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['errors']>().not.toBeAny();
@@ -107,8 +107,8 @@ describe('ReplaySnapshotClient — channels', () => {
 });
 
 describe('ReplaySnapshotClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ReplaySnapshotClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ReplaySnapshotClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

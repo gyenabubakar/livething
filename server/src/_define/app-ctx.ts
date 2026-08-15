@@ -587,7 +587,7 @@ type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
 type Incoming<TSlots> = SlotOr<TSlots, 'incoming'>;
 
 /** The request events (event → { payload, response }), read off the merged contract slots. */
-type Requests<TSlots> = SlotOr<TSlots, 'requests'>;
+type Requests<TSlots> = SlotOr<TSlots, 'clientRequests'>;
 
 /** The channel families (family → channel slice), read off the merged contract slots. */
 type Channels<TSlots> = SlotOr<TSlots, 'channels'>;

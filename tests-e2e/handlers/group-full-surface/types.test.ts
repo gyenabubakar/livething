@@ -5,7 +5,7 @@ describe('GroupFullSurfaceClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<GroupFullSurfaceClient['incoming']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['outgoing']>().not.toBeAny();
-    expectTypeOf<GroupFullSurfaceClient['requests']>().not.toBeAny();
+    expectTypeOf<GroupFullSurfaceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['streams']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['channels']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['errors']>().not.toBeAny();
@@ -113,16 +113,16 @@ describe('GroupFullSurfaceClient — outgoing (server incoming)', () => {
   });
 });
 
-describe('GroupFullSurfaceClient — requests', () => {
+describe('GroupFullSurfaceClient — clientRequests', () => {
   it('has lookup', () => {
-    expectTypeOf<GroupFullSurfaceClient['requests']>().toHaveProperty('lookup');
+    expectTypeOf<GroupFullSurfaceClient['clientRequests']>().toHaveProperty('lookup');
   });
 
   it('lookup has correct payload and response', () => {
-    expectTypeOf<GroupFullSurfaceClient['requests']['lookup']['payload']>().toEqualTypeOf<{
+    expectTypeOf<GroupFullSurfaceClient['clientRequests']['lookup']['payload']>().toEqualTypeOf<{
       id: string;
     }>();
-    expectTypeOf<GroupFullSurfaceClient['requests']['lookup']['response']>().toEqualTypeOf<{
+    expectTypeOf<GroupFullSurfaceClient['clientRequests']['lookup']['response']>().toEqualTypeOf<{
       found: boolean;
       hit: string;
       tag: string;
@@ -258,8 +258,8 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
     >();
   });
 
-  it('requests has exactly lookup', () => {
-    expectTypeOf<keyof GroupFullSurfaceClient['requests']>().toEqualTypeOf<'lookup'>();
+  it('clientRequests has exactly lookup', () => {
+    expectTypeOf<keyof GroupFullSurfaceClient['clientRequests']>().toEqualTypeOf<'lookup'>();
   });
 
   it('streams has exactly feed, paginate, tokens', () => {

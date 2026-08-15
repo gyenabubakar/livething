@@ -6,7 +6,7 @@ import type { SocketContract } from '~/types.ts';
 
 /**
  * A primitive factory you can name as a plugin dependency, e.g.
- * `dependencies: [requestResponse]`. The static `tag` is read without running the
+ * `dependencies: [clientRequests]`. The static `tag` is read without running the
  * factory, so a factory that needs options can't throw or fire side effects here.
  */
 export type PrimitiveFactory = {
@@ -54,8 +54,8 @@ export interface PluginDef<P extends SocketContract, TApi> {
   /**
    * Primitives the host must register for this plugin to work. Any scoped verb
    * that comes from a primitive needs its primitive listed here: `request` needs
-   * `requestResponse`, `stream`/`onStream`/`resumeStream` need `stream`,
-   * `channel` needs `channels`, `onRequest` needs `serverRequest`. The scoped
+   * `clientRequests`, `stream`/`onStream`/`resumeStream` need `stream`,
+   * `channel` needs `channels`, `onRequest` needs `serverRequests`. The scoped
    * socket types these verbs from the plugin's contract, not from this list, so
    * calling one whose primitive is neither listed here nor registered by the app
    * fails at runtime — list it here and a missing one is caught when the socket

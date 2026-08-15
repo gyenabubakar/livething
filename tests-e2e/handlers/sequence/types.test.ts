@@ -5,7 +5,7 @@ describe('SequenceClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<SequenceClient['incoming']>().not.toBeAny();
     expectTypeOf<SequenceClient['outgoing']>().not.toBeAny();
-    expectTypeOf<SequenceClient['requests']>().not.toBeAny();
+    expectTypeOf<SequenceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<SequenceClient['streams']>().not.toBeAny();
     expectTypeOf<SequenceClient['channels']>().not.toBeAny();
     expectTypeOf<SequenceClient['errors']>().not.toBeAny();
@@ -33,8 +33,8 @@ describe('SequenceClient — outgoing (server incoming)', () => {
 });
 
 describe('SequenceClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof SequenceClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof SequenceClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

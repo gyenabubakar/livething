@@ -3,17 +3,17 @@ import type { WireMessage } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { ChannelMethod } from '~/primitives/channels/types.ts';
-import type { ServerRequestTypeFn } from '~/primitives/server-request/types.ts';
+import type { ServerRequestsTypeFn } from '~/primitives/server-requests/types.ts';
 import type { StreamTypeFn } from '~/primitives/stream/types.ts';
 import type { Apply } from '~/primitives/types.ts';
 import type {
   ChannelsOf,
+  ClientRequestsOf,
   ConnectionState,
   ErrorsOf,
   IncomingOf,
   OutgoingOf,
   RequestMethod,
-  RequestsOf,
   SocketContract,
 } from '~/types.ts';
 
@@ -118,8 +118,8 @@ type PluginErrorHandling<P extends SocketContract> = WhenPresent<
  */
 export type PluginSocket<P extends SocketContract = {}> = PluginBase &
   Messaging<IncomingOf<P> & object, OutgoingOf<P> & object> &
-  WhenPresent<RequestsOf<P>, RequestMethod<P, 'request'>> &
+  WhenPresent<ClientRequestsOf<P>, RequestMethod<P, 'request'>> &
   PluginChannels<P> &
   PluginErrorHandling<P> &
   Apply<StreamTypeFn, P> &
-  Apply<ServerRequestTypeFn, P>;
+  Apply<ServerRequestsTypeFn, P>;

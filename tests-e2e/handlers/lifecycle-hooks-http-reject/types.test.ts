@@ -5,7 +5,7 @@ describe('LifecycleHooksHttpRejectClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<LifecycleHooksHttpRejectClient['incoming']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['outgoing']>().not.toBeAny();
-    expectTypeOf<LifecycleHooksHttpRejectClient['requests']>().not.toBeAny();
+    expectTypeOf<LifecycleHooksHttpRejectClient['clientRequests']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['streams']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['channels']>().not.toBeAny();
     expectTypeOf<LifecycleHooksHttpRejectClient['errors']>().not.toBeAny();
@@ -21,8 +21,8 @@ describe('LifecycleHooksHttpRejectClient — all slots are empty (no definitions
     expectTypeOf<keyof LifecycleHooksHttpRejectClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof LifecycleHooksHttpRejectClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof LifecycleHooksHttpRejectClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

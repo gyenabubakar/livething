@@ -1,4 +1,4 @@
-import { channels, client, connect, requestResponse, stream } from '@wskit/client';
+import { channels, client, clientRequests, connect, stream } from '@wskit/client';
 import type { SocketContract } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -37,7 +37,7 @@ interface Contract extends SocketContract {
     // Client → Feed plugin incoming handler.
     '__e2e:feed::hello': { name: string };
   };
-  requests: {
+  clientRequests: {
     // Client → Feed plugin request, plugin returns the response.
     '__e2e:feed::echo': { payload: { text: string }; response: { echoed: string } };
   };
@@ -90,7 +90,7 @@ export function setup(): void {
   const socket = client<Contract>()(
     connect(wsUrl('plugins')),
     stream(),
-    requestResponse(),
+    clientRequests(),
     channels(),
   );
 

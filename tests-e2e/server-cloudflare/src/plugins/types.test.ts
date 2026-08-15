@@ -5,7 +5,7 @@ describe('PluginsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<PluginsClient['incoming']>().not.toBeAny();
     expectTypeOf<PluginsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<PluginsClient['requests']>().not.toBeAny();
+    expectTypeOf<PluginsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<PluginsClient['streams']>().not.toBeAny();
     expectTypeOf<PluginsClient['channels']>().not.toBeAny();
     expectTypeOf<PluginsClient['errors']>().not.toBeAny();
@@ -118,7 +118,7 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
     >().toEqualTypeOf<{ who: string }>();
   });
   it('exposes the plugin request under its prefixed name', () => {
-    expectTypeOf<PluginsClient['requests']['__e2e:feed::echo']>().toEqualTypeOf<{
+    expectTypeOf<PluginsClient['clientRequests']['__e2e:feed::echo']>().toEqualTypeOf<{
       payload: { text: string };
       response: { echoed: string };
     }>();

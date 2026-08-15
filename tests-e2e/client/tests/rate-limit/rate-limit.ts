@@ -1,4 +1,4 @@
-import { client, connect, requestResponse } from '@wskit/client';
+import { client, clientRequests, connect } from '@wskit/client';
 import { WSKitError } from '@wskit/client/errors';
 import type { RateLimitClient } from '@wskit/tests-e2e-handlers/rate-limit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
@@ -19,7 +19,7 @@ export function setup(): void {
     <span data-testid="echo-outcome"></span>
   `);
 
-  const socket = client<RateLimitClient>()(connect(wsUrl('rate-limit')), requestResponse());
+  const socket = client<RateLimitClient>()(connect(wsUrl('rate-limit')), clientRequests());
 
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();

@@ -5,7 +5,7 @@ describe('HibernationClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<HibernationClient['incoming']>().not.toBeAny();
     expectTypeOf<HibernationClient['outgoing']>().not.toBeAny();
-    expectTypeOf<HibernationClient['requests']>().not.toBeAny();
+    expectTypeOf<HibernationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<HibernationClient['streams']>().not.toBeAny();
     expectTypeOf<HibernationClient['channels']>().not.toBeAny();
     expectTypeOf<HibernationClient['errors']>().not.toBeAny();

@@ -5,7 +5,7 @@ describe('ErrorsFactoryClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ErrorsFactoryClient['incoming']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ErrorsFactoryClient['requests']>().not.toBeAny();
+    expectTypeOf<ErrorsFactoryClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['errors']>().not.toBeAny();
@@ -78,8 +78,8 @@ describe('ErrorsFactoryClient — empty slots', () => {
     expectTypeOf<keyof ErrorsFactoryClient['incoming']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof ErrorsFactoryClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ErrorsFactoryClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {
