@@ -44,7 +44,7 @@ const headerClasses = 'text-default font-medium hover:text-primary'
     <button
       v-else
       type="button"
-      :class="[itemClasses, headerClasses]"
+      :class="[itemClasses, headerClasses, 'group']"
       :aria-label="isOpen ? `Collapse ${item.title}` : `Expand ${item.title}`"
       :aria-expanded="isOpen"
       @click="emit('toggle')"
@@ -55,7 +55,7 @@ const headerClasses = 'text-default font-medium hover:text-primary'
         class="size-4 shrink-0"
       />
       <span class="min-w-0 flex-1 truncate text-left">{{ item.title }}</span>
-      <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 shrink-0 text-dimmed" />
+      <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 shrink-0 text-dimmed transition-colors group-hover:text-primary" />
     </button>
     <div
       v-if="hasChildren"
