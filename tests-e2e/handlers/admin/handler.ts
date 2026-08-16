@@ -1,6 +1,7 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { scheduled } from '@wskit/server/scheduled';
+import { resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -11,6 +12,10 @@ const base = define({
   capabilities: [
     channels(),
     scheduled({ 'admin-announce': { data: t<{ text: string }>() } }),
+    // Listed but never used: this server declares a durable stream and no test
+    // ever starts one. `purgeUser` must still delete stream rows, which means
+    // the stream tables have to exist from boot rather than from first use.
+    resumableStream(),
     emits({
       announced: t<{ text: string }>(),
       poked: t<{ text: string }>(),
