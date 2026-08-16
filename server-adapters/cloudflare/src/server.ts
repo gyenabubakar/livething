@@ -152,7 +152,7 @@ const buildServe = adapter<
           bufferedAmount: () => 0,
           // Cloudflare does not expose outbound buffer fullness, so drain() is a no-op.
           backpressureSupported: false,
-          identity: result.identity ?? '',
+          userId: result.userId ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
         };

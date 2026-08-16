@@ -438,6 +438,11 @@ describe('replay', () => {
           ) {
             return fn(this);
           },
+          limits: {
+            maxBoundParams: 32_766,
+            maxStatementBytes: 1_000_000_000,
+            maxValueBytes: 1_000_000_000,
+          },
         },
         kv: {
           async get() {
@@ -595,6 +600,11 @@ describe('replay', () => {
               }) => T,
             ) {
               return fn(this);
+            },
+            limits: {
+              maxBoundParams: 32_766,
+              maxStatementBytes: 1_000_000_000,
+              maxValueBytes: 1_000_000_000,
             },
           },
           kv: {

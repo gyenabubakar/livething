@@ -31,11 +31,12 @@ export interface ConnectionDescriptor {
   backpressureSupported?: boolean;
 
   /**
-   * Stable string identifying the user-equivalent entity for this socket.
-   * Forwarded from the `onUpgrade` result. Required because the descriptor is
-   * only built for an accepted upgrade — by that point identity is known.
+   * The user this socket belongs to, forwarded from the `onUpgrade` result.
+   * Required because the descriptor is only built for an accepted upgrade — by
+   * then the answer is known. An empty string means the upgrade returned no
+   * user id, so the connection is anonymous.
    */
-  identity: string;
+  userId: string;
 
   meta?: Record<string, unknown>;
 
@@ -68,11 +69,11 @@ export interface UpgradeDecision {
   reason?: string;
 
   /**
-   * Stable string identifying the user-equivalent entity behind this socket.
-   * Set when `reject` is falsy — every accepted upgrade carries it. Omitted
-   * on reject decisions because there is no connection to attach it to.
+   * The user this socket belongs to. Set when `reject` is falsy — every
+   * accepted upgrade carries it. Omitted on reject decisions, where there is no
+   * connection to attach it to.
    */
-  identity?: string;
+  userId?: string;
 
   meta?: Record<string, unknown>;
 

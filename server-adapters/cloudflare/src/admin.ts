@@ -4,6 +4,7 @@ import type {
   AdminContext,
   ConnectionInfo,
   ConnectionRef,
+  PurgeUserOptions,
   TagRef,
   UserRef,
 } from '@wskit/server/adapters';
@@ -68,9 +69,15 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
     this.#ctx.broadcast(event, payload);
   }
 
-  /** Drop a user everywhere: channels, durable rows, and their live sockets. */
-  purgeUser(userId: string): Promise<void> {
-    return this.#ctx.purgeUser(userId);
+  /**
+   * Drop a user everywhere: channels, durable rows, and their live sockets.
+   *
+   * Pass `{ keepBroadcastContent: true }` to leave the content of broadcast
+   * streams the user created in place. Either way they stop being credited as
+   * its creator.
+   */
+  purgeUser(userId: string, options?: PurgeUserOptions): Promise<void> {
+    return this.#ctx.purgeUser(userId, options);
   }
 
   /** Close live connections — all of them, or only one user's. */
@@ -135,7 +142,10 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
  * collides with a built-in is dropped, so built-ins always win.
  *
  * The engine merges the app's api into the admin context, so a key outside
- * `ADMIN_CONTEXT_MEMBERS` is what the app itself contributed.
+ * `ADMIN_CONTEXT_MEMBERS` is what the app itself contributed. An api method
+ * named `then` is rejected outright rather than silently dropped: `then` would
+ * make `await stub.admin()` hang forever, and that failure mode is worse than
+ * a clear error at the moment the admin surface is built.
  */
 export function buildAdmin<TApi, TMeta>(
   surface: AdminContext<Record<string, unknown>, TMeta> & TApi,

@@ -9,9 +9,9 @@ import {
 } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
-import { userKeyOf } from '~/_engine/runtime/connection.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { connectionStorageKeyOf } from '~/_engine/runtime/user-key.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -235,7 +235,7 @@ export async function runDurableStream(
   // refuse rather than write state that can never be reached again.
   if (!connection.userId) throw DurableStreamRequiresUser();
 
-  const creatorUserId = userKeyOf(connection);
+  const creatorUserId = connectionStorageKeyOf(connection);
 
   // Broadcast streams key the row by scope so every subscriber finds the same row.
   const storageUserId = def.broadcast ? computeBroadcastKey(scope) : creatorUserId;
@@ -281,7 +281,7 @@ export async function runDurableStream(
       Storage.seedSubscriber(runtime.sql, {
         storageUserId,
         streamId,
-        subscriberUserId: userKeyOf(member),
+        subscriberUserId: connectionStorageKeyOf(member),
       });
     }
   }
@@ -316,7 +316,7 @@ export function findResumeRow(
 ): Storage.DurableStreamRow | null {
   const { resumeScope, streamId } = opts;
 
-  const realUserId = userKeyOf(connection);
+  const realUserId = connectionStorageKeyOf(connection);
 
   const single = Storage.readStream(runtime.sql, realUserId, streamId);
   if (single) return single;
@@ -382,7 +382,7 @@ export async function resumeDurableStream(
   }
 
   const storageUserId = row.userId;
-  const realUserIdForGuard = userKeyOf(connection);
+  const realUserIdForGuard = connectionStorageKeyOf(connection);
   if (
     row.broadcast &&
     Storage.isUnsubscribed(runtime.sql, {
@@ -798,7 +798,7 @@ async function runGenerator(
             const sub = Storage.getSubscriber(runtime.sql, {
               storageUserId: userId,
               streamId,
-              subscriberUserId: userKeyOf(candidate),
+              subscriberUserId: connectionStorageKeyOf(candidate),
             });
             return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
           },
@@ -877,7 +877,7 @@ async function runGenerator(
           const sub = Storage.getSubscriber(runtime.sql, {
             storageUserId: userId,
             streamId,
-            subscriberUserId: userKeyOf(candidate),
+            subscriberUserId: connectionStorageKeyOf(candidate),
           });
           return sub !== null && sub.unsubscribedAt === null;
         },
@@ -928,7 +928,7 @@ async function runGenerator(
           const sub = Storage.getSubscriber(runtime.sql, {
             storageUserId: userId,
             streamId,
-            subscriberUserId: userKeyOf(candidate),
+            subscriberUserId: connectionStorageKeyOf(candidate),
           });
           return sub !== null && sub.unsubscribedAt === null;
         },
@@ -984,7 +984,7 @@ export async function cancelDurableStream(
   opts: { streamId: string; cancelScope: ResolvedChannel },
 ): Promise<void> {
   const { streamId, cancelScope } = opts;
-  const realUserId = userKeyOf(connection);
+  const realUserId = connectionStorageKeyOf(connection);
   const row = findResumeRow(runtime, connection, { resumeScope: cancelScope, streamId });
   if (!row) return;
 
@@ -1028,7 +1028,7 @@ export async function cancelDurableStream(
         const sub = Storage.getSubscriber(runtime.sql, {
           storageUserId: row.userId,
           streamId,
-          subscriberUserId: userKeyOf(candidate),
+          subscriberUserId: connectionStorageKeyOf(candidate),
         });
         return sub !== null && sub.unsubscribedAt === null;
       },

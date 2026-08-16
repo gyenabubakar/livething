@@ -2,7 +2,8 @@ import type { WSKitError } from '@wskit/core';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
-import type { ChannelMethod } from '~/primitives/channels/types.ts';
+import type { AugmentedChannelMethod } from '~/primitives/channels/types.ts';
+import type { InboxPrimitive, ReadReceiptsPrimitive } from '~/primitives/inbox/types.ts';
 import type { ServerRequestsTypeFn } from '~/primitives/server-requests/types.ts';
 import type { StreamTypeFn } from '~/primitives/stream/types.ts';
 import type { Apply } from '~/primitives/types.ts';
@@ -18,17 +19,31 @@ import type {
 } from '~/types.ts';
 
 /**
+ * The channel-scoped primitives every plugin channel handle is typed with,
+ * whatever the plugin declares. `inbox()` and `readReceipts()` gate their own
+ * surface on the channel's contract (`inbox: true` / `readReceipts: true`), so
+ * listing them here doesn't add methods to a channel that doesn't opt in — it
+ * only makes the surface reachable when the channel does. A plugin that
+ * declares such a flag is still responsible for listing the matching primitive
+ * in its `dependencies`, the same way it lists `channels` for `channel` itself.
+ */
+type PluginChannelPrimitives = readonly [InboxPrimitive, ReadReceiptsPrimitive];
+
+/**
  * The plugin's `channel` — the same three forms the top-level socket has,
  * (`channel(name)`, `channel(family, name)`, and `channel.family(family)`), typed
  * from the plugin's own channels and only present when it declares channels. The
  * plugin uses plain names; the framework prefixes them with its namespace on the
  * wire, so a plugin can own dynamic families (rooms) just like the app can.
+ * Each handle also carries the channel-scoped primitive surface (e.g. `inbox()`'s
+ * `receivers`) — at runtime a plugin's channels go through the same channel
+ * machinery as the app's, so their types match.
  */
 type PluginChannels<P extends SocketContract> =
   ChannelsOf<P> extends infer C extends Record<string, unknown>
     ? keyof C extends never
       ? {}
-      : { channel: ChannelMethod<C> }
+      : { channel: AugmentedChannelMethod<C, PluginChannelPrimitives> }
     : {};
 
 /**

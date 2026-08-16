@@ -22,7 +22,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -354,7 +354,7 @@ describe('broadcastToConnections — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: {
@@ -497,7 +497,7 @@ describe('broadcastToChannel — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: {
@@ -582,7 +582,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: {
@@ -718,6 +718,116 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
     }
 
     expect(run(true)).toEqual(run(false));
+  });
+
+  it('excludes the sender from the inbox row when its excluded connection is its only one in the channel', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f)); // sender, connection id === userId 'A'
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+    });
+
+    // Sender excluded from the live broadcast, and from the inbox row too.
+    expect(sent).toHaveLength(1);
+    expect((fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId).toBe('A');
+  });
+
+  it('still writes the sender an inbox row when a second connection of theirs remains in the channel', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    // Two connections share the same userId 'A' — a second tab.
+    const secondTab: RuntimeConnection = {
+      id: 'A-tab2',
+      userId: 'A',
+      wsKey: Symbol('A-tab2'),
+      descriptor: {
+        send: (f: string) => sent.push(f),
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        userId: 'A-tab2',
+      },
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+    addChannelMembership(channelMembers, secondTab, {
+      channelName: 'general',
+      channelFamily: null,
+    });
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+    });
+
+    // Sender's first connection excluded from the live send, second tab still receives it.
+    expect(sent).toHaveLength(2);
+    expect(
+      (fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId,
+    ).toBeUndefined();
+  });
+
+  it('includeSelf never excludes the inbox row', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+      includeSelf: true,
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(
+      (fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId,
+    ).toBeUndefined();
   });
 
   it('still broadcasts live when the inbox fan-out throws', () => {

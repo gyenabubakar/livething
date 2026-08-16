@@ -510,13 +510,58 @@ export function findExpiredSuspended(sql: SqlExec, now: number): SweepCandidate[
   }));
 }
 
+/** Options accepted by {@link purgeStreamsByUser}. */
+export interface PurgeStreamsByUserOptions {
+  /**
+   * Keep the content of broadcast streams the user created — the channel-owned
+   * stream row plus its recorded chunks and subscriber rows. Default `false`:
+   * that content is deleted along with everything else the user owns. Either
+   * way, `creator_user_id` is cleared on every row the user created, since a
+   * purged user can never stay on record as a stream's creator.
+   */
+  keepBroadcastContent?: boolean;
+}
+
 /**
  * Delete every durable-stream row a user owns, plus their chunks and
  * subscriber rows, plus every row where they merely subscribe to someone
  * else's broadcast stream. Used by `purgeUser`. Explicit — does not rely on
  * `ON DELETE CASCADE` being enforced by the storage backend.
+ *
+ * A broadcast stream is filed under a synthetic channel key in `user_id`, not
+ * under its creator's id, so it needs its own pass keyed off
+ * `creator_user_id`. That pass reads the affected `(user_id, stream_id)` pairs
+ * before deleting anything — the parent row is the only handle to its chunks
+ * and subscribers, so losing it first would strand them.
  */
-export function purgeStreamsByUser(sql: SqlExec, userId: string): void {
+export function purgeStreamsByUser(
+  sql: SqlExec,
+  userId: string,
+  options?: PurgeStreamsByUserOptions,
+): void {
+  if (options?.keepBroadcastContent) {
+    sql.exec('UPDATE __wskit_streams SET creator_user_id = NULL WHERE creator_user_id = ?', userId);
+  } else {
+    const createdRows = sql
+      .exec('SELECT user_id, stream_id FROM __wskit_streams WHERE creator_user_id = ?', userId)
+      .toArray();
+    for (const row of createdRows) {
+      const streamUserId = row.user_id as string;
+      const streamId = row.stream_id as string;
+      sql.exec(
+        'DELETE FROM __wskit_stream_chunks WHERE user_id = ? AND stream_id = ?',
+        streamUserId,
+        streamId,
+      );
+      sql.exec(
+        'DELETE FROM __wskit_stream_subscribers WHERE user_id = ? AND stream_id = ?',
+        streamUserId,
+        streamId,
+      );
+    }
+    sql.exec('DELETE FROM __wskit_streams WHERE creator_user_id = ?', userId);
+  }
+
   sql.exec('DELETE FROM __wskit_stream_chunks WHERE user_id = ?', userId);
   sql.exec('DELETE FROM __wskit_stream_subscribers WHERE user_id = ?', userId);
   sql.exec('DELETE FROM __wskit_stream_subscribers WHERE subscriber_user_id = ?', userId);

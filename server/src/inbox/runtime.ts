@@ -18,7 +18,7 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
-import type { InboxFrame } from '~/inbox/storage.ts';
+import type { InboxFrame, InboxRetention } from '~/inbox/storage.ts';
 
 /**
  * Whether an engine channel scope belongs to the given channel key (channel
@@ -42,7 +42,7 @@ export function scopeMatchesChannel(
 export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
 
 /** Resolve the channel key (family key for families, name for static channels). */
-function channelKeyFor(channelName: string, channelFamily: string | null): string {
+export function channelKeyFor(channelName: string, channelFamily: string | null): string {
   return channelFamily ?? channelName;
 }
 
@@ -53,6 +53,12 @@ function channelKeyFor(channelName: string, channelFamily: string | null): strin
  * suppresses the reconnect re-delivery). A no-op for a channel without inbox.
  * Anonymous members (empty user id) hold no durable row and get live-only
  * delivery, but still see the same shared seq/messageId on the live frame.
+ *
+ * `excludeUserId`, when set, skips that member's row entirely — used when the
+ * broadcast excluded their one and only connection in this channel, so they
+ * will never receive (and so never acknowledge) the live frame. A user with a
+ * second, still-included connection in the channel is never passed here, and
+ * gets its row as normal.
  */
 export function fanOutToInbox(
   core: EngineCore,
@@ -63,6 +69,7 @@ export function fanOutToInbox(
     payload: Record<string, unknown>;
     seq: number;
     messageId: string;
+    excludeUserId?: string;
   },
 ): void {
   const config = core.inboxChannels.get(channelKeyFor(opts.channelName, opts.channelFamily));
@@ -70,7 +77,7 @@ export function fanOutToInbox(
 
   const { sql } = core.storage;
   const userIds = listIdentitiesByChannel(sql, opts.channelName, opts.channelFamily).filter(
-    (userId) => userId !== '',
+    (userId) => userId !== '' && userId !== opts.excludeUserId,
   );
   if (userIds.length === 0) return;
 
@@ -109,11 +116,11 @@ export function fanOutToInbox(
 
       if (countGates && count <= cap!) continue;
 
-      const evicted = applyRetention(core, {
+      const evicted = applyInboxRetention(sql, {
         userId,
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
-        config,
+        retention: config.retention,
       });
       if (countGates && evicted !== null) core.inboxMemberCounts.set(key, cap!);
     }
@@ -121,7 +128,11 @@ export function fanOutToInbox(
 }
 
 /** Cache key for a member's per-channel inbox row count. */
-function memberCountKey(channelName: string, channelFamily: string | null, userId: string): string {
+export function memberCountKey(
+  channelName: string,
+  channelFamily: string | null,
+  userId: string,
+): string {
   return `${channelName} ${channelFamily ?? ''} ${userId}`;
 }
 
@@ -208,17 +219,24 @@ export function clearInboxForChannel(
  * Back a user's inbox from a set of full frames. Each frame keeps its own
  * seq/messageId so ordering and dedup stay consistent with live traffic; the
  * rows drain on the member's next reconnect, or arrive live if it is connected.
+ *
+ * Runs the inserted rows through the same retention and overflow-watermark
+ * path `fanOutToInbox` uses, so a backfill that pushes a member over its
+ * channel's retention cap prunes the same way a live message would, and a
+ * member who falls behind because of it still gets a gap on its next drain.
  */
 export function backfillInbox(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
   opts: {
     channelName: string;
     channelFamily: string | null;
     userId: string;
     frames: readonly InboxFrame[];
+    retention?: InboxRetention;
   },
 ): void {
   if (!opts.userId) return;
+  if (opts.frames.length === 0) return;
   insertInboxRowsForUserId(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -226,24 +244,37 @@ export function backfillInbox(
     frames: opts.frames,
     now: Date.now(),
   });
+
+  if (!opts.retention) return;
+  applyInboxRetention(sql, {
+    userId: opts.userId,
+    channelName: opts.channelName,
+    channelFamily: opts.channelFamily,
+    retention: opts.retention,
+  });
 }
 
-function applyRetention(
-  core: EngineCore,
+/**
+ * Prune a member's channel rows past its retention limits and, if anything was
+ * evicted, raise its overflow watermark so a later drain turns the eviction
+ * into a gap. Shared by the live fan-out path and `backfillInbox` so both
+ * enforce retention the same way. Returns the highest evicted seq, or `null`
+ * when nothing was pruned.
+ */
+function applyInboxRetention(
+  sql: Pick<SQLProvider, 'exec'>,
   opts: {
     userId: string;
     channelName: string;
     channelFamily: string | null;
-    config: ResolvedInboxOptions;
+    retention: InboxRetention;
   },
 ): number | null {
-  if (!opts.config.retention) return null;
-  const { sql } = core.storage;
   const evictedThrough = pruneInboxRetention(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
-    retention: opts.config.retention,
+    retention: opts.retention,
     now: Date.now(),
   });
   if (evictedThrough === null) return null;

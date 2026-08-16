@@ -455,8 +455,15 @@ describe('WSKitDurableObject admin()', () => {
 
     expect(fake.engine.admin).toHaveBeenCalledTimes(1);
     expect(fake.adminApi.broadcast).toHaveBeenCalledWith('evt', { n: 1 });
-    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1');
+    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1', undefined);
     expect(fake.adminApi.closeConnections).toHaveBeenCalledWith({ userId: 'u1' }, 4000, 'gone');
+  });
+
+  it('forwards purgeUser options across the stub boundary', async () => {
+    const { admin } = await adminOf();
+    await admin.purgeUser('u1', { keepBroadcastContent: true });
+
+    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1', { keepBroadcastContent: true });
   });
 
   it('projects the context managers onto flat, RPC-callable methods', async () => {

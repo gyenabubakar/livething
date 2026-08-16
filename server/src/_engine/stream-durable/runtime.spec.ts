@@ -23,7 +23,7 @@ function createConnection(id = 'c1', userId = 'u1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: userId,
+      userId,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -1804,5 +1804,119 @@ describe('durable stream runtime', () => {
 
     expect(drainResolved).toBe(true);
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(2);
+  });
+
+  it('broadcast recordedStream — two anonymous subscribers get isolated storage rows, keyed by connection id', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    const anonA = createConnection('c-anon-a', '');
+    const anonB = createConnection('c-anon-b', '');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(anonA.id, anonA);
+    runtime.connections.set(anonB.id, anonB);
+
+    await runDurableStream(runtime as never, creator, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    // Each anonymous connection is its own subscriber row, keyed by its own
+    // connection id — not collapsed onto a single '' row that both would share.
+    const subA = Storage.getSubscriber(sql, {
+      storageUserId: '__bcast:top__',
+      streamId: 'gen-1',
+      subscriberUserId: 'c-anon-a',
+    });
+    const subB = Storage.getSubscriber(sql, {
+      storageUserId: '__bcast:top__',
+      streamId: 'gen-1',
+      subscriberUserId: 'c-anon-b',
+    });
+    expect(subA).not.toBeNull();
+    expect(subB).not.toBeNull();
+
+    // Unsubscribing one anonymous connection must not affect the other.
+    Storage.markUnsubscribed(sql, {
+      storageUserId: '__bcast:top__',
+      streamId: 'gen-1',
+      subscriberUserId: 'c-anon-a',
+      now: Date.now(),
+    });
+    expect(
+      Storage.isUnsubscribed(sql, {
+        storageUserId: '__bcast:top__',
+        streamId: 'gen-1',
+        subscriberUserId: 'c-anon-a',
+      }),
+    ).toBe(true);
+    expect(
+      Storage.isUnsubscribed(sql, {
+        storageUserId: '__bcast:top__',
+        streamId: 'gen-1',
+        subscriberUserId: 'c-anon-b',
+      }),
+    ).toBe(false);
+  });
+
+  it('runDurableStream still refuses an anonymous creator (unaffected by the storage-key rename)', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const anon = createConnection('c-anon', '');
+
+    await expect(
+      runDurableStream(runtime as never, anon, {
+        scope: {},
+        def: baseDef({ kind: 'recorded' }),
+        payload: {},
+        wskit: undefined,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('an identified connection resuming after a reconnect (new connection id, same user id) still finds its own row', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime: creatorRuntime } = createRuntime(sql);
+    const original = createConnection('c-original', 'u-alice');
+    creatorRuntime.connections.set(original.id, original);
+
+    await runDurableStream(creatorRuntime as never, original, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+        },
+      }),
+      payload: {},
+      wskit: { streamId: 'reconnect-1', channelFamily: null },
+    });
+
+    const { runtime: resumeRuntime, protocolMessages } = createRuntime(sql);
+    const reconnected = createConnection('c-reconnected', 'u-alice');
+    resumeRuntime.connections.set(reconnected.id, reconnected);
+
+    const row = Storage.readStream(sql, 'u-alice', 'reconnect-1');
+    await resumeDurableStream(resumeRuntime as never, reconnected, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
+      row,
+      streamId: 'reconnect-1',
+      lastKnownSeq: 0,
+    });
+
+    expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
   });
 });

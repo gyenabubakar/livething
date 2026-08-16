@@ -32,8 +32,12 @@ const socket = client<C>()(connect('wss://example.com'));
 
 socket.onError((error) => {
   // The transport-error case is a raw Event.
-  if (!(error instanceof WSKitError)) {
+  if (error instanceof Event) {
     void error.type;
+    return;
+  }
+  // A server the client's types don't match can still send an undeclared code.
+  if (!(error instanceof WSKitError)) {
     return;
   }
   // Narrowed to the contract's errors: switching on the code types the detail.

@@ -19,11 +19,11 @@ interface ScopeMark {
   acked: number;
 }
 
-/** One channel's received-receipt state: the received cursor per identity plus its store. */
+/** One channel's received-receipt state: the received cursor per user id plus its store. */
 interface ChannelReceivers {
-  byIdentity: Map<string, number>;
+  byUserId: Map<string, number>;
   store: WritableStore<CursorList>;
-  listeners: Set<(identity: string, receivedThrough: number) => void>;
+  listeners: Set<(userId: string, receivedThrough: number) => void>;
 }
 
 /** Options for the client `inbox()` primitive. */
@@ -65,7 +65,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         let state = channels.get(key);
         if (!state) {
           state = {
-            byIdentity: new Map(),
+            byUserId: new Map(),
             store: createStore<CursorList>(new Map()),
             listeners: new Set(),
           };
@@ -74,16 +74,17 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         return state;
       }
 
-      function applyReceived(key: string, identity: string, receivedThrough: number): void {
+      function applyReceived(key: string, userId: string, receivedThrough: number): void {
         const state = stateFor(key);
-        const next = Math.max(state.byIdentity.get(identity) ?? 0, receivedThrough);
-        state.byIdentity.set(identity, next);
-        state.store.set(projectCursor(state.byIdentity));
+        const previous = state.byUserId.get(userId) ?? 0;
+        if (receivedThrough <= previous) return;
+        state.byUserId.set(userId, receivedThrough);
+        state.store.set(projectCursor(state.byUserId));
         for (const listener of [...state.listeners]) {
           try {
-            listener(identity, next);
+            listener(userId, receivedThrough);
           } catch (error) {
-            helpers.log.error('onReceived listener threw', error);
+            helpers.log.report(error);
           }
         }
       }
@@ -118,7 +119,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
             marks.delete(key);
             const state = channels.get(key);
             if (state) {
-              state.byIdentity.clear();
+              state.byUserId.clear();
               state.store.set(new Map());
             }
             return message;
@@ -195,10 +196,10 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
 }
 
 /** Drop members still at `0` from the received cursor map. */
-function projectCursor(byIdentity: ReadonlyMap<string, number>): CursorList {
+function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
   const list = new Map<string, number>();
-  for (const [identity, cursor] of byIdentity) {
-    if (cursor > 0) list.set(identity, cursor);
+  for (const [userId, cursor] of byUserId) {
+    if (cursor > 0) list.set(userId, cursor);
   }
   return list;
 }

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox } from './capability.ts';
+import { advanceReceivedThrough, listReceivers } from './receipts-storage.ts';
 import { insertInboxRows, loadUndeliveredRows } from './storage.ts';
 
 function buildEngine(handler: ServerDefinition): Engine {
@@ -85,5 +86,48 @@ describe('inbox runtime install', () => {
 
     expect(loadUndeliveredRows(core.storage.sql, 'alice')).toEqual([]);
     expect(loadUndeliveredRows(core.storage.sql, 'bob')).toHaveLength(1);
+  });
+
+  it('purging a user clears their cached receipt cursor, so a reconnect on the same instance starts from zero instead of inheriting it', async () => {
+    const engine = buildInboxEngine();
+    await engine.initialize();
+    const core = engine.core;
+
+    advanceReceivedThrough(
+      core.storage.sql,
+      { channelName: 'chat', channelFamily: null, userId: 'alice', receivedThrough: 10, now: 1 },
+      core.inboxReceiptCursors,
+    );
+    expect(core.inboxReceiptCursors.size).toBe(1);
+
+    await purgeUser(core, 'alice');
+
+    expect(core.inboxReceiptCursors.size).toBe(0);
+    // Re-advancing after the purge must start from the stored (purged) value,
+    // not the stale cached one — this is what a reconnect on the same
+    // instance would observe.
+    const result = advanceReceivedThrough(
+      core.storage.sql,
+      { channelName: 'chat', channelFamily: null, userId: 'alice', receivedThrough: 3, now: 2 },
+      core.inboxReceiptCursors,
+    );
+    expect(result).toEqual({ receivedThrough: 3, readThrough: 0, changed: true });
+    expect(
+      listReceivers(core.storage.sql, { channelName: 'chat', channelFamily: null, seq: 3 }),
+    ).toEqual(['alice']);
+  });
+
+  it("purging a user clears their cached inbox member count, leaving another user's count intact", async () => {
+    const engine = buildInboxEngine();
+    await engine.initialize();
+    const core = engine.core;
+
+    core.inboxMemberCounts.set('chat  alice', 4);
+    core.inboxMemberCounts.set('chat  bob', 2);
+
+    await purgeUser(core, 'alice');
+
+    expect(core.inboxMemberCounts.has('chat  alice')).toBe(false);
+    expect(core.inboxMemberCounts.get('chat  bob')).toBe(2);
   });
 });

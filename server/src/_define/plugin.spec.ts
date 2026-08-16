@@ -441,7 +441,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: { ephemeral: new Map(), persistent: new Map() },

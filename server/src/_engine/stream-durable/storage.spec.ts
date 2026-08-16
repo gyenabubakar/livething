@@ -294,4 +294,99 @@ describe('durable-stream/storage — purgeStreamsByUser', () => {
       }),
     ).not.toBeNull();
   });
+
+  function insertBroadcastStreamCreatedByAlice(): void {
+    Storage.insertStream(sql, {
+      userId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+      broadcast: true,
+      creatorUserId: 'alice',
+    });
+    Storage.appendChunk(sql, {
+      userId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      seq: 1,
+      messageId: 'm-1',
+      payload: '{}',
+      now: 1_001,
+    });
+    Storage.seedSubscriber(sql, {
+      storageUserId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      subscriberUserId: 'bob',
+    });
+  }
+
+  it('by default deletes a broadcast stream the purged user created, plus its chunks and subscribers', () => {
+    insertBroadcastStreamCreatedByAlice();
+
+    Storage.purgeStreamsByUser(sql, 'alice');
+
+    expect(Storage.readStream(sql, '__bcast:ch:room__', 's-broadcast')).toBeNull();
+    expect(
+      Storage.readChunksSince(sql, {
+        userId: '__bcast:ch:room__',
+        streamId: 's-broadcast',
+        since: 0,
+      }),
+    ).toEqual([]);
+    expect(
+      Storage.getSubscriber(sql, {
+        storageUserId: '__bcast:ch:room__',
+        streamId: 's-broadcast',
+        subscriberUserId: 'bob',
+      }),
+    ).toBeNull();
+  });
+
+  it('keepBroadcastContent: true keeps the broadcast stream, its chunks and its subscribers', () => {
+    insertBroadcastStreamCreatedByAlice();
+
+    Storage.purgeStreamsByUser(sql, 'alice', { keepBroadcastContent: true });
+
+    const row = Storage.readStream(sql, '__bcast:ch:room__', 's-broadcast');
+    expect(row).not.toBeNull();
+    expect(
+      Storage.readChunksSince(sql, {
+        userId: '__bcast:ch:room__',
+        streamId: 's-broadcast',
+        since: 0,
+      }),
+    ).toHaveLength(1);
+    expect(
+      Storage.getSubscriber(sql, {
+        storageUserId: '__bcast:ch:room__',
+        streamId: 's-broadcast',
+        subscriberUserId: 'bob',
+      }),
+    ).not.toBeNull();
+  });
+
+  it('keepBroadcastContent: true still clears creator_user_id, since the user is gone', () => {
+    insertBroadcastStreamCreatedByAlice();
+
+    Storage.purgeStreamsByUser(sql, 'alice', { keepBroadcastContent: true });
+
+    const row = Storage.readStream(sql, '__bcast:ch:room__', 's-broadcast');
+    expect(row?.creatorUserId).toBeNull();
+  });
+
+  it("with no options at all, still purges rows filed under the user's own storage key as before", () => {
+    Storage.insertStream(sql, {
+      userId: 'u-1',
+      streamId: 's-own',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+    });
+
+    Storage.purgeStreamsByUser(sql, 'u-1');
+
+    expect(Storage.readStream(sql, 'u-1', 's-own')).toBeNull();
+  });
 });

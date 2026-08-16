@@ -1,4 +1,5 @@
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
 
@@ -177,20 +178,34 @@ export function deleteConnectionRow(sql: Pick<SQLProvider, 'exec'>, connectionId
  * lost every socket). With hibernation on, the surviving set carries the ids
  * of sockets the platform still holds, so their rows are kept and only true
  * orphans are dropped.
+ *
+ * Reads every stored id first (an unparameterised `SELECT`, so it has no
+ * bound-parameter cap to worry about), works out the orphans in memory, then
+ * deletes them in batches sized to the adapter's bound-parameter cap. A
+ * Durable Object holding more live connections than that cap must still be
+ * able to wake — binding one parameter per surviving id in a single
+ * `NOT IN (...)` statement would fail above the cap.
  */
 export function reconcileConnectionRows(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'limits'>,
   surviving: ReadonlySet<string>,
 ): void {
   if (surviving.size === 0) {
     sql.exec('DELETE FROM __wskit_connections');
     return;
   }
-  const placeholders = Array.from({ length: surviving.size }, () => '?').join(', ');
-  sql.exec(
-    `DELETE FROM __wskit_connections WHERE connection_id NOT IN (${placeholders})`,
-    ...surviving,
-  );
+
+  const storedIds = sql
+    .exec<{ connection_id: string }>('SELECT connection_id FROM __wskit_connections')
+    .toArray()
+    .map((row) => row.connection_id);
+  const orphanIds = storedIds.filter((id) => !surviving.has(id));
+  if (orphanIds.length === 0) return;
+
+  for (const batch of chunkForBind(orphanIds, 1, sql.limits)) {
+    const placeholders = batch.map(() => '?').join(', ');
+    sql.exec(`DELETE FROM __wskit_connections WHERE connection_id IN (${placeholders})`, ...batch);
+  }
 }
 
 function parseObject(raw: string): Record<string, unknown> {

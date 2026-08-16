@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
 import { ensureConnectionSchema, readConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import { acceptConnection, handleConnectionClose } from '~/_engine/runtime/connection.ts';
 import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -9,12 +10,13 @@ import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
-function createConnection(id: string): RuntimeConnection {
+function createConnection(id: string, userId: string = id): RuntimeConnection {
   return {
     id,
-    userId: id,
+    userId,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -22,7 +24,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -93,6 +95,195 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 function localRef(id: string) {
   return { __wskit: 'connection-ref' as const, id, instance: undefined, userId: id };
 }
+
+describe('ctx.user / ctx.users — anonymous connections', () => {
+  // `usersByKey` is built by the real runtime (`_engine/runtime/connection.ts`),
+  // which never indexes an anonymous connection (empty `userId`) under any
+  // key. These tests pass an empty `usersByKey` to match that real behaviour,
+  // rather than reimplementing the indexing logic here.
+
+  it("ctx.user.id for an anonymous connection matches its honest ConnectionInfo.userId ('')", () => {
+    const anon = createConnection('conn_1', '');
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+    const info = deps.toConnectionInfo(anon);
+
+    expect(info.userId).toBe('');
+    expect((ctx as any).user.id).toBe(info.userId);
+  });
+
+  it('ctx.user for an anonymous connection addresses no live connection, not even itself', () => {
+    const anon = createConnection('conn_1', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+
+    expect((ctx as any).user.send('ping', {})).toBe(0);
+    expect((ctx as any).user.connections()).toEqual([]);
+    expect((ctx as any).user.info()).toBeNull();
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('ctx.users.get(c.userId) reaches nobody for an anonymous connection, closing the fan-out gap', () => {
+    const anon = createConnection('conn_1', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).send(...)`.
+    const info = ctx.connections.all()[0]!;
+    const delivered = (ctx as any).users.get(info.userId).send('ping', {});
+
+    expect(delivered).toBe(0);
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('two independent anonymous connections never reach each other through ctx.user or ctx.users', () => {
+    const anonA = createConnection('conn_a', '');
+    const anonB = createConnection('conn_b', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([
+        [anonA.id, anonA],
+        [anonB.id, anonB],
+      ]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctxA = buildConnectionContext(deps, anonA);
+    expect((ctxA as any).user.send('ping', {})).toBe(0);
+    expect((ctxA as any).users.get('').send('ping', {})).toBe(0);
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('an identified connection is reachable via ctx.user and ctx.users exactly as before', () => {
+    const alice1 = createConnection('conn_1', 'alice');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[alice1.id, alice1]]),
+      usersByKey: new Map([['alice', new Set([alice1])]]),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, alice1);
+
+    expect((ctx as any).user.id).toBe('alice');
+    expect((ctx as any).user.send('ping', {})).toBe(1);
+    expect((ctx as any).users.get('alice').send('ping', {})).toBe(1);
+    expect(sendThroughPipeline).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('usersByKey fan-out index — anonymous connections', () => {
+  // Exercises the real `acceptConnection` / `handleConnectionClose` from
+  // `_engine/runtime/connection.ts`, which build the `usersByKey` index that
+  // `ctx.user` / `ctx.users` reads.
+
+  let idCounter: number;
+  function makeConnectionRuntime(
+    usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
+  ) {
+    idCounter = 0;
+    return {
+      compiled: {} as any,
+      connections: new Map<string, EngineRuntimeTypes.RuntimeConnection>(),
+      usersByKey,
+      channelMembers: new Map(),
+      tagMembers: new Map(),
+      wsToConnectionId: new Map(),
+      generateId: (prefix?: string) => `${prefix ?? 'id'}_${++idCounter}`,
+      persistAttachment: vi.fn(),
+      buildConnectionContext: vi.fn(() => ({})),
+      runConnectionLifecycle: vi.fn(async () => {}),
+      processTextMessage: vi.fn(async () => {}),
+      handleConnectionClose: vi.fn(async () => {}),
+      handleRuntimeError: vi.fn(async () => {}),
+      cancelActiveStreamsForConnection: vi.fn(async () => {}),
+      leaveChannel: vi.fn(async () => {}),
+    } as any;
+  }
+
+  function descriptor(userId: string) {
+    return {
+      send: vi.fn(),
+      close: vi.fn(),
+      bufferedAmount: () => 0,
+      userId,
+    };
+  }
+
+  it('never indexes an anonymous connection under any key', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor(''));
+
+    expect(usersByKey.size).toBe(0);
+  });
+
+  it('two anonymous connections never share a usersByKey entry', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws-1'), descriptor(''));
+    acceptConnection(runtime, Symbol('ws-2'), descriptor(''));
+
+    expect(usersByKey.size).toBe(0);
+    expect(runtime.connections.size).toBe(2);
+  });
+
+  it('an identified connection still indexes under its real user id', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor('alice'));
+
+    expect([...usersByKey.keys()]).toEqual(['alice']);
+    expect(usersByKey.get('alice')!.size).toBe(1);
+  });
+
+  it('closing an anonymous connection is a no-op on usersByKey', async () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor(''));
+    const connection = [...runtime.connections.values()][0]!;
+    await connection.lifecycleReady;
+
+    await expect(
+      handleConnectionClose(runtime, { connection, code: 1000, reason: 'bye' }),
+    ).resolves.not.toThrow();
+
+    expect(usersByKey.size).toBe(0);
+  });
+
+  it('closing an identified connection removes it from usersByKey', async () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor('alice'));
+    const connection = [...runtime.connections.values()][0]!;
+    await connection.lifecycleReady;
+
+    await handleConnectionClose(runtime, { connection, code: 1000, reason: 'bye' });
+
+    expect(usersByKey.has('alice')).toBe(false);
+  });
+});
 
 describe('ctx.connections.get(ref).send', () => {
   it('returns false and logs when the target id is not in the connection map', () => {

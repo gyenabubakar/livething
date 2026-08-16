@@ -6,6 +6,10 @@ import {
   OUTGOING_PROTOCOL_EVENT_NAMES,
   OutgoingProtocolFrame,
   parseUserEventFrame,
+  ReadFanoutFrame,
+  ReadQueryResultFrame,
+  ReceivedFanoutFrame,
+  ReceivedQueryResultFrame,
   UserEventFrameSchema,
   WSKitProtocolSchema,
 } from './protocol.ts';
@@ -126,22 +130,22 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
   },
   __received__: {
     event: '__received__',
-    payload: { identity: 'u1', receivedThrough: 5 },
+    payload: { userId: 'u1', receivedThrough: 5 },
     __wskit: { channel: 'room' },
   },
   __read__: {
     event: '__read__',
-    payload: { identity: 'u1', readThrough: 3 },
+    payload: { userId: 'u1', readThrough: 3 },
     __wskit: { channel: 'room' },
   },
   __receivedQuery__: {
     event: '__receivedQuery__',
-    payload: { identities: ['u1', 'u2'] },
+    payload: { userIds: ['u1', 'u2'] },
     __wskit: { channel: 'room', correlationId: 'rq1' },
   },
   __readQuery__: {
     event: '__readQuery__',
-    payload: { identities: ['u1', 'u2'] },
+    payload: { userIds: ['u1', 'u2'] },
     __wskit: { channel: 'room', correlationId: 'rq2' },
   },
   __gap__: {
@@ -182,6 +186,78 @@ describe('outgoing protocol-frame conformance', () => {
       __wskit: { channel: 'room:1', channelFamily: '' },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('receipt fanout payloads pin the field names the server actually sends', () => {
+  // server/src/inbox/inbox.ts and server/src/inbox/read-receipts.ts build these
+  // exact payload shapes (`payload: { userId, receivedThrough }`, etc.) when they
+  // broadcast a receipt or answer a query. If those files ever go back to
+  // `identity`/`identities`, or this schema drifts back to them, one side breaks
+  // silently — nothing else in the engine validates an outgoing frame at
+  // runtime. This test is the only thing pinning the two together.
+  it('__received__ fanout uses userId, not identity', () => {
+    const result = v.safeParse(ReceivedFanoutFrame, {
+      event: '__received__',
+      payload: { userId: 'u1', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReceivedFanoutFrame, {
+      event: '__received__',
+      payload: { identity: 'u1', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__read__ fanout uses userId, not identity', () => {
+    const result = v.safeParse(ReadFanoutFrame, {
+      event: '__read__',
+      payload: { userId: 'u1', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReadFanoutFrame, {
+      event: '__read__',
+      payload: { identity: 'u1', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__receivedQuery__ result uses userIds, not identities', () => {
+    const result = v.safeParse(ReceivedQueryResultFrame, {
+      event: '__receivedQuery__',
+      payload: { userIds: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq1' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReceivedQueryResultFrame, {
+      event: '__receivedQuery__',
+      payload: { identities: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq1' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__readQuery__ result uses userIds, not identities', () => {
+    const result = v.safeParse(ReadQueryResultFrame, {
+      event: '__readQuery__',
+      payload: { userIds: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq2' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReadQueryResultFrame, {
+      event: '__readQuery__',
+      payload: { identities: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq2' },
+    });
+    expect(withOldField.success).toBe(false);
   });
 });
 

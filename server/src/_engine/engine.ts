@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes, WSKitConfigError } from '@wskit/core';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
@@ -6,7 +6,7 @@ import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
 import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
 import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
-import { createAdminContext } from '~/admin/context.ts';
+import { createAdminContext, RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -60,6 +60,11 @@ export class Engine<TApi = unknown> {
   /** One-time startup: validate capabilities, install plugins, run boot + init hooks. */
   async initialize(): Promise<void> {
     await Initialize.initialize(this.core, EngineDeps.engineAccessDeps(this.core));
+    // An `api` factory's method names are only knowable by running it, so a bad
+    // name cannot be caught while assembling. Building the surface once here
+    // moves the failure to boot instead of the first `admin()` call, which on a
+    // cron or webhook route might be days later.
+    if (this.core.adminApiFactory) this.admin();
   }
 
   /** Accept a new websocket and return the callbacks the adapter uses to drive it. */
@@ -242,7 +247,7 @@ export class Engine<TApi = unknown> {
       connections: core.connections,
       usersByKey: core.usersByKey,
       ...EngineDeps.commonDeps(core),
-      purgeUser: (userId) => EnginePurgeUser.purgeUser(core, userId),
+      purgeUser: (userId, options) => EnginePurgeUser.purgeUser(core, userId, options),
     });
     const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
     // Copy descriptors rather than spreading: `connectionCount` is a getter and
@@ -266,6 +271,25 @@ export class Engine<TApi = unknown> {
  * before an adapter ever looked for them. Methods keep their original receiver,
  * so one that reads `this` (or a private field) still works after the move.
  */
+/**
+ * Reject an `api` method whose name JavaScript has already claimed. Enforced in
+ * the engine rather than in each adapter, so the rule holds wherever the admin
+ * surface is exposed from.
+ *
+ * Checked as each name is read off the factory's result, before the
+ * already-seen guard: `'__proto__' in flat` holds on any plain object, so
+ * without this a method by that name would be dropped without a word.
+ */
+function assertNotReservedApiName(key: string): void {
+  if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
+  throw new WSKitConfigError(
+    `[wskit] assemble({ api }) declared the reserved method name '${key}'. ` +
+      `JavaScript gives this name its own meaning on any object — 'then' makes ` +
+      `\`await service.admin()\` hang forever, and '__proto__' rewrites the object's ` +
+      `prototype instead of adding a method. Rename it.`,
+  );
+}
+
 function flattenApi(api: unknown): Record<string, unknown> {
   const flat: Record<string, unknown> = {};
   if (!api || typeof api !== 'object') return flat;
@@ -276,7 +300,12 @@ function flattenApi(api: unknown): Record<string, unknown> {
     level = Object.getPrototypeOf(level) as object | null
   ) {
     for (const key of Object.getOwnPropertyNames(level)) {
-      if (key === 'constructor' || key in flat) continue;
+      if (key === 'constructor') continue;
+      // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
+      // object, so a method by that name would be skipped silently instead of
+      // reported.
+      assertNotReservedApiName(key);
+      if (key in flat) continue;
       const value = (api as Record<string, unknown>)[key];
       flat[key] = typeof value === 'function' ? value.bind(api) : value;
     }

@@ -313,13 +313,13 @@ export const MemberSyncFrame = v.object({
 
 export const ReceivedFanoutFrame = v.object({
   event: v.literal('__received__'),
-  payload: v.strictObject({ identity: v.string(), receivedThrough: NonNegativeSafeInt }),
+  payload: v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
 export const ReadFanoutFrame = v.object({
   event: v.literal('__read__'),
-  payload: v.strictObject({ identity: v.string(), readThrough: NonNegativeSafeInt }),
+  payload: v.strictObject({ userId: v.string(), readThrough: NonNegativeSafeInt }),
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
@@ -330,13 +330,13 @@ export const ReadFanoutFrame = v.object({
  */
 export const ReceivedQueryResultFrame = v.object({
   event: v.literal('__receivedQuery__'),
-  payload: v.strictObject({ identities: v.array(v.string()) }),
+  payload: v.strictObject({ userIds: v.array(v.string()) }),
   __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
 });
 
 export const ReadQueryResultFrame = v.object({
   event: v.literal('__readQuery__'),
-  payload: v.strictObject({ identities: v.array(v.string()) }),
+  payload: v.strictObject({ userIds: v.array(v.string()) }),
   __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
 });
 

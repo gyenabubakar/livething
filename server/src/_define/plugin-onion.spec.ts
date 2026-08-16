@@ -106,7 +106,7 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
       new Request('https://x/'),
     );
     expect(order).toEqual(['a', 'app']);
-    expect(decision.identity).toBe('u1');
+    expect(decision.userId).toBe('u1');
     expect(decision.meta).toEqual({ shared: 'app', fromPlugin: 1 });
   });
 
@@ -122,7 +122,7 @@ describe('plugin upgrade — meta merge + user id single owner', () => {
       }),
       new Request('https://x/'),
     );
-    expect(decision.identity).toBe('sub_1');
+    expect(decision.userId).toBe('sub_1');
     expect(decision.meta).toEqual({ userId: 'sub_1' });
   });
 

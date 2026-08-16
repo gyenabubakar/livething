@@ -38,3 +38,4 @@ export {
   WIRE_LIMITS,
   exceedsWireLimit,
 } from './identifier.ts';
+export type { WireMessage, WSKitEnvelope } from './wire.ts';

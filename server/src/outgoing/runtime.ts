@@ -492,6 +492,13 @@ export function broadcastToChannel(
         payload: Record<string, unknown>;
         seq: number;
         messageId: string;
+        /**
+         * Skip writing an inbox row for this user. Set only when the broadcast
+         * excludes their one and only connection in this channel — otherwise
+         * they would never receive (and so never acknowledge) the live frame,
+         * and the stored row would look like an unread message forever.
+         */
+        excludeUserId?: string;
       }) => void;
     },
   opts: BroadcastToChannelOptions,
@@ -516,6 +523,10 @@ export function broadcastToChannel(
     return;
   }
 
+  const members = runtime.channelMembers.get(
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
+  );
+
   const { seq, messageId } = prepared.baseWSKit;
   if (
     runtime.inboxFanOut &&
@@ -531,6 +542,9 @@ export function broadcastToChannel(
         payload: prepared.finalPayload,
         seq,
         messageId,
+        excludeUserId: includeSelf
+          ? undefined
+          : soleExcludedMemberUserId(members, excludeConnectionId),
       });
     } catch (error) {
       runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
@@ -542,9 +556,6 @@ export function broadcastToChannel(
     }
   }
 
-  const members = runtime.channelMembers.get(
-    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
-  );
   if (!members || members.size === 0) return;
 
   for (const connection of members) {
@@ -563,4 +574,33 @@ export function broadcastToChannel(
       });
     }
   }
+}
+
+/**
+ * The excluded connection's user id, but only when that connection is the
+ * user's only membership in `members` — a second tab still in the channel
+ * will receive the live frame and must still get its inbox row, since it will
+ * ack it. Returns `undefined` when there is nothing to exclude.
+ */
+function soleExcludedMemberUserId(
+  members: Set<EngineRuntimeTypes.RuntimeConnection> | undefined,
+  excludeConnectionId: string | undefined,
+): string | undefined {
+  if (!excludeConnectionId || !members) return undefined;
+
+  let excludedUserId: string | undefined;
+  for (const connection of members) {
+    if (connection.id === excludeConnectionId && connection.userId) {
+      excludedUserId = connection.userId;
+      break;
+    }
+  }
+  if (!excludedUserId) return undefined;
+
+  for (const connection of members) {
+    if (connection.id !== excludeConnectionId && connection.userId === excludedUserId) {
+      return undefined;
+    }
+  }
+  return excludedUserId;
 }

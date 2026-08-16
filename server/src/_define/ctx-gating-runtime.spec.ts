@@ -73,7 +73,7 @@ async function captureCtx(server: ProbeServer): Promise<any> {
     send() {},
     close() {},
     bufferedAmount: () => 0,
-    identity: 'user-1',
+    userId: 'user-1',
   } as any);
   let captured: any;
   server.slot.fn = (ctx: any) => {

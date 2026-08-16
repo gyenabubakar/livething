@@ -17,10 +17,10 @@ import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
-function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
+function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}, userId: string = id) {
   return {
     id,
-    userId: id,
+    userId,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -28,7 +28,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta,
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -413,6 +413,109 @@ describe('channel runtime', () => {
     );
 
     expect(protocol.some((p) => p.event === '__unsubscribeOk__')).toBe(false);
+  });
+
+  it('two connections of the same user, same channel: one leaving keeps the durable row and inbox alive for the other', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const tabA = createConnection('conn_1', {}, 'alice');
+    const tabB = createConnection('conn_2', {}, 'alice');
+    addChannelMembership(channelMembers, tabA, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+    addChannelMembership(channelMembers, tabB, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(tabA.id, tabA);
+    connections.set(tabB.id, tabB);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    // Tab A leaves. Tab B is still in the channel under the same user id, so
+    // the durable membership row and the inbox must survive.
+    await leaveChannel(runtime, tabA, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).not.toHaveBeenCalled();
+    expect(clearInbox).not.toHaveBeenCalled();
+    const key = createChannelMembershipKey('room:general', 'rooms');
+    expect(channelMembers.get(key)?.has(tabB)).toBe(true);
+
+    // Tab B leaves next — no connection for 'alice' remains in this channel,
+    // so now the durable row and inbox are dropped.
+    await leaveChannel(runtime, tabB, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+    expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+  });
+
+  it('a single connection leaving a durable channel still drops the durable row and inbox immediately, as before', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', {}, 'alice');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    await leaveChannel(runtime, connection, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+    expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+  });
+
+  it('an anonymous connection leaving a durable channel behaves sensibly (no user id to share, cleans up exactly as before)', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', {}, '');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    await leaveChannel(runtime, connection, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('', 'room:general', 'rooms');
+    // No user id means no inbox to clear — clearInbox is guarded separately.
+    expect(clearInbox).not.toHaveBeenCalled();
   });
 
   it('keeps same-name memberships isolated across channel families', async () => {

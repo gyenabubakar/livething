@@ -2,6 +2,7 @@ import { CloseCodes } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import {
   ensureDurableStreamSchema,
   getSubscriber,
@@ -91,7 +92,7 @@ function fakeConnection(id: string, userId: string): RuntimeConnection {
       send: vi.fn(),
       close: vi.fn(),
       bufferedAmount: () => 0,
-      identity: userId,
+      userId,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -301,5 +302,109 @@ describe('admin().purgeUser()', () => {
     expect(
       sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").toArray(),
     ).not.toContainEqual(expect.objectContaining({ name: '__wskit_channel_memberships' }));
+  });
+});
+
+describe('admin().purgeUser() — one cleanup step throws', () => {
+  it('still runs every other hook, still closes sockets, and reports the failure to the caller', async () => {
+    const { engine, sql } = await buildEngine(withChannelsAndTags());
+
+    insertMembership(sql, { userId: 'alice', channelName: 'lobby', channelFamily: null });
+    insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
+    const connection = fakeConnection('conn-1', 'alice');
+    engine.core.connections.set(connection.id, connection);
+
+    const boom = new Error('boom: streams unreachable');
+    // Splice a throwing hook in among the real channels()/tags() hooks
+    // (without removing either) so this proves hooks on both sides of the
+    // failure still run — regardless of exactly how many hooks are registered.
+    engine.core.hooks.purgeUser.splice(1, 0, () => {
+      throw boom;
+    });
+
+    await expect(engine.admin().purgeUser('alice')).rejects.toThrow(AggregateError);
+
+    expect(listMembershipRows(sql, 'alice')).toHaveLength(0);
+    expect(listTagsByUser(sql, 'alice')).toHaveLength(0);
+    expect(connection.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+  });
+
+  it('carries the underlying error in the thrown AggregateError', async () => {
+    const { engine } = await buildEngine(withChannelsAndTags());
+    const boom = new Error('boom');
+    engine.core.hooks.purgeUser.push(() => {
+      throw boom;
+    });
+
+    let caught: unknown;
+    try {
+      await engine.admin().purgeUser('alice');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toContain(boom);
+  });
+});
+
+describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
+  it('succeeds when resumableStream() is listed but no stream has ever been started', async () => {
+    const base = define({
+      env: t<Record<string, never>>(),
+      capabilities: [resumableStream()],
+    });
+    const handler = base.assemble({ handlers: [] });
+    const { engine } = await buildEngine(handler);
+    const connection = fakeConnection('conn-1', 'alice');
+    engine.core.connections.set(connection.id, connection);
+
+    await expect(engine.admin().purgeUser('alice')).resolves.toBeUndefined();
+
+    expect(connection.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+  });
+});
+
+describe('purgeUser(core, userId, options) — broadcast stream content', () => {
+  it('by default deletes a broadcast stream the purged user created', async () => {
+    const { engine, sql } = await buildEngine(withEveryOwningCapability());
+    const now = Date.now();
+    ensureDurableStreamSchema(sql);
+    insertStream(sql, {
+      userId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      event: 'progress',
+      payload: '{}',
+      kind: 'resumable',
+      now,
+      broadcast: true,
+      creatorUserId: 'alice',
+    });
+
+    await purgeUser(engine.core, 'alice');
+
+    expect(readStream(sql, '__bcast:ch:room__', 's-broadcast')).toBeNull();
+  });
+
+  it('keepBroadcastContent: true keeps the stream but still clears creator_user_id', async () => {
+    const { engine, sql } = await buildEngine(withEveryOwningCapability());
+    const now = Date.now();
+    ensureDurableStreamSchema(sql);
+    insertStream(sql, {
+      userId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      event: 'progress',
+      payload: '{}',
+      kind: 'resumable',
+      now,
+      broadcast: true,
+      creatorUserId: 'alice',
+    });
+
+    await purgeUser(engine.core, 'alice', { keepBroadcastContent: true });
+
+    const row = readStream(sql, '__bcast:ch:room__', 's-broadcast');
+    expect(row).not.toBeNull();
+    expect(row?.creatorUserId).toBeNull();
   });
 });

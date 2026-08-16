@@ -48,14 +48,19 @@ export interface KeepaliveMonitor {
 }
 
 /**
- * Build the monitor `keepalive()` drives. `pings` decides whether the ping loop
- * runs at all — under hibernation the runtime answers a client's ping at the
- * edge, so the server measures nothing and would only wake itself by pinging.
+ * Build the monitor `keepalive()` drives. `supervise` decides whether this
+ * monitor does anything at all for a connection: pinging it AND arming its
+ * idle timer. Under hibernation neither can work — the runtime answers a
+ * client's ping at the edge, so a server ping would only wake the instance and
+ * could never be timed, and a `setTimeout` idle timer would itself hold the
+ * instance in memory, defeating hibernation, while producing false
+ * disconnects for quiet-but-alive clients whose traffic never reaches the
+ * instance to refresh it.
  */
 export function createKeepaliveMonitor(
   engine: Pick<EngineAccess, 'sendPing' | 'setConnectionLatency' | 'refreshConnectionIdleTimeout'>,
   timings: KeepaliveTimings,
-  pings: boolean,
+  supervise: boolean,
 ): KeepaliveMonitor {
   const watched = new Map<string, WatchedConnection>();
 
@@ -86,14 +91,16 @@ export function createKeepaliveMonitor(
   return {
     watch(connectionId) {
       if (watched.has(connectionId)) return;
+      if (!supervise) return;
 
       const connection: WatchedConnection = { recentLatencies: [], latency: null };
       watched.set(connectionId, connection);
       engine.refreshConnectionIdleTimeout(connectionId, timings.idleTimeoutMs);
-      if (pings) schedulePing(connectionId, connection);
+      schedulePing(connectionId, connection);
     },
 
     touch(connectionId) {
+      if (!supervise) return;
       engine.refreshConnectionIdleTimeout(connectionId, timings.idleTimeoutMs);
     },
 

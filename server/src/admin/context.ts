@@ -6,7 +6,7 @@ import type * as PublicApi from '~/context.ts';
 /** Deps for an admin context: the task/shutdown dep-bag plus a `purgeUser`. */
 export interface CreateAdminContextDeps extends EngineContextTypes.CreateTaskContextDeps {
   /** Drop a user everywhere and close their sockets. Closes over the engine core. */
-  purgeUser(userId: string): Promise<void>;
+  purgeUser(userId: string, options?: PublicApi.PurgeUserOptions): Promise<void>;
 }
 
 /** `channels.get(name)` vs `channels.get(family, instance)` → a resolve target. */
@@ -68,7 +68,8 @@ export function createAdminContext(
       deps.broadcastToConnections(deps.connections.values(), { event, payload });
     },
     channels,
-    purgeUser: (userId) => deps.purgeUser(userId),
+    purgeUser: (userId, options) =>
+      options === undefined ? deps.purgeUser(userId) : deps.purgeUser(userId, options),
     closeConnections: (filter, code, reason) => {
       for (const connection of deps.connections.values()) {
         if (filter?.userId !== undefined && connection.userId !== filter.userId) continue;
@@ -136,3 +137,19 @@ export type UnlistedAdminContextMember = Exclude<
 
 /** @see ADMIN_CONTEXT_MEMBER_NAMES */
 export const ADMIN_CONTEXT_MEMBERS: ReadonlySet<string> = new Set(ADMIN_CONTEXT_MEMBER_NAMES);
+
+/**
+ * Names an app's `api` factory may not use. These are not WSKit's to give away:
+ * JavaScript itself assigns them a meaning that an ordinary method would break.
+ *
+ * - `then` makes any object a thenable, so `await` on the admin surface calls it
+ *   instead of resolving. The await never settles.
+ * - `__proto__` names an accessor every plain object already inherits, so a
+ *   method by that name cannot be copied onto the surface and would go missing
+ *   without explanation.
+ *
+ * The engine enforces this when it builds the admin surface, so every adapter
+ * inherits the rule rather than restating it. An adapter needs this set only if
+ * it reports the names itself.
+ */
+export const RESERVED_ADMIN_API_NAMES: ReadonlySet<string> = new Set(['then', '__proto__']);

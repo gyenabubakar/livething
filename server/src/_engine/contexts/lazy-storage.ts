@@ -54,6 +54,7 @@ export function createLazyStorageView(storage: PublicApi.StorageProvider): {
     transaction(fn) {
       return storage.sql.transaction(fn);
     },
+    limits: storage.sql.limits,
   };
 
   const privilegedKv: PublicApi.KVProvider = {

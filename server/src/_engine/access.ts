@@ -240,9 +240,9 @@ export interface EngineAccess {
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
     ) =>
-      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
-          identity?: string;
+          userId?: string;
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
@@ -513,7 +513,7 @@ export interface EngineAccess {
 
   /**
    * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
-   * (inbound onion); it may own `identity`, but the single-owner rule is
+   * (inbound onion); it may own `userId`, but the single-owner rule is
    * enforced at runtime.
    *
    * @internal
@@ -524,9 +524,9 @@ export interface EngineAccess {
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
     ) =>
-      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
-          identity?: string;
+          userId?: string;
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
@@ -926,6 +926,21 @@ export interface EngineAccess {
    * @internal
    */
   getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
+
+  /**
+   * Drop a member's cached inbox row count so the next write re-reads it from
+   * storage. A path that inserts rows without going through the live fan-out —
+   * `inbox.backfill(...)` — leaves the cached count too low, which would let the
+   * following fan-out skip a retention check it owes. Optional: an engine access
+   * without it (a test double) keeps no cache to invalidate.
+   *
+   * @internal
+   */
+  invalidateInboxMemberCount?(
+    channelName: string,
+    channelFamily: string | null,
+    userId: string,
+  ): void;
 
   /**
    * The per-instance receipt-cursor cache, so an ack can skip re-reading a

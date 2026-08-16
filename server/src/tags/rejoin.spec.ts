@@ -66,6 +66,63 @@ describe('restorePersistentTags', () => {
     expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
   });
 
+  it('restores a declared group that has a schema', () => {
+    const sql = createTestSql();
+    ensureTagsSchema(sql);
+    insertTag(sql, { userId: 'u-1', group: 'role', key: 'admin' });
+    const connection = tagConnection('u-1');
+
+    restorePersistentTags({
+      sql,
+      tagMembers: new Map(),
+      connection,
+      isGroupDeclared: () => true,
+      getSchema: () => v.picklist(['admin', 'editor']) as never,
+    });
+
+    expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
+    expect(connection.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+
+  it('restores a declared group that has no schema', () => {
+    const sql = createTestSql();
+    ensureTagsSchema(sql);
+    insertTag(sql, { userId: 'u-1', group: 'plan', key: 'pro' });
+    const connection = tagConnection('u-1');
+
+    restorePersistentTags({
+      sql,
+      tagMembers: new Map(),
+      connection,
+      isGroupDeclared: () => true,
+      getSchema: () => undefined,
+    });
+
+    expect(listTagsByUser(sql, 'u-1').map((t) => t.key)).toEqual(['pro']);
+    expect(connection.tags.persistent.get('plan')?.has('pro')).toBe(true);
+  });
+
+  it('drops and deletes a stored tag whose group is no longer declared', () => {
+    const sql = createTestSql();
+    ensureTagsSchema(sql);
+    insertTag(sql, { userId: 'u-1', group: 'legacy-plan', key: 'gold' });
+    const connection = tagConnection('u-1');
+    const errors: unknown[] = [];
+
+    restorePersistentTags({
+      sql,
+      tagMembers: new Map(),
+      connection,
+      isGroupDeclared: () => false,
+      getSchema: () => undefined,
+      logger: { error: () => errors.push(1) },
+    });
+
+    expect(listTagsByUser(sql, 'u-1')).toEqual([]);
+    expect(connection.tags.persistent.get('legacy-plan')).toBeUndefined();
+    expect(errors).toHaveLength(1);
+  });
+
   it('no-ops for a connection with no user id, without querying storage', () => {
     let statements = 0;
     const sql = createTestSql({ onExec: () => (statements += 1) });

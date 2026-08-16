@@ -422,6 +422,7 @@ function reloadPersistentTags(core: EngineCore, connection: RuntimeConnection): 
     sql: core.storage.sql,
     tagMembers: core.tagMembers,
     connection,
+    isGroupDeclared: (group: string) => core.isTagGroupDeclared('persistent', group),
     getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
     logger: core.logger,
   });

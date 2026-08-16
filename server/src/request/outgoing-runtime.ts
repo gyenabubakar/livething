@@ -135,9 +135,8 @@ function membersToTargets(
 
 /**
  * Whether a member snapshot satisfies a channel-scoped `to` recipient. A
- * `user-ref` matches on the member's user key (`userId`, falling back to the
- * connection id for an anonymous user-of-one), mirroring `matchesRecipient` on
- * the live connection.
+ * `user-ref` matches on the member's `userId`, mirroring `matchesRecipient` on
+ * the live connection. An anonymous member has no user id and never matches.
  */
 function infoMatchesRecipient(
   info: PublicApi.ConnectionInfo,

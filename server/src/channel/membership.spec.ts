@@ -97,7 +97,7 @@ describe('kick(userRef, { revoke: true })', () => {
       id,
       userId,
       wsKey: Symbol(id),
-      descriptor: { send() {}, close() {}, bufferedAmount: () => 0, identity: userId },
+      descriptor: { send() {}, close() {}, bufferedAmount: () => 0, userId },
       meta: {},
       tags: { ephemeral: new Map(), persistent: new Map() },
       channelMemberships: new Map(),
@@ -287,13 +287,13 @@ describe('durable membership is the channel default', () => {
   }
 
   /** Connect one user, wait for connect + auto-rejoin to settle, and return the live connection. */
-  async function connectUser(engine: Engine, identity: string) {
+  async function connectUser(engine: Engine, userId: string) {
     const before = new Set(engine.core.connections.keys());
-    const handle = engine.accept(Symbol(identity || 'anon'), {
+    const handle = engine.accept(Symbol(userId || 'anon'), {
       send: vi.fn(),
       close: vi.fn(),
       bufferedAmount: () => 0,
-      identity,
+      userId,
     });
     const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
     await connection.lifecycleReady;

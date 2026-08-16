@@ -95,4 +95,37 @@ describe('Engine.admin() surfacing the app api', () => {
 
     expect(engine.admin().connectionCount).toBe(0);
   });
+
+  // These names belong to JavaScript, not to WSKit. Rejecting them in the engine
+  // means every adapter inherits the rule instead of restating it.
+  describe('reserved api method names', () => {
+    it("refuses 'then', which would make awaiting the admin surface hang forever", () => {
+      const engine = buildEngine(() => ({ then: vi.fn() }));
+
+      expect(() => engine.admin()).toThrow(/then/);
+    });
+
+    it("refuses '__proto__', which would rewrite the prototype instead of adding a method", () => {
+      const engine = buildEngine(() => ({ ['__proto__']: vi.fn() }));
+
+      expect(() => engine.admin()).toThrow(/__proto__/);
+    });
+
+    it('rejects a reserved name reached through the prototype chain, not just an own one', () => {
+      class Api {
+        then() {
+          return 'nope';
+        }
+      }
+      const engine = buildEngine(() => new Api());
+
+      expect(() => engine.admin()).toThrow(/then/);
+    });
+
+    it('leaves an ordinary api method alone', () => {
+      const engine = buildEngine(() => ({ thenSomething: () => 'ok' }));
+
+      expect((engine.admin() as unknown as { thenSomething(): string }).thenSomething()).toBe('ok');
+    });
+  });
 });

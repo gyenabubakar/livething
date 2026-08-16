@@ -175,15 +175,32 @@ describe('keepalive', () => {
       expect(fake.sendPing).not.toHaveBeenCalled();
     });
 
-    it('never pings under hibernation, but still opens the idle window', () => {
+    it('never pings and never arms the idle timer under hibernation', () => {
       const fake = createFakeEngine({ hibernating: true });
       keepalive(OPTS).__setup?.(fake.engine);
 
       void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      void fake.activityHandlers[0]!('conn-1');
       vi.advanceTimersByTime(OPTS.pingIntervalMs * 5);
 
+      // A quiet-but-alive client under hibernation must never be closed: no
+      // pending idle timer, and none held open by a `setTimeout` the instance
+      // would have to stay resident just to keep counting down.
       expect(fake.sendPing).not.toHaveBeenCalled();
-      expect(fake.refreshConnectionIdleTimeout).toHaveBeenCalledWith('conn-1', 30_000);
+      expect(fake.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
+    });
+
+    it('still opens and refreshes the idle window without hibernation', () => {
+      const fake = createFakeEngine({ hibernating: false });
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      void fake.activityHandlers[0]!('conn-1');
+
+      expect(fake.refreshConnectionIdleTimeout.mock.calls).toEqual([
+        ['conn-1', 30_000],
+        ['conn-1', 30_000],
+      ]);
     });
   });
 

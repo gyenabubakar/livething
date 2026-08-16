@@ -68,6 +68,14 @@ export function replay(): Primitive<ReplayTypeFn> {
               const info: GapInfo = { missedThrough };
               if (channel !== undefined) info.channel = channel;
               if (channelFamily !== undefined) info.channelFamily = channelFamily;
+              // A gap means retention pruned everything up to missedThrough, even
+              // if no surviving row carried that seq. Advance the high-water mark
+              // here too, or the next reconnect asks from the same stale cursor
+              // and gets the same gap reported again forever.
+              const current = lastSeq.get(key);
+              if (!current || missedThrough > current.seq) {
+                lastSeq.set(key, { seq: missedThrough, channel, channelFamily });
+              }
               dispatchToHandlers(gapHandlers.get(key), helpers.log, info);
             }
             // Consume the frame so it never reaches user .on() handlers.

@@ -81,7 +81,7 @@ async function seed(count: number): Promise<{ engine: Engine; sockets: FakeSocke
       send: () => {},
       close: () => {},
       bufferedAmount: () => 0,
-      identity: `u${i}`,
+      userId: `u${i}`,
     });
   }
   // The row id the adapter's attachment reports has to match what was written.

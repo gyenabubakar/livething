@@ -21,6 +21,12 @@ export interface KeepaliveOptions {
    * automatic `pong` reply to the keepalive ping — resets this window. A
    * connection that has truly gone away sends nothing (not even a pong), so the
    * window elapses and it is closed.
+   *
+   * Under hibernation this window does not run: there is no in-memory timer to
+   * enforce it, and the underlying platform can answer a client's ping without
+   * waking the instance, so the instance never even sees that traffic. See
+   * hibernation in the server docs for what to do instead if an idle policy is
+   * required.
    */
   readonly idleTimeoutMs: number;
 }
@@ -82,8 +88,12 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
     idleTimeoutMs: options.idleTimeoutMs,
     __setup(engine) {
       engine.installOnce(KEEPALIVE_KEY, () => {
-        // Under hibernation the runtime answers a client's ping at the edge, so
-        // a server ping would only wake the instance and could never be timed.
+        // Under hibernation this capability supervises nothing: the runtime
+        // answers a client's ping at the edge, so a server ping would only
+        // wake the instance, and a `setTimeout` idle timer would itself hold
+        // the instance in memory — defeating hibernation while closing
+        // quiet-but-alive clients whose traffic never reaches it to refresh
+        // the timer.
         const monitor = createKeepaliveMonitor(engine, options, !engine.getHibernationEnabled());
 
         engine.extendContext((baseCtx) => buildLatencySurface(engine, baseCtx));

@@ -1,5 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { KVProvider, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
+import type { KVProvider, SqlLimits, SQLProvider, SqlResult, StorageProvider } from '~/context.ts';
+
+/**
+ * The real limits of the `node:sqlite` build Node 24 ships. Used as
+ * {@link createTestSql}'s default so existing tests keep passing unchanged —
+ * override `limits` to test a batching boundary at a small, readable count
+ * instead of tens of thousands of rows.
+ */
+export const NODE_SQLITE_LIMITS: SqlLimits = {
+  maxBoundParams: 32_766,
+  maxStatementBytes: 1_000_000_000,
+  maxValueBytes: 1_000_000_000,
+};
 
 /** Options for {@link createTestSql}. */
 export interface TestSqlOptions {
@@ -9,6 +21,19 @@ export interface TestSqlOptions {
    * up a real database — used where "how many statements ran" is the invariant.
    */
   onExec?: (query: string, params: readonly unknown[]) => void;
+
+  /**
+   * Override the provider's {@link SqlLimits}. Defaults to
+   * {@link NODE_SQLITE_LIMITS}. Pass a partial object — unset fields keep
+   * their default — so a spec can shrink just `maxBoundParams` to exercise
+   * `chunkForBind` batching with a handful of rows instead of tens of
+   * thousands.
+   *
+   * ```ts
+   * const sql = createTestSql({ limits: { maxBoundParams: 4 } });
+   * ```
+   */
+  limits?: Partial<SqlLimits>;
 }
 
 /**
@@ -25,6 +50,7 @@ export interface TestSqlOptions {
  */
 export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db: DatabaseSync } {
   const db = new DatabaseSync(':memory:');
+  const limits: SqlLimits = { ...NODE_SQLITE_LIMITS, ...options.limits };
 
   function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
     options.onExec?.(query, params);
@@ -55,6 +81,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
   return {
     db,
     exec,
+    limits,
     transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
       db.exec('BEGIN');
       try {

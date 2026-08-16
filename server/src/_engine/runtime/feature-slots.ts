@@ -246,10 +246,10 @@ export interface ResolvedReadReceiptsOptions {
  * `last-seen/` tree-shaken out when unused.
  */
 export interface LastSeenService {
-  /** The last-seen timestamp (ms) for an identity, or `null` when never seen. */
-  at(identity: string): number | null;
-  /** Whether an identity has a live connection on this instance right now. */
-  online(identity: string): boolean;
+  /** The last-seen timestamp (ms) for a user, or `null` when never seen. */
+  at(userId: string): number | null;
+  /** Whether a user has a live connection on this instance right now. */
+  online(userId: string): boolean;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_LAST_SEEN_TABLE_SQL = `
@@ -50,25 +51,32 @@ export function purgeLastSeenByUser(sql: Pick<SQLProvider, 'exec'>, userId: stri
   sql.exec('DELETE FROM __wskit_last_seen WHERE user_id = ?', userId);
 }
 
-/** Read last-seen timestamps for many users in one query, keyed by user id. */
+/**
+ * Read last-seen timestamps for many users in one call, keyed by user id.
+ * Splits the lookup into as many `WHERE user_id IN (...)` statements as the
+ * adapter's bound-parameter cap requires, so a roster of any size — not just
+ * one under the cap — comes back correctly.
+ */
 export function readLastSeenMany(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'limits'>,
   userIds: readonly string[],
 ): Map<string, number> {
   const wanted = userIds.filter((userId) => userId !== '');
   const result = new Map<string, number>();
   if (wanted.length === 0) return result;
 
-  const placeholders = wanted.map(() => '?').join(', ');
-  const rows = sql
-    .exec<{
-      user_id: string;
-      last_seen_at: number;
-    }>(
-      `SELECT user_id, last_seen_at FROM __wskit_last_seen WHERE user_id IN (${placeholders})`,
-      ...wanted,
-    )
-    .toArray();
-  for (const row of rows) result.set(String(row.user_id), Number(row.last_seen_at));
+  for (const batch of chunkForBind(wanted, 1, sql.limits)) {
+    const placeholders = batch.map(() => '?').join(', ');
+    const rows = sql
+      .exec<{
+        user_id: string;
+        last_seen_at: number;
+      }>(
+        `SELECT user_id, last_seen_at FROM __wskit_last_seen WHERE user_id IN (${placeholders})`,
+        ...batch,
+      )
+      .toArray();
+    for (const row of rows) result.set(String(row.user_id), Number(row.last_seen_at));
+  }
   return result;
 }

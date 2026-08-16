@@ -74,4 +74,63 @@ describe('durable-stream registrar — purgeUser', () => {
     expect(readStream(sql, 'u-1', 's-1')).toBeNull();
     expect(readStream(sql, 'u-2', 's-2')).not.toBeNull();
   });
+
+  it('forwards purgeUser options through to purgeStreamsByUser', async () => {
+    const base = define({ env: t<Record<string, never>>(), capabilities: [resumableStream()] });
+    const handler = base.assemble({ handlers: [] });
+    const engine = buildEngine(handler);
+
+    await engine.initialize();
+
+    const sql = engine.core.storage.sql;
+    ensureDurableStreamSchema(sql);
+    insertStream(sql, {
+      userId: '__bcast:ch:room__',
+      streamId: 's-broadcast',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: 1_000,
+      broadcast: true,
+      creatorUserId: 'u-1',
+    });
+
+    // The registered hook accepts a third `options` argument at runtime; the
+    // shared hook array type only declares two. See purge-user.ts for why.
+    const hook = engine.core.hooks.purgeUser[0] as unknown as (
+      core: unknown,
+      userId: string,
+      options: { keepBroadcastContent?: boolean },
+    ) => void | Promise<void>;
+    await hook(engine.core, 'u-1', { keepBroadcastContent: true });
+
+    const row = readStream(sql, '__bcast:ch:room__', 's-broadcast');
+    expect(row).not.toBeNull();
+    expect(row?.creatorUserId).toBeNull();
+  });
+});
+
+describe('durable-stream registrar — boot schema', () => {
+  it('creates the durable-stream tables at boot, before any stream is ever started', async () => {
+    const base = define({ env: t<Record<string, never>>(), capabilities: [resumableStream()] });
+    const handler = base.assemble({ handlers: [] });
+    const engine = buildEngine(handler);
+
+    await engine.initialize();
+
+    const sql = engine.core.storage.sql;
+    // No ensureDurableStreamSchema(sql) call here — proves onBootSchema alone
+    // created the table, matching how every other owning capability does it.
+    expect(() =>
+      insertStream(sql, {
+        userId: 'u-1',
+        streamId: 's-1',
+        event: 'e',
+        payload: '{}',
+        kind: 'resumable',
+        now: 1_000,
+      }),
+    ).not.toThrow();
+    expect(readStream(sql, 'u-1', 's-1')).not.toBeNull();
+  });
 });

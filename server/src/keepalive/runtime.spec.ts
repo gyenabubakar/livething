@@ -66,14 +66,17 @@ describe('keepalive/runtime', () => {
       expect(port.sendPing).toHaveBeenCalledWith('c1');
     });
 
-    it('opens the idle window but never pings when pings are off', () => {
+    it('does nothing when supervision is off: no ping, no idle timer', () => {
       const port = createPort();
       const monitor = createKeepaliveMonitor(port, TIMINGS, false);
 
       monitor.watch('c1');
       vi.advanceTimersByTime(TIMINGS.pingIntervalMs * 10);
 
-      expect(port.refreshConnectionIdleTimeout).toHaveBeenCalledWith('c1', 60_000);
+      // A `setTimeout` idle timer would itself keep the connection's Durable
+      // Object alive, defeating hibernation, and would fire with nothing left
+      // to refresh it — closing a client that never went away.
+      expect(port.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
       expect(port.sendPing).not.toHaveBeenCalled();
     });
 
@@ -132,6 +135,15 @@ describe('keepalive/runtime', () => {
       monitor.touch('stranger');
 
       expect(port.refreshConnectionIdleTimeout).toHaveBeenCalledWith('stranger', 60_000);
+    });
+
+    it('never arms the idle timer when supervision is off', () => {
+      const port = createPort();
+      const monitor = createKeepaliveMonitor(port, TIMINGS, false);
+
+      monitor.touch('c1');
+
+      expect(port.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
     });
   });
 

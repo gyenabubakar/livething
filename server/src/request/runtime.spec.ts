@@ -24,7 +24,7 @@ function createConnection(): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: 'c1',
+      userId: 'c1',
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -120,11 +120,10 @@ describe('request/runtime', () => {
     });
   });
 
-  it('sends an empty void-ack frame when the handler exits without calling ctx.respond()', async () => {
+  it('sends an undefined-payload void-ack frame when the handler exits without calling ctx.respond()', async () => {
     // A handler that answers nothing is a void acknowledgement, not a failure:
-    // the runtime sends an empty correlated frame the client resolves with no
-    // value. To reject instead, a handler throws. The empty payload keeps the
-    // client's pending promise from hanging until its own timeout.
+    // the runtime sends a correlated frame with an undefined payload, which the
+    // client resolves with no value. To reject instead, a handler throws.
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
@@ -157,8 +156,108 @@ describe('request/runtime', () => {
         source: 'client',
       },
       event: 'status',
-      payload: {},
+      payload: undefined,
     });
+  });
+
+  it('sends an undefined payload when the handler explicitly responds with null', async () => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const runtime = {
+      asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
+      sendThroughPipeline,
+    };
+    const connection = createConnection();
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
+        ctx.respond(null);
+      }),
+    } as unknown as RequestPrimitive;
+
+    await handleRequest(runtime, {
+      connection,
+      ctx: { ok: true },
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-1', channelFamily: null },
+    });
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({ payload: undefined }),
+    );
+  });
+
+  it.each([
+    ['0', 0],
+    ['false', false],
+    ["''", ''],
+  ])('preserves a genuinely falsy response of %s', async (_label, value) => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const runtime = {
+      asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
+      sendThroughPipeline,
+    };
+    const connection = createConnection();
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async (ctx: { respond: (v: unknown) => void }) => {
+        ctx.respond(value);
+      }),
+    } as unknown as RequestPrimitive;
+
+    await handleRequest(runtime, {
+      connection,
+      ctx: { ok: true },
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-1', channelFamily: null },
+    });
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({ payload: value }),
+    );
+  });
+
+  it('preserves a normal object response', async () => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const runtime = {
+      asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
+      sendThroughPipeline,
+    };
+    const connection = createConnection();
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async (ctx: { respond: (v: unknown) => void }) => {
+        ctx.respond({ ok: true, count: 3 });
+      }),
+    } as unknown as RequestPrimitive;
+
+    await handleRequest(runtime, {
+      connection,
+      ctx: { ok: true },
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-1', channelFamily: null },
+    });
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(
+      connection,
+      expect.objectContaining({ payload: { ok: true, count: 3 } }),
+    );
   });
 
   it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {

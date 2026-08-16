@@ -7,7 +7,7 @@ export interface ReceiptQueryOptions {
   timeout?: number;
 }
 
-/** A channel's receipt cursor: member identity → one sequence number, past `0`. */
+/** A channel's receipt cursor: member user id → one sequence number, past `0`. */
 export type CursorList = ReadonlyMap<string, number>;
 
 /**
@@ -17,13 +17,17 @@ export type CursorList = ReadonlyMap<string, number>;
  */
 export interface ChannelInboxApi {
   /**
-   * Members that have received something, identity → `receivedThrough` (never
+   * Members that have received something, user id → `receivedThrough` (never
    * `0`), as a reactive store fed by the server's `__received__` fan-out. Above
    * the broadcast threshold it reflects only what this client has seen.
    */
   readonly receivers: ReadableStore<CursorList>;
-  /** Run `callback` whenever a member's received cursor advances. Returns an unsubscribe. */
-  onReceived(callback: (identity: string, receivedThrough: number) => void): () => void;
+  /**
+   * Run `callback` whenever a member's received cursor genuinely advances — a
+   * duplicate or out-of-order `__received__` fan-out that doesn't raise the
+   * stored cursor never calls it. Returns an unsubscribe.
+   */
+  onReceived(callback: (userId: string, receivedThrough: number) => void): () => void;
   /** Identities that have received up to at least `seq`. Asks the server. */
   receiversOf(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
 }
@@ -34,12 +38,16 @@ export interface ChannelInboxApi {
  */
 export interface ChannelReadReceiptsApi {
   /**
-   * Members that have read something, identity → `readThrough` (never `0`), as a
+   * Members that have read something, user id → `readThrough` (never `0`), as a
    * reactive store fed by the server's `__read__` fan-out.
    */
   readonly readers: ReadableStore<CursorList>;
-  /** Run `callback` whenever a member's read cursor advances. Returns an unsubscribe. */
-  onRead(callback: (identity: string, readThrough: number) => void): () => void;
+  /**
+   * Run `callback` whenever a member's read cursor genuinely advances — a
+   * duplicate or out-of-order `__read__` fan-out that doesn't raise the stored
+   * cursor never calls it. Returns an unsubscribe.
+   */
+  onRead(callback: (userId: string, readThrough: number) => void): () => void;
   /** Identities that have read up to at least `seq`. Asks the server. */
   readersOf(seq: number, options?: ReceiptQueryOptions): Promise<string[]>;
   /**

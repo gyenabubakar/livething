@@ -16,12 +16,18 @@ export { userKeyOf } from '~/_engine/runtime/user-key.ts';
 /** Matches the wire-level channel-name cap; a user id is used the same way. */
 const MAX_USER_ID_LENGTH = 256;
 
-/** Add one connection to the user-key fan-out index, creating its set if needed. */
+/**
+ * Add one connection to the user-key fan-out index, creating its set if
+ * needed. A no-op for an anonymous connection (`userKeyOf` returns `null`) —
+ * it has no user identity to fan out to, and must never be reachable via
+ * `ctx.user` or `ctx.users.get(...)`.
+ */
 function addConnectionToUserIndex(
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   const key = userKeyOf(connection);
+  if (key === null) return;
   let members = usersByKey.get(key);
   if (!members) {
     members = new Set();
@@ -30,12 +36,16 @@ function addConnectionToUserIndex(
   members.add(connection);
 }
 
-/** Remove one connection from the user-key fan-out index, dropping an emptied set. */
+/**
+ * Remove one connection from the user-key fan-out index, dropping an emptied
+ * set. A no-op for an anonymous connection — it was never added.
+ */
 function removeConnectionFromUserIndex(
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   const key = userKeyOf(connection);
+  if (key === null) return;
   const members = usersByKey.get(key);
   if (!members) return;
   members.delete(connection);
@@ -403,17 +413,17 @@ export function acceptConnection(
   // The user id becomes the durable row key for per-user state, so cap it
   // like a wire field. Reject rather than truncate — two distinct long user
   // ids truncated to the same prefix would silently share durable state.
-  if (descriptor.identity.length > MAX_USER_ID_LENGTH) {
+  if (descriptor.userId.length > MAX_USER_ID_LENGTH) {
     throw new WSKitConfigError(
-      `[wskit] user id returned from onUpgrade is ${descriptor.identity.length} chars; the max is ${MAX_USER_ID_LENGTH}. Use a stable id (user id, ULID) rather than a token as the user id.`,
+      `[wskit] user id returned from onUpgrade is ${descriptor.userId.length} chars; the max is ${MAX_USER_ID_LENGTH}. Use a stable id (user id, ULID) rather than a token as the user id.`,
     );
   }
 
   // A per-user connection cap only applies to identified users — an anonymous
-  // connection is a user-of-one keyed by its own id and can never collide.
+  // connection has no user identity to count against.
   const usersPolicy = runtime.compiled.usersPolicy;
-  if (usersPolicy?.maxConnections !== undefined && descriptor.identity) {
-    const existing = runtime.usersByKey.get(descriptor.identity);
+  if (usersPolicy?.maxConnections !== undefined && descriptor.userId) {
+    const existing = runtime.usersByKey.get(descriptor.userId);
     const held = existing?.size ?? 0;
     if (held >= usersPolicy.maxConnections) {
       if (usersPolicy.onExceed === 'reject') {
@@ -437,7 +447,7 @@ export function acceptConnection(
 
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
-    userId: descriptor.identity,
+    userId: descriptor.userId,
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
@@ -556,7 +566,7 @@ export function wakeHibernatedConnection(
     send: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
-    identity: userId,
+    userId,
     meta,
     tags: ephemeralRefs,
   };
@@ -754,10 +764,7 @@ export async function handleUpgrade(
       apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
     return {
-      // `EngineAdapterTypes.UpgradeDecision` (the adapter boundary) still
-      // carries this as `identity` — that field is owned by the adapter
-      // contract, not this rename.
-      identity: resolvedUserId,
+      userId: resolvedUserId,
       meta: mergedMeta,
       tags: mergedTags.length > 0 ? mergedTags : undefined,
     };

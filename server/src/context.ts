@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { BackfillMessage } from './inbox/storage.ts';
 import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
 
@@ -32,6 +33,41 @@ export interface SqlResult<T = unknown> {
 
   /** Return every matching row as raw column arrays (no key names). */
   raw(): unknown[][];
+}
+
+/**
+ * The bind-parameter and payload ceilings of the SQL engine behind `ctx.sql`.
+ *
+ * Every SQL engine caps how many `?` placeholders one statement may carry, how
+ * many bytes the statement text may be, and how many bytes a single bound
+ * value (or returned column) may be. The caps differ wildly by engine — a
+ * Cloudflare Durable Object allows 100 bound parameters per statement, while
+ * `node:sqlite` allows 32,766. WSKit does not pick a number for you: each
+ * adapter states its engine's real numbers here, and code that builds
+ * variable-length SQL (batched inserts, `WHERE id IN (...)`, and similar)
+ * reads `limits` to stay under them instead of assuming one shared ceiling.
+ *
+ * Authoring a custom adapter? Find your engine's real numbers from its own
+ * documentation — do not guess. See
+ * [Custom Adapters](/server/adapters/custom-adapters) for where to look.
+ */
+export interface SqlLimits {
+  /** The most `?` placeholders one statement may bind at once. */
+  readonly maxBoundParams: number;
+
+  /** The most bytes one statement's SQL text may be. */
+  readonly maxStatementBytes: number;
+
+  /**
+   * The most bytes one stored string, one stored BLOB, or one whole table row
+   * may be. A row of many mid-sized columns can exceed this even when no single
+   * column does.
+   *
+   * This is separate from {@link maxStatementBytes}: a bound value travels
+   * alongside the SQL text rather than inside it, so a value far larger than
+   * the statement limit still binds fine.
+   */
+  readonly maxValueBytes: number;
 }
 
 /**
@@ -70,6 +106,9 @@ export interface SQLProvider {
   transaction<T>(
     fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
   ): T;
+
+  /** The bind-parameter and payload ceilings of the engine behind this provider. */
+  readonly limits: SqlLimits;
 }
 
 /**
@@ -227,8 +266,7 @@ export interface ConnectionRef {
 }
 
 /**
- * Address for one user — the account (or anonymous connection, which is a
- * user-of-one) that a `ConnectionRef` belongs to. Built via `UserInfo.ref()`,
+ * Address for one user — the account a `ConnectionRef` belongs to. Built via `UserInfo.ref()`,
  * `UserHandle.ref()`, or `ctx.user.ref()`. Pass it to `ctx.users.get(...)`
  * or to fan-out targets that accept a user (such as `kick`).
  *
@@ -288,8 +326,9 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   /**
    * User id the `onUpgrade` hook returned for this connection — the stable
    * id the framework uses as the row key for any per-user durable state.
-   * An anonymous connection (upgrade returned no user id) falls back to its
-   * own connection id, so it is always a non-empty user-of-one.
+   * An anonymous connection — one whose upgrade returned no user id — has no
+   * user identity, and this is an empty string. Address such a connection by
+   * its `ConnectionRef` instead.
    */
   readonly userId: string;
 
@@ -368,8 +407,8 @@ export interface ConnectionsManager<Meta = Record<string, unknown>> {
 }
 
 /**
- * A read-only snapshot of one user at a point in time — the account (or
- * anonymous user-of-one) that owns zero or more live connections.
+ * A read-only snapshot of one user at a point in time — the account that owns
+ * zero or more live connections.
  *
  * Returned by `UserHandle.info()`. Unlike `ConnectionInfo`, there is no flat
  * `.meta` here: metadata lives per connection, since the same user can have
@@ -575,14 +614,7 @@ export interface InboxBacklogEntry {
  */
 export interface ChannelInbox {
   /** Seed one user's inbox with full frames, drained on their next reconnect. */
-  backfill(
-    userId: string,
-    messages: readonly {
-      event: string;
-      payload: unknown;
-      __wskit: { seq: number; messageId: string };
-    }[],
-  ): void;
+  backfill(userId: string, messages: readonly BackfillMessage[]): void;
   /** User ids whose received cursor has reached `seq`. */
   receiversOf(seq: number): string[];
   /** One entry per member that still has unacked held rows for this channel. */
@@ -797,10 +829,10 @@ export interface ConnectionContext<
   connection: ConnectionRef;
 
   /**
-   * A handle to the current connection's user — the account (or anonymous
-   * user-of-one) this connection belongs to. Every connection has a user:
-   * an anonymous connection (upgrade returned no user id) is a user-of-one
-   * keyed by its own connection id. Use `ctx.user.id` for the bare id
+   * A handle to the current connection's user — the account this connection
+   * belongs to. Present on every connection, but on an anonymous one (upgrade
+   * returned no user id) its `id` is an empty string and it reaches nobody.
+   * Use `ctx.user.id` for the bare id
    * string; the handle itself carries the user-level actions (`send`,
    * `request`, `setMeta`, `connections`, `close`, `info`) that fan out to
    * every live connection this user holds.
@@ -1107,6 +1139,17 @@ export interface TaskContext<
   platform: Platform;
 }
 
+/** Options accepted by {@link AdminContext.purgeUser}. */
+export interface PurgeUserOptions {
+  /**
+   * Keep the content of broadcast streams the purged user created — the
+   * channel-owned stream row plus its recorded chunks. Default `false`: that
+   * content is deleted along with everything else the user owns. Either way,
+   * the user is cleared as the stream's creator.
+   */
+  keepBroadcastContent?: boolean;
+}
+
 /** The channel operations available connectionlessly from an admin context. */
 export interface AdminChannelHandle<Meta = Record<string, unknown>> {
   /** Broadcast a channel event to its members. */
@@ -1164,8 +1207,22 @@ export interface AdminContext<
    * receipts, their last-seen mark, their durable streams (and any broadcast
    * stream they merely subscribe to), and close every live socket they hold.
    * The one call the auth-webhook case (`user.deleted`) needs.
+   *
+   * A broadcast stream the user created belongs to the whole channel, not
+   * just to them, so by default its content (the stream row and its recorded
+   * chunks) is deleted along with everything else — the safe choice for a
+   * delete-my-data call. Pass `{ keepBroadcastContent: true }` to keep that
+   * content and only clear the user as its creator:
+   *
+   * ```ts
+   * // Default: broadcast streams alice created are deleted too.
+   * await ctx.purgeUser('alice');
+   *
+   * // Keep channel-owned broadcast content, just stop crediting alice as its creator.
+   * await ctx.purgeUser('alice', { keepBroadcastContent: true });
+   * ```
    */
-  purgeUser(userId: string): Promise<void>;
+  purgeUser(userId: string, options?: PurgeUserOptions): Promise<void>;
 
   /**
    * Close live connections. With no filter, closes every connection; with

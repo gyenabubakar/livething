@@ -18,6 +18,12 @@ export interface RestorePersistentTagsOptions {
   sql: Pick<SQLProvider, 'exec'>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   connection: EngineRuntimeTypes.RuntimeConnection;
+  /**
+   * Is this persistent group still declared in the contract? Distinct from
+   * `getSchema` returning undefined, which also happens for a declared group
+   * with no schema. When omitted, every group is treated as declared.
+   */
+  isGroupDeclared?: (group: string) => boolean;
   /** Returns a group's validator, or undefined when it has none. */
   getSchema?: (group: string) => Validator | undefined;
   logger?: Pick<Logger, 'error'>;
@@ -27,6 +33,17 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
   const { sql, tagMembers, connection } = opts;
   if (!connection.userId) return;
   for (const tag of listTagsByUser(sql, connection.userId)) {
+    if (opts.isGroupDeclared && !opts.isGroupDeclared(tag.group)) {
+      // The group was removed from the contract since this row was written.
+      // Drop it from the live index and delete it from storage so it stops
+      // coming back on every future connect.
+      deleteTag(sql, { userId: connection.userId, group: tag.group, key: tag.key });
+      opts.logger?.error(
+        '[wskit] dropped a stored persistent tag whose group is no longer declared',
+        { group: tag.group },
+      );
+      continue;
+    }
     const schema = opts.getSchema?.(tag.group);
     if (schema) {
       try {

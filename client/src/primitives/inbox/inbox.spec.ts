@@ -244,25 +244,61 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     const { socket, ws } = buildReceived();
     const room = await subscribedReceived(socket, ws);
     const events: Array<[string, number]> = [];
-    room.onReceived((identity, receivedThrough) => events.push([identity, receivedThrough]));
+    room.onReceived((userId, receivedThrough) => events.push([userId, receivedThrough]));
 
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 5 },
       __wskit: { channel: 'room' },
     });
-    // A lower value must not regress the cursor (Math.max merge).
+    // A lower value must not regress the cursor, and must not re-fire the listener.
     ws.emit({
       event: '__received__',
       payload: { userId: 'bob', receivedThrough: 3 },
       __wskit: { channel: 'room' },
     });
+    // A genuine advance still fires.
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 9 },
+      __wskit: { channel: 'room' },
+    });
 
     expect(events).toEqual([
       ['bob', 5],
-      ['bob', 5],
+      ['bob', 9],
     ]);
-    expect(room.receivers.get().get('bob')).toBe(5);
+    expect(room.receivers.get().get('bob')).toBe(9);
+  });
+
+  it('does not call onReceived or touch the store when the cursor does not advance', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    const snapshotAfterFirst = room.receivers.get();
+    const events: Array<[string, number]> = [];
+    room.onReceived((userId, receivedThrough) => events.push([userId, receivedThrough]));
+
+    // A duplicate value.
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    // A lower value.
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 2 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(events).toEqual([]);
+    // The store snapshot is unchanged by reference — no subscriber notification fired.
+    expect(room.receivers.get()).toBe(snapshotAfterFirst);
   });
 
   it('ignores a __received__ fan-out with a non-string identity', async () => {
@@ -301,6 +337,32 @@ describe('inbox — receivers store from __received__ fan-out', () => {
 
     ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
     expect(room.receivers.get().size).toBe(0);
+  });
+});
+
+describe('inbox — a throwing onReceived listener', () => {
+  it('surfaces on socket.onError with debug off, and does not stop the other listeners', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    const thrown = new Error('boom');
+    const calls: Array<[string, number]> = [];
+    room.onReceived(() => {
+      throw thrown;
+    });
+    room.onReceived((userId, receivedThrough) => calls.push([userId, receivedThrough]));
+
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(thrown);
+    expect(calls).toEqual([['bob', 5]]);
   });
 });
 

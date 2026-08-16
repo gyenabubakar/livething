@@ -145,3 +145,45 @@ describe('define() send/receive core', () => {
     );
   });
 });
+
+describe('define({ users }) maxConnections validation', () => {
+  it('rejects maxConnections: 0', () => {
+    const base = define({
+      env: t<Env>(),
+      users: { maxConnections: 0, onExceed: 'replace' },
+    });
+    expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
+  });
+
+  it('rejects a negative maxConnections', () => {
+    const base = define({
+      env: t<Env>(),
+      users: { maxConnections: -1, onExceed: 'reject' },
+    });
+    expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
+  });
+
+  it('rejects a non-integer maxConnections', () => {
+    const base = define({
+      env: t<Env>(),
+      users: { maxConnections: 2.5, onExceed: 'replace' },
+    });
+    expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
+  });
+
+  it('accepts a positive integer maxConnections', () => {
+    const base = define({
+      env: t<Env>(),
+      users: { maxConnections: 3, onExceed: 'replace' },
+    });
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
+  });
+
+  it('accepts users config with maxConnections omitted', () => {
+    const base = define({
+      env: t<Env>(),
+      users: { onExceed: 'reject' },
+    });
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
+  });
+});

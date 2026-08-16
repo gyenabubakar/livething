@@ -21,6 +21,11 @@ class FakeSqlResult<TRow = unknown> {
 
 class FakeSqlProvider implements SQLProvider {
   readonly sequence = new Map<string, { scope: string; nextSeq: number }>();
+  readonly limits = {
+    maxBoundParams: 32_766,
+    maxStatementBytes: 1_000_000_000,
+    maxValueBytes: 1_000_000_000,
+  };
 
   exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();

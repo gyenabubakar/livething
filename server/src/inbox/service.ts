@@ -1,4 +1,4 @@
-import { purgeReceiptsByUser } from '~/inbox/receipts-storage.ts';
+import { clearCacheEntriesForUser, purgeReceiptsByUser } from '~/inbox/receipts-storage.ts';
 import { clearInboxForChannel, drainInboxOnReconnect, fanOutToInbox } from '~/inbox/runtime.ts';
 import { purgeInboxByUser } from '~/inbox/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
@@ -30,8 +30,11 @@ export function registerInboxRuntime(engine: EngineAccess): void {
     engine.setInboxService(inboxService);
 
     engine.onPurgeUser((core, userId) => {
-      purgeInboxByUser((core as EngineCore).storage.sql, userId);
-      purgeReceiptsByUser((core as EngineCore).storage.sql, userId);
+      const engineCore = core as EngineCore;
+      purgeInboxByUser(engineCore.storage.sql, userId);
+      purgeReceiptsByUser(engineCore.storage.sql, userId);
+      clearCacheEntriesForUser(engineCore.inboxReceiptCursors, userId);
+      clearCacheEntriesForUser(engineCore.inboxMemberCounts, userId);
     });
   });
 }

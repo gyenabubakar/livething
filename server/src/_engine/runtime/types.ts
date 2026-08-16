@@ -221,9 +221,11 @@ export interface RegisteredEngineHooks {
    * Per-user durable cleanup for `admin().purgeUser()`. Registered by a
    * capability that owns per-user durable rows (channel membership,
    * persistent tags, ...). Runs before the user's live sockets are closed.
-   * The `core` argument is the live engine core, opaque here.
+   * The `core` argument is the live engine core, opaque here. `options` carries
+   * the caller's purge options; a hook that has no use for them takes fewer
+   * parameters and ignores it.
    */
-  purgeUser: ((core: any, userId: string) => void | Promise<void>)[];
+  purgeUser: ((core: any, userId: string, options?: any) => void | Promise<void>)[];
 
   /** Runs once during `engine.initialize()` — for framework-level startup. */
   init: ((ctx: any) => void | Promise<void>)[];
@@ -330,10 +332,11 @@ export interface RuntimeConnection {
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Returned from `onUpgrade` and reused as the row key for any per-user
-   * durable state. Empty string means "no user id supplied" — runtime code
-   * that needs a storage key must use `userKeyOf(connection)` to fall back to
-   * the connection's own id so anonymous connections (a user-of-one) never
-   * share a row with each other.
+   * durable state. Empty string means "no user id supplied" — an anonymous
+   * connection has no user identity at all. Runtime code that needs a storage
+   * key for such a connection must use `connectionStorageKeyOf(connection)`,
+   * which falls back to the connection's own id so two anonymous connections
+   * never share a row.
    */
   userId: string;
 

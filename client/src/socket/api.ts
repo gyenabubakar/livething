@@ -64,6 +64,20 @@ export type ContractError<TContract extends SocketContract> = {
 }[keyof ErrorsOf<TContract> & string];
 
 /**
+ * Something `onError` received that is neither a contract error nor a
+ * transport `Event` — a plain `Error`, a string, or any other value a message
+ * handler, primitive hook, or plugin can throw. The framework passes it
+ * through rather than swallowing it, but there is nothing safe to read off
+ * it directly: check for `WSKitError` and `Event` first, and treat this case
+ * as an unexpected bug (log it, report it to your error tracker) rather than
+ * a normal error your app is meant to handle.
+ */
+export interface UnrecognizedError {
+  /** Exists only so this type can never match `WSKitError` or `Event` — never a real value. */
+  readonly _unrecognized: true;
+}
+
+/**
  * The socket type you work with: the connection methods plus typed `on()` and
  * `send()` for your contract. Primitives add their own methods on top through
  * `client()`.
@@ -73,10 +87,13 @@ export type Socket<TContract extends SocketContract = SocketContract> = SocketCo
   SocketContractBrand<TContract> & {
     /**
      * Runs on a server error that no request or stream claimed, typed to the
-     * contract's errors. Narrow with `err instanceof WSKitError` — the other case
-     * is a transport-level `Event` — then `switch (err.code)` for a typed
-     * `err.detail`. A code the contract doesn't declare is still possible at
+     * contract's errors. Narrow with `err instanceof WSKitError` — the other cases
+     * are a transport-level `Event`, or an {@link UnrecognizedError} for anything
+     * else a handler, primitive, or plugin threw — then `switch (err.code)` for a
+     * typed `err.detail`. A code the contract doesn't declare is still possible at
      * runtime (a server the client's types don't match), so keep a `default`.
      */
-    onError(callback: (error: ContractError<TContract> | Event) => void): () => void;
+    onError(
+      callback: (error: ContractError<TContract> | Event | UnrecognizedError) => void,
+    ): () => void;
   };

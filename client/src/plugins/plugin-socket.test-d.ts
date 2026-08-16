@@ -101,3 +101,28 @@ expectTypeOf<ReceiveOnly>().not.toHaveProperty('request');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('channel');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('stream');
 expectTypeOf<ReceiveOnly>().not.toHaveProperty('onRequest');
+
+// BUG 4 regression: a plugin's channel handle must carry the same
+// channel-scoped primitive surface (e.g. inbox()'s `receivers`) the top-level
+// socket gets — at runtime, a plugin's channels go through the same channel
+// machinery, so the types must match.
+interface InboxPluginContract {
+  channels: {
+    room: {
+      incoming: { message: { text: string } };
+      inbox: true;
+      readReceipts: true;
+    };
+    plain: {
+      incoming: { message: { text: string } };
+    };
+  };
+}
+type InboxPluginSocket = PluginSocket<InboxPluginContract>;
+declare const inboxPlugin: InboxPluginSocket;
+expectTypeOf(inboxPlugin.channel('room').receivers.get()).toEqualTypeOf<
+  ReadonlyMap<string, number>
+>();
+expectTypeOf(inboxPlugin.channel('room').markAsRead()).toEqualTypeOf<void>();
+// @ts-expect-error — 'plain' has no inbox flag, so receivers is absent here too
+inboxPlugin.channel('plain').receivers;

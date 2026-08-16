@@ -323,7 +323,24 @@ export async function leaveChannel(
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  if (isTrueLeave && (isDurable || !scope.channel) && !keepDurableRow) {
+  // Durable membership and the inbox are stored per USER, but a leave is per
+  // CONNECTION — the same user can be in this channel from another tab. Only
+  // drop the user-scoped state once their last connection in this channel is
+  // gone. `connection` was already removed from `channelMembers` above, so any
+  // remaining member sharing this user id is a genuinely separate connection.
+  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
+  const userHasAnotherConnectionHere =
+    connection.userId !== '' &&
+    [...(runtime.channelMembers.get(memberKey) ?? [])].some(
+      (member) => member.userId === connection.userId,
+    );
+
+  if (
+    isTrueLeave &&
+    (isDurable || !scope.channel) &&
+    !keepDurableRow &&
+    !userHasAnotherConnectionHere
+  ) {
     runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
     if (connection.userId) {
       runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);

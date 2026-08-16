@@ -79,7 +79,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'lifecycle-test',
+        userId: 'lifecycle-test',
       },
     );
 
@@ -148,7 +148,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'lifecycle-test',
+        userId: 'lifecycle-test',
       },
     );
 
@@ -225,7 +225,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'lifecycle-test',
+        userId: 'lifecycle-test',
       },
     );
 
@@ -291,7 +291,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'ping-test',
+        userId: 'ping-test',
       },
     );
 
@@ -708,7 +708,7 @@ describe('connection runtime', () => {
         send() {},
         close() {},
         bufferedAmount: () => 0,
-        identity: 'c1',
+        userId: 'c1',
       },
       userId: 'c1',
       meta: {},
@@ -761,7 +761,7 @@ describe('connection runtime', () => {
         send() {},
         close() {},
         bufferedAmount: () => 0,
-        identity: 'c1',
+        userId: 'c1',
       },
       userId: 'c1',
       meta: {},
@@ -819,7 +819,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'c1',
+        userId: 'c1',
       },
       meta: {},
       tags: {
@@ -887,7 +887,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'c1',
+        userId: 'c1',
       },
       meta: {},
       tags: {
@@ -951,7 +951,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: 'c1',
+        userId: 'c1',
       },
       meta: {},
       tags: {

@@ -547,6 +547,61 @@ describe('scheduled/runtime', () => {
     expect(restored?.retry).toEqual([100, 200]);
   });
 
+  it('keeps the running run recoverable in storage across a nested ctx.schedule() call', async () => {
+    // processRefund schedules sendReceipt, then the refund logic runs. If the
+    // process crashes right after the nested schedule, the original
+    // processRefund run must still be re-fireable from storage — not silently
+    // dropped because the nested schedule's own persist deleted it.
+    // Captured from inside the handler — the assertion happens outside, since
+    // an assertion failure inside the handler would be swallowed as a
+    // rejected result by `Promise.allSettled` and never fail the test.
+    let taskIdsRightAfterNestedSchedule: string[] = [];
+
+    const { runtime, sql } = createScheduledRuntime([
+      { taskId: 'sendReceipt' },
+      {
+        taskId: 'processRefund',
+        options: { retry: false },
+        handler: async () => {
+          scheduleTaskRun(runtime, { taskId: 'sendReceipt', time: 999, data: undefined });
+
+          // Simulate the moment right after the nested persist, before this
+          // handler (or the alarm's own closing persist) has run.
+          taskIdsRightAfterNestedSchedule = scheduledTableRows(sql).map((r) => String(r.taskId));
+
+          throw new Error('crash mid-refund');
+        },
+      },
+    ]);
+
+    // Persist the processRefund run for real, the same way `ctx.schedule`
+    // would, so it is genuinely in the durable table before the alarm claims
+    // it — not just present in the in-memory map.
+    scheduleTaskRun(runtime, { taskId: 'processRefund', time: 1, data: undefined });
+    expect(scheduledTableRows(sql).map((r) => r.taskId)).toEqual(['processRefund']);
+
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100);
+    await handleScheduledAlarm(runtime);
+    now.mockRestore();
+
+    expect(taskIdsRightAfterNestedSchedule).toContain('processRefund');
+
+    // After the alarm settles (dead-letters the failed run, since retry is
+    // false), the original run row is gone from storage — this is the
+    // legitimate "actually finished" cleanup, not the bug.
+    const finalRows = scheduledTableRows(sql);
+    expect(finalRows.map((r) => r.taskId)).not.toContain('processRefund');
+    expect(finalRows.map((r) => r.taskId)).toContain('sendReceipt');
+  });
+
+  it('the normal (non-nested) schedule path still persists immediately', () => {
+    const { runtime, sql } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: undefined });
+
+    expect(scheduledTableRows(sql).map((r) => r.taskId)).toEqual(['flush']);
+  });
+
   it('dead-letters a task whose rejected value cannot be JSON-stringified', async () => {
     // A handler that throws a BigInt would have crashed the alarm path
     // before — JSON.stringify(1n) throws TypeError. The run is already

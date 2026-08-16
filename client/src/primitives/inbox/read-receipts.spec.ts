@@ -112,7 +112,44 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
     const events: Array<[string, number]> = [];
-    room.onRead((identity, readThrough) => events.push([identity, readThrough]));
+    room.onRead((userId, readThrough) => events.push([userId, readThrough]));
+
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    // A lower value must not regress the cursor, and must not re-fire the listener.
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+    // A genuine advance still fires.
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 9 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(events).toEqual([
+      ['bob', 5],
+      ['bob', 9],
+    ]);
+    expect(room.readers.get().get('bob')).toBe(9);
+  });
+
+  it('does not call onRead or touch the store when the cursor does not advance', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    const snapshotAfterFirst = room.readers.get();
+    const events: Array<[string, number]> = [];
+    room.onRead((userId, readThrough) => events.push([userId, readThrough]));
 
     ws.emit({
       event: '__read__',
@@ -121,15 +158,36 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     });
     ws.emit({
       event: '__read__',
-      payload: { userId: 'bob', readThrough: 3 },
+      payload: { userId: 'bob', readThrough: 2 },
       __wskit: { channel: 'room' },
     });
 
-    expect(events).toEqual([
-      ['bob', 5],
-      ['bob', 5],
-    ]);
-    expect(room.readers.get().get('bob')).toBe(5);
+    expect(events).toEqual([]);
+    expect(room.readers.get()).toBe(snapshotAfterFirst);
+  });
+
+  it('surfaces a throwing onRead listener on socket.onError, and does not stop the other listeners', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    const thrown = new Error('boom');
+    const calls: Array<[string, number]> = [];
+    room.onRead(() => {
+      throw thrown;
+    });
+    room.onRead((userId, readThrough) => calls.push([userId, readThrough]));
+
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(thrown);
+    expect(calls).toEqual([['bob', 5]]);
   });
 
   it('projects readThrough per member, dropping members still at 0', async () => {
@@ -163,7 +221,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     );
   });
 
-  it('clears the readers store on __unsubscribeOk__', async () => {
+  it('clears the readers store on a genuine __unsubscribeOk__', async () => {
     const { socket, ws } = build();
     const room = await subscribed(socket, ws);
     ws.emit({
@@ -173,8 +231,59 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     });
     expect(room.readers.get().size).toBe(1);
 
-    ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+    await leave;
+
     expect(room.readers.get().size).toBe(0);
+  });
+
+  it('does not wipe state on a stale __unsubscribeOk__ that arrives after a rejoin is already under way', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 500 } });
+
+    // Leave, then immediately rejoin before the leave is confirmed — the rejoin
+    // is deferred behind the leave and only sent once it settles.
+    const leave = room.unsubscribe();
+    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const rejoin = room.subscribe();
+
+    // The server's confirmation for the leave finally arrives. It resolves the
+    // leave and fires the deferred rejoin — but must not wipe read state a live
+    // member is about to need again.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+    });
+    await leave;
+
+    expect(room.readers.get().size).toBe(1);
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
+    });
+    await rejoin;
+
+    room.markAsRead();
+    expect(ws.sentFrames().at(-1)).toEqual({
+      event: '__read__',
+      payload: { readThrough: 500 },
+      __wskit: { channel: 'room' },
+    });
   });
 });
 

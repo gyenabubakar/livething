@@ -1,3 +1,4 @@
+import { chunkForBind } from '~/_engine/sql-batch.ts';
 import { familyFromDb, familyToDb } from '~/inbox/db-keys.ts';
 import type { SQLProvider } from '~/context.ts';
 
@@ -69,6 +70,16 @@ export interface InboxFrame {
   payload: Record<string, unknown>;
 }
 
+/**
+ * A full frame the developer hands `ctx.channel.inbox().backfill(...)`, one
+ * per message being seeded. Shaped like a message on the wire — `seq` and
+ * `messageId` nest under `__wskit` — but derived from {@link InboxFrame} so
+ * the payload type can never drift from what storage actually accepts.
+ */
+export interface BackfillMessage extends Pick<InboxFrame, 'event' | 'payload'> {
+  __wskit: Pick<InboxFrame, 'seq' | 'messageId'>;
+}
+
 /** One stored inbox row, read back for drain or re-delivery. */
 export interface InboxRow {
   seq: number;
@@ -79,13 +90,23 @@ export interface InboxRow {
   channelFamily: string | null;
 }
 
+/** Bound parameters one inbox row contributes to a batched `INSERT`. */
+const INBOX_ROW_PARAMS = 8;
+
 /**
- * Insert one inbox row per member in a single batched statement. The frame's
- * `seq`/`messageId` are shared across every row so a member's cumulative ack
- * and the client's dedup both key off one stable identity.
+ * Insert one inbox row per member, batched to stay under the adapter's bound-
+ * parameter cap and wrapped in a transaction so a multi-batch insert is still
+ * all-or-nothing — a message half-delivered to a channel's members is worse
+ * than one that failed outright. The frame's `seq`/`messageId` are shared
+ * across every row so a member's cumulative ack and the client's dedup both
+ * key off one stable identity.
+ *
+ * An existing row for a `(user_id, channel_name, channel_family, seq)` is left
+ * untouched rather than overwritten, so a re-run insert can never clobber a row
+ * the member already acknowledged (see {@link ackInboxRows}) back to unread.
  */
 export function insertInboxRows(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
   params: {
     userIds: readonly string[];
     channelName: string;
@@ -99,39 +120,46 @@ export function insertInboxRows(
 
   const family = familyToDb(channelFamily);
   const payloadJson = JSON.stringify(frame.payload);
-  const rowValues: unknown[] = [];
-  const placeholders: string[] = [];
-  for (const userId of userIds) {
-    placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, NULL)');
-    rowValues.push(
-      userId,
-      channelName,
-      family,
-      frame.seq,
-      frame.messageId,
-      frame.event,
-      payloadJson,
-      now,
-    );
-  }
+  const rows = userIds.map((userId) => [
+    userId,
+    channelName,
+    family,
+    frame.seq,
+    frame.messageId,
+    frame.event,
+    payloadJson,
+    now,
+  ]);
 
-  sql.exec(
-    `
-      INSERT OR REPLACE INTO __wskit_inbox
-        (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
-      VALUES ${placeholders.join(', ')}
-    `,
-    ...rowValues,
-  );
+  const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
+  sql.transaction((tx) => {
+    for (const batch of batches) {
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
+      tx.exec(
+        `
+          INSERT OR IGNORE INTO __wskit_inbox
+            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+          VALUES ${placeholders}
+        `,
+        ...batch.flat(),
+      );
+    }
+  });
 }
 
 /**
  * Insert inbox rows for one user from a set of full frames. Backs
  * `ctx.channel.inbox.backfill(...)`. Each frame keeps its own seq/messageId so
- * ordering and dedup stay consistent with live traffic.
+ * ordering and dedup stay consistent with live traffic. Batched under the
+ * adapter's bound-parameter cap and wrapped in a transaction, same as
+ * {@link insertInboxRows}.
+ *
+ * An existing row is left untouched rather than overwritten, so re-running a
+ * backfill (an import script run twice, for example) can never turn an
+ * already-acknowledged message back into an unread one.
  */
 export function insertInboxRowsForUserId(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
   params: {
     userId: string;
     channelName: string;
@@ -144,30 +172,31 @@ export function insertInboxRowsForUserId(
   if (frames.length === 0) return;
 
   const family = familyToDb(channelFamily);
-  const rowValues: unknown[] = [];
-  const placeholders: string[] = [];
-  for (const frame of frames) {
-    placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, NULL)');
-    rowValues.push(
-      userId,
-      channelName,
-      family,
-      frame.seq,
-      frame.messageId,
-      frame.event,
-      JSON.stringify(frame.payload),
-      now,
-    );
-  }
+  const rows = frames.map((frame) => [
+    userId,
+    channelName,
+    family,
+    frame.seq,
+    frame.messageId,
+    frame.event,
+    JSON.stringify(frame.payload),
+    now,
+  ]);
 
-  sql.exec(
-    `
-      INSERT OR REPLACE INTO __wskit_inbox
-        (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
-      VALUES ${placeholders.join(', ')}
-    `,
-    ...rowValues,
-  );
+  const batches = chunkForBind(rows, INBOX_ROW_PARAMS, sql.limits);
+  sql.transaction((tx) => {
+    for (const batch of batches) {
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, NULL)').join(', ');
+      tx.exec(
+        `
+          INSERT OR IGNORE INTO __wskit_inbox
+            (user_id, channel_name, channel_family, seq, message_id, event, payload, created_at, delivered_at)
+          VALUES ${placeholders}
+        `,
+        ...batch.flat(),
+      );
+    }
+  });
 }
 
 /**

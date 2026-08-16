@@ -118,6 +118,25 @@ describe('fanOutToInbox', () => {
     });
   });
 
+  it('excludeUserId skips that member entirely (regression: sender got its own message back)', () => {
+    const { core, sql } = createCore(new Map([['room', deliver]]));
+    insertMembership(sql, { userId: 'alice', channelName: 'room', channelFamily: null });
+    insertMembership(sql, { userId: 'bob', channelName: 'room', channelFamily: null });
+
+    fanOutToInbox(core, {
+      channelName: 'room',
+      channelFamily: null,
+      event: 'msg',
+      payload: { text: 'hi' },
+      seq: 1,
+      messageId: 'm1',
+      excludeUserId: 'alice',
+    });
+
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
+  });
+
   it('resolves a family channel by its family key', () => {
     const { core, sql } = createCore(new Map([['rooms', deliver]]));
     insertMembership(sql, { userId: 'alice', channelName: 'room-1', channelFamily: 'rooms' });
@@ -281,5 +300,68 @@ describe('backfillInbox', () => {
 
     expect(loadUndeliveredRows(sql, 'newcomer').map((r) => r.seq)).toEqual([1, 2]);
     expect(loadUndeliveredRows(sql, '')).toEqual([]);
+  });
+
+  it('does nothing without retention passed (regression: backfill bypassed retention entirely)', () => {
+    const { sql } = createCore();
+    backfillInbox(sql, {
+      channelName: 'room',
+      channelFamily: null,
+      userId: 'newcomer',
+      frames: [1, 2, 3, 4, 5].map((seq) => ({
+        seq,
+        messageId: `m${seq}`,
+        event: 'msg',
+        payload: {},
+      })),
+    });
+
+    expect(loadUndeliveredRows(sql, 'newcomer')).toHaveLength(5);
+  });
+
+  it('applies maxMessages retention to the inserted rows, same as a live fan-out would', () => {
+    const { sql } = createCore();
+    backfillInbox(sql, {
+      channelName: 'room',
+      channelFamily: null,
+      userId: 'newcomer',
+      frames: [1, 2, 3, 4, 5].map((seq) => ({
+        seq,
+        messageId: `m${seq}`,
+        event: 'msg',
+        payload: {},
+      })),
+      retention: { maxMessages: 2 },
+    });
+
+    expect(loadUndeliveredRows(sql, 'newcomer').map((r) => r.seq)).toEqual([4, 5]);
+  });
+
+  it('raises the overflow watermark when retention evicts rows, so the next drain emits a gap', () => {
+    const { sql } = createCore();
+    backfillInbox(sql, {
+      channelName: 'room',
+      channelFamily: null,
+      userId: 'newcomer',
+      frames: [1, 2, 3].map((seq) => ({ seq, messageId: `m${seq}`, event: 'msg', payload: {} })),
+      retention: { maxMessages: 1 },
+    });
+
+    expect(loadInboxWatermarks(sql, 'newcomer')).toEqual([
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 2 },
+    ]);
+  });
+
+  it('retention already satisfied by the backfill leaves no watermark', () => {
+    const { sql } = createCore();
+    backfillInbox(sql, {
+      channelName: 'room',
+      channelFamily: null,
+      userId: 'newcomer',
+      frames: [{ seq: 1, messageId: 'm1', event: 'msg', payload: {} }],
+      retention: { maxMessages: 5 },
+    });
+
+    expect(loadInboxWatermarks(sql, 'newcomer')).toEqual([]);
   });
 });

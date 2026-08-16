@@ -210,6 +210,23 @@ function diffAgainstSnapshot<T>(
 }
 
 /**
+ * Run ids currently claimed off the queue by an in-progress alarm fire, per
+ * runtime. While a run's id is in this set, a persist must not delete its
+ * durable row even though the id is (temporarily) absent from the live
+ * `scheduledRuns` map — see `persistSchedulerState`.
+ */
+const claimedRunIds = new WeakMap<ScheduledRuntimeAccess, Set<string>>();
+
+function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
+  let claimed = claimedRunIds.get(runtime);
+  if (!claimed) {
+    claimed = new Set();
+    claimedRunIds.set(runtime, claimed);
+  }
+  return claimed;
+}
+
+/**
  * Persist scheduler state by writing only the rows that actually changed
  * since the previous persist. The snapshot maps mirror the durable table
  * contents — they are updated in lock-step with successful SQL writes so the
@@ -219,6 +236,16 @@ function diffAgainstSnapshot<T>(
  * (the run id stays the same; only `time` and `attempts` change), instead of
  * the previous `DELETE *` + reinsert-all pattern that wrote one row per
  * queued task on every fire.
+ *
+ * Delivery is at-least-once: `handleScheduledAlarm` claims due runs off the
+ * live map before invoking their handlers, so a crash mid-handler still finds
+ * the run in storage and re-fires it on restart. A handler that calls
+ * `ctx.schedule`/`ctx.cancelScheduled` triggers this same function again
+ * before the alarm's own run finishes — that write must not also delete the
+ * still-claimed run's durable row, or a crash right after it would lose the
+ * run for good. Deletes for a claimed id are skipped here; the alarm clears
+ * the claim once its handler settles, so its own closing persist deletes the
+ * row normally.
  */
 function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.getStorage();
@@ -226,8 +253,11 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
   const dlqSnapshot = runtime.getScheduledDlqPersisted();
+  const claimed = getClaimedRunIds(runtime);
 
-  const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns);
+  const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns).filter(
+    (op) => op.kind !== 'delete' || !claimed.has(op.id),
+  );
   const dlqOps = diffAgainstSnapshot(deadLetters, dlqSnapshot, serializeDlqColumns);
 
   if (runOps.length === 0 && dlqOps.length === 0) {
@@ -524,8 +554,10 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     queuedAfter: scheduledRuns.size - due.length,
   });
 
+  const claimed = getClaimedRunIds(runtime);
   for (const run of due) {
     scheduledRuns.delete(run.id);
+    claimed.add(run.id);
   }
 
   // Delivery is at-least-once: the single persist at the end of this function
@@ -533,6 +565,12 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   // crash between claim and persist leaves the run row in storage, and the
   // next wake re-fires it. Matches Cloudflare Queues semantics; handlers must
   // be idempotent.
+  //
+  // A handler can call `ctx.schedule`/`ctx.cancelScheduled` on itself, which
+  // persists immediately. `claimed` (above) keeps that write from deleting
+  // this run's still-durable row while the handler is running — cleared just
+  // before the persist below, so a genuinely finished run is deleted here as
+  // normal.
 
   const results = await Promise.allSettled(
     due.map(async (run) => {
@@ -617,6 +655,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     }
   }
 
+  claimed.clear();
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 }

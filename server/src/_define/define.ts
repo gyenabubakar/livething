@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { collectUnique } from '~/_engine/compile/utils.ts';
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
@@ -91,8 +92,8 @@ export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> 
   /**
    * Stable key for the user behind this socket — used as the row key for durable
    * state. Omit it (or return `undefined`) to accept the connection as
-   * **anonymous**: a user-of-one keyed by its own connection id, with no
-   * cross-reconnect recognition and no durable state.
+   * **anonymous**: no user identity at all, with no cross-reconnect
+   * recognition and no durable state.
    */
   readonly userId?: string;
   /** Per-connection metadata, surfaced as `ctx.meta` in every handler. */
@@ -138,8 +139,9 @@ export interface DefineConfig<
    * Cap how many live connections one user may hold at once. `onExceed` decides
    * what a would-be breaching connection does: `reject` refuses the newcomer
    * (closed with `CAPACITY`), `replace` evicts the user's oldest connection(s)
-   * to make room (each closed with `DUPLICATE`). Omit for unlimited. Anonymous
-   * connections (no `userId`) are each a user-of-one and never capped.
+   * to make room (each closed with `DUPLICATE`). Omit for unlimited; when set it
+   * must be a positive whole number. Anonymous connections (no `userId`) have no
+   * user identity to count against and are never capped.
    */
   readonly users?: { readonly maxConnections?: number; readonly onExceed: 'replace' | 'reject' };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
@@ -187,7 +189,7 @@ export interface ScopedDefineConfig<
    * onion: it sees only the raw request, not the app's identity. Return
    * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
    * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
-   * may own `identity` — but only one upgrade hook (the app's or one plugin's)
+   * may own `userId` — but only one upgrade hook (the app's or one plugin's)
    * may return it, or the build/runtime errors.
    */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
@@ -2261,6 +2263,14 @@ export function define(config: any): any {
         config.capabilities ?? [],
         { scoped },
       );
+
+      if (config.users) {
+        assertOptionalPositiveInteger(
+          config.users.maxConnections,
+          'maxConnections',
+          'define({ users })',
+        );
+      }
 
       return Object.freeze({
         __wskit: 'server' as const,

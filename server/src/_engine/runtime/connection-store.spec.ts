@@ -1,5 +1,6 @@
+import { createTestSql } from '~/_test/sql.ts';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { SQLProvider, SqlResult } from '~/context.ts';
+import type { SQLProvider } from '~/context.ts';
 import {
   buildConnectionRow,
   deleteConnectionRow,
@@ -10,81 +11,6 @@ import {
 } from './connection-store.ts';
 import type { RuntimeConnection } from './types.ts';
 
-/**
- * Tiny in-memory SQL stub that recognises just the statements this file
- * emits. Returns plain objects through `SqlResult` — enough to drive the
- * helpers under test without spinning up a real SQLite instance.
- */
-function inMemorySql(): SQLProvider {
-  const rows = new Map<string, Record<string, unknown>>();
-
-  function result<T>(items: T[]): SqlResult<T> {
-    return {
-      toArray: () => items.slice(),
-      one: () => {
-        if (items.length === 0) return null;
-        if (items.length > 1) throw new Error('.one() called on multi-row result');
-        return items[0]!;
-      },
-      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
-    };
-  }
-
-  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-    const normalized = query.trim().replace(/\s+/g, ' ');
-
-    if (normalized.startsWith('CREATE')) return result<TRow>([]);
-
-    if (normalized.startsWith('INSERT OR REPLACE INTO __wskit_connections')) {
-      const [
-        connection_id,
-        user_id,
-        meta,
-        ephemeral_tags,
-        ephemeral_memberships,
-        active_stream_ids,
-      ] = params as string[];
-      rows.set(connection_id!, {
-        connection_id,
-        user_id,
-        meta,
-        ephemeral_tags,
-        ephemeral_memberships,
-        active_stream_ids,
-      });
-      return result<TRow>([]);
-    }
-
-    if (normalized.startsWith('SELECT connection_id')) {
-      const id = params[0] as string;
-      const row = rows.get(id);
-      return result<TRow>(row ? [row as unknown as TRow] : []);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_connections WHERE connection_id =')) {
-      rows.delete(params[0] as string);
-      return result<TRow>([]);
-    }
-
-    if (normalized === 'DELETE FROM __wskit_connections') {
-      rows.clear();
-      return result<TRow>([]);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_connections WHERE connection_id NOT IN')) {
-      const keep = new Set(params as string[]);
-      for (const id of [...rows.keys()]) {
-        if (!keep.has(id)) rows.delete(id);
-      }
-      return result<TRow>([]);
-    }
-
-    throw new Error(`unexpected query: ${normalized}`);
-  }
-
-  return { exec, transaction: <T>(fn: (tx: { exec: typeof exec }) => T) => fn({ exec }) };
-}
-
 function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConnection {
   return {
     id: 'conn_1',
@@ -94,7 +20,7 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
       send() {},
       close() {},
       bufferedAmount: () => 0,
-      identity: 'user-1',
+      userId: 'user-1',
     },
     meta: { role: 'admin' },
     tags: {
@@ -119,7 +45,7 @@ describe('connection-store', () => {
   let sql: SQLProvider;
 
   beforeEach(() => {
-    sql = inMemorySql();
+    sql = createTestSql();
     ensureConnectionSchema(sql);
   });
 
@@ -230,5 +156,89 @@ describe('connection-store', () => {
     expect(row?.ephemeral_tags).toEqual([]);
     expect(row?.ephemeral_memberships).toEqual([]);
     expect(row?.active_stream_ids).toEqual([]);
+  });
+
+  describe('reconcile batching (bound-parameter cap)', () => {
+    function seededSql(rowCount: number) {
+      const batchedSql = createTestSql({ limits: { maxBoundParams: 4 } });
+      ensureConnectionSchema(batchedSql);
+      for (let i = 0; i < rowCount; i++) {
+        writeConnectionRow(
+          batchedSql,
+          buildConnectionRow(fakeConnection({ id: `conn_${i}`, userId: `user_${i}` })),
+        );
+      }
+      return batchedSql;
+    }
+
+    it('deletes orphans spread across several delete batches, below the cap', () => {
+      // 3 stored rows, cap of 4 params per statement — a single delete batch
+      // covers every orphan without hitting the boundary logic at all.
+      const batchedSql = seededSql(3);
+      const surviving = new Set(['conn_0']);
+
+      reconcileConnectionRows(batchedSql, surviving);
+
+      expect(readConnectionRow(batchedSql, 'conn_0')).not.toBeNull();
+      expect(readConnectionRow(batchedSql, 'conn_1')).toBeNull();
+      expect(readConnectionRow(batchedSql, 'conn_2')).toBeNull();
+    });
+
+    it('deletes orphans exactly at the batch boundary', () => {
+      // 4 stored rows, cap of 4 params per statement — the orphan set lands
+      // exactly on one full batch.
+      const batchedSql = seededSql(5);
+      const surviving = new Set(['conn_0']);
+
+      reconcileConnectionRows(batchedSql, surviving);
+
+      expect(readConnectionRow(batchedSql, 'conn_0')).not.toBeNull();
+      for (let i = 1; i < 5; i++) {
+        expect(readConnectionRow(batchedSql, `conn_${i}`)).toBeNull();
+      }
+    });
+
+    it('keeps survivors that are interleaved with orphans across multiple delete batches', () => {
+      // 10 stored rows, cap of 4 params — orphan deletes need three batches
+      // (4 + 4 + 2). Survivors are interleaved throughout, not clustered at
+      // one end, so a batching bug that drops or duplicates ids across the
+      // boundary would show up as a wrongly-deleted survivor or a
+      // still-present orphan.
+      const batchedSql = seededSql(10);
+      const surviving = new Set(['conn_1', 'conn_4', 'conn_5', 'conn_8']);
+
+      reconcileConnectionRows(batchedSql, surviving);
+
+      for (let i = 0; i < 10; i++) {
+        const row = readConnectionRow(batchedSql, `conn_${i}`);
+        if (surviving.has(`conn_${i}`)) {
+          expect(row?.user_id).toBe(`user_${i}`);
+        } else {
+          expect(row).toBeNull();
+        }
+      }
+    });
+
+    it('wipes the whole table on an empty surviving set, above the cap, with no bound-parameter error', () => {
+      const batchedSql = seededSql(9);
+
+      expect(() => reconcileConnectionRows(batchedSql, new Set())).not.toThrow();
+      for (let i = 0; i < 9; i++) {
+        expect(readConnectionRow(batchedSql, `conn_${i}`)).toBeNull();
+      }
+    });
+
+    it('does not throw when every row survives, well above the cap', () => {
+      // Every id is in the surviving set — no delete statement should run at
+      // all, and reading all stored ids up front must not itself bind a
+      // per-row parameter (it is a plain, unparameterised SELECT).
+      const batchedSql = seededSql(9);
+      const surviving = new Set(Array.from({ length: 9 }, (_, i) => `conn_${i}`));
+
+      expect(() => reconcileConnectionRows(batchedSql, surviving)).not.toThrow();
+      for (let i = 0; i < 9; i++) {
+        expect(readConnectionRow(batchedSql, `conn_${i}`)?.user_id).toBe(`user_${i}`);
+      }
+    });
   });
 });

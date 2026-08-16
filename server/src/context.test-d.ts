@@ -6,7 +6,7 @@
  * expose connection-level APIs that would be invalid before any client connects.
  */
 
-import type { InitContext, KVProvider, Logger, SQLProvider } from '~/context.ts';
+import type { InitContext, KVProvider, Logger, SqlLimits, SQLProvider } from '~/context.ts';
 
 declare const initCtx: InitContext<{ SECRET: string }, { doId: string }>;
 
@@ -15,6 +15,26 @@ void _sql;
 
 initCtx.sql.exec<{ id: string }>('SELECT id FROM t');
 initCtx.sql.exec<{ id: string }>('SELECT id FROM t WHERE id = ?', 'abc');
+
+const _limits: SqlLimits = initCtx.sql.limits;
+void _limits;
+
+const _maxBoundParams: number = initCtx.sql.limits.maxBoundParams;
+const _maxStatementBytes: number = initCtx.sql.limits.maxStatementBytes;
+const _maxValueBytes: number = initCtx.sql.limits.maxValueBytes;
+void [_maxBoundParams, _maxStatementBytes, _maxValueBytes];
+
+// @ts-expect-error — limits is readonly, not assignable
+initCtx.sql.limits = { maxBoundParams: 1, maxStatementBytes: 1, maxValueBytes: 1 };
+
+// SQLProvider requires `limits` — omitting it is a type error.
+declare const _missingLimits: {
+  exec: SQLProvider['exec'];
+  transaction: SQLProvider['transaction'];
+};
+// @ts-expect-error — SQLProvider requires `limits`, not present here
+const _notASqlProvider: SQLProvider = _missingLimits;
+void _notASqlProvider;
 
 const _txResult: string = initCtx.sql.transaction((tx) => {
   tx.exec<{ n: number }>('SELECT COUNT(*) AS n FROM t');

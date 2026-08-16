@@ -35,7 +35,7 @@ function testSocket() {
       send: (data: string) => void frames.push(data),
       close: () => {},
       bufferedAmount: () => 0,
-      identity: 'tester',
+      userId: 'tester',
     },
   };
 }

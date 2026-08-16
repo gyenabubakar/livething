@@ -170,7 +170,7 @@ export interface UserRequestArm<TSlots> {
  * fans a metadata patch the same way. Typed to the server's `emits(...)` events.
  */
 export interface UserHandleBase<TSlots, TMeta> {
-  /** The user id — the value `upgrade(...)` returned, or the connection id for an anonymous user-of-one. */
+  /** The user id — the value `upgrade(...)` returned, or `''` on an anonymous connection. */
   readonly id: string;
   /** Build a `UserRef` for this user — pass it to `kick` and the like. */
   ref(): UserRef;
@@ -196,8 +196,8 @@ type UserHandleCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = User
 /**
  * `ctx.user` (the current connection's user) and `ctx.users` (reach any user by
  * id), always present. A user is one or more connections sharing the id
- * `upgrade(...)` returned; an anonymous connection is a user-of-one keyed by its
- * own connection id.
+ * `upgrade(...)` returned. An anonymous connection has no user identity —
+ * `ctx.user` is still there but reaches nobody.
  */
 export interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
   /** The user behind the current connection. */

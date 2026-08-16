@@ -28,7 +28,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -1457,7 +1457,7 @@ describe('stream/runtime', () => {
           return reads >= 3 ? 0 : 1_000_000;
         },
         backpressureSupported: true,
-        identity: connection.id,
+        userId: connection.id,
       };
       // The run ctx is the object buildConnectionContext returns; drain is
       // installed on it before the generator runs. Capture it from the ctx.
@@ -1499,7 +1499,7 @@ describe('stream/runtime', () => {
           return 1_000_000;
         },
         backpressureSupported: false,
-        identity: connection.id,
+        userId: connection.id,
       };
       const stream = {
         stream: { nudges: [], broadcast: false, highWaterMark: 1000 },

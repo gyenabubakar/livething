@@ -37,7 +37,14 @@ app.assemble({
     // @ts-expect-error — `cancelScheduled` is owned by the scheduled() capability
     ctx.cancelScheduled;
 
-    return { evict: (id: string) => ctx.purgeUser(id) };
+    expectTypeOf(ctx.purgeUser)
+      .parameter(1)
+      .toEqualTypeOf<{ keepBroadcastContent?: boolean } | undefined>();
+
+    return {
+      evict: (id: string) => ctx.purgeUser(id),
+      evictKeepingBroadcasts: (id: string) => ctx.purgeUser(id, { keepBroadcastContent: true }),
+    };
   },
 });
 

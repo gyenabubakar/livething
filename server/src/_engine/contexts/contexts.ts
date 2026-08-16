@@ -172,7 +172,10 @@ function assignMessagingApi(
 
   target.connections = buildConnectionsManager(deps);
 
-  target.user = buildUserHandle(userKeyOf(connection), deps);
+  // Anonymous connections have no user identity — `ctx.user` still exists so
+  // handler code never has to null-check it, but it addresses no live
+  // connection (usersByKey never indexes an anonymous connection under '').
+  target.user = buildUserHandle(userKeyOf(connection) ?? '', deps);
 
   target.users = { get: (id: string) => buildUserHandle(id, deps) };
 

@@ -1,16 +1,9 @@
 import { loadInboxBacklog } from '~/inbox/backlog.ts';
 import { listReceivers } from '~/inbox/receipts-storage.ts';
-import { backfillInbox } from '~/inbox/runtime.ts';
+import { backfillInbox, channelKeyFor } from '~/inbox/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ChannelInbox, InboxBacklogEntry } from '~/context.ts';
-import type { InboxFrame } from '~/inbox/storage.ts';
-
-/** A full frame the developer hands `inbox().backfill(...)`. */
-interface BackfillFrame {
-  event: string;
-  payload: unknown;
-  __wskit: { seq: number; messageId: string };
-}
+import type { BackfillMessage, InboxFrame } from '~/inbox/storage.ts';
 
 /**
  * Build the `ChannelInbox` surface for one concrete channel. Shared by the
@@ -24,19 +17,24 @@ export function buildInboxSurface(
 ): ChannelInbox {
   const { channelName, channelFamily } = scope;
   return {
-    backfill(userId: string, messages: readonly BackfillFrame[]): void {
+    backfill(userId: string, messages: readonly BackfillMessage[]): void {
       const frames: InboxFrame[] = messages.map((message) => ({
         seq: message.__wskit.seq,
         messageId: message.__wskit.messageId,
         event: message.event,
         payload: assertRecord(message.payload),
       }));
+      const config = engine.getInboxChannel(channelKeyFor(channelName, channelFamily));
       backfillInbox(engine.storage.sql, {
         channelName,
         channelFamily,
         userId,
         frames,
+        retention: config?.retention,
       });
+      // These rows bypassed the live fan-out that keeps the count cache warm, so
+      // the cached value is now too low. Drop it and let the next write re-read.
+      engine.invalidateInboxMemberCount?.(channelName, channelFamily, userId);
     },
     receiversOf(seq: number): string[] {
       return listReceivers(engine.storage.sql, { channelName, channelFamily, seq });
@@ -61,9 +59,9 @@ export function buildInboxSurface(
   };
 }
 
-function assertRecord(value: unknown): Record<string, unknown> {
+function assertRecord(value: Record<string, unknown>): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('[wskit] inbox backfill payload must be a plain object.');
   }
-  return value as Record<string, unknown>;
+  return value;
 }

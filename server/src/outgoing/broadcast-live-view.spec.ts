@@ -13,7 +13,7 @@ function createConnection(id: string, onSend: (id: string) => void): RuntimeConn
       },
       close() {},
       bufferedAmount: () => 0,
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

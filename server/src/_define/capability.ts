@@ -226,9 +226,17 @@ export type BrandsOf<TCaps extends readonly AnyCapability[]> =
  */
 export type BrandIsWidened<TBrand extends string> = string extends TBrand ? true : false;
 
-/** The union of feature flags turned on across a list of capabilities. @internal */
+/**
+ * The union of feature flags turned on across a list of capabilities. When a
+ * `capabilities` array is annotated with a widened type (e.g.
+ * `AnyCapability[]`), the feature union collapses to the full `string` type,
+ * which would make every `'x' extends FeaturesOf<TCaps>` gate pass at once —
+ * for example `ctx.latency` typing as available with no capability listed.
+ * Collapsing that case to `never` instead closes every gate together, the
+ * same treatment {@link BrandsOf} already gets. @internal
+ */
 export type FeaturesOf<TCaps extends readonly AnyCapability[]> =
-  TCaps[number]['__features'][number];
+  string extends TCaps[number]['__features'][number] ? never : TCaps[number]['__features'][number];
 
 /** Collapse a union of slot records into one merged record. @internal */
 export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (

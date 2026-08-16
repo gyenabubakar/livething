@@ -2,6 +2,7 @@
 import { CloseCodes } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import * as InboxRuntime from '~/inbox/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
@@ -403,6 +404,11 @@ export function createEngineAccess(
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),
     getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
+    invalidateInboxMemberCount: (channelName, channelFamily, userId) => {
+      core.inboxMemberCounts.delete(
+        InboxRuntime.memberCountKey(channelName, channelFamily, userId),
+      );
+    },
 
     receiptCursorCache: () => core.inboxReceiptCursors,
     hasReadReceiptsChannel: (channelKey) => core.readReceiptsChannels.has(channelKey),

@@ -277,7 +277,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler);
-    if (execCount !== 11) {
+    if (execCount !== 12) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy cold] sql.exec calls:\n' +
@@ -286,22 +286,29 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Breakdown:
     //   1. sentinel SELECT (throws — no table yet)
-    //   2-6. five schema hooks: channel membership, connections (hibernation),
-    //        sequence, replay, scheduled
-    //   7. mark sentinel (bundled CREATE meta + INSERT)
-    //   8. channel membership reconcile (cleanup SELECT)
-    //   9-10. scheduled bootstrap loads queued runs + dlq
-    //   11. scheduled persist-after-restore — one INSERT for the new recurring
+    //   2-7. six schema hooks: channel membership, connections (hibernation),
+    //        sequence, replay, durable streams, scheduled
+    //   8. mark sentinel (bundled CREATE meta + INSERT)
+    //   9. channel membership reconcile (cleanup SELECT)
+    //   10-11. scheduled bootstrap loads queued runs + dlq
+    //   12. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist only
     //       writes genuine new rows, so the empty-load case costs zero extra
     //       writes.
     //
+    // The durable-stream schema hook is why a server declaring a durable stream
+    // pays one statement more here than the other capabilities alone would cost.
+    // Creating those tables at boot rather than on first stream use is what lets
+    // purgeUser delete stream rows on a server whose streams have never run —
+    // the tables exist either way. A warm boot skips every schema hook, so this
+    // is a cold-boot-only cost, paid once.
+    //
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
-    // hook (#5), the bootstrap loads (#9-10), and the one persist-after-restore
-    // INSERT (#11) — so a durable-stream server pays 11 round trips on a cold boot.
-    expect(execCount).toBe(11);
+    // hook (#7), the bootstrap loads (#10-11), and the one persist-after-restore
+    // INSERT (#12) — so a durable-stream server pays 12 round trips on a cold boot.
+    expect(execCount).toBe(12);
   });
 
   it('heavy: WARM boot (sentinel current) skips every schema hook', async () => {

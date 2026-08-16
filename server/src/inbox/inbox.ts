@@ -148,10 +148,13 @@ function buildReceivedHandler(deps: {
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const userId = (ctx as { user?: { id?: string } }).user?.id ?? '';
+    const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
+      ENGINE_INTERNAL_CONNECTION
+    ];
+    const userId = connection?.userId ?? '';
     const channelName = frame.__wskit.channel;
     const channelFamily = frame.__wskit.channelFamily ?? null;
-    if (userId && isMember(ctx, channelName, channelFamily)) {
+    if (userId && isMember(connection, channelName, channelFamily)) {
       applyInboxAck(engine.storage.sql, {
         userId,
         channelName,
@@ -228,10 +231,11 @@ function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: str
 }
 
 /** True when the acking socket is still a current member of the channel. */
-function isMember(ctx: unknown, channelName: string, channelFamily: string | null): boolean {
-  const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
-    ENGINE_INTERNAL_CONNECTION
-  ];
+function isMember(
+  connection: RuntimeConnection | undefined,
+  channelName: string,
+  channelFamily: string | null,
+): boolean {
   return !!connection && hasChannelMembership(connection, channelName, channelFamily);
 }
 

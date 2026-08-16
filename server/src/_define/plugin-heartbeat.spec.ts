@@ -51,7 +51,7 @@ async function openConnection(engine: Engine) {
     send() {},
     close() {},
     bufferedAmount: () => 0,
-    identity: 'user-1',
+    userId: 'user-1',
   } as any);
   await Promise.resolve();
   return conn;

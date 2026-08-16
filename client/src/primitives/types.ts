@@ -244,12 +244,12 @@ type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
  * message — the top-level guard, mirrored one level down. Returns `{}` (no
  * override) when every channel-scoped primitive in use is installed.
  */
-type ChannelAccessorStub<TContract, Api> =
+type ChannelAccessorStub<TContract, Api, TPrimitives extends readonly Primitive<any, any, any>[]> =
   ChannelHandleStubs<TContract, Api> extends infer Stubs
     ? {} extends Stubs
       ? {}
       : TContract extends { channels: infer C extends Record<string, any> }
-        ? { channel: StubbedChannelMethod<C, Stubs> }
+        ? { channel: StubbedChannelMethod<C, Stubs, TPrimitives> }
         : {}
     : {};
 
@@ -266,7 +266,7 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
     : ApplyPrimitives<TPrimitives, TContract> extends infer Api
       ? (SectionDeclared<TContract, 'channels'> extends true
           ? 'channel' extends keyof Api
-            ? ChannelAccessorStub<TContract, Api>
+            ? ChannelAccessorStub<TContract, Api, TPrimitives>
             : {
                 channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }

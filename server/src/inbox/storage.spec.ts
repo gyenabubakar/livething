@@ -50,7 +50,7 @@ describe('inbox/storage — insert and load', () => {
     expect(loadUndeliveredRows(sql, 'bob')[0]?.seq).toBe(5);
   });
 
-  it('de-dupes on the (user_id, channel, seq) primary key via INSERT OR REPLACE', () => {
+  it('a re-insert on the (user_id, channel, seq) primary key is a no-op, not a replace', () => {
     const sql = setup();
     insertInboxRows(sql, {
       userIds: ['alice'],
@@ -69,7 +69,43 @@ describe('inbox/storage — insert and load', () => {
 
     const rows = loadUndeliveredRows(sql, 'alice');
     expect(rows).toHaveLength(1);
-    expect(JSON.parse(rows[0]!.payload)).toEqual({ n: 2 });
+    expect(JSON.parse(rows[0]!.payload)).toEqual({ n: 1 });
+  });
+
+  it('a duplicate insert never undoes an already-acknowledged row (regression: re-run import marking history unread)', () => {
+    const sql = setup();
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(5),
+      now: 1000,
+    });
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 5,
+      onDelivered: 'retain',
+      now: 2000,
+    });
+
+    // The same message arrives again — the import ran twice, or the frame is re-fanned-out.
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(5),
+      now: 3000,
+    });
+
+    const row = sql
+      .exec<{
+        delivered_at: number | null;
+      }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = 5', 'alice')
+      .one();
+    expect(row?.delivered_at).toBe(2000);
+    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
   });
 
   it('orders undelivered rows by channel then family then seq', () => {
@@ -136,6 +172,104 @@ describe('inbox/storage — insert and load', () => {
 
     const rows = loadUndeliveredRows(sql, 'alice');
     expect(rows.map((r) => r.channelFamily)).toEqual([null, 'rooms']);
+  });
+});
+
+describe('inbox/storage — bind-limit batching (regression: broadcast to >12 members failed outright)', () => {
+  // 8 bound params per row: userId, channelName, family, seq, messageId, event, payload, created_at.
+  function limitedSql(maxBoundParams: number) {
+    const sql = createTestSql({ limits: { maxBoundParams } });
+    ensureInboxSchema(sql);
+    return sql;
+  }
+
+  it('insertInboxRows writes every row when the member count is under one batch', () => {
+    const sql = limitedSql(32); // room for 4 rows (32 / 8)
+    const userIds = ['a', 'b', 'c'];
+    insertInboxRows(sql, {
+      userIds,
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 1,
+    });
+
+    for (const userId of userIds) {
+      expect(loadUndeliveredRows(sql, userId)).toHaveLength(1);
+    }
+  });
+
+  it('insertInboxRows writes every row when the member count lands exactly on one batch', () => {
+    const sql = limitedSql(32); // exactly 4 rows fit in one batch
+    const userIds = ['a', 'b', 'c', 'd'];
+    insertInboxRows(sql, {
+      userIds,
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 1,
+    });
+
+    for (const userId of userIds) {
+      expect(loadUndeliveredRows(sql, userId)).toHaveLength(1);
+    }
+  });
+
+  it('insertInboxRows still writes every row when the member count spans several batches', () => {
+    const sql = limitedSql(32); // 4 rows per batch, 5 members needs 2 batches
+    const userIds = ['a', 'b', 'c', 'd', 'e'];
+    insertInboxRows(sql, {
+      userIds,
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 1,
+    });
+
+    for (const userId of userIds) {
+      expect(loadUndeliveredRows(sql, userId)).toHaveLength(1);
+    }
+  });
+
+  it('insertInboxRowsForUserId batches a large backfill across several statements', () => {
+    const sql = limitedSql(32); // 4 frames per batch, 5 frames needs 2 batches
+    const frames = [1, 2, 3, 4, 5].map((seq) => frame(seq));
+    insertInboxRowsForUserId(sql, {
+      userId: 'carol',
+      channelName: 'room',
+      channelFamily: null,
+      frames,
+      now: 1,
+    });
+
+    expect(loadUndeliveredRows(sql, 'carol').map((r) => r.seq)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('insertInboxRows is atomic across batches: a mid-run failure leaves no partial rows', () => {
+    let insertCalls = 0;
+    const sql = createTestSql({
+      limits: { maxBoundParams: 32 }, // 4 rows per batch, 5 members needs 2 batches
+      onExec: (query) => {
+        if (!query.trim().startsWith('INSERT')) return;
+        insertCalls += 1;
+        if (insertCalls === 2) throw new Error('storage down mid-transaction');
+      },
+    });
+    ensureInboxSchema(sql);
+
+    expect(() =>
+      insertInboxRows(sql, {
+        userIds: ['a', 'b', 'c', 'd', 'e'],
+        channelName: 'room',
+        channelFamily: null,
+        frame: frame(1),
+        now: 1,
+      }),
+    ).toThrow('storage down mid-transaction');
+
+    for (const userId of ['a', 'b', 'c', 'd', 'e']) {
+      expect(loadUndeliveredRows(sql, userId)).toEqual([]);
+    }
   });
 });
 

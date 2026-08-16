@@ -7,7 +7,8 @@ import {
   runReceiptQuery,
 } from '~/primitives/inbox/receipt-query.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type { WritableStore } from '~/internal/store.ts';
+import type { ReadableStore, WritableStore } from '~/internal/store.ts';
+import type { ChannelStatus } from '~/primitives/channels/types.ts';
 import type { PendingQuery } from '~/primitives/inbox/receipt-query.ts';
 import type {
   ChannelReadReceiptsApi,
@@ -15,11 +16,19 @@ import type {
   ReadReceiptsPrimitive,
 } from '~/primitives/inbox/types.ts';
 
-/** One channel's read-receipt state: the read cursor per identity plus its store. */
+/** One channel's read-receipt state: the read cursor per user id plus its store. */
 interface ChannelReaders {
-  byIdentity: Map<string, number>;
+  byUserId: Map<string, number>;
   store: WritableStore<CursorList>;
-  listeners: Set<(identity: string, readThrough: number) => void>;
+  listeners: Set<(userId: string, readThrough: number) => void>;
+  /**
+   * The channel's live subscription status, captured from `channels()` once a
+   * handle for this channel is built. Used to tell a genuine `__unsubscribeOk__`
+   * apart from a stale one that arrives after the member has already rejoined —
+   * `channels()` still forwards both, since it only tracks staleness for its own
+   * state. `null` until a handle has been built for this channel.
+   */
+  status: ReadableStore<ChannelStatus> | null;
 }
 
 /** Options for the client `readReceipts()` primitive. */
@@ -52,27 +61,39 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
         let state = channels.get(key);
         if (!state) {
           state = {
-            byIdentity: new Map(),
+            byUserId: new Map(),
             store: createStore<CursorList>(new Map()),
             listeners: new Set(),
+            status: null,
           };
           channels.set(key, state);
         }
         return state;
       }
 
-      function applyRead(key: string, identity: string, readThrough: number): void {
+      function applyRead(key: string, userId: string, readThrough: number): void {
         const state = stateFor(key);
-        const next = Math.max(state.byIdentity.get(identity) ?? 0, readThrough);
-        state.byIdentity.set(identity, next);
-        state.store.set(projectCursor(state.byIdentity));
+        const previous = state.byUserId.get(userId) ?? 0;
+        if (readThrough <= previous) return;
+        state.byUserId.set(userId, readThrough);
+        state.store.set(projectCursor(state.byUserId));
         for (const listener of [...state.listeners]) {
           try {
-            listener(identity, next);
+            listener(userId, readThrough);
           } catch (error) {
-            helpers.log.error('onRead listener threw', error);
+            helpers.log.report(error);
           }
         }
+      }
+
+      // A genuine unsubscribe leaves the channel 'subscribed'/'subscribing' only
+      // if a rejoin was queued or already landed before this confirmation arrived
+      // — in that case the confirmation is stale (or for a leave already
+      // superseded) and must not wipe state a live rejoin still needs.
+      function isStaleUnsubscribeOk(state: ChannelReaders | undefined): boolean {
+        if (!state?.status) return false;
+        const status = state.status.get();
+        return status === 'subscribed' || status === 'subscribing';
       }
 
       return {
@@ -83,10 +104,12 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           const key = channelKey(message.__wskit?.channelFamily, channel);
 
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
-            ownReceived.delete(key);
             const state = channels.get(key);
+            if (message.event === '__unsubscribeOk__' && isStaleUnsubscribeOk(state))
+              return message;
+            ownReceived.delete(key);
             if (state) {
-              state.byIdentity.clear();
+              state.byUserId.clear();
               state.store.set(new Map());
             }
             return message;
@@ -121,6 +144,10 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           getAugmenters(socket).push((messaging, scope) => {
             const key = markersKey(scope.markers());
             const state = stateFor(key);
+            // channels() builds every channel messaging with a `status` store; it
+            // runs before this augmenter registers (readReceipts sorts after
+            // channels), so it is always present by the time a handle is built.
+            state.status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
 
             const readApi: ChannelReadReceiptsApi = {
               readers: { get: state.store.store.get, subscribe: state.store.store.subscribe },
@@ -153,10 +180,10 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
 }
 
 /** Drop members still at `0` from the read cursor map. */
-function projectCursor(byIdentity: ReadonlyMap<string, number>): CursorList {
+function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
   const list = new Map<string, number>();
-  for (const [identity, cursor] of byIdentity) {
-    if (cursor > 0) list.set(identity, cursor);
+  for (const [userId, cursor] of byUserId) {
+    if (cursor > 0) list.set(userId, cursor);
   }
   return list;
 }

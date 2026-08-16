@@ -322,6 +322,30 @@ describe('replay — per-channel scope catch-up', () => {
       expect(seen).toEqual([{ missedThrough: 12 }]);
     });
 
+    it('advances the scope cursor to missedThrough, so a second reconnect asks past the gap instead of repeating it', () => {
+      const { socket, ws } = build(dedup(), replay(), reconnection());
+      const seen: GapInfo[] = [];
+      // @ts-expect-error — onGap is present at runtime; see the direct-client test below for the typed path
+      socket.onGap((info: GapInfo) => seen.push(info));
+
+      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
+
+      const second = reconnectAfterDrop(ws);
+      second.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: {} });
+
+      const third = reconnectAfterDrop(second);
+      const replayFrames = third.sentFrames().filter((f) => f.event === '__replay__');
+
+      expect(replayFrames).toContainEqual({
+        event: '__replay__',
+        payload: { lastKnownSeq: 12 },
+        __wskit: {},
+      });
+      // Only the one gap seen above — a stale cursor would report the same
+      // gap again on every subsequent reconnect.
+      expect(seen).toEqual([{ missedThrough: 12 }]);
+    });
+
     it('does not leak the __gap__ frame to a user .on() message handler', () => {
       const { socket, ws } = build(dedup(), replay(), reconnection());
       const onGap = vi.fn();

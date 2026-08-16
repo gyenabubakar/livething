@@ -47,7 +47,7 @@ function descriptorFor(userId: string) {
     send: vi.fn(),
     close: vi.fn(),
     bufferedAmount: () => 0,
-    identity: userId,
+    userId,
   };
 }
 

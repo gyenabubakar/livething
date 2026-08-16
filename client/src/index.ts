@@ -67,9 +67,10 @@ export { stream } from '~/primitives/stream/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@wskit/core';
+export type { WireMessage, WSKitEnvelope } from '@wskit/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
-export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';
+export type { Socket, SocketConnection, ContractError, UnrecognizedError } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
 export type { Messaging, SendOptions } from '~/messaging.ts';
 export type {
@@ -95,6 +96,8 @@ export type {
   StreamHandle,
   StreamHandlers,
   NudgesOf,
+  GapInfo,
+  PersistentStreamKeys,
 } from '~/types.ts';
 
 export type {

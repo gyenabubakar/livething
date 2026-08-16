@@ -43,19 +43,27 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
 
 function ctxFor(userId: string, connection: unknown) {
   return {
+    // A stale-shaped user handle: an anonymous connection's `ctx.user.id`
+    // falls back to the connection id, which is never empty. The received
+    // handler must read the connection's real `userId`, not this field.
     user: { id: userId },
     [ENGINE_CHANNEL_META]: { channelName: 'room', channelFamily: null },
     [ENGINE_INTERNAL_CONNECTION]: connection,
   };
 }
 
-function member() {
+function member(userId = 'alice') {
   return {
     id: 'c1',
+    userId,
     channelMemberships: new Map([
       [createChannelMembershipKey('room', null), { channelName: 'room', channelFamily: null }],
     ]),
   };
+}
+
+function anonymousMember() {
+  return member('');
 }
 
 function receivedFrame(receivedThrough: number): Protocol.IncomingProtocolFrame {
@@ -97,20 +105,32 @@ describe('inbox __received__ handler', () => {
   it('drops the ack from a socket that has left the channel', () => {
     const { sql, handlers } = harness();
     seedRow(sql, 1);
-    const nonMember = { id: 'c1', channelMemberships: new Map() };
+    const nonMember = { id: 'c1', userId: 'alice', channelMemberships: new Map() };
 
     handlers.get('__received__')!(ctxFor('alice', nonMember), receivedFrame(1));
 
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([1]);
   });
 
-  it('drops the ack from an anonymous user id', () => {
+  it('drops the ack from an anonymous connection', () => {
     const { sql, handlers } = harness();
     seedRow(sql, 1);
 
-    handlers.get('__received__')!(ctxFor('', member()), receivedFrame(1));
+    handlers.get('__received__')!(ctxFor('', anonymousMember()), receivedFrame(1));
 
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([1]);
+  });
+
+  it('ignores a stale `ctx.user.id` fallback and reads the connection instead', () => {
+    // A hand-built ctx whose user.id is non-empty while the connection itself
+    // is anonymous. The handler must trust the connection, not the ctx.
+    const { sql, handlers } = harness();
+    seedRow(sql, 1);
+
+    handlers.get('__received__')!(ctxFor('c1', anonymousMember()), receivedFrame(1));
+
+    expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([1]);
+    expect(listReceivers(sql, { channelName: 'room', channelFamily: null, seq: 1 })).toEqual([]);
   });
 
   it('always returns false so read-receipts can also observe the ack', () => {

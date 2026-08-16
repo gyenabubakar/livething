@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceReadThrough,
   advanceReceivedThrough,
+  clearCacheEntriesForUser,
   ensureReceiptsSchema,
   listReaders,
   listReceivers,
@@ -142,5 +143,47 @@ describe('receipts-storage — purgeReceiptsByUser', () => {
     expect(listReceivers(sql, { channelName: 'other-room', channelFamily: null, seq: 1 })).toEqual(
       [],
     );
+  });
+});
+
+describe('receipts-storage — clearCacheEntriesForUser', () => {
+  it("removes one user's cursor cache entries across channels, leaving another user's intact", () => {
+    const sql = setup();
+    const cache = new Map<string, { receivedThrough: number; readThrough: number }>();
+    advanceReceivedThrough(sql, { ...room, userId: 'alice', receivedThrough: 5, now: 1 }, cache);
+    advanceReceivedThrough(
+      sql,
+      {
+        channelName: 'other-room',
+        channelFamily: null,
+        userId: 'alice',
+        receivedThrough: 2,
+        now: 1,
+      },
+      cache,
+    );
+    advanceReceivedThrough(sql, { ...room, userId: 'bob', receivedThrough: 5, now: 1 }, cache);
+    expect(cache.size).toBe(3);
+
+    clearCacheEntriesForUser(cache, 'alice');
+
+    expect([...cache.keys()]).toEqual(['room  bob']);
+  });
+
+  it('does not remove a user id that is only a suffix of another key', () => {
+    const cache = new Map<string, number>([
+      ['room  5', 1],
+      ['room  105', 2],
+    ]);
+
+    clearCacheEntriesForUser(cache, '5');
+
+    expect([...cache.keys()]).toEqual(['room  105']);
+  });
+
+  it('is a no-op on an empty cache', () => {
+    const cache = new Map<string, number>();
+    expect(() => clearCacheEntriesForUser(cache, 'alice')).not.toThrow();
+    expect(cache.size).toBe(0);
   });
 });
