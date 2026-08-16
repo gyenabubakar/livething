@@ -1,7 +1,7 @@
-import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
+import { CloseCodes, StreamAborted } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
-import { userKeyOf } from '~/_engine/runtime/user-key.ts';
+import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -12,9 +12,6 @@ import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 export { userKeyOf } from '~/_engine/runtime/user-key.ts';
-
-/** Matches the wire-level channel-name cap; a user id is used the same way. */
-const MAX_USER_ID_LENGTH = 256;
 
 /**
  * Add one connection to the user-key fan-out index, creating its set if
@@ -410,14 +407,7 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  // The user id becomes the durable row key for per-user state, so cap it
-  // like a wire field. Reject rather than truncate — two distinct long user
-  // ids truncated to the same prefix would silently share durable state.
-  if (descriptor.userId.length > MAX_USER_ID_LENGTH) {
-    throw new WSKitConfigError(
-      `[wskit] user id returned from onUpgrade is ${descriptor.userId.length} chars; the max is ${MAX_USER_ID_LENGTH}. Use a stable id (user id, ULID) rather than a token as the user id.`,
-    );
-  }
+  assertUsableUserId(descriptor.userId);
 
   // A per-user connection cap only applies to identified users — an anonymous
   // connection has no user identity to count against.

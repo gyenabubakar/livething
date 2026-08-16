@@ -1,4 +1,40 @@
+import { WSKitConfigError } from '@wskit/core';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+
+/**
+ * A user id becomes the row key for that user's durable state, so it is capped
+ * like a wire field. Rejected rather than truncated: two long ids cut to the
+ * same prefix would silently share one row.
+ */
+const MAX_USER_ID_LENGTH = 256;
+
+/**
+ * Start of the key space WSKit keeps for itself. Some rows are filed under a
+ * key the framework invents rather than a real user — a broadcast stream, for
+ * instance, is stored against its channel so every subscriber resolves the same
+ * row. Those keys all begin with this prefix, and a real user id may not, or an
+ * app could hand someone an id that lands in the same row space and lets them
+ * read a stream that is not theirs.
+ */
+export const RESERVED_USER_ID_PREFIX = '__';
+
+/**
+ * Reject a user id the framework cannot safely store. Runs at the boundary
+ * where a user id first arrives, so the app hears about it at the upgrade that
+ * produced it rather than at some later read.
+ */
+export function assertUsableUserId(userId: string): void {
+  if (userId.length > MAX_USER_ID_LENGTH) {
+    throw new WSKitConfigError(
+      `[wskit] the user id returned from onUpgrade is ${userId.length} characters; the most allowed is ${MAX_USER_ID_LENGTH}. Use a stable id such as a user id or a ULID, not a token.`,
+    );
+  }
+  if (userId.startsWith(RESERVED_USER_ID_PREFIX)) {
+    throw new WSKitConfigError(
+      `[wskit] the user id returned from onUpgrade starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys WSKit files internally. Give this user an id that starts with anything else.`,
+    );
+  }
+}
 
 /**
  * Resolve the real user id behind a connection. Returns `null` for an

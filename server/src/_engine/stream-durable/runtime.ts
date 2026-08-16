@@ -11,7 +11,7 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
-import { connectionStorageKeyOf } from '~/_engine/runtime/user-key.ts';
+import { connectionStorageKeyOf, RESERVED_USER_ID_PREFIX } from '~/_engine/runtime/user-key.ts';
 import {
   abortActiveStream,
   assertNoConcurrentStream,
@@ -45,15 +45,18 @@ import type { DurableStreamKind } from './types.ts';
  * user is holding the lookup.
  */
 export function computeBroadcastKey(scope: ResolvedChannel): string {
+  // Built from the reserved prefix rather than spelling it out, so these keys
+  // cannot drift out of the namespace a real user id is barred from using.
+  const bcast = `${RESERVED_USER_ID_PREFIX}bcast`;
   if (scope.channelName) {
     // The family key and channel name both may contain ':', so a plain-string
     // delimiter can collide (family 'a:' + name 'b' vs family 'a' + name ':b').
     // JSON-encode the pair instead: distinct pairs always encode distinctly.
     return scope.channelFamily
-      ? `__bcast:chf:${JSON.stringify([scope.channelFamily, scope.channelName])}__`
-      : `__bcast:ch:${scope.channelName}__`;
+      ? `${bcast}:chf:${JSON.stringify([scope.channelFamily, scope.channelName])}__`
+      : `${bcast}:ch:${scope.channelName}__`;
   }
-  return '__bcast:top__';
+  return `${bcast}:top__`;
 }
 
 /** Minimal slice of the engine the durable runtime needs to do its job. */
