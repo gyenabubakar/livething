@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { CloseCodes } from '@wskit/core';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
@@ -487,6 +488,77 @@ describe('connection runtime', () => {
 
     expect(reloaded).toEqual(['user-1']);
     expect(tagMembers.get('persistent:role/admin')?.size).toBe(1);
+  });
+
+  it.each([
+    ['reserved', '__bcast:room'],
+    ['oversized', 'u'.repeat(257)],
+  ])('rejects a legacy persisted %s user id before restoring the socket', async (_kind, userId) => {
+    const wsKey = {
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    const connections = new Map();
+    const usersByKey = new Map();
+    const channelMembers = new Map();
+    const tagMembers = new Map();
+    const deleted: string[] = [];
+
+    const handle = wakeHibernatedConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections,
+        usersByKey,
+        wsToConnectionId: new Map(),
+        channelMembers,
+        tagMembers,
+        generateId: () => 'conn_new',
+        persistAttachment() {},
+        restoreAttachment: () => ({ id: 'legacy-1' }),
+        readConnectionState: () => ({
+          connection_id: 'legacy-1',
+          user_id: userId,
+          meta: {},
+          ephemeral_tags: [{ group: 'role', key: 'admin' }],
+          ephemeral_memberships: [{ channelName: 'room', channelFamily: null }],
+          active_stream_ids: ['stream-1'],
+        }),
+        deleteConnectionState: (id) => deleted.push(id),
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      wsKey,
+    );
+
+    expect(wsKey.close).toHaveBeenCalledWith(
+      CloseCodes.GOING_AWAY,
+      expect.stringMatching(/user id/i),
+    );
+    expect(deleted).toEqual(['legacy-1']);
+    expect(connections.size).toBe(0);
+    expect(usersByKey.size).toBe(0);
+    expect(channelMembers.size).toBe(0);
+    expect(tagMembers.size).toBe(0);
+    expect(wsKey.send).not.toHaveBeenCalled();
+    await expect(handle.handleMessage('ignored')).resolves.toBeUndefined();
   });
 
   it('awaits handleConnectionClose for every connection before resolving', async () => {

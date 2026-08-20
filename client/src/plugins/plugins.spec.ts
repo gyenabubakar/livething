@@ -680,7 +680,111 @@ describe('scoped channels — dynamic families', () => {
   });
 });
 
+describe('scoped channels — missing receipt primitives', () => {
+  it('throws a clear error instead of exposing undefined receipt methods', () => {
+    interface ReceiptWire {
+      channels: {
+        room: {
+          inbox: true;
+          readReceipts: true;
+          incoming: { message: { text: string } };
+        };
+      };
+    }
+    interface ReceiptHost {
+      channels: {
+        '__acme:receipts::room': {
+          inbox: true;
+          readReceipts: true;
+          incoming: { message: { text: string } };
+        };
+      };
+    }
+
+    const Receipts = plugin<ReceiptWire>()({
+      id: 'acme:receipts',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        return { api: () => ({ room }) };
+      },
+    });
+
+    const socket = client<ReceiptHost>()(connect('wss://test'), channels(), Receipts());
+    (socket as { connect(): void }).connect();
+    MockWebSocket.last().open();
+    const room = Receipts.use(socket).room;
+
+    expect(() => room.receivers.get()).toThrow(/inbox\(\).*not registered/);
+    expect(() => room.markAsRead()).toThrow(/readReceipts\(\).*not registered/);
+  });
+
+  it("does not apply one plugin's missing receipt throwers to other scopes", () => {
+    interface ReceiptWire {
+      channels: {
+        room: {
+          inbox: true;
+          readReceipts: true;
+          incoming: { message: { text: string } };
+        };
+      };
+    }
+    interface ReceiptHost {
+      channels: {
+        '__acme:a::room': ReceiptWire['channels']['room'];
+        '__acme:b::room': ReceiptWire['channels']['room'];
+        appRoom: { incoming: { message: { text: string } } };
+      };
+    }
+
+    const A = plugin<ReceiptWire>()({
+      id: 'acme:a',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        return { api: () => ({ room }) };
+      },
+    });
+    const B = plugin<ReceiptWire>()({
+      id: 'acme:b',
+      dependencies: [channels],
+      setup(socket) {
+        const room = socket.channel('room');
+        return { api: () => ({ room }) };
+      },
+    });
+
+    const socket = client<ReceiptHost>()(connect('wss://test'), channels(), A(), B());
+    (socket as { connect(): void }).connect();
+    MockWebSocket.last().open();
+
+    const aRoom = A.use(socket).room;
+    const bRoom = B.use(socket).room;
+    const appRoom = socket.channel('appRoom');
+
+    expect(() => aRoom.receivers.get()).toThrow(/acme:a/);
+    expect(() => bRoom.receivers.get()).toThrow(/acme:b/);
+    expect((appRoom as unknown as { receivers?: unknown }).receivers).toBeUndefined();
+  });
+});
+
 describe('scoped errors — onServerError()', () => {
+  it('does not expose the removed plugin onError alias', () => {
+    let pluginSocket: object | undefined;
+    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
+      id: 'acme:chat',
+      setup(socket) {
+        pluginSocket = socket;
+        return {};
+      },
+    });
+
+    build(Chat());
+
+    expect(pluginSocket).not.toHaveProperty('onError');
+    expect(pluginSocket).toHaveProperty('onServerError');
+  });
+
   it('delivers a namespaced unsolicited error as a real WSKitError with the plain code', () => {
     const seen: WSKitError[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
@@ -725,26 +829,6 @@ describe('scoped errors — onServerError()', () => {
     expect(appErrors).toHaveLength(1);
     expect(appErrors[0]).toBeInstanceOf(WSKitError);
     expect((appErrors[0] as WSKitError).code).toBe('__acme:chat::room-full');
-  });
-
-  it('keeps onError as a compatibility alias for plugin server errors', () => {
-    const seen: WSKitError[] = [];
-    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
-      id: 'acme:chat',
-      setup(socket) {
-        socket.onError((error) => seen.push(error));
-        return {};
-      },
-    });
-
-    const { ws } = build(Chat());
-    ws.emit({
-      event: '__error__',
-      payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
-    });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.code).toBe('room-full');
   });
 
   it('passes a namespaced error to the host when only a non-matching plugin code is registered', () => {

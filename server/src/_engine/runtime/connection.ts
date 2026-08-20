@@ -552,6 +552,20 @@ export function wakeHibernatedConnection(
   const row =
     attachmentId && runtime.readConnectionState ? runtime.readConnectionState(attachmentId) : null;
 
+  if (row) {
+    try {
+      assertUsableUserId(row.user_id);
+    } catch {
+      runtime.deleteConnectionState?.(row.connection_id);
+      wsLike.close?.(CloseCodes.GOING_AWAY, 'invalid persisted user id');
+      return {
+        handleMessage: async () => {},
+        handleClose: async () => {},
+        handleError: async () => {},
+      };
+    }
+  }
+
   const id = row?.connection_id ?? attachmentId ?? runtime.generateId('conn');
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};

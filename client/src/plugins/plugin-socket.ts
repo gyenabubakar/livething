@@ -105,8 +105,8 @@ type PluginErrorCode<P extends SocketContract> = keyof ErrorsOf<P> & string;
 /**
  * A plugin with declared errors gets `onServerError`, which sees the server-pushed
  * errors in its namespace that no request or stream claimed. Present only when the
- * plugin declares an `errors` section. `onError` remains as a deprecated alias for
- * existing plugins; local setup and handler throws still reach the host's `onError`.
+ * plugin declares an `errors` section. Local setup and handler throws still reach
+ * the host's `onError`.
  */
 type PluginErrorHandling<P extends SocketContract> = WhenPresent<
   ErrorsOf<P>,
@@ -116,8 +116,6 @@ type PluginErrorHandling<P extends SocketContract> = WhenPresent<
       code: K,
       handler: (error: WSKitError<K, ErrorsOf<P>[K]>) => void,
     ): () => void;
-    /** @deprecated Use onServerError(), with a code argument when typed detail is needed. */
-    onError(handler: (error: WSKitError<string, unknown>) => void): () => void;
   }
 >;
 

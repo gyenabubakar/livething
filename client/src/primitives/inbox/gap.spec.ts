@@ -121,6 +121,21 @@ function subscribeOk(ws: MockWebSocket, channel: string, isInbox: boolean) {
 }
 
 describe('inbox — acknowledging an overflow gap', () => {
+  it('acks a gap when replay() is registered before inbox()', async () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), replay(), inbox());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    subscribeOk(ws, 'room', true);
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    await flush();
+
+    expect(receivedFrames(ws)).toEqual([
+      { event: '__received__', payload: { receivedThrough: 12 }, __wskit: { channel: 'room' } },
+    ]);
+  });
+
   it('acks a gap on an inbox channel with __received__ carrying the gap sequence', async () => {
     const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
     socket.connect();

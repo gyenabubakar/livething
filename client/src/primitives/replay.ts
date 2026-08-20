@@ -33,7 +33,7 @@ export function replay(): Primitive<ReplayTypeFn> {
     dependencies: ['dedup'],
     // The re-subscribe message must arrive before __replay__, or the server
     // rejects it (not yet a member). Order after channels when it's present.
-    optionalAfter: ['channels'],
+    optionalAfter: ['channels', 'inbox'],
     setup(helpers) {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.

@@ -17,6 +17,7 @@ interface ChatContract {
 }
 
 type ChatSocket = PluginSocket<ChatContract>;
+expectTypeOf<ChatSocket>().not.toHaveProperty('onError');
 
 // Typed receive, scoped to the plugin's own events.
 expectTypeOf<ChatSocket['on']>().toBeFunction();
@@ -61,17 +62,6 @@ expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
 expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
 
-// The deprecated alias stays broad because a newer server can add namespaced codes.
-expectTypeOf<ChatSocket['onError']>().toBeFunction();
-expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeOf<
-  WSKitError<string, unknown>
->();
-
-chat.onError((error) => {
-  expectTypeOf(error.code).toEqualTypeOf<string>();
-  expectTypeOf(error.detail).toEqualTypeOf<unknown>();
-});
-
 chat.onServerError((error) => {
   expectTypeOf(error).toEqualTypeOf<WSKitError<string, unknown>>();
 });
@@ -105,7 +95,6 @@ expectTypeOf<PlainSocket>().not.toHaveProperty('request');
 expectTypeOf<PlainSocket>().not.toHaveProperty('channel');
 expectTypeOf<PlainSocket>().not.toHaveProperty('stream');
 expectTypeOf<PlainSocket>().not.toHaveProperty('onRequest');
-expectTypeOf<PlainSocket>().not.toHaveProperty('onError');
 
 // A plugin that only receives (incoming, no clientRequests/channels/streams) has `on`
 // but none of the other verbs.

@@ -4,7 +4,7 @@ import { runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { idGenerator } from '~/internal/id.ts';
 import { NAMESPACE_DELIMITER, namespacedName } from '~/internal/namespace.ts';
-import { applyAugmenters } from '~/internal/scoped.ts';
+import { applyAugmenters, getAugmenters } from '~/internal/scoped.ts';
 import type { WSKitError } from '@wskit/core';
 import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
@@ -138,6 +138,36 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     };
   }
 
+  function missingReceiptMethod(verb: string, primitive: 'inbox' | 'readReceipts'): () => never {
+    return () => {
+      throw new WSKitConfigError(
+        `[wskit] plugin '${id}' used channel.${verb}(), but ${primitive}() is not registered. ` +
+          `Register ${primitive}() in client().`,
+      );
+    };
+  }
+
+  function installMissingReceiptSurfaces(messaging: MessagingObject, scope: ScopeInfo): void {
+    const markers = scope.markers();
+    const channelOwner = markers.channelFamily ?? markers.channel;
+    if (channelOwner === undefined || !scope.prefixName || !channelOwner.startsWith(ownPrefix))
+      return;
+
+    if (messaging.receivers === undefined) {
+      const missingInbox = missingReceiptMethod('receivers', 'inbox');
+      messaging.receivers = { get: missingInbox, subscribe: missingInbox };
+      messaging.onReceived = missingReceiptMethod('onReceived', 'inbox');
+      messaging.receiversOf = missingReceiptMethod('receiversOf', 'inbox');
+    }
+    if (messaging.readers === undefined) {
+      const missingReadReceipts = missingReceiptMethod('readers', 'readReceipts');
+      messaging.readers = { get: missingReadReceipts, subscribe: missingReadReceipts };
+      messaging.onRead = missingReceiptMethod('onRead', 'readReceipts');
+      messaging.readersOf = missingReceiptMethod('readersOf', 'readReceipts');
+      messaging.markAsRead = missingReceiptMethod('markAsRead', 'readReceipts');
+    }
+  }
+
   /*
    * The plugin's scope. `markers` is empty — a plugin isn't a channel, so its
    * frames carry no channel marker — and `prefixName` adds the `__<id>::` prefix.
@@ -200,12 +230,6 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       if (!handler)
         throw new TypeError(`[wskit] plugin '${id}' onServerError requires a callback.`);
       const registration = { code, handler };
-      errorHandlers.add(registration);
-      return () => errorHandlers.delete(registration);
-    },
-
-    onError(handler: (error: WSKitError<string, unknown>) => void): () => void {
-      const registration = { handler };
       errorHandlers.add(registration);
       return () => errorHandlers.delete(registration);
     },
@@ -305,6 +329,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     id,
 
     install(hostSocket) {
+      getAugmenters(hostSocket).push(installMissingReceiptSurfaces);
       // Primitives install before plugins, so their augmenters are ready here.
       // Graft the scope-aware verbs on, then run setup with the full socket.
       applyAugmenters(hostSocket, socket as unknown as MessagingObject, scope);
