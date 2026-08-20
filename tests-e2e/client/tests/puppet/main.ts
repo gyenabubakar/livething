@@ -1,4 +1,12 @@
-import { buffering, client, connect, keepalive, platform, reconnection } from '@wskit/client';
+import {
+  buffering,
+  client,
+  connect,
+  keepalive,
+  platform,
+  plugin,
+  reconnection,
+} from '@wskit/client';
 import { WebEnvironment } from '@wskit/client/environment';
 import * as errorsEntry from '@wskit/client/errors';
 import * as platformEntry from '@wskit/client/platform';
@@ -13,9 +21,42 @@ const subpathsOk = [errorsEntry, platformEntry, testingEntry].every(
 );
 
 interface Contract {
+  errors: {
+    '__future:plugin::known-error': { version: number };
+  };
   incoming: { echoed: { text?: string } };
-  outgoing: { hello: { text: string }; drop: Record<string, never> };
+  outgoing: {
+    hello: { text: string };
+    drop: Record<string, never>;
+    '__future:plugin::trigger-plugin-error': Record<string, never>;
+  };
 }
+
+interface FuturePluginWire {
+  errors: { 'known-error': { version: number } };
+  outgoing: { 'trigger-plugin-error': Record<string, never> };
+}
+
+interface FuturePluginApi {
+  triggerError(): void;
+  onFutureError(callback: (code: string, detail: unknown) => void): void;
+}
+
+const FuturePlugin = plugin<FuturePluginWire, FuturePluginApi>()({
+  id: 'future:plugin',
+  setup(socket) {
+    const errorCallbacks = new Set<(code: string, detail: unknown) => void>();
+    socket.onServerError((error) => {
+      errorCallbacks.forEach((callback) => callback(error.code, error.detail));
+    });
+    return {
+      api: () => ({
+        triggerError: () => void socket.send('trigger-plugin-error', {}),
+        onFutureError: (callback) => void errorCallbacks.add(callback),
+      }),
+    };
+  },
+});
 
 const params = new URLSearchParams(location.search);
 const path = params.get('path') ?? 'echo';
@@ -73,12 +114,15 @@ const connectOptions = {
 // quality and latency stores are optional here.
 const socket = client<Contract>()(
   connect(url, connectOptions),
+  FuturePlugin(),
   ...(primitives as unknown as []),
 ) as Socket<Contract> & Partial<QualityApi>;
 
 function el(id: string): HTMLElement {
   return document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
 }
+
+const futurePlugin = FuturePlugin.use(socket);
 
 let openCount = 0;
 
@@ -98,6 +142,21 @@ socket.onOpen(() => {
   render();
 });
 
+socket.onServerError((error) => {
+  el('server-error-code').textContent = error.code;
+  el('server-error-detail').textContent = JSON.stringify(error.detail);
+  if (error.code.startsWith('__future:plugin::')) {
+    el('host-plugin-error-code').textContent = error.code;
+  }
+});
+socket.onError(() => {
+  el('local-error').textContent = 'called';
+});
+futurePlugin.onFutureError((code, detail) => {
+  el('plugin-server-error-code').textContent = code;
+  el('plugin-server-error-detail').textContent = JSON.stringify(detail);
+});
+
 // on() takes a lazy hold and would open a lazy socket on sight, which would
 // defeat the lazy test — so only the non-lazy pages register message handlers.
 if (!useLazy) {
@@ -112,7 +171,14 @@ if (!useLazy) {
 el('connect').addEventListener('click', () => socket.connect());
 el('disconnect').addEventListener('click', () => socket.disconnect());
 el('send-hello').addEventListener('click', () => socket.send('hello', { text: 'hi' }));
+el('send-plugin-error').addEventListener('click', () => futurePlugin.triggerError());
 
 el('subpaths-ok').textContent = subpathsOk ? 'yes' : 'no';
+el('server-error-code').textContent = '';
+el('server-error-detail').textContent = '';
+el('plugin-server-error-code').textContent = '';
+el('plugin-server-error-detail').textContent = '';
+el('host-plugin-error-code').textContent = '';
+el('local-error').textContent = '';
 el('app-ready').textContent = 'yes';
 render();

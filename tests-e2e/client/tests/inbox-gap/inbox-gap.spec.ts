@@ -6,7 +6,8 @@ import type { Browser, Page } from '@playwright/test';
 // broadcasts loses the first held row to eviction; on reconnect the drain emits a
 // `__gap__` before the surviving row. This is where the D1 decision bites: only a
 // client running replay() consumes `__gap__` and fires onGap — an inbox-only
-// client silently drops the frame, so overflow is invisible to it.
+// client consumes and acknowledges the frame internally, so overflow is hidden
+// from application code.
 interface MemberOptions {
   room: string;
   username: string;
@@ -64,12 +65,21 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await expect(alice.page.getByTestId('gap')).toHaveText(/^[1-9]\d*$/);
     await expect(alice.page.getByTestId('messages')).toHaveText('m2');
 
+    // inbox() acknowledges both the surviving row and the overflow watermark on
+    // the real wire. A second reconnect must not replay the same gap.
+    await alice.page.getByTestId('disconnect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('closed');
+    await alice.page.getByTestId('connect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('gap-count')).toHaveText('1');
+    await expect(alice.page.getByTestId('message-count')).toHaveText('1');
+
     await alice.close();
     await bob.close();
     await carol.close();
   });
 
-  test('an inbox-only client (no replay) silently drops the overflow gap but still gets the surviving row [D1]', async ({
+  test('an inbox-only client (no replay) hides the overflow gap but still gets the surviving row [D1]', async ({
     browser,
   }, testInfo) => {
     const room = `inbox-gap-only-${testInfo.testId}`;
@@ -98,8 +108,8 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     // The surviving row still arrives — guaranteed delivery of what was kept.
     await expect(alice.page.getByTestId('messages')).toHaveText('m2');
 
-    // But the `__gap__` is dropped unconsumed: no gap is surfaced. This documents
-    // the current (D1) behavior — an inbox-only client cannot see overflow gaps.
+    // inbox consumes and acknowledges `__gap__`, but without replay() no gap is
+    // surfaced to application code. This documents the current (D1) behavior.
     await alice.page.waitForTimeout(400);
     await expect(alice.page.getByTestId('gap')).toHaveText('');
 

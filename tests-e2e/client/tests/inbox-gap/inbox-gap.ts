@@ -7,7 +7,8 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 // evicts the first held row and lifts its overflow watermark; on reconnect the
 // drain emits `__gap__` before the surviving row. The `?replay=1` variant runs
 // replay() and surfaces the gap on room.onGap; the default (inbox-only) variant
-// has no gap handler and silently drops the frame — the D1 decision.
+// has no gap handler, but inbox still consumes and acknowledges the frame — the
+// D1 decision only hides the gap from application code.
 export function setup(): void {
   const withReplay = new URLSearchParams(location.search).get('replay') === '1';
 
@@ -25,6 +26,7 @@ export function setup(): void {
     <span data-testid="message-count"></span>
     <span data-testid="rejoined"></span>
     <span data-testid="gap"></span>
+    <span data-testid="gap-count"></span>
     <span data-testid="variant"></span>
   `);
   el('variant').textContent = withReplay ? 'replay' : 'inbox-only';
@@ -33,8 +35,8 @@ export function setup(): void {
     ? client<InboxGapClient>()(
         connect(wsUrl('inbox-gap')),
         channels(),
-        inbox(),
         replay(),
+        inbox(),
         dedup(),
         reconnection({ maxDelay: 400 }),
       )
@@ -63,6 +65,7 @@ export function setup(): void {
   if (withReplay) {
     chat.onGap((info) => {
       el('gap').textContent = String(info.missedThrough);
+      el('gap-count').textContent = String(Number(el('gap-count').textContent ?? '0') + 1);
     });
   }
 
@@ -88,6 +91,7 @@ export function setup(): void {
   });
 
   el('message-count').textContent = '0';
+  el('gap-count').textContent = '0';
 
   ready();
 }

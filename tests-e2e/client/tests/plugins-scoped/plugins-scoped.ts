@@ -15,8 +15,16 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 // contract; a full-stack app could derive this from the server with
 // InferPluginClient.
 interface FeedWire {
+  errors: {
+    'room-full': { limit: number };
+    'plugin-failure': { reason: string };
+  };
   incoming: { welcome: { name: string } };
-  outgoing: { hello: { name: string } };
+  outgoing: {
+    hello: { name: string };
+    'trigger-plugin-failure': Record<string, never>;
+    'trigger-room-full-error': Record<string, never>;
+  };
   clientRequests: { echo: { payload: { text: string }; response: { echoed: string } } };
   streams: {
     feed: { payload: { from: number }; chunk: { row: number } };
@@ -42,8 +50,16 @@ interface FeedWire {
 // then the framework strips them from the top-level socket and re-exposes them
 // scoped inside the plugin.
 interface FeedHost {
+  errors: {
+    '__e2e:feed::room-full': { limit: number };
+    '__e2e:feed::plugin-failure': { reason: string };
+  };
   incoming: { '__e2e:feed::welcome': { name: string } };
-  outgoing: { '__e2e:feed::hello': { name: string } };
+  outgoing: {
+    '__e2e:feed::hello': { name: string };
+    '__e2e:feed::trigger-plugin-failure': Record<string, never>;
+    '__e2e:feed::trigger-room-full-error': Record<string, never>;
+  };
   clientRequests: {
     '__e2e:feed::echo': { payload: { text: string }; response: { echoed: string } };
   };
@@ -78,6 +94,10 @@ interface FeedApi {
   onSaid(cb: (text: string) => void): void;
   chat(text: string): void;
   joinThread(id: string, onPosted: (thread: string) => void): Promise<void>;
+  triggerPluginFailure(): void;
+  triggerRoomFullError(): void;
+  onPluginFailure(cb: (code: string, reason: string) => void): void;
+  onRoomFullError(cb: (code: string) => void): void;
 }
 
 const Feed = plugin<FeedWire, FeedApi>()({
@@ -87,6 +107,8 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const welcomeCbs = new Set<(name: string) => void>();
     const joinedCbs = new Set<(who: string) => void>();
     const saidCbs = new Set<(text: string) => void>();
+    const pluginFailureCbs = new Set<(code: string, reason: string) => void>();
+    const roomFullErrorCbs = new Set<(code: string) => void>();
 
     // Scoped receive: `welcome` arrives on the wire as `__e2e:feed::welcome`.
     socket.on('welcome', (m) => welcomeCbs.forEach((cb) => cb(m.name)));
@@ -94,6 +116,11 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const room = socket.channel('room');
     room.on('joined', (m) => joinedCbs.forEach((cb) => cb(m.who)));
     room.on('said', (m) => saidCbs.forEach((cb) => cb(m.text)));
+
+    socket.onServerError('plugin-failure', (error) =>
+      pluginFailureCbs.forEach((cb) => cb(error.code, error.detail.reason)),
+    );
+    socket.onServerError('room-full', (error) => roomFullErrorCbs.forEach((cb) => cb(error.code)));
 
     return {
       api: () => ({
@@ -132,6 +159,10 @@ const Feed = plugin<FeedWire, FeedApi>()({
           t.on('posted', (m) => onPosted(m.thread));
           return t.subscribe();
         },
+        triggerPluginFailure: () => void socket.send('trigger-plugin-failure', {}),
+        triggerRoomFullError: () => void socket.send('trigger-room-full-error', {}),
+        onPluginFailure: (cb) => void pluginFailureCbs.add(cb),
+        onRoomFullError: (cb) => void roomFullErrorCbs.add(cb),
       }),
     };
   },
@@ -151,6 +182,8 @@ export function setup(): void {
     <button data-testid="join-room-fail">join-room-fail</button>
     <button data-testid="chat">chat</button>
     <button data-testid="join-thread">join-thread</button>
+    <button data-testid="trigger-plugin-failure">trigger-plugin-failure</button>
+    <button data-testid="trigger-room-full-error">trigger-room-full-error</button>
     <span data-testid="status"></span>
     <span data-testid="welcome"></span>
     <span data-testid="raw-welcome"></span>
@@ -164,6 +197,9 @@ export function setup(): void {
     <span data-testid="subscribe-error"></span>
     <span data-testid="said"></span>
     <span data-testid="posted"></span>
+    <span data-testid="plugin-error-code"></span>
+    <span data-testid="plugin-error-detail"></span>
+    <span data-testid="room-full-error-code"></span>
   `);
 
   // The app's only names are the plugin's, under its namespace. The contract
@@ -182,6 +218,13 @@ export function setup(): void {
   });
 
   const feed = Feed.use(socket);
+  feed.onPluginFailure((code, reason) => {
+    el('plugin-error-code').textContent = code;
+    el('plugin-error-detail').textContent = reason;
+  });
+  feed.onRoomFullError((code) => {
+    el('room-full-error-code').textContent = code;
+  });
   feed.onWelcome((name) => {
     el('welcome').textContent = name;
   });
@@ -252,6 +295,8 @@ export function setup(): void {
       el('posted').textContent = thread.endsWith('thread:general') ? 'general' : thread;
     }),
   );
+  button('trigger-plugin-failure', () => feed.triggerPluginFailure());
+  button('trigger-room-full-error', () => feed.triggerRoomFullError());
 
   ready();
 }

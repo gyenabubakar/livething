@@ -10,6 +10,7 @@ import * as v from 'valibot';
 // A plugin-declared error. It leaves the server namespaced as `__e2e:feed::room-full`;
 // the client plugin must hand it back to the app author as the plain `room-full`.
 const RoomFull = error('room-full', v.object({ limit: v.number() }));
+const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 
 // A pure-wskit plugin (no DO adapter) that OWNS every client-facing wire
 // surface a plugin can: an incoming handler, a client→server request, and all
@@ -29,7 +30,7 @@ const h = define({
     stream(),
     requests(),
     channels(),
-    errors([RoomFull]),
+    errors([RoomFull, PluginFailure]),
     emits({ welcome: t<{ name: string }>() }),
   ],
 });
@@ -116,6 +117,20 @@ const echo = h.request('echo', {
   },
 });
 
+const triggerPluginFailure = h.on('trigger-plugin-failure', {
+  input: v.object({}),
+  run() {
+    throw PluginFailure({ reason: 'plugin wire is alive' });
+  },
+});
+
+const triggerRoomFullError = h.on('trigger-room-full-error', {
+  input: v.object({}),
+  run() {
+    throw RoomFull({ limit: 5 });
+  },
+});
+
 // Resumable (durable, cursor) stream.
 const feed = h.resumableStream('feed', {
   input: v.object({ from: v.number() }),
@@ -178,6 +193,8 @@ export const Feed = plugin('e2e:feed', {
     handlers: [
       hello,
       echo,
+      triggerPluginFailure,
+      triggerRoomFullError,
       feed,
       nudgeable,
       feedPlain,

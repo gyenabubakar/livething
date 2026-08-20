@@ -57,6 +57,52 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
+  // Simulate a newer server sending an unsolicited error code this client was
+  // not built with. This fixture intentionally bypasses WSKit's server engine;
+  // a normal server would normalize an undeclared thrown error to internal-error.
+  if (behavior === 'unknown-server-error') {
+    ws.on('message', (data) => {
+      let frame;
+      try {
+        frame = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (frame.event === 'hello') {
+        ws.send(
+          JSON.stringify({
+            event: '__error__',
+            payload: { code: 'newer-server-error', detail: { future: true, source: 'server-v2' } },
+          }),
+        );
+      }
+    });
+    return;
+  }
+
+  if (behavior === 'unknown-plugin-server-error') {
+    ws.on('message', (data) => {
+      let frame;
+      try {
+        frame = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (frame.event === '__future:plugin::trigger-plugin-error') {
+        ws.send(
+          JSON.stringify({
+            event: '__error__',
+            payload: {
+              code: '__future:plugin::plugin-future-error',
+              detail: { future: true, version: 2 },
+            },
+          }),
+        );
+      }
+    });
+    return;
+  }
+
   ws.on('message', (data) => {
     // Keepalive: the wskit client sends a bare "ping" text frame (raw, so the
     // CF hibernation auto-response can answer it). The `pong` behavior answers

@@ -106,4 +106,18 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     // addressed, not one shared channel.
     await expect.poll(async () => page.getByTestId('posted').textContent()).toBe('general');
   });
+
+  test('scoped onServerError matches the declared plugin code and filters other codes', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-plugin-error-${testInfo.testId}`);
+    await page.getByTestId('trigger-plugin-failure').click();
+    await expect(page.getByTestId('plugin-error-code')).toHaveText('plugin-failure');
+    await expect(page.getByTestId('plugin-error-detail')).toHaveText('plugin wire is alive');
+    await expect(page.getByTestId('room-full-error-code')).toHaveText('');
+
+    await page.getByTestId('trigger-room-full-error').click();
+    await expect(page.getByTestId('room-full-error-code')).toHaveText('room-full');
+    await expect(page.getByTestId('plugin-error-detail')).toHaveText('plugin wire is alive');
+  });
 });
