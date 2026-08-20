@@ -24,16 +24,49 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('"channel":"room"');
   });
 
-  test('handler that returns nothing settles via a correlated empty void-ack frame', async ({
-    page,
-  }, testInfo) => {
-    // A handler that answers nothing is a void acknowledgement, not a failure.
-    // The server sends an empty correlated frame the client resolves with no
-    // value — the page records the correlated payload, which is `{}` (no error
-    // code), proving the request settled instead of hanging until timeout.
+  test('void request reply omits the payload key on the wire', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
-    await page.getByTestId('no-response').click();
-    await expect(page.getByTestId('last-response')).toHaveText('{}');
+
+    const frame = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+
+      const correlationId = 'wire-void-ack';
+      return await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const previous = ws.onmessage;
+        const timer = window.setTimeout(() => {
+          ws.onmessage = previous;
+          reject(new Error('timed out waiting for the void acknowledgement'));
+        }, 2_000);
+
+        ws.onmessage = (event) => {
+          if (typeof event.data !== 'string') return;
+          const candidate = JSON.parse(event.data) as Record<string, unknown>;
+          if (
+            (candidate.__wskit as { correlationId?: unknown } | undefined)?.correlationId !==
+            correlationId
+          ) {
+            if (typeof previous === 'function') previous.call(ws, event);
+            return;
+          }
+
+          window.clearTimeout(timer);
+          ws.onmessage = previous;
+          resolve(candidate);
+        };
+
+        ws.send(
+          JSON.stringify({
+            event: 'no-response',
+            payload: {},
+            __wskit: { correlationId },
+          }),
+        );
+      });
+    });
+
+    expect(frame.event).toBe('no-response');
+    expect(Object.hasOwn(frame, 'payload')).toBe(false);
   });
 
   test('schema-failed request settles via __error__ frame with the original correlationId', async ({

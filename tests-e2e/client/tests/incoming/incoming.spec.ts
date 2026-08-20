@@ -26,7 +26,7 @@ test.describe('incoming (conformance)', () => {
     await expect(page.getByTestId('handlers')).toHaveText('ABC');
   });
 
-  test('a bad outgoing payload routes a validation-failed error to onError', async ({
+  test('a bad outgoing payload routes a validation-failed error to onServerError', async ({
     page,
   }, testInfo) => {
     await open(page, `inc-validation-${testInfo.testId}`);

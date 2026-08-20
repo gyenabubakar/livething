@@ -26,7 +26,7 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  socket.onError((err: unknown) => {
+  socket.onServerError((err: unknown) => {
     el('error-code').textContent = errorCode(err);
   });
 
@@ -60,7 +60,7 @@ export function setup(): void {
 
   // A bad outgoing payload: echo-ping wants { text: string }. Cast the payload
   // (not the method — that would lose `this`) so the server's validator rejects
-  // it on the wire and the __error__ routes to onError.
+  // it on the wire and the __error__ routes to onServerError.
   button('ping-bad', () => {
     socket.send('echo-ping', { text: 123 } as unknown as { text: string });
   });

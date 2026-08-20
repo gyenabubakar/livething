@@ -13,10 +13,10 @@ import type { RoomMsg } from './events.ts';
 // Drives inbox OVERFLOW: `chat` keeps at most one undelivered row per member
 // (`retention.maxMessages: 1`). While a member is offline, a second broadcast
 // evicts the first held row and lifts that member's overflow watermark. On
-// reconnect, the drain emits one `__gap__` per scope before the surviving row.
-// The gap only SURFACES on a client running `replay()` (which owns `__gap__` +
-// `onGap`); an inbox-only client silently drops the frame — the D1 decision this
-// fixture lets a spec pin down.
+// reconnect, the drain emits a `__gap__` before the surviving row and repeats it
+// until `__received__` reaches the gap's `missedThrough` watermark. `inbox()`
+// consumes and acknowledges the gap even without `replay()`; `replay()` owns the
+// optional `onGap` callback that makes the loss visible to application code.
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
@@ -40,6 +40,8 @@ const chat = base.channel('chat', {
   },
 });
 
+const TriggerStaleUnsubscribeOk = v.object({});
+
 export const handleSendRoomMsg = chat.on('send-room-msg', {
   input: SendRoomMsg,
   run(ctx, payload) {
@@ -47,10 +49,22 @@ export const handleSendRoomMsg = chat.on('send-room-msg', {
   },
 });
 
+// Test seam: emit a channel-scoped unsubscribe confirmation after the client
+// has rejoined. The missing correlation id makes it stale to channels(), while
+// the real wire frame still reaches inbox() through the public protocol path.
+export const handleTriggerStaleUnsubscribeOk = chat.on('trigger-stale-unsubscribe-ok', {
+  input: TriggerStaleUnsubscribeOk,
+  run(ctx) {
+    (
+      ctx.channel as unknown as { send(event: string, payload: Record<string, never>): number }
+    ).send('__unsubscribeOk__', {});
+  },
+});
+
 // `chat` carries the `inbox: true` client-contract flag, so it is passed to
 // `assemble` for `InferClient` to expose the inbox surface (receivers/receiversOf).
 export const inboxGapHandler = base.assemble({
-  handlers: [handleServerDrop, handleSendRoomMsg, chat],
+  handlers: [handleServerDrop, handleSendRoomMsg, handleTriggerStaleUnsubscribeOk, chat],
 });
 
 export type InboxGapClient = InferClient<typeof inboxGapHandler>;

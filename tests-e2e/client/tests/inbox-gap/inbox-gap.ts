@@ -17,9 +17,13 @@ export function setup(): void {
     <button data-testid="sub">sub</button>
     <button data-testid="send-m1">send-m1</button>
     <button data-testid="send-m2">send-m2</button>
+    <button data-testid="leave-rejoin">leave-rejoin</button>
+    <button data-testid="send-stale-unsubscribe-ok">send-stale-unsubscribe-ok</button>
     <span data-testid="status"></span>
     <span data-testid="subscribed"></span>
     <span data-testid="messages"></span>
+    <span data-testid="message-count"></span>
+    <span data-testid="rejoined"></span>
     <span data-testid="gap"></span>
     <span data-testid="variant"></span>
   `);
@@ -48,6 +52,7 @@ export function setup(): void {
   chat.on('room-msg', (msg) => {
     seen.push(msg.text);
     el('messages').textContent = seen.join(',');
+    el('message-count').textContent = String(seen.length);
   });
 
   socket.state.subscribe(() => {
@@ -73,6 +78,16 @@ export function setup(): void {
   button('send-m2', () => {
     chat.send('send-room-msg', { text: 'm2' });
   });
+  button('leave-rejoin', async () => {
+    await chat.unsubscribe();
+    await chat.subscribe();
+    el('rejoined').textContent = 'yes';
+  });
+  button('send-stale-unsubscribe-ok', () => {
+    chat.send('trigger-stale-unsubscribe-ok', {});
+  });
+
+  el('message-count').textContent = '0';
 
   ready();
 }

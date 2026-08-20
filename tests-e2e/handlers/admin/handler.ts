@@ -78,6 +78,13 @@ export const adminHandler = base.assemble({
       return ctx.connections.get(target.ref()).send('poked', { text });
     },
 
+    closeConnection(connectionId: string, code: number, reason: string): boolean {
+      const target = ctx.connections.all().find((info) => info.id === connectionId);
+      if (!target) return false;
+      ctx.connections.get(target.ref()).close(code, reason);
+      return true;
+    },
+
     notifyUser(userId: string, text: string): number {
       return ctx.users.get(userId).send('notified', { text });
     },

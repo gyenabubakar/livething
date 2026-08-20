@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client's socket.onError against the real wskit
+// Conformance: @wskit/client's socket.onServerError against the real wskit
 // `errors-factory` handler. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
@@ -12,7 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('errors-factory (conformance)', () => {
-  test('a registered server error arrives on onError with its code and detail', async ({
+  test('a registered server error arrives on onServerError with its code and detail', async ({
     page,
   }, testInfo) => {
     await open(page, `err-notfound-${testInfo.testId}`);
@@ -21,20 +21,32 @@ test.describe('errors-factory (conformance)', () => {
     await expect(page.getByTestId('error-result')).toContainText('test-123');
   });
 
-  test('a second registered error works the same way', async ({ page }, testInfo) => {
+  test('a second registered error works on onServerError', async ({ page }, testInfo) => {
     await open(page, `err-forbidden-${testInfo.testId}`);
     await page.getByTestId('trigger-forbidden').click();
     await expect(page.getByTestId('error-code')).toHaveText('forbidden');
     await expect(page.getByTestId('error-result')).toContainText('Access denied');
   });
 
-  test('a code-only error delivers its code with empty detail', async ({ page }, testInfo) => {
+  test('a code-specific server error listener only fires for its declared code', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `err-code-specific-${testInfo.testId}`);
+    await page.getByTestId('trigger-not-found').click();
+    await expect(page.getByTestId('specific-error-code')).toHaveText('not-found');
+    await expect(page.getByTestId('specific-error-detail')).toHaveText('test-123');
+    await expect(page.getByTestId('unmatched-specific-error')).toHaveText('');
+  });
+
+  test('a code-only server error delivers its code with empty detail', async ({
+    page,
+  }, testInfo) => {
     await open(page, `err-simple-${testInfo.testId}`);
     await page.getByTestId('trigger-simple').click();
     await expect(page.getByTestId('error-result')).toHaveText('simple-error:{}');
   });
 
-  test('an undeclared error is coerced to internal-error', async ({ page }, testInfo) => {
+  test('an undeclared server error is coerced to internal-error', async ({ page }, testInfo) => {
     await open(page, `err-unregistered-${testInfo.testId}`);
     await page.getByTestId('trigger-unregistered').click();
     await expect(page.getByTestId('error-code')).toHaveText('internal-error');
@@ -44,7 +56,7 @@ test.describe('errors-factory (conformance)', () => {
     await expect(page.getByTestId('status')).toHaveText('open');
   });
 
-  test('an unserializable error detail is coerced to internal-error', async ({
+  test('an unserializable server error detail is coerced to internal-error', async ({
     page,
   }, testInfo) => {
     await open(page, `err-bigint-${testInfo.testId}`);

@@ -107,4 +107,47 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await bob.close();
     await carol.close();
   });
+
+  test('a late unsubscribe confirmation after rejoin does not disable later inbox acknowledgements', async ({
+    browser,
+  }, testInfo) => {
+    const room = `inbox-gap-stale-unsubscribe-${testInfo.testId}`;
+    const alice = await openMember(browser, { room, username: 'alice', withReplay: false });
+    const bob = await openMember(browser, { room, username: 'bob', withReplay: false });
+    const carol = await openMember(browser, { room, username: 'carol', withReplay: false });
+
+    await alice.page.getByTestId('sub').click();
+    await bob.page.getByTestId('sub').click();
+    await carol.page.getByTestId('sub').click();
+    await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
+    await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+    await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
+
+    // Alice receives and acknowledges the first message while the inbox scope
+    // is unquestionably active.
+    await bob.page.getByTestId('send-m1').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+
+    // The client queues subscribe() behind the explicit leave. Once it resolves,
+    // the channel is live again; the server test seam then sends a channel-scoped
+    // __unsubscribeOk__ with no matching leave id, which is stale on the wire.
+    await alice.page.getByTestId('leave-rejoin').click();
+    await expect(alice.page.getByTestId('rejoined')).toHaveText('yes');
+    await alice.page.getByTestId('send-stale-unsubscribe-ok').click();
+
+    // A later inbox delivery must still be acknowledged. If the stale frame had
+    // cleared inbox state, m2 would be delivered again after the reconnect below.
+    await bob.page.getByTestId('send-m2').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1,m2');
+
+    await alice.page.getByTestId('disconnect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('closed');
+    await alice.page.getByTestId('connect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('message-count')).toHaveText('2');
+
+    await alice.close();
+    await bob.close();
+    await carol.close();
+  });
 });

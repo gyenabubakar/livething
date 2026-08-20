@@ -15,6 +15,7 @@ export function setup(): void {
     <span data-testid="status"></span>
     <span data-testid="time"></span>
     <span data-testid="no-response-result"></span>
+    <span data-testid="no-response-value"></span>
     <span data-testid="throw-error"></span>
     <span data-testid="subscribed"></span>
     <span data-testid="ch-result"></span>
@@ -37,8 +38,9 @@ export function setup(): void {
 
   button('no-response', async () => {
     // Resolves with no value — a void acknowledgement, not a rejection.
-    await socket.request('no-response', {});
+    const res = await socket.request('no-response', {});
     el('no-response-result').textContent = 'acked';
+    el('no-response-value').textContent = res === undefined ? 'undefined' : JSON.stringify(res);
   });
 
   button('throwing-request', async () => {

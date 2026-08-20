@@ -22,6 +22,7 @@ test.describe('request (conformance)', () => {
     await open(page, `req-noresp-${testInfo.testId}`);
     await page.getByTestId('no-response').click();
     await expect(page.getByTestId('no-response-result')).toHaveText('acked');
+    await expect(page.getByTestId('no-response-value')).toHaveText('undefined');
   });
 
   test('a handler that throws rejects the request', async ({ page }, testInfo) => {

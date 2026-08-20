@@ -141,6 +141,42 @@ test.describe('api(ctx) members over the stub', () => {
     expect(poked.reduce((a, b) => a + b, 0)).toBe(1);
   });
 
+  test('connections.get(ref).close closes exactly one addressed socket', async ({
+    page,
+  }, testInfo) => {
+    const room = `admin-ctx-close-one-${RUN}-${testInfo.testId}`;
+    await page.evaluate(async (r) => {
+      window.__a1 = await window.__openSocket(r, 'alice');
+      window.__a2 = await window.__openSocket(r, 'alice');
+      window.__b = await window.__openSocket(r, 'bob');
+    }, room);
+
+    const ids = (await callApi(page, 'connection-ids-of', { room, userId: 'alice' })) as string[];
+    expect(ids).toHaveLength(2);
+
+    expect(
+      await callApi(page, 'close-connection', {
+        room,
+        connectionId: ids[0]!,
+        code: '4101',
+        reason: 'addressed close',
+      }),
+    ).toBe(true);
+
+    await page.evaluate(() => window.__settle(600));
+    const state = await page.evaluate(() => ({
+      a1: window.__a1.closes,
+      a2: window.__a2.closes,
+      bob: window.__b.closes,
+    }));
+    const aliceClosed = [state.a1, state.a2].filter(
+      (closes) => closes[0] === '4101:addressed close',
+    );
+    expect(aliceClosed).toHaveLength(1);
+    expect(state.a1.length + state.a2.length).toBe(1);
+    expect(state.bob).toEqual([]);
+  });
+
   test('poking an id no live connection holds reports false', async ({ page }, testInfo) => {
     const room = `admin-ctx-missing-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {

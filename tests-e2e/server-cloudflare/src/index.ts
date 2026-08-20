@@ -92,6 +92,12 @@ async function runAdminOp(
       return admin.connectionIdsOf(userId);
     case 'poke-connection':
       return admin.pokeConnection(url.searchParams.get('connectionId') ?? '', text);
+    case 'close-connection':
+      return admin.closeConnection(
+        url.searchParams.get('connectionId') ?? '',
+        Number(url.searchParams.get('code') ?? '1000'),
+        url.searchParams.get('reason') ?? '',
+      );
     case 'notify-user':
       return admin.notifyUser(userId, text);
     case 'boot-user':
