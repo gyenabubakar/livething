@@ -82,10 +82,10 @@ describe('intercept', () => {
 });
 
 describe('error routing', () => {
-  it('fires onError with a WSKitError for an unclaimed __error__ frame', () => {
+  it('fires onServerError with a WSKitError for an unclaimed __error__ frame', () => {
     const onErr = vi.fn();
     const { socket, ws } = build();
-    socket.onError(onErr);
+    socket.onServerError(onErr);
     ws.emit({ event: '__error__', payload: { code: 'forbidden', detail: { reason: 'no' } } });
     expect(onErr).toHaveBeenCalledTimes(1);
     const err = onErr.mock.calls[0]![0] as WSKitError;
@@ -98,6 +98,7 @@ describe('error routing', () => {
     const handler = vi.fn();
     const { socket, ws } = build();
     socket.on('message', handler);
+    socket.onServerError(() => {});
     ws.emit({ event: '__error__', payload: { code: 'oops' } });
     expect(handler).not.toHaveBeenCalled();
   });

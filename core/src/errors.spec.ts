@@ -3,6 +3,7 @@ import {
   ChannelNotFound,
   ChannelNotSubscribed,
   CloseCodes,
+  DurableStreamRequiresUser,
   error,
   InternalError,
   RateLimited,
@@ -671,6 +672,7 @@ describe('error() reserved-code guard', () => {
     expect(() => error('validation-failed')).toThrow(/reserved/);
     expect(() => error('channel-not-found')).toThrow(/reserved/);
     expect(() => error('stream-aborted')).toThrow(/reserved/);
+    expect(() => error(DurableStreamRequiresUser.code)).toThrow(/reserved/);
   });
 
   it('allows a non-reserved code', () => {

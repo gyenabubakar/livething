@@ -14,6 +14,14 @@ import type * as EngineRuntimeTypes from './types.ts';
 export { userKeyOf } from '~/_engine/runtime/user-key.ts';
 
 /**
+ * Connections that have been told to close by the `replace` eviction path but
+ * whose real close event has not landed yet. Keyed by connection identity so
+ * admission math for a rapid burst does not count them as still holding a
+ * slot, and so the same connection is never asked to close twice.
+ */
+const pendingEvictions = new WeakSet<EngineRuntimeTypes.RuntimeConnection>();
+
+/**
  * Add one connection to the user-key fan-out index, creating its set if
  * needed. A no-op for an anonymous connection (`userKeyOf` returns `null`) —
  * it has no user identity to fan out to, and must never be reachable via
@@ -319,6 +327,7 @@ export async function handleConnectionClose(
   connection.closing = true;
   runtime.connections.delete(connection.id);
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
+  pendingEvictions.delete(connection);
   runtime.wsToConnectionId.delete(connection.wsKey);
   runtime.deleteConnectionState?.(connection.id);
 
@@ -425,10 +434,18 @@ export function acceptConnection(
         };
       }
       // `replace`: evict the oldest connection(s) — set iteration is insertion
-      // order — until admitting the newcomer would sit at the cap.
+      // order — until admitting the newcomer would sit at the cap. The real
+      // close event lands later, so the evicted socket is dropped from the
+      // user-key index right away and marked pending: a rapid burst must not
+      // still count it toward `held`, or ask it to close a second time.
       let toEvict = held - usersPolicy.maxConnections + 1;
       for (const oldest of existing ?? []) {
         if (toEvict <= 0) break;
+        // Removed from the index the moment it's picked, so it can never be
+        // picked again by this or a later burst round.
+        if (pendingEvictions.has(oldest)) continue;
+        pendingEvictions.add(oldest);
+        removeConnectionFromUserIndex(runtime.usersByKey, oldest);
         oldest.descriptor.close(CloseCodes.DUPLICATE, 'replaced by a newer connection');
         toEvict -= 1;
       }

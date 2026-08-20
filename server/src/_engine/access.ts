@@ -45,10 +45,10 @@ export interface EngineAccess {
   onBoot(handler: () => void | Promise<void>): void;
 
   /**
-   * Like `onBoot`, but for `ensure*Schema` calls. The engine skips these on
-   * warm boots when the schema marker row says storage is already current.
-   * Use this ONLY for idempotent `CREATE TABLE IF NOT EXISTS` work — never
-   * for cleanup or state restoration, which must always run.
+   * Like `onBoot`, but for `ensure*Schema` calls. The engine runs these on
+   * every boot so a capability added after storage initialization still gets
+   * its tables. Use this ONLY for idempotent `CREATE TABLE IF NOT EXISTS` work
+   * — never for cleanup or state restoration, which must always run.
    */
   onBootSchema(handler: () => void | Promise<void>): void;
 
@@ -544,14 +544,15 @@ export interface EngineAccess {
 
   /**
    * Send one bare `ping` text frame to a live connection, doing nothing when
-   * that connection has already gone away.
+   * that connection has already gone away. Returns whether the frame was
+   * actually sent, so a caller can stop acting on a connection that is gone.
    *
    * Only `keepalive()` may call this. A `pong` carries no id, so the only way
    * to know which ping it answers is for one thing to be sending them. A second
    * sender makes `keepalive()` time the wrong ping and report a wrong
    * `ctx.latency`.
    */
-  sendPing(connectionId: string): void;
+  sendPing(connectionId: string): boolean;
 
   /**
    * Record a measured round-trip time against one connection so it surfaces as

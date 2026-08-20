@@ -101,3 +101,72 @@ describe('inbox overflow gap surfacing', () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 });
+
+/** Flush the inbox primitive's queued-microtask ack. */
+async function flush() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function receivedFrames(ws: MockWebSocket) {
+  return ws.sentFrames().filter((f) => f.event === '__received__');
+}
+
+function subscribeOk(ws: MockWebSocket, channel: string, isInbox: boolean) {
+  ws.emit({
+    event: '__subscribeOk__',
+    payload: {},
+    __wskit: isInbox ? { source: 'client', channel, inbox: true } : { source: 'client', channel },
+  });
+}
+
+describe('inbox — acknowledging an overflow gap', () => {
+  it('acks a gap on an inbox channel with __received__ carrying the gap sequence', async () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    subscribeOk(ws, 'room', true);
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    await flush();
+
+    expect(receivedFrames(ws)).toEqual([
+      { event: '__received__', payload: { receivedThrough: 12 }, __wskit: { channel: 'room' } },
+    ]);
+  });
+
+  it('does not ack a gap on a channel the client has not subscribed to with inbox', async () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    subscribeOk(ws, 'room', false);
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: { channel: 'room' } });
+    await flush();
+
+    expect(receivedFrames(ws)).toEqual([]);
+  });
+
+  it('does not regress the ack when a gap arrives for a sequence already acknowledged', async () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    subscribeOk(ws, 'room', true);
+
+    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 10 } });
+    await flush();
+    expect(receivedFrames(ws)).toEqual([
+      { event: '__received__', payload: { receivedThrough: 10 }, __wskit: { channel: 'room' } },
+    ]);
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 5 }, __wskit: { channel: 'room' } });
+    await flush();
+
+    expect(receivedFrames(ws)).toEqual([
+      { event: '__received__', payload: { receivedThrough: 10 }, __wskit: { channel: 'room' } },
+    ]);
+  });
+});

@@ -71,6 +71,40 @@ describe('inbox surface — backfill()', () => {
     expect(loadUndeliveredRows(sql, 'newcomer')).toEqual([]);
   });
 
+  it.each([
+    ['a Date', new Date(0)],
+    ['a Map', new Map([['key', 'value']])],
+    [
+      'a class instance',
+      new (class Payload {
+        value = 1;
+      })(),
+    ],
+  ])('throws on %s payload', (_label, payload) => {
+    const { sql, surface } = harness();
+    const bad = {
+      event: 'msg',
+      payload,
+      __wskit: { seq: 1, messageId: 'm1' },
+    } as unknown as BackfillMessage;
+
+    expect(() => surface.backfill('newcomer', [bad])).toThrow(/plain object/);
+    expect(loadUndeliveredRows(sql, 'newcomer')).toEqual([]);
+  });
+
+  it('accepts normal and null-prototype objects', () => {
+    const { sql, surface } = harness();
+    const nullPrototypePayload = Object.create(null) as Record<string, unknown>;
+    nullPrototypePayload.kind = 'null-prototype';
+
+    surface.backfill('newcomer', [
+      backfillFrame(1, { payload: { kind: 'normal' } }),
+      backfillFrame(2, { payload: nullPrototypePayload }),
+    ]);
+
+    expect(loadUndeliveredRows(sql, 'newcomer').map((row) => row.seq)).toEqual([1, 2]);
+  });
+
   it("applies the channel's retention to the backfilled rows, same as a live fan-out would", () => {
     const { sql, surface } = harness({ retention: { maxMessages: 2 } });
 

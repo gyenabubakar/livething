@@ -195,12 +195,12 @@ describe('replay — per-channel scope catch-up', () => {
   });
 
   describe('unsupported-protocol warning', () => {
-    it('warns every time the server reports replay is unsupported, and still passes the error to onError', () => {
+    it('warns every time the server reports replay is unsupported, and still passes the error to onServerError', () => {
       const { socket, ws } = build(dedup(), replay(), reconnection());
       socket.setDebug(true);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const onError = vi.fn();
-      socket.onError(onError);
+      socket.onServerError(onError);
 
       const errorFrame = {
         event: '__error__',
@@ -226,7 +226,7 @@ describe('replay — per-channel scope catch-up', () => {
       socket.setDebug(true);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      socket.onError(() => {});
+      socket.onServerError(() => {});
       ws.emit({
         event: '__error__',
         payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },

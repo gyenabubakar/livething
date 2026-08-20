@@ -11,7 +11,10 @@ import type { InboxOptions } from './types.ts';
 
 type Handler = (ctx: unknown, frame: Protocol.IncomingProtocolFrame) => boolean | void;
 
-function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {}) {
+function harness(
+  config: InboxOptions = {},
+  opts: { memberCount?: number; channelKey?: string } = {},
+) {
   const sql = createTestSql();
   ensureInboxSchema(sql);
   const handlers = new Map<string, Handler>();
@@ -20,7 +23,7 @@ function harness(config: InboxOptions = {}, opts: { memberCount?: number } = {})
 
   const bootSchemaHooks: Array<() => void> = [];
   const engine = {
-    getScopeInfo: () => ({ channelKey: 'room' }),
+    getScopeInfo: () => ({ channelKey: opts.channelKey ?? 'room' }),
     onBootSchema: (run: () => void) => bootSchemaHooks.push(run),
     extendContext: () => {},
     onProtocolMessage: (event: string, handler: Handler) => handlers.set(event, handler),
@@ -64,6 +67,16 @@ function member(userId = 'alice') {
 
 function anonymousMember() {
   return member('');
+}
+
+function memberOf(userId: string, channelName: string, channelFamily: string | null) {
+  return {
+    id: 'c1',
+    userId,
+    channelMemberships: new Map([
+      [createChannelMembershipKey(channelName, channelFamily), { channelName, channelFamily }],
+    ]),
+  };
 }
 
 function receivedFrame(receivedThrough: number): Protocol.IncomingProtocolFrame {
@@ -136,6 +149,58 @@ describe('inbox __received__ handler', () => {
   it('always returns false so read-receipts can also observe the ack', () => {
     const { handlers } = harness();
     expect(handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(1))).toBe(false);
+  });
+
+  it('leaves a family-scoped ack alone when this handler owns a plain channel of the same name', () => {
+    // A client on family 'rooms' can pick the concrete channel name 'alpha',
+    // which can collide with an unrelated plain channel also called 'alpha'.
+    // The plain channel's own handler must not claim the family's frame.
+    const { sql, handlers } = harness({}, { channelKey: 'alpha' });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'alpha',
+      channelFamily: 'rooms',
+      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      now: 1,
+    });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
+      [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', 'rooms'),
+    };
+    const frame = {
+      event: '__received__',
+      payload: { receivedThrough: 1 },
+      __wskit: { channel: 'alpha', channelFamily: 'rooms' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    handlers.get('__received__')!(ctx, frame);
+
+    expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(1);
+  });
+
+  it('leaves a plain-scoped ack alone when this handler owns a family of the same name', () => {
+    const { sql, handlers } = harness({}, { channelKey: 'rooms' });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'alpha',
+      channelFamily: null,
+      frame: { seq: 1, messageId: 'm1', event: 'msg', payload: {} },
+      now: 1,
+    });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
+      [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', null),
+    };
+    const frame = {
+      event: '__received__',
+      payload: { receivedThrough: 1 },
+      __wskit: { channel: 'alpha' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__received__')!(ctx, frame)).toBe(false);
+    expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(1);
   });
 });
 
@@ -215,6 +280,41 @@ describe('inbox __receivedQuery__ handler', () => {
 
     handlers.get('__receivedQuery__')!(ctx, queryFrame(5));
 
+    expect(sentFrames).toEqual([]);
+  });
+
+  it('does not answer a family-scoped query when this handler owns a plain channel of the same name', () => {
+    const { handlers, sentFrames } = harness({}, { channelKey: 'alpha' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
+      [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', 'rooms'),
+    };
+    const frame = {
+      event: '__receivedQuery__',
+      payload: { seq: 5 },
+      __wskit: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    handlers.get('__receivedQuery__')!(ctx, frame);
+
+    expect(sentFrames).toEqual([]);
+  });
+
+  it('does not answer a plain-scoped query when this handler owns a family of the same name', () => {
+    const { handlers, sentFrames } = harness({}, { channelKey: 'rooms' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
+      [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', null),
+    };
+    const frame = {
+      event: '__receivedQuery__',
+      payload: { seq: 5 },
+      __wskit: { channel: 'alpha', correlationId: 'q-1' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__receivedQuery__')!(ctx, frame)).toBe(false);
     expect(sentFrames).toEqual([]);
   });
 });

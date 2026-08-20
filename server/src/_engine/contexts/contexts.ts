@@ -78,31 +78,36 @@ function buildUserInfo(
   const connections = userConnections(userId, deps);
   if (connections.length === 0) return null;
 
-  const infos = connections.map((target) => deps.toConnectionInfo(target));
   const channels = new Set<string>();
   const tagsByKey = new Map<string, PublicApi.TagRef>();
-  // `lastSeen` is only present on a `ConnectionInfo` when `lastSeen()` is
-  // installed — track whether we saw it at all, separately from the running
-  // max, so the field can be omitted entirely without the capability.
-  let sawLastSeen = false;
-  let lastSeen: number | null = null;
-  for (const info of infos) {
-    for (const channel of info.channels) channels.add(channel);
-    for (const tag of info.tags) tagsByKey.set(`${tag.kind}:${tag.group}:${tag.key}`, tag);
-    if ('lastSeen' in info) {
-      sawLastSeen = true;
-      const seenAt = info.lastSeen ?? null;
-      if (seenAt !== null && (lastSeen === null || seenAt > lastSeen)) lastSeen = seenAt;
+  for (const connection of connections) {
+    for (const membership of connection.channelMemberships.values())
+      channels.add(membership.channelName);
+    for (const tag of connectionTagRefs(connection)) {
+      tagsByKey.set(JSON.stringify([tag.kind, tag.group, tag.key]), tag);
     }
   }
+
+  // Every connection here belongs to the same user, so `toConnectionInfo`'s
+  // last-seen lookup (a storage read) would return the same answer for each
+  // one of them — probe it through a single connection instead of once per
+  // tab. `lastSeen` is only present on a `ConnectionInfo` at all when the
+  // `lastSeen()` capability is installed, so the field is omitted here too
+  // when it's absent from the probe.
+  const lastSeenProbe = deps.toConnectionInfo(connections[0]!);
+  const sawLastSeen = 'lastSeen' in lastSeenProbe;
+  const lastSeen = sawLastSeen ? (lastSeenProbe.lastSeen ?? null) : undefined;
 
   return {
     id: userId,
     online: true,
-    connections: () => connections.map((target) => deps.toConnectionInfo(target)),
+    connections: () =>
+      connections.map((target) =>
+        deps.toConnectionInfo(target, sawLastSeen ? { lastSeen } : undefined),
+      ),
     channels: [...channels],
     tags: [...tagsByKey.values()],
-    ...(sawLastSeen ? { lastSeen } : {}),
+    ...(sawLastSeen ? { lastSeen: lastSeenProbe.lastSeen ?? null } : {}),
     ref: () => buildUserRef(userId, deps.instanceId),
   };
 }
@@ -352,7 +357,11 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineRuntimeTypes.RuntimeConnection,
   instanceId: string | undefined,
-  opts?: { hibernationEnabled?: boolean; lastSeenAt?: (userId: string) => number | null },
+  opts?: {
+    hibernationEnabled?: boolean;
+    lastSeenAt?: (userId: string) => number | null;
+    lastSeen?: number | null;
+  },
 ): PublicApi.ConnectionInfo<Record<string, unknown>> {
   const hibernationEnabled = opts?.hibernationEnabled;
   const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {
@@ -366,6 +375,9 @@ export function toConnectionInfo(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };
+  if ('lastSeen' in (opts ?? {})) {
+    return { ...info, lastSeen: opts!.lastSeen ?? null };
+  }
   if (opts?.lastSeenAt) {
     return { ...info, lastSeen: opts.lastSeenAt(connection.userId) };
   }

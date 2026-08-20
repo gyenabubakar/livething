@@ -102,6 +102,14 @@ function fakeConnection(id: string, userId: string): RuntimeConnection {
   } as unknown as RuntimeConnection;
 }
 
+function fakeConnectionWithThrowingClose(id: string, userId: string): RuntimeConnection {
+  const connection = fakeConnection(id, userId);
+  connection.descriptor.close = vi.fn(() => {
+    throw new Error('adapter close blew up');
+  });
+  return connection;
+}
+
 function withChannelsAndTags(): ServerDefinition {
   const base = define({
     env: t<Record<string, never>>(),
@@ -406,5 +414,67 @@ describe('purgeUser(core, userId, options) — broadcast stream content', () => 
     const row = readStream(sql, '__bcast:ch:room__', 's-broadcast');
     expect(row).not.toBeNull();
     expect(row?.creatorUserId).toBeNull();
+  });
+});
+
+describe('purgeUser — one socket close throws', () => {
+  it('still closes every remaining socket for the user', async () => {
+    const { engine } = await buildEngine(withChannelsAndTags());
+    const first = fakeConnectionWithThrowingClose('conn-1', 'alice');
+    const second = fakeConnection('conn-2', 'alice');
+    engine.core.connections.set(first.id, first);
+    engine.core.connections.set(second.id, second);
+
+    await expect(purgeUser(engine.core, 'alice')).rejects.toThrow();
+
+    expect(second.descriptor.close).toHaveBeenCalledWith(CloseCodes.NORMAL, 'user purged');
+  });
+
+  it('still surfaces an AggregateError carrying a cleanup-hook failure', async () => {
+    const { engine } = await buildEngine(withChannelsAndTags());
+    const boom = new Error('boom: cleanup hook failed');
+    engine.core.hooks.purgeUser.push(() => {
+      throw boom;
+    });
+    const first = fakeConnectionWithThrowingClose('conn-1', 'alice');
+    engine.core.connections.set(first.id, first);
+
+    let caught: unknown;
+    try {
+      await purgeUser(engine.core, 'alice');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toContain(boom);
+  });
+});
+
+describe('purgeUser — empty user id', () => {
+  it("purgeUser(core, '') rejects instead of closing every anonymous connection", async () => {
+    const { engine } = await buildEngine(withChannelsAndTags());
+    const anonA = fakeConnection('conn-anon-a', '');
+    const anonB = fakeConnection('conn-anon-b', '');
+    const alice = fakeConnection('conn-alice', 'alice');
+    engine.core.connections.set(anonA.id, anonA);
+    engine.core.connections.set(anonB.id, anonB);
+    engine.core.connections.set(alice.id, alice);
+
+    await expect(purgeUser(engine.core, '')).rejects.toThrow();
+
+    expect(anonA.descriptor.close).not.toHaveBeenCalled();
+    expect(anonB.descriptor.close).not.toHaveBeenCalled();
+    expect(alice.descriptor.close).not.toHaveBeenCalled();
+  });
+
+  it("admin().purgeUser('') rejects the same way", async () => {
+    const { engine } = await buildEngine(withChannelsAndTags());
+    const anonA = fakeConnection('conn-anon-a', '');
+    engine.core.connections.set(anonA.id, anonA);
+
+    await expect(engine.admin().purgeUser('')).rejects.toThrow();
+
+    expect(anonA.descriptor.close).not.toHaveBeenCalled();
   });
 });

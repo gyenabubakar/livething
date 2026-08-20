@@ -8,8 +8,8 @@
  *
  * Each `sql.exec` is one round trip to Cloudflare DO storage in production.
  * The bundled multi-statement strings (option A) count as ONE call each.
- * The schema-version sentinel (option B) means warm boots skip every
- * `bootSchema` hook and only run the sentinel SELECT.
+ * Warm boots re-run every idempotent `bootSchema` hook so a capability added
+ * after storage initialization still creates its tables on the next wake.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -40,22 +40,21 @@ import type { Engine } from '~/_engine/engine.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 
-function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
+function makeFakeStorage(opts?: { initialized?: boolean }) {
   const calls: string[] = [];
   const storage = createTestStorage({ onExec: (query) => calls.push(query) });
 
-  if (opts?.warmedSchemaVersion !== undefined) {
-    // Seed the real schema-meta row directly, as if a previous boot already
-    // wrote it — this does not count against the round-trip budget below.
+  if (opts?.initialized) {
+    // Seed the real initialization marker directly, as if a previous boot
+    // already wrote it — this does not count against the round-trip budget.
     storage.sql.exec(
       `
         CREATE TABLE IF NOT EXISTS __wskit_meta (
           key   TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
-        INSERT OR REPLACE INTO __wskit_meta (key, value) VALUES ('schema_version', ?)
+        INSERT OR REPLACE INTO __wskit_meta (key, value) VALUES ('initialized', '1')
       `,
-      opts.warmedSchemaVersion,
     );
     calls.length = 0;
   }
@@ -262,17 +261,20 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     expect(execCount).toBe(5);
   });
 
-  it('medium: WARM boot saves schema round trips', async () => {
+  it('medium: WARM boot re-runs the schema hooks and skips the marker write', async () => {
     const { execCount, calls } = await initWithFakeStorage(mediumHandler, true);
-    if (execCount !== 2) {
+    if (execCount !== 4) {
       // eslint-disable-next-line no-console
       console.log(
         '[medium warm] sql.exec calls:\n' +
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // 1 sentinel SELECT (returns row) + 1 cleanup (channel membership reconcile).
-    expect(execCount).toBe(2);
+    // 1 marker SELECT (returns a row, so storage is not fresh and the marker
+    // write is skipped) + 2 schema hooks (connections, channel membership) +
+    // 1 cleanup (channel membership reconcile). The schema hooks run on every
+    // boot so a capability added later still gets its tables.
+    expect(execCount).toBe(4);
   });
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
@@ -300,8 +302,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // pays one statement more here than the other capabilities alone would cost.
     // Creating those tables at boot rather than on first stream use is what lets
     // purgeUser delete stream rows on a server whose streams have never run —
-    // the tables exist either way. A warm boot skips every schema hook, so this
-    // is a cold-boot-only cost, paid once.
+    // the tables exist either way.
     //
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
@@ -311,9 +312,9 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     expect(execCount).toBe(12);
   });
 
-  it('heavy: WARM boot (sentinel current) skips every schema hook', async () => {
+  it('heavy: WARM boot re-runs every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
-    if (execCount !== 4) {
+    if (execCount !== 10) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
@@ -321,20 +322,25 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
       );
     }
     // Breakdown:
-    //   1. sentinel SELECT (returns row)
-    //   2. channel membership reconcile (cleanup SELECT)
-    //   3-4. scheduled bootstrap loads queued runs + dlq
+    //   1. marker SELECT (returns a row, so the marker write is skipped)
+    //   2-7. every schema hook: connections, sequence, replay, foreign keys,
+    //        channel membership, scheduled
+    //   8. channel membership reconcile (cleanup SELECT)
+    //   9-10. scheduled bootstrap loads queued runs + dlq
     //
-    // The recurring '__wskit:stream-durable-sweep' task (installed whenever a
-    // server declares a durable stream) was already persisted during the cold
-    // boot that seeded this storage, so the warm boot's bootstrap finds it in
-    // the loaded rows and issues no extra persist write.
-    expect(execCount).toBe(4);
+    // The schema hooks run on every boot rather than being skipped by a
+    // warm-boot gate, so a capability added after this storage was first
+    // initialized still gets its tables. The recurring
+    // '__wskit:stream-durable-sweep' task (installed whenever a server
+    // declares a durable stream) was already persisted during the cold boot
+    // that seeded this storage, so the bootstrap finds it in the loaded rows
+    // and issues no extra persist write.
+    expect(execCount).toBe(10);
   });
 });
 
 describe('engine.initialize — freshBoot only on a truly empty DB', () => {
-  async function initAndGetEngine(opts?: { warmedSchemaVersion?: string }) {
+  async function initAndGetEngine(opts?: { initialized?: boolean }) {
     const { storage } = makeFakeStorage(opts);
     const engine = buildEngine(mediumHandler);
     engine.core.storage = storage as never;
@@ -347,8 +353,8 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
     expect(engine.core.freshBoot).toBe(true);
   });
 
-  it('does NOT set freshBoot on a migration (older schema version present)', async () => {
-    const engine = await initAndGetEngine({ warmedSchemaVersion: '0' });
+  it('does NOT set freshBoot on initialized storage', async () => {
+    const engine = await initAndGetEngine({ initialized: true });
     expect(engine.core.freshBoot).toBe(false);
   });
 });
@@ -439,9 +445,9 @@ describe('tags() restores persistent tags on reconnect', () => {
     } as unknown as EngineRuntimeTypes.RuntimeConnection;
   }
 
-  /** A warm boot (older schema version present) creates real tables and leaves `freshBoot` false. */
+  /** A warm boot (initialized storage present) creates real tables and leaves `freshBoot` false. */
   async function bootWarm(handler: ServerDefinition): Promise<Engine> {
-    const { storage } = makeFakeStorage({ warmedSchemaVersion: '0' });
+    const { storage } = makeFakeStorage({ initialized: true });
     const engine = buildEngine(handler);
     engine.core.storage = storage as never;
     await engine.initialize();
@@ -505,5 +511,59 @@ describe('tags() restores persistent tags on reconnect', () => {
     expect(calls).toHaveLength(1);
     const members = engine.core.tagMembers.get(tagRefIndexKey('persistent', 'role', 'admin'));
     expect(members?.has(connection)).toBe(true);
+  });
+});
+
+function fakeConnection(id: string, userId: string): EngineRuntimeTypes.RuntimeConnection {
+  return {
+    id,
+    userId,
+    wsKey: {},
+    descriptor: { send() {}, close() {}, bufferedAmount: () => 0 },
+    meta: {},
+    tags: { ephemeral: new Map(), persistent: new Map() },
+    channelMemberships: new Map(),
+    latency: null,
+    quality: 'good',
+  } as unknown as EngineRuntimeTypes.RuntimeConnection;
+}
+
+describe('a capability added after storage was already initialized', () => {
+  it("creates that capability's tables on the next boot against the same storage", async () => {
+    const storage = createTestStorage();
+
+    const firstBase = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [channels()],
+    });
+    const firstRoom = firstBase.channel('room', {
+      outgoing: { emits: { said: t<{ text: string }>() } },
+    });
+    const firstHandler = firstBase.assemble({ handlers: [firstRoom] });
+    const firstEngine = buildEngine(firstHandler);
+    firstEngine.core.storage = storage as never;
+    await firstEngine.initialize();
+
+    const secondBase = define({
+      env: t<Record<string, unknown>>(),
+      capabilities: [
+        channels(),
+        tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
+      ],
+    });
+    const secondRoom = secondBase.channel('room', {
+      outgoing: { emits: { said: t<{ text: string }>() } },
+    });
+    const secondHandler = secondBase.assemble({ handlers: [secondRoom] });
+    const secondEngine = buildEngine(secondHandler);
+    secondEngine.core.storage = storage as never;
+    await secondEngine.initialize();
+
+    insertTag(storage.sql, { userId: 'alice', group: 'favorite', key: 'blue' });
+
+    const connection = fakeConnection('c-1', 'alice');
+    secondEngine.core.connections.set(connection.id, connection);
+
+    await expect(secondEngine.admin().purgeUser('alice')).resolves.toBeUndefined();
   });
 });

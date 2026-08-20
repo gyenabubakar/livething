@@ -2,6 +2,7 @@
 import type {
   ChannelNotFound,
   ChannelNotSubscribed,
+  DurableStreamRequiresUser,
   ErrorDef,
   InternalError,
   NudgeOverflow,
@@ -77,6 +78,7 @@ type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
+  | typeof DurableStreamRequiresUser
   | typeof RejoinRejected
   | typeof InternalError
   | typeof RateLimited

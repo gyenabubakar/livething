@@ -11,20 +11,24 @@ function sqlThatThrows(message: string) {
 
 describe('readSchemaState (#4)', () => {
   it('reports a fresh database when the meta table is missing', () => {
-    expect(readSchemaState(sqlThatThrows('no such table: __wskit_meta'))).toEqual({
-      initialized: false,
-      fresh: true,
-    });
+    expect(readSchemaState(sqlThatThrows('no such table: __wskit_meta'))).toEqual({ fresh: true });
   });
 
   it('propagates any other storage error instead of masquerading as fresh', () => {
     expect(() => readSchemaState(sqlThatThrows('disk I/O error'))).toThrow('disk I/O error');
   });
 
-  it('reports initialized when the version row matches', () => {
+  it('reports not fresh once the meta table is present', () => {
     const sql = {
       exec: () => ({ toArray: () => [{ value: '1' }] }),
     } as unknown as Parameters<typeof readSchemaState>[0];
-    expect(readSchemaState(sql)).toEqual({ initialized: true, fresh: false });
+    expect(readSchemaState(sql)).toEqual({ fresh: false });
+  });
+
+  it('reports not fresh even when the meta table is present but empty', () => {
+    const sql = {
+      exec: () => ({ toArray: () => [] }),
+    } as unknown as Parameters<typeof readSchemaState>[0];
+    expect(readSchemaState(sql)).toEqual({ fresh: false });
   });
 });

@@ -100,26 +100,25 @@ export interface PluginBase {
 /** `{}` unless `TMap` has at least one key — so an empty section adds no method. */
 type WhenPresent<TMap, TThen> = keyof TMap extends never ? {} : TThen;
 
-/**
- * A typed union of the plugin's declared errors as real `WSKitError` instances,
- * one member per declared error code — `WSKitError<'room-full', { limit: number }>
- * | …`. What an `onError` handler receives: `switch (err.code)` types `err.detail`
- * per case. It is a real `WSKitError` instance (so `err instanceof WSKitError`
- * holds), carrying the plain name — the framework strips the plugin's `__<id>::`
- * prefix before handing it over.
- */
-type PluginError<P extends SocketContract> = {
-  [K in keyof ErrorsOf<P> & string]: WSKitError<K, ErrorsOf<P>[K]>;
-}[keyof ErrorsOf<P> & string];
+type PluginErrorCode<P extends SocketContract> = keyof ErrorsOf<P> & string;
 
 /**
- * A plugin with declared errors gets `onError`, which sees the server-pushed
+ * A plugin with declared errors gets `onServerError`, which sees the server-pushed
  * errors in its namespace that no request or stream claimed. Present only when the
- * plugin declares an `errors` section.
+ * plugin declares an `errors` section. `onError` remains as a deprecated alias for
+ * existing plugins; local setup and handler throws still reach the host's `onError`.
  */
 type PluginErrorHandling<P extends SocketContract> = WhenPresent<
   ErrorsOf<P>,
-  { onError(handler: (error: PluginError<P>) => void): () => void }
+  {
+    onServerError(handler: (error: WSKitError<string, unknown>) => void): () => void;
+    onServerError<K extends PluginErrorCode<P>>(
+      code: K,
+      handler: (error: WSKitError<K, ErrorsOf<P>[K]>) => void,
+    ): () => void;
+    /** @deprecated Use onServerError(), with a code argument when typed detail is needed. */
+    onError(handler: (error: WSKitError<string, unknown>) => void): () => void;
+  }
 >;
 
 /**

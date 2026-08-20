@@ -17,7 +17,7 @@ export function toWSKitError(payload: unknown): WSKitError {
  * request/stream event, or a channel's name / family key). A non-namespaced
  * source (a plain app operation), a non-`WSKitError`, or a code from a different
  * namespace (e.g. a built-in) is returned untouched — mirroring the scoped
- * `onError` path so both directions of a plugin's errors read in plain names.
+ * `onServerError` path so both directions of a plugin's errors read in plain names.
  */
 export function unscopeErrorCode(source: string | undefined, error: unknown): unknown {
   if (source === undefined || !(error instanceof WSKitError)) return error;

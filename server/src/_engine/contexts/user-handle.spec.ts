@@ -1,7 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { buildConnectionContext, toConnectionInfo } from '~/_engine/contexts/contexts.ts';
+import { createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import { ensureLastSeenSchema, readLastSeen, stampLastSeen } from '~/last-seen/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -196,6 +198,61 @@ describe('UserHandle.info — no flat .meta', () => {
     expect(info!.online).toBe(true);
     expect(info!.connections()).toHaveLength(2);
     expect('meta' in (info as object)).toBe(false);
+  });
+});
+
+describe('UserHandle.info — last-seen storage reads', () => {
+  it('performs exactly one last-seen read per info() call, regardless of how many tabs the user holds', () => {
+    const reads: string[] = [];
+    const sql = createTestSql({
+      onExec: (query) => {
+        if (query.includes('__wskit_last_seen')) reads.push(query);
+      },
+    });
+    ensureLastSeenSchema(sql);
+    stampLastSeen(sql, { userId: 'alice', now: 1_000 });
+
+    const tabs = Array.from({ length: 5 }, (_, i) => createConnection(`t${i}`, 'alice'));
+    const deps = baseDeps(tabs, {
+      toConnectionInfo: (c: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
+        toConnectionInfo(c, undefined, {
+          hibernationEnabled: false,
+          lastSeenAt: (userId: string) => readLastSeen(sql, userId),
+          ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
+        }),
+    });
+    const ctx = buildConnectionContext(deps, tabs[0]!);
+
+    reads.length = 0;
+    const info = ctx.users.get('alice').info()!;
+    const connections = info.connections();
+
+    expect(reads).toHaveLength(1);
+    expect(info.lastSeen).toBe(1_000);
+    expect(connections).toHaveLength(tabs.length);
+    expect(connections.map((connection) => connection.lastSeen)).toEqual(tabs.map(() => 1_000));
+  });
+});
+
+describe('UserHandle.info — tag collisions across colon-joined keys', () => {
+  it('keeps two distinct tags whose group/key concatenation collides on the colon separator', () => {
+    const tab = createConnection('t1', 'alice');
+    tab.tags.ephemeral.set('a:b', new Set(['c']));
+    tab.tags.ephemeral.set('a', new Set(['b:c']));
+    const deps = baseDeps([tab], {
+      toConnectionInfo: (c: RuntimeConnection) => toConnectionInfo(c, undefined),
+    });
+    const ctx = buildConnectionContext(deps, tab);
+
+    const info = ctx.users.get('alice').info();
+
+    expect(info!.tags).toHaveLength(2);
+    expect(info!.tags).toEqual(
+      expect.arrayContaining([
+        { __wskit: 'tag-ref', kind: 'ephemeral', group: 'a:b', key: 'c' },
+        { __wskit: 'tag-ref', kind: 'ephemeral', group: 'a', key: 'b:c' },
+      ]),
+    );
   });
 });
 

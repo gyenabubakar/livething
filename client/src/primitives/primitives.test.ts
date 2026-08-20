@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type test file */
 // Type-only checks for the primitives. tsc checks these; vitest never runs them.
-import { WSKitError } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { serialization } from '~/primitives/serialization/index.ts';
@@ -34,15 +33,19 @@ socket.onError((error) => {
   // The transport-error case is a raw Event.
   if (error instanceof Event) {
     void error.type;
-    return;
   }
+});
+
+socket.onServerError((error) => {
   // A server the client's types don't match can still send an undeclared code.
-  if (!(error instanceof WSKitError)) {
-    return;
-  }
-  // Narrowed to the contract's errors: switching on the code types the detail.
-  if (error.code === 'room-full') {
-    const _limit: number = error.detail.limit;
-    void _limit;
-  }
+  const _code: string = error.code;
+  const _detail: unknown = error.detail;
+  void _code;
+  void _detail;
+});
+
+// Narrowed to the contract's errors: a code-specific subscription types detail.
+socket.onServerError('room-full', (error) => {
+  const _limit: number = error.detail.limit;
+  void _limit;
 });

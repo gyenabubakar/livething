@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes, WSKitConfigError } from '@wskit/core';
 import type { EngineCore } from '~/_engine/core.ts';
 
 /** Options accepted by {@link purgeUser}. */
@@ -19,16 +19,23 @@ export interface PurgeUserOptions {
  * every live socket belonging to the user. With nothing registered this only
  * closes sockets and touches no storage.
  *
- * Every hook runs even when one throws: a purge that reports "3 of 4 steps
- * done" is far better than one that silently stops at the first failure and
- * leaves live sockets open. Failures are collected and thrown together, after
- * the socket-close loop has run.
+ * Every hook runs even when one throws, and every socket is closed even when
+ * one close throws: a purge that reports "3 of 4 steps done" is far better
+ * than one that silently stops at the first failure and leaves live sockets
+ * open. Failures are collected and thrown together, after the socket-close
+ * loop has run.
  */
 export async function purgeUser(
   core: EngineCore,
   userId: string,
   options?: PurgeUserOptions,
 ): Promise<void> {
+  if (userId === '') {
+    throw new WSKitConfigError(
+      "[wskit] purgeUser('') would match every anonymous connection. Pass the id of a signed-in user.",
+    );
+  }
+
   const failures: unknown[] = [];
 
   for (const hook of core.hooks.purgeUser) {
@@ -41,14 +48,18 @@ export async function purgeUser(
 
   for (const connection of core.connections.values()) {
     if (connection.userId === userId) {
-      connection.descriptor.close(CloseCodes.NORMAL, 'user purged');
+      try {
+        connection.descriptor.close(CloseCodes.NORMAL, 'user purged');
+      } catch (err) {
+        failures.push(err);
+      }
     }
   }
 
   if (failures.length > 0) {
     throw new AggregateError(
       failures,
-      `purgeUser('${userId}') failed for ${failures.length} of ${core.hooks.purgeUser.length} cleanup step(s)`,
+      `purgeUser('${userId}') failed for ${failures.length} cleanup or socket-close step(s)`,
     );
   }
 }

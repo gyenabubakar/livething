@@ -279,7 +279,11 @@ export function createEngineAccess(
       }, timeoutMs);
     },
     sendPing: (connectionId) => {
-      core.connections.get(connectionId)?.descriptor.send('ping');
+      const connection = core.connections.get(connectionId);
+      if (!connection) return false;
+
+      connection.descriptor.send('ping');
+      return true;
     },
     setConnectionLatency: (connectionId, latency, quality) => {
       const connection = core.connections.get(connectionId);

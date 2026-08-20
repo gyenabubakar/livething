@@ -187,13 +187,14 @@ export function sendThroughPipeline(
 ): boolean {
   const { routing, event } = opts;
   const isRequestResponse = !!routing?.correlationId;
-  const payload = opts.payload === undefined && isRequestResponse ? {} : opts.payload;
+  // A handler that never calls ctx.respond() answers void. Hooks still see the
+  // frame — they see every server→client frame — but an empty payload is left
+  // off the wire entirely so the caller resolves with nothing rather than `{}`.
+  const isVoidResponse = opts.payload === undefined && isRequestResponse;
+  const payload = isVoidResponse ? {} : opts.payload;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, {
-    event,
-    payload,
-  });
+  const message = runOutgoingHooks(runtime.outgoingHooks, { event, payload });
 
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
@@ -207,7 +208,12 @@ export function sendThroughPipeline(
   applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;
-  const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
+  // A hook may answer a void acknowledgement with real data; only a still-empty
+  // one is left off the wire.
+  const payloadJson =
+    isVoidResponse && Object.keys(finalPayload).length === 0
+      ? undefined
+      : serializePayloadOrThrow(message.event, finalPayload);
 
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
@@ -222,7 +228,9 @@ export function sendThroughPipeline(
   }
 
   connection.descriptor.send(
-    `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
+    payloadJson === undefined
+      ? `{"event":${JSON.stringify(message.event)},"__wskit":${JSON.stringify(wskit)}}`
+      : `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
   );
 
   invokeAfterSendHooks(runtime, wireMessage);

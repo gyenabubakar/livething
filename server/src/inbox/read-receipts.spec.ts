@@ -20,7 +20,7 @@ type Handler = (ctx: unknown, frame: Protocol.IncomingProtocolFrame) => boolean 
 
 function harness(
   options: ResolvedReadReceiptsOptions,
-  opts: { memberCount?: number; inboxConfig?: ResolvedInboxOptions } = {},
+  opts: { memberCount?: number; inboxConfig?: ResolvedInboxOptions; channelKey?: string } = {},
 ) {
   const sql = createTestSql();
   ensureReceiptsSchema(sql);
@@ -31,7 +31,7 @@ function harness(
   const sentFrames: Array<{ connectionId: string; frame: unknown }> = [];
 
   const engine = {
-    getScopeInfo: () => ({ channelKey: 'room' }),
+    getScopeInfo: () => ({ channelKey: opts.channelKey ?? 'room' }),
     onBootSchema: () => {},
     extendContext: () => {},
     registerReadReceiptsChannel: () => {},
@@ -251,5 +251,73 @@ describe('readReceipts scope isolation', () => {
 
     expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
     expect(broadcasts).toEqual([]);
+  });
+
+  it('ignores a family-scoped read frame when this handler owns a plain channel of the same name', () => {
+    const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { channelKey: 'alpha' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', 'rooms'),
+    };
+    const frame = {
+      event: '__read__',
+      payload: { readThrough: 5 },
+      __wskit: { channel: 'alpha', channelFamily: 'rooms' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('ignores a plain-scoped read frame when this handler owns a family of the same name', () => {
+    const { handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { channelKey: 'rooms' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
+    };
+    const frame = {
+      event: '__read__',
+      payload: { readThrough: 5 },
+      __wskit: { channel: 'alpha' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__read__')!(ctx, frame)).toBe(false);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('does not answer a family-scoped query when this handler owns a plain channel of the same name', () => {
+    const { handlers, sentFrames } = harness({ maxReceiptAudience: 256 }, { channelKey: 'alpha' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', 'rooms'),
+    };
+    const frame = {
+      event: '__readQuery__',
+      payload: { seq: 5 },
+      __wskit: { channel: 'alpha', channelFamily: 'rooms', correlationId: 'q-1' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);
+    expect(sentFrames).toEqual([]);
+  });
+
+  it('does not answer a plain-scoped query when this handler owns a family of the same name', () => {
+    const { handlers, sentFrames } = harness({ maxReceiptAudience: 256 }, { channelKey: 'rooms' });
+    const ctx = {
+      user: { id: 'alice' },
+      [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
+    };
+    const frame = {
+      event: '__readQuery__',
+      payload: { seq: 5 },
+      __wskit: { channel: 'alpha', correlationId: 'q-1' },
+    } as unknown as Protocol.IncomingProtocolFrame;
+
+    expect(handlers.get('__readQuery__')!(ctx, frame)).toBe(false);
+    expect(sentFrames).toEqual([]);
   });
 });

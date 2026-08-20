@@ -22,7 +22,8 @@ import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.t
  * `send` is typed to the server's `emits(...)` events, so a typo or wrong
  * payload is a compile error.
  *
- * The handle is the seam for addressing one socket. It carries `send` always;
+ * The handle is the seam for addressing one socket. It carries `send` and
+ * `close` always;
  * the `requests()` capability adds the `request` arm (see `ConnectionRequestHandle`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`.
@@ -33,6 +34,9 @@ export interface ConnectionHandle<TSlots> {
    * is no longer live on this instance.
    */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+
+  /** Close this connection only. No-op when the connection is no longer live. */
+  close(code?: number, reason?: string): void;
 }
 
 /**

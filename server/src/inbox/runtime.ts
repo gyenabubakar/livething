@@ -3,7 +3,7 @@ import { listIdentitiesByChannel } from '~/channel/storage.ts';
 import {
   ackInboxRows,
   bumpInboxWatermark,
-  clearInboxWatermarks,
+  clearInboxWatermarkThrough,
   countInboxRows,
   deleteInboxRowsForChannel,
   deleteInboxWatermarkForChannel,
@@ -30,7 +30,8 @@ export function scopeMatchesChannel(
   scope: EngineChannelMeta | undefined,
   channelKey: string,
 ): boolean {
-  return scope?.channelFamily === channelKey || scope?.channelName === channelKey;
+  const scopeKey = scope?.channelFamily ?? scope?.channelName;
+  return scopeKey === channelKey;
 }
 
 /**
@@ -133,7 +134,7 @@ export function memberCountKey(
   channelFamily: string | null,
   userId: string,
 ): string {
-  return `${channelName} ${channelFamily ?? ''} ${userId}`;
+  return JSON.stringify([channelName, channelFamily, userId]);
 }
 
 /**
@@ -153,7 +154,6 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       missedThrough: watermark.evictedThroughSeq,
     });
   }
-  if (watermarks.length > 0) clearInboxWatermarks(sql, connection.userId);
 
   const rows = loadUndeliveredRows(sql, connection.userId);
   if (rows.length === 0) return;
@@ -191,6 +191,12 @@ export function applyInboxAck(
     receivedThrough: opts.receivedThrough,
     onDelivered: opts.onDelivered,
     now: Date.now(),
+  });
+  clearInboxWatermarkThrough(sql, {
+    userId: opts.userId,
+    channelName: opts.channelName,
+    channelFamily: opts.channelFamily,
+    receivedThrough: opts.receivedThrough,
   });
 }
 

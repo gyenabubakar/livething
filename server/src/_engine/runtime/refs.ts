@@ -20,9 +20,9 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
 } {
   return {
     connection: (ref) => {
-      assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
       return {
         send: (event, payload) => {
+          assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).send');
           const target = deps.connections.get(ref.id);
           if (!target) {
             deps.logger.error('[wskit] ctx.connections.get(ref).send target not found', {
@@ -32,6 +32,17 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
             return false;
           }
           return deps.sendThroughPipeline(target, { routing: undefined, event, payload });
+        },
+        close: (code, reason) => {
+          assertLocalRef(ref, deps.instanceId, 'ctx.connections.get(ref).close');
+          const target = deps.connections.get(ref.id);
+          if (!target) {
+            deps.logger.error('[wskit] ctx.connections.get(ref).close target not found', {
+              connectionId: ref.id,
+            });
+            return;
+          }
+          target.descriptor.close(code, reason);
         },
       };
     },

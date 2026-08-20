@@ -674,10 +674,13 @@ type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> 
  * with the bare `string` brand rather than a literal union) means every brand
  * check below would pass at once, so that case grants nothing instead.
  */
-type ChannelCapabilityArm<TChannelBrand extends string> =
+type ChannelCapabilityArm<
+  TChannelBrand extends string,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+> =
   BrandIsWidened<TChannelBrand> extends true
     ? {}
-    : ('inbox' extends TChannelBrand ? { readonly inbox: ChannelInbox } : {}) &
+    : ('inbox' extends TChannelBrand ? { readonly inbox: ChannelInbox<TOutgoing> } : {}) &
         ('readReceipts' extends TChannelBrand
           ? { readonly readReceipts: ChannelReadReceipts }
           : {});
@@ -688,14 +691,14 @@ export type ChannelCtx<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
 > = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TCaps> &
-    ChannelCapabilityArm<TChannelBrand>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
 /** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
@@ -705,9 +708,10 @@ export type ChannelGateCtx<
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
   TChannelBrand extends string = never,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
 > = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
-    ChannelCapabilityArm<TChannelBrand>;
+    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
 /**
@@ -745,6 +749,7 @@ export type ChannelConfig<
   TCaps extends readonly AnyCapability[] = readonly [],
   TSubscribe extends Validator | undefined = Validator | undefined,
   TCheckResult = unknown,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
 > = {
   /** Server→client events and requests this channel declares. */
   readonly outgoing?: {
@@ -767,7 +772,7 @@ export type ChannelConfig<
    * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
    */
   check?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
     input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
   /**
@@ -778,7 +783,7 @@ export type ChannelConfig<
    * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
    */
   commit?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
     checkResult: Awaited<TCheckResult>,
   ) => void;
   /**
@@ -788,7 +793,9 @@ export type ChannelConfig<
    * `ctx.channel.readReceipts` are not available here — read them in
    * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
    */
-  revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
+  revalidate?: (
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
+  ) => void | Promise<void>;
   /** Whether membership survives a reconnect (default `'persistent'`). */
   readonly membership?: 'persistent' | 'ephemeral';
   /**
@@ -835,7 +842,7 @@ type ChannelFlagsContribution<TKey extends string, TBrand extends string> = Cont
 /** The channel's own contract slice — declared from its config and pattern. */
 type ChannelOwnSlice<
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TServerRequests = {},
@@ -852,7 +859,7 @@ type ChannelStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TNudges,
@@ -890,7 +897,7 @@ type ChannelRecordedStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TNudges,
@@ -930,7 +937,7 @@ type ChannelResumableStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TCursor,
@@ -986,7 +993,7 @@ interface ChannelStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
@@ -1032,7 +1039,7 @@ interface ChannelResumableStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
@@ -1085,7 +1092,7 @@ interface ChannelRecordedStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
@@ -1135,7 +1142,7 @@ export type ChannelStreamMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TBrand extends string,
@@ -1194,7 +1201,7 @@ export type ChannelObject<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
@@ -1257,7 +1264,7 @@ export type ChannelObjectCore<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
@@ -1311,7 +1318,7 @@ export type ChannelObjectCore<
       >
     : {}) &
   ('intercepts' extends BrandsOf<TCaps>
-    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand>
+    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>
     : {});
 
 /** The `on` / lifecycle methods every channel object carries. */
@@ -1321,7 +1328,7 @@ export interface ChannelCoreMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
@@ -1356,19 +1363,19 @@ export interface ChannelCoreMethods<
   /** Runs after a client subscribes to this channel. */
   subscribe(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
     ) => void | Promise<void>,
   ): void;
   /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
   unsubscribe(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
     ) => void | Promise<void>,
   ): void;
   /** Runs on every session end, including a plain disconnect. */
   sessionEnd(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
     ) => void | Promise<void>,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
@@ -1382,7 +1389,7 @@ export interface ChannelRequestMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
@@ -1428,11 +1435,12 @@ export interface ChannelInterceptMethods<
   TMeta,
   TCaps extends readonly AnyCapability[],
   TChannelBrand extends string = never,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
 > {
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand>,
+      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
       frame: InterceptFrame,
     ) => unknown | void,
   ): void;
@@ -1471,7 +1479,15 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     name: TName,
-    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+    config?: ChannelConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TCaps,
+      TSubscribe,
+      TCheckResult,
+      EmitMap<TEmits>
+    > & {
       readonly outgoing?: {
         readonly emits?: TEmits;
         readonly requests?: TRequests;
@@ -1503,7 +1519,15 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     pattern: readonly [TFamily, TPattern],
-    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+    config?: ChannelConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TCaps,
+      TSubscribe,
+      TCheckResult,
+      EmitMap<TEmits>
+    > & {
       readonly outgoing?: {
         readonly emits?: TEmits;
         readonly requests?: TRequests;

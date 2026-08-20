@@ -135,8 +135,10 @@ function membersToTargets(
 
 /**
  * Whether a member snapshot satisfies a channel-scoped `to` recipient. A
- * `user-ref` matches on the member's `userId`, mirroring `matchesRecipient` on
- * the live connection. An anonymous member has no user id and never matches.
+ * `user-ref` matches on the member's `userId`, mirroring `userKeyOf` on the
+ * live connection. An anonymous member has `userId === ''` — no user identity
+ * at all — and never matches, even when a `UserRef` id happens to equal its
+ * connection id.
  */
 function infoMatchesRecipient(
   info: PublicApi.ConnectionInfo,
@@ -146,7 +148,7 @@ function infoMatchesRecipient(
     case 'connection-ref':
       return info.id === to.id;
     case 'user-ref':
-      return (info.userId || info.id) === to.id;
+      return info.userId !== '' && info.userId === to.id;
     case 'tag-ref':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
     case 'group-handle':

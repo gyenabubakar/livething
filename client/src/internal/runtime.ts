@@ -1,4 +1,4 @@
-import type { WireMessage, WSKitEnvelope } from '@wskit/core';
+import type { WireMessage, WSKitEnvelope, WSKitError } from '@wskit/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
@@ -162,6 +162,9 @@ export interface PrimitiveHelpers {
 
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
   send(message: WireMessage, options?: InternalSendOptions): SendResult;
+
+  /** Surface an unclaimed server error without routing it through local onError. */
+  reportServerError(error: WSKitError): void;
 
   /** The current connection state. */
   getState(): ConnectionState;

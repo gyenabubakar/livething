@@ -1,6 +1,14 @@
-import { createTestSql } from '~/_test/sql.ts';
+import { adapter } from '~/_adapters/define.ts';
+import { t } from '~/_api/definitions.ts';
+import { define } from '~/_define/define.ts';
+import { scheduleTask } from '~/_engine/scheduling.ts';
+import { createTestKV, createTestSql } from '~/_test/sql.ts';
+import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { Engine } from '~/_engine/engine.ts';
+import type { SQLProvider } from '~/context.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 import {
   bootstrapScheduledRuntime,
   cancelScheduledRuns,
@@ -10,6 +18,50 @@ import {
   scheduleTaskRun,
 } from './runtime.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
+
+/** Build and initialize a real engine, exposing its core's real SQLite storage. */
+async function buildEngine(
+  handler: ServerDefinition,
+): Promise<{ engine: Engine; sql: SQLProvider }> {
+  const sql = createTestSql();
+  let engine!: Engine;
+  const server = adapter({
+    id: 'test',
+    asyncContextFactory: <TStore>() => {
+      let current: TStore | undefined;
+      return {
+        run<R>(store: TStore, callback: () => R): R {
+          const prev = current;
+          current = store;
+          try {
+            return callback();
+          } finally {
+            current = prev;
+          }
+        },
+        getStore: () => current,
+      };
+    },
+    setup(createEngine) {
+      engine = createEngine({
+        env: {},
+        platform: { kind: 'test' },
+        storage: { sql, kv: createTestKV() },
+        timers: {
+          setAlarm: vi.fn(async () => {}),
+          deleteAlarm: vi.fn(async () => {}),
+          getAlarm: vi.fn(async () => null),
+        },
+        waitUntil: () => {},
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+      return {};
+    },
+  });
+  server(handler, {} as never);
+  await engine.initialize();
+  return { engine, sql };
+}
 
 function scheduledTableRows(sql: ReturnType<typeof createTestSql>): Record<string, unknown>[] {
   return sql
@@ -637,5 +689,41 @@ describe('scheduled/runtime', () => {
     expect(typeof dlq!.error.message).toBe('string');
     expect(dlq!.error.message).toBe('1');
     now.mockRestore();
+  });
+});
+
+describe('scheduled/runtime — through the real engine', () => {
+  it('keeps the running task recoverable in storage across a nested ctx.schedule() call', async () => {
+    const rowsDuringHandler: unknown[][] = [];
+
+    const base = define({
+      env: t<Record<string, never>>(),
+      capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
+    });
+    const processRefund = base.scheduled('processRefund', {
+      run(ctx) {
+        ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
+        rowsDuringHandler.push(
+          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __wskit_scheduled').toArray(),
+        );
+      },
+    });
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+
+    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
+
+    scheduleTask(engine.core, () => ({}), {
+      taskId: 'processRefund',
+      time: 1,
+      data: undefined,
+    });
+
+    await engine.handleAlarm();
+
+    expect(rowsDuringHandler).toHaveLength(1);
+    const taskIdsDuringHandler = (rowsDuringHandler[0] ?? []).map(
+      (row) => (row as { taskId: string }).taskId,
+    );
+    expect(taskIdsDuringHandler).toContain('processRefund');
   });
 });

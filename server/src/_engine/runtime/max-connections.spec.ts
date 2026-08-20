@@ -87,10 +87,11 @@ describe('acceptConnection — users.maxConnections policy', () => {
     expect(first.close).toHaveBeenCalledWith(CloseCodes.DUPLICATE, expect.any(String));
     expect(second.close).not.toHaveBeenCalled();
     expect(third.close).not.toHaveBeenCalled();
-    // Eviction only calls descriptor.close() here — the adapter's own close
-    // callback is what later removes the socket from `connections` /
-    // `usersByKey`, so both still list the evicted socket at this point.
-    expect(runtime.usersByKey.get('u1')?.size).toBe(3);
+    // An evicted socket leaves the user-key index the moment it is picked, so
+    // the cap holds even before its close lands. It stays in `connections`
+    // until the adapter's own close callback arrives — it is still a live
+    // socket, just no longer one the user can be reached at.
+    expect(runtime.usersByKey.get('u1')?.size).toBe(2);
     expect(runtime.connections.size).toBe(3);
   });
 
@@ -102,7 +103,7 @@ describe('acceptConnection — users.maxConnections policy', () => {
     const second = descriptorFor('u1');
     acceptConnection(runtime as never, Symbol('ws2'), second);
     expect(first.close).toHaveBeenCalledWith(CloseCodes.DUPLICATE, expect.any(String));
-    expect(runtime.usersByKey.get('u1')?.size).toBe(2);
+    expect(runtime.usersByKey.get('u1')?.size).toBe(1);
   });
 
   it('anonymous connections (empty identity) are never capped, even past maxConnections', () => {
@@ -113,6 +114,21 @@ describe('acceptConnection — users.maxConnections policy', () => {
       expect(anon.close).not.toHaveBeenCalled();
     }
     expect(runtime.connections.size).toBe(5);
+  });
+
+  it('replace holds the live count at the cap across a burst, even though close() has not landed yet', () => {
+    const runtime = createRuntime({ maxConnections: 1, onExceed: 'replace' });
+    const descriptors: ReturnType<typeof descriptorFor>[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const descriptor = descriptorFor('u1');
+      descriptors.push(descriptor);
+      acceptConnection(runtime as never, Symbol(`ws${i}`), descriptor);
+      expect(runtime.usersByKey.get('u1')?.size).toBeLessThanOrEqual(1);
+    }
+    expect(runtime.usersByKey.get('u1')?.size).toBe(1);
+    for (const descriptor of descriptors) {
+      expect(descriptor.close).toHaveBeenCalledTimes(descriptor === descriptors[4] ? 0 : 1);
+    }
   });
 
   it('the cap is per-user: a second user is unaffected by the first user being at capacity', () => {

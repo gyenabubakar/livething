@@ -8,7 +8,8 @@ import {
 } from '~/primitives/inbox/receipt-query.ts';
 import type { PrimitiveHelpers, WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type { WritableStore } from '~/internal/store.ts';
+import type { ReadableStore, WritableStore } from '~/internal/store.ts';
+import type { ChannelStatus } from '~/primitives/channels/types.ts';
 import type { PendingQuery } from '~/primitives/inbox/receipt-query.ts';
 import type { ChannelInboxApi, CursorList, InboxPrimitive } from '~/primitives/inbox/types.ts';
 
@@ -24,6 +25,7 @@ interface ChannelReceivers {
   byUserId: Map<string, number>;
   store: WritableStore<CursorList>;
   listeners: Set<(userId: string, receivedThrough: number) => void>;
+  status: ReadableStore<ChannelStatus> | null;
 }
 
 /** Options for the client `inbox()` primitive. */
@@ -68,6 +70,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
             byUserId: new Map(),
             store: createStore<CursorList>(new Map()),
             listeners: new Set(),
+            status: null,
           };
           channels.set(key, state);
         }
@@ -103,6 +106,12 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         });
       }
 
+      function isStaleUnsubscribeOk(state: ChannelReceivers | undefined): boolean {
+        if (!state?.status) return false;
+        const status = state.status.get();
+        return status === 'subscribed' || status === 'subscribing';
+      }
+
       return {
         id: 'inbox',
         onIncoming(message) {
@@ -115,9 +124,11 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
             return message;
           }
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
+            const state = channels.get(key);
+            if (message.event === '__unsubscribeOk__' && isStaleUnsubscribeOk(state))
+              return message;
             inboxScopes.delete(key);
             marks.delete(key);
-            const state = channels.get(key);
             if (state) {
               state.byUserId.clear();
               state.store.set(new Map());
@@ -141,6 +152,27 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
               applyReceived(key, payload.userId, payload.receivedThrough);
             }
             return null;
+          }
+
+          if (message.event === '__gap__') {
+            const payload = message.payload as { missedThrough?: unknown } | null | undefined;
+            const missedThrough = payload?.missedThrough;
+            if (typeof missedThrough === 'number' && inboxScopes.has(key)) {
+              const current = marks.get(key);
+              if (!current) {
+                marks.set(key, {
+                  seq: missedThrough,
+                  channel,
+                  channelFamily: message.__wskit?.channelFamily,
+                  acked: 0,
+                });
+                scheduleFlush();
+              } else if (missedThrough > current.seq) {
+                current.seq = missedThrough;
+                scheduleFlush();
+              }
+            }
+            return message;
           }
 
           // Stream chunks carry a per-stream seq unrelated to inbox ordering.
@@ -172,6 +204,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           getAugmenters(socket).push((messaging, scope) => {
             const key = markersKey(scope.markers());
             const state = stateFor(key);
+            state.status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
 
             const inboxApi: ChannelInboxApi = {
               receivers: { get: state.store.store.get, subscribe: state.store.store.subscribe },

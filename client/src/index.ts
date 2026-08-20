@@ -32,6 +32,7 @@ export type {
   PluginDef,
   PluginInstance,
   PluginFactory,
+  PrimitiveFactory,
   PluginSocket,
   PluginBase,
   PluginSlice,
@@ -70,7 +71,7 @@ export { CloseCodes } from '@wskit/core';
 export type { WireMessage, WSKitEnvelope } from '@wskit/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
-export type { Socket, SocketConnection, ContractError, UnrecognizedError } from '~/socket/api.ts';
+export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
 export type { Messaging, SendOptions } from '~/messaging.ts';
 export type {
@@ -86,6 +87,7 @@ export type {
   ChannelsOf,
   StreamsOf,
   ClientRequestsOf,
+  ServerRequestsOf,
   ErrorsOf,
   Requires,
   Simplify,

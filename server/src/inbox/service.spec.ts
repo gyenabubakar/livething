@@ -122,12 +122,12 @@ describe('inbox runtime install', () => {
     await engine.initialize();
     const core = engine.core;
 
-    core.inboxMemberCounts.set('chat  alice', 4);
-    core.inboxMemberCounts.set('chat  bob', 2);
+    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 4);
+    core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'bob']), 2);
 
     await purgeUser(core, 'alice');
 
-    expect(core.inboxMemberCounts.has('chat  alice')).toBe(false);
-    expect(core.inboxMemberCounts.get('chat  bob')).toBe(2);
+    expect(core.inboxMemberCounts.has(JSON.stringify(['chat', null, 'alice']))).toBe(false);
+    expect(core.inboxMemberCounts.get(JSON.stringify(['chat', null, 'bob']))).toBe(2);
   });
 });

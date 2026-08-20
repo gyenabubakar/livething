@@ -88,25 +88,22 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   }
   validatePrimitives(core);
 
-  // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
-  // row says storage is not on the current schema version. On a fresh
-  // instance the SELECT throws and we treat it as not-initialized.
+  // Schema-init hooks (CREATE TABLE IF NOT EXISTS) run on every boot: a
+  // capability added after storage was already initialized still needs its
+  // tables created on the next wake, and repeating an IF-NOT-EXISTS
+  // statement against tables that already exist is cheap.
   const storageForSchema = core.storage;
   if (core.hooks.bootSchema.length > 0) {
-    const schemaState = storageForSchema
-      ? readSchemaState(storageForSchema.sql)
-      : { initialized: false, fresh: false };
-    if (!schemaState.initialized) {
-      for (const hook of core.hooks.bootSchema) {
-        await hook();
-      }
-      if (storageForSchema) {
-        markSchemaInitialized(storageForSchema.sql);
-        // A migration (meta table present, older version) may already hold
-        // membership rows, so the first auto-rejoin must not be skipped.
-        core.freshBoot = schemaState.fresh;
-      }
+    const schemaState = storageForSchema ? readSchemaState(storageForSchema.sql) : { fresh: false };
+    for (const hook of core.hooks.bootSchema) {
+      await hook();
     }
+    if (storageForSchema && schemaState.fresh) {
+      markSchemaInitialized(storageForSchema.sql);
+    }
+    // A storage that has booted before may already hold membership rows, so
+    // the first auto-rejoin must not be skipped.
+    if (storageForSchema) core.freshBoot = schemaState.fresh;
   }
 
   for (const hook of core.hooks.boot) {

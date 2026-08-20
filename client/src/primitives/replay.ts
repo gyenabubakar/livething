@@ -84,7 +84,7 @@ export function replay(): Primitive<ReplayTypeFn> {
 
           // The server replied that it doesn't support replay (replay off, or
           // off for this scope). Warn every time so the misconfig stays visible;
-          // the error still passes through to the socket's onError below.
+          // the error still passes through to the socket's onServerError below.
           if (message.event === '__error__') {
             const payload = message.payload as
               | { code?: string; detail?: { event?: string } }

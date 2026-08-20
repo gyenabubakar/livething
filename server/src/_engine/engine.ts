@@ -282,11 +282,15 @@ export class Engine<TApi = unknown> {
  */
 function assertNotReservedApiName(key: string): void {
   if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
+  const reason =
+    key === 'then'
+      ? `'then' makes any object a thenable, so \`await service.admin()\` calls it ` +
+        `instead of resolving. The await never settles.`
+      : `'${key}' is already inherited by the plain object the admin surface is ` +
+        `built on. A method by this name cannot be placed on the surface — the ` +
+        `inherited one is already there — and would go missing without explanation.`;
   throw new WSKitConfigError(
-    `[wskit] assemble({ api }) declared the reserved method name '${key}'. ` +
-      `JavaScript gives this name its own meaning on any object — 'then' makes ` +
-      `\`await service.admin()\` hang forever, and '__proto__' rewrites the object's ` +
-      `prototype instead of adding a method. Rename it.`,
+    `[wskit] assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
 }
 
@@ -300,12 +304,15 @@ function flattenApi(api: unknown): Record<string, unknown> {
     level = Object.getPrototypeOf(level) as object | null
   ) {
     for (const key of Object.getOwnPropertyNames(level)) {
-      if (key === 'constructor') continue;
+      // Every class prototype has an inherited constructor property. It is an
+      // implementation detail, but an app-owned constructor is a real API name
+      // and must go through the same reserved-name guard as other built-ins.
+      if (key === 'constructor' && level !== api) continue;
       // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
       // object, so a method by that name would be skipped silently instead of
       // reported.
       assertNotReservedApiName(key);
-      if (key in flat) continue;
+      if (Object.hasOwn(flat, key)) continue;
       const value = (api as Record<string, unknown>)[key];
       flat[key] = typeof value === 'function' ? value.bind(api) : value;
     }

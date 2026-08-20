@@ -5,6 +5,7 @@ import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
 import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
+import type { WSKitError } from '@wskit/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
   FrameOwner,
@@ -39,7 +40,10 @@ type SocketEvents = {
   reconnectFailed: [];
   close: [event: CloseEvent];
   error: [error: unknown];
+  serverError: [error: WSKitError];
 };
+
+type ServerErrorRegistration = { code?: string };
 
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
@@ -157,6 +161,8 @@ export class WSKitSocket {
 
   // One shared error callback, so the send loop doesn't make a new one per message.
   private readonly _reportBound = (error: unknown): void => this._reportError(error);
+
+  private readonly _serverErrorRegistrations = new Set<ServerErrorRegistration>();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
@@ -320,14 +326,34 @@ export class WSKitSocket {
   }
 
   /**
-   * An error worth knowing about: a WebSocket-level `Event`, a typed server error
-   * (`WSKitError`) that no request or stream claimed, or any value thrown by one of
-   * your handlers, listeners, or a plugin/primitive hook — surfaced here instead of
-   * swallowed. With no listener attached, the value is rethrown out of band (via
-   * `queueMicrotask`) so it surfaces to the global error handler.
+   * A transport-level event or a value thrown by a handler, listener, primitive,
+   * or plugin hook. With no listener, it is rethrown out of band.
    */
   onError(callback: (error: unknown) => void): () => void {
     return this._emitter.on('error', callback);
+  }
+
+  /** Listen for every unclaimed server error, including codes this client does not know. */
+  onServerError(callback: (error: WSKitError<string, unknown>) => void): () => void;
+  /** Listen only for an unclaimed server error with one code. */
+  onServerError(code: string, callback: (error: WSKitError<string, unknown>) => void): () => void;
+  onServerError(
+    codeOrCallback: string | ((error: WSKitError<string, unknown>) => void),
+    maybeCallback?: (error: WSKitError<string, unknown>) => void,
+  ): () => void {
+    const code = typeof codeOrCallback === 'string' ? codeOrCallback : undefined;
+    const callback = typeof codeOrCallback === 'function' ? codeOrCallback : maybeCallback;
+    if (!callback) throw new TypeError('[wskit] onServerError requires a callback.');
+
+    const registration: ServerErrorRegistration = { code };
+    this._serverErrorRegistrations.add(registration);
+    const off = this._emitter.on('serverError', (error) => {
+      if (registration.code === undefined || registration.code === error.code) callback(error);
+    });
+    return () => {
+      this._serverErrorRegistrations.delete(registration);
+      off();
+    };
   }
 
   setDebug(enabled: boolean): void {
@@ -386,6 +412,8 @@ export class WSKitSocket {
       },
 
       shared: this._shared,
+
+      reportServerError: (error) => this._reportServerError(error),
 
       disconnect: (code, reason) => this.disconnect(code, reason),
 
@@ -689,11 +717,11 @@ export class WSKitSocket {
       }
     }
 
-    // An `__error__` frame no module claimed becomes an onError call instead of a normal event.
-    // Route through _reportError so that with no listener it still reaches the
-    // host's global handler rather than being silently dropped by the emitter.
+    // An `__error__` frame no module claimed becomes an onServerError call instead
+    // of a normal event. It never falls into onError: those callbacks are for
+    // local, transport, and hook failures.
     if (message.event === '__error__') {
-      this._reportError(toWSKitError(message.payload));
+      this._reportServerError(toWSKitError(message.payload));
       return;
     }
 
@@ -896,6 +924,20 @@ export class WSKitSocket {
   private _reportError(error: unknown): void {
     if (this._emitter.listenerCount('error') > 0) {
       this._emitter.emit('error', error);
+    } else {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
+
+  /** Surface an unclaimed server error without routing it to the local error event. */
+  _reportServerError(error: WSKitError): void {
+    const handled = [...this._serverErrorRegistrations].some(
+      ({ code }) => code === undefined || code === error.code,
+    );
+    if (handled) {
+      this._emitter.emit('serverError', error);
     } else {
       queueMicrotask(() => {
         throw error;

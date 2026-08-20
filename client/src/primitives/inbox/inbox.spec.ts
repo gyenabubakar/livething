@@ -142,13 +142,27 @@ describe('inbox — frames that must not ack', () => {
 describe('inbox — scope forgetting on leave', () => {
   it('stops acking a scope after __unsubscribeOk__ and does not re-ack it on reconnect', async () => {
     vi.useFakeTimers();
-    const { ws } = build();
+    const { socket, ws } = build();
+    const room = socket.channel('room');
+    const subscribed = room.subscribe();
     subscribeOk(ws, 'room', true);
+    await subscribed;
+    expect(room.status.get()).toBe('subscribed');
+
     ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 4 } });
     await flush();
     expect(receivedFrames(ws)).toHaveLength(1);
 
-    ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
+    const leave = room.unsubscribe();
+    expect(room.status.get()).toBe('unsubscribed');
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+    await leave;
+    expect(room.status.get()).toBe('unsubscribed');
 
     // A later message on the left channel must not be acked.
     ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
@@ -335,7 +349,15 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     });
     expect(room.receivers.get().size).toBe(1);
 
-    ws.emit({ event: '__unsubscribeOk__', payload: {}, __wskit: { channel: 'room' } });
+    const leave = room.unsubscribe();
+    expect(room.status.get()).toBe('unsubscribed');
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+    await leave;
     expect(room.receivers.get().size).toBe(0);
   });
 });
@@ -440,5 +462,97 @@ describe('inbox — receiversOf query without readReceipts()', () => {
     socket.disconnect();
 
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
+  });
+});
+
+describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already under way', () => {
+  it('keeps acknowledging a message that arrives in the gap between the stale confirmation and the rejoin landing', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    await flush();
+    expect(receivedFrames(ws)).toEqual([
+      { event: '__received__', payload: { receivedThrough: 5 }, __wskit: { channel: 'room' } },
+    ]);
+
+    // Leave, then immediately rejoin before the leave is confirmed — the rejoin
+    // is deferred behind the leave and only sent once it settles.
+    const leave = room.unsubscribe();
+    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const rejoin = room.subscribe();
+
+    // The server's confirmation for the leave arrives while the member is
+    // already coming back — the rejoin's own __subscribeOk__ has not landed yet.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+    });
+    await leave;
+
+    // A message arrives in that gap, before the rejoin is confirmed.
+    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 6 } });
+    await flush();
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'room', inbox: true },
+    });
+    await rejoin;
+
+    expect(receivedFrames(ws).at(-1)).toEqual({
+      event: '__received__',
+      payload: { receivedThrough: 6 },
+      __wskit: { channel: 'room' },
+    });
+  });
+
+  it('still stops acknowledging a channel on a genuine unsubscribe with no rejoin queued', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    await flush();
+
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+    await leave;
+
+    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    await flush();
+
+    expect(receivedFrames(ws)).toHaveLength(1);
+  });
+
+  it('still forgets the scope unconditionally on __kicked__ during a pending rejoin', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 5 } });
+    await flush();
+
+    const leave = room.unsubscribe();
+    const staleUnsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    room.subscribe().catch(() => {});
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: staleUnsubscribeId },
+    });
+    await leave;
+
+    ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'room' } });
+
+    ws.emit({ event: 'msg', payload: { text: 'b' }, __wskit: { channel: 'room', seq: 9 } });
+    await flush();
+
+    expect(receivedFrames(ws)).toHaveLength(1);
   });
 });

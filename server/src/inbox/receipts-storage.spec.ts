@@ -146,6 +146,26 @@ describe('receipts-storage — purgeReceiptsByUser', () => {
   });
 });
 
+describe('receipts-storage — cursor cache key collisions', () => {
+  it('gives distinct channel/family scopes distinct cache entries so a real advance is never swallowed', () => {
+    const sql = setup();
+    const cache = new Map<string, { receivedThrough: number; readThrough: number }>();
+    advanceReceivedThrough(
+      sql,
+      { channelName: 'a', channelFamily: 'b c', userId: 'u', receivedThrough: 7, now: 1 },
+      cache,
+    );
+
+    const result = advanceReceivedThrough(
+      sql,
+      { channelName: 'a b', channelFamily: 'c', userId: 'u', receivedThrough: 3, now: 2 },
+      cache,
+    );
+
+    expect(result).toEqual({ receivedThrough: 3, readThrough: 0, changed: true });
+  });
+});
+
 describe('receipts-storage — clearCacheEntriesForUser', () => {
   it("removes one user's cursor cache entries across channels, leaving another user's intact", () => {
     const sql = setup();
@@ -167,23 +187,38 @@ describe('receipts-storage — clearCacheEntriesForUser', () => {
 
     clearCacheEntriesForUser(cache, 'alice');
 
-    expect([...cache.keys()]).toEqual(['room  bob']);
+    expect([...cache.keys()]).toEqual([JSON.stringify(['room', null, 'bob'])]);
   });
 
   it('does not remove a user id that is only a suffix of another key', () => {
     const cache = new Map<string, number>([
-      ['room  5', 1],
-      ['room  105', 2],
+      [JSON.stringify(['room', null, '5']), 1],
+      [JSON.stringify(['room', null, '105']), 2],
     ]);
 
     clearCacheEntriesForUser(cache, '5');
 
-    expect([...cache.keys()]).toEqual(['room  105']);
+    expect([...cache.keys()]).toEqual([JSON.stringify(['room', null, '105'])]);
   });
 
   it('is a no-op on an empty cache', () => {
     const cache = new Map<string, number>();
     expect(() => clearCacheEntriesForUser(cache, 'alice')).not.toThrow();
     expect(cache.size).toBe(0);
+  });
+
+  it("does not remove another user's entry whose id merely ends with the cleared user id", () => {
+    const cache = new Map<string, number>([
+      [JSON.stringify(['room', null, 'carol']), 1],
+      [JSON.stringify(['room', null, 'bob carol']), 2],
+      [JSON.stringify(['room', null, 'dave']), 3],
+    ]);
+
+    clearCacheEntriesForUser(cache, 'carol');
+
+    expect([...cache.keys()].sort()).toEqual([
+      JSON.stringify(['room', null, 'bob carol']),
+      JSON.stringify(['room', null, 'dave']),
+    ]);
   });
 });

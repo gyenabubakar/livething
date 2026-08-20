@@ -680,13 +680,13 @@ describe('scoped channels — dynamic families', () => {
   });
 });
 
-describe('scoped errors — onError()', () => {
+describe('scoped errors — onServerError()', () => {
   it('delivers a namespaced unsolicited error as a real WSKitError with the plain code', () => {
     const seen: WSKitError[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
       setup(socket) {
-        socket.onError((e) => seen.push(e));
+        socket.onServerError((e) => seen.push(e));
         return {};
       },
     });
@@ -706,7 +706,7 @@ describe('scoped errors — onError()', () => {
     expect(error?.detail).toEqual({ limit: 5 });
   });
 
-  it('surfaces an unhandled namespaced error to the app onError, keeping the namespaced code', () => {
+  it('surfaces an unhandled namespaced error to the app onServerError, keeping the namespaced code', () => {
     const appErrors: unknown[] = [];
     const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
       id: 'acme:chat',
@@ -714,17 +714,60 @@ describe('scoped errors — onError()', () => {
     });
 
     const { socket, ws } = build(Chat());
-    socket.onError((e) => appErrors.push(e));
+    socket.onServerError((e) => appErrors.push(e));
     ws.emit({
       event: '__error__',
       payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
     });
 
     // The plugin owns the frame, so with no scoped handler it goes to the app's
-    // onError catch-all as a WSKitError — the namespaced code keeps it unambiguous.
+    // onServerError catch-all as a WSKitError — the namespaced code keeps it unambiguous.
     expect(appErrors).toHaveLength(1);
     expect(appErrors[0]).toBeInstanceOf(WSKitError);
     expect((appErrors[0] as WSKitError).code).toBe('__acme:chat::room-full');
+  });
+
+  it('keeps onError as a compatibility alias for plugin server errors', () => {
+    const seen: WSKitError[] = [];
+    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
+      id: 'acme:chat',
+      setup(socket) {
+        socket.onError((error) => seen.push(error));
+        return {};
+      },
+    });
+
+    const { ws } = build(Chat());
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::room-full', detail: { limit: 5 } },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.code).toBe('room-full');
+  });
+
+  it('passes a namespaced error to the host when only a non-matching plugin code is registered', () => {
+    const pluginErrors: WSKitError[] = [];
+    const hostErrors: WSKitError[] = [];
+    const Chat = plugin<{ errors: { 'room-full': { limit: number } } }>()({
+      id: 'acme:chat',
+      setup(socket) {
+        socket.onServerError('room-full', (error) => pluginErrors.push(error));
+        return {};
+      },
+    });
+
+    const { socket, ws } = build(Chat());
+    socket.onServerError((error) => hostErrors.push(error));
+    ws.emit({
+      event: '__error__',
+      payload: { code: '__acme:chat::other', detail: { reason: 'new-server-code' } },
+    });
+
+    expect(pluginErrors).toHaveLength(0);
+    expect(hostErrors).toHaveLength(1);
+    expect(hostErrors[0]?.code).toBe('__acme:chat::other');
   });
 });
 

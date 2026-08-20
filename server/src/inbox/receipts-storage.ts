@@ -42,22 +42,25 @@ export interface ReceiptCursors {
  */
 export type ReceiptCursorCache = Map<string, ReceiptCursors>;
 
-function cursorCacheKey(channelName: string, family: string, userId: string): string {
-  return `${channelName} ${family} ${userId}`;
+function cursorCacheKey(channelName: string, family: string | null, userId: string): string {
+  return JSON.stringify([channelName, family, userId]);
 }
 
 /**
- * Remove every cache entry for one user from an inbox in-memory cache keyed
- * `${channelName} ${channelFamily} ${userId}` — the convention `cursorCacheKey`
- * and `inbox/runtime.ts`'s member-count cache both use, userId as the trailing
- * field. Used by `purgeUser`: purge deletes the underlying rows, and a cache
- * entry that outlives them would let a user who reconnects on the same
- * instance inherit stale cursors or counts from before the purge.
+ * Remove every cache entry for one user from an inbox in-memory cache keyed by
+ * `[channelName, channelFamily, userId]`. Used by `purgeUser`: purge deletes
+ * the underlying rows, and a cache entry that outlives them would let a user
+ * who reconnects on the same instance inherit stale cursors or counts from
+ * before the purge.
  */
 export function clearCacheEntriesForUser<V>(cache: Map<string, V>, userId: string): void {
-  const suffix = ` ${userId}`;
   for (const key of cache.keys()) {
-    if (key.endsWith(suffix)) cache.delete(key);
+    try {
+      const parsed: unknown = JSON.parse(key);
+      if (Array.isArray(parsed) && parsed[2] === userId) cache.delete(key);
+    } catch {
+      // Ignore cache keys from unrelated maps.
+    }
   }
 }
 
@@ -84,7 +87,7 @@ function readCursors(
   const query = { channelName: params.channelName, family, userId: params.userId };
   if (!cache) return queryCursors(sql, query);
 
-  const key = cursorCacheKey(params.channelName, family, params.userId);
+  const key = cursorCacheKey(params.channelName, params.channelFamily, params.userId);
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -216,7 +219,7 @@ function writeCursors(
     params.readThrough,
     params.now,
   );
-  cache?.set(cursorCacheKey(params.channelName, family, params.userId), {
+  cache?.set(cursorCacheKey(params.channelName, params.channelFamily, params.userId), {
     receivedThrough: params.receivedThrough,
     readThrough: params.readThrough,
   });

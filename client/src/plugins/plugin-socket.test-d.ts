@@ -61,13 +61,27 @@ expectTypeOf<ChatSocket['resumeStream']>().toBeFunction();
 expectTypeOf<ChatSocket['onRequest']>().toBeFunction();
 expectTypeOf<Parameters<ChatSocket['onRequest']>[0]>().toEqualTypeOf<'ping'>();
 
-// Typed scoped errors — a union of real WSKitError instances over the plugin's
-// declared codes, so `err.matches(...)` / `instanceof` work and `switch (err.code)`
-// narrows `err.detail`, exactly like the app's top-level onError.
+// The deprecated alias stays broad because a newer server can add namespaced codes.
 expectTypeOf<ChatSocket['onError']>().toBeFunction();
 expectTypeOf<Parameters<Parameters<ChatSocket['onError']>[0]>[0]>().toEqualTypeOf<
-  WSKitError<'room-full', { limit: number }>
+  WSKitError<string, unknown>
 >();
+
+chat.onError((error) => {
+  expectTypeOf(error.code).toEqualTypeOf<string>();
+  expectTypeOf(error.detail).toEqualTypeOf<unknown>();
+});
+
+chat.onServerError((error) => {
+  expectTypeOf(error).toEqualTypeOf<WSKitError<string, unknown>>();
+});
+
+chat.onServerError('room-full', (error) => {
+  expectTypeOf(error).toEqualTypeOf<WSKitError<'room-full', { limit: number }>>();
+});
+
+// @ts-expect-error — code-specific subscriptions only accept declared plugin error codes
+chat.onServerError('not-declared', () => {});
 
 // The always-present message handlers and tools are there too.
 expectTypeOf<ChatSocket['onIncoming']>().toBeFunction();

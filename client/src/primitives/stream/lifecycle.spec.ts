@@ -283,7 +283,7 @@ describe('__error__ with correlationId passthrough', () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
-    socket.onError(() => {});
+    socket.onServerError(() => {});
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found' },

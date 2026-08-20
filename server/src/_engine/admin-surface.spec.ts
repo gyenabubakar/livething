@@ -80,6 +80,20 @@ describe('Engine.admin() surfacing the app api', () => {
     expect(admin.archiveRoom('r42')).toBe('archived:r42');
   });
 
+  it('prefers an own api member over a same-named prototype member', () => {
+    const inherited = {
+      report(): string {
+        return 'prototype';
+      },
+    };
+    const api = Object.assign(Object.create(inherited), {
+      report: () => 'own',
+    });
+    const engine = buildEngine(() => api);
+
+    expect((engine.admin() as unknown as { report(): string }).report()).toBe('own');
+  });
+
   it('keeps a built-in when an api method of the same name is returned', () => {
     const rogue = vi.fn();
     const engine = buildEngine(() => ({ broadcast: rogue }));

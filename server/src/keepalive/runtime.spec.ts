@@ -322,4 +322,30 @@ describe('keepalive/runtime', () => {
     vi.advanceTimersByTime(TIMINGS.pingIntervalMs * 5);
     expect(port.sendPing).toHaveBeenCalledTimes(1);
   });
+
+  it('stops pinging once the connection is gone from the registry, leaving no timer pending', () => {
+    // `sendPing` looks the connection up by id and can only send while it is
+    // still registered. Model both outcomes: sent while it is there, not sent
+    // once teardown has removed it.
+    let registered = true;
+    const port = createPort({ sendPing: () => registered });
+    const monitor = createKeepaliveMonitor(port, TIMINGS, true);
+
+    monitor.watch('c1');
+    passOnePingInterval();
+    passOnePingInterval();
+    passOnePingInterval();
+    expect(port.sendPing).toHaveBeenCalledTimes(3);
+
+    // Teardown removes the connection from the registry without ever
+    // calling monitor.forget('c1') — teardown is still in flight.
+    registered = false;
+
+    for (let i = 0; i < 10; i += 1) passOnePingInterval();
+
+    // Trying to send is the only way to learn the connection is gone, so one
+    // further attempt is expected. What must not happen is a fourth timer.
+    expect(port.sendPing).toHaveBeenCalledTimes(4);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

@@ -77,9 +77,18 @@ export function createKeepaliveMonitor(
       // when the ping interval is half the idle timeout, so a ping lands exactly
       // on the close deadline. Sending then throws; end the loop rather than let
       // an uncaught error escape a timer callback.
+      let sent: boolean;
       try {
-        engine.sendPing(connectionId);
+        sent = engine.sendPing(connectionId);
       } catch {
+        connection.pendingPingSentAt = undefined;
+        return;
+      }
+
+      // The connection can also be gone from the registry entirely — teardown
+      // removed it without ever calling `forget()`. Stop the loop the same way
+      // rather than pinging a connection id that will never answer again.
+      if (sent === false) {
         connection.pendingPingSentAt = undefined;
         return;
       }

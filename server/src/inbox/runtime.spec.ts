@@ -7,10 +7,13 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { ResolvedInboxOptions } from '~/_engine/runtime/feature-slots.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
+  applyInboxAck,
   backfillInbox,
   clearInboxForChannel,
   drainInboxOnReconnect,
   fanOutToInbox,
+  memberCountKey,
+  scopeMatchesChannel,
 } from './runtime.ts';
 import {
   bumpInboxWatermark,
@@ -45,6 +48,33 @@ const deliver: ResolvedInboxOptions = {
 };
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('scopeMatchesChannel', () => {
+  it('does not match a plain channel key against a family scope that shares its concrete name', () => {
+    // A family 'rooms' lets a client pick the concrete name 'alpha', which can
+    // collide with an unrelated plain channel also named 'alpha'.
+    const scope = { channelName: 'alpha', channelFamily: 'rooms' };
+    expect(scopeMatchesChannel(scope, 'alpha')).toBe(false);
+  });
+
+  it('matches a family scope by its family key', () => {
+    const scope = { channelName: 'alpha', channelFamily: 'rooms' };
+    expect(scopeMatchesChannel(scope, 'rooms')).toBe(true);
+  });
+
+  it('still matches a plain channel scope by its channel name', () => {
+    const scope = { channelName: 'alpha', channelFamily: null };
+    expect(scopeMatchesChannel(scope, 'alpha')).toBe(true);
+  });
+});
+
+describe('memberCountKey', () => {
+  it('gives distinct channel/family pairs distinct keys', () => {
+    const keyA = memberCountKey('a', 'b c', 'u');
+    const keyB = memberCountKey('a b', 'c', 'u');
+    expect(keyA).not.toBe(keyB);
+  });
+});
 
 describe('fanOutToInbox', () => {
   it('writes nothing for a non-inbox channel', () => {
@@ -166,7 +196,7 @@ describe('drainInboxOnReconnect', () => {
     expect(replay).not.toHaveBeenCalled();
   });
 
-  it('emits every watermark gap BEFORE any replay row, then clears the watermarks', () => {
+  it('emits every watermark gap BEFORE any replay row, retaining the watermark until ack', () => {
     const { core, sql } = createCore();
     const calls: string[] = [];
     vi.spyOn(Wire, 'sendGap').mockImplementation((_c, _conn, opts) =>
@@ -193,7 +223,9 @@ describe('drainInboxOnReconnect', () => {
     drainInboxOnReconnect(core, connection('alice'));
 
     expect(calls).toEqual(['gap:room:7', 'row:room:8']);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 7 },
+    ]);
   });
 
   it('emits a gap even when there are zero undelivered rows behind it', () => {
@@ -236,6 +268,55 @@ describe('drainInboxOnReconnect', () => {
 
     expect(gap).not.toHaveBeenCalled();
     expect(seqs).toEqual([1, 2, 3]);
+  });
+
+  it('sends the gap again on a later reconnect when the member never acknowledged it', () => {
+    const { core, sql } = createCore();
+    const gaps: string[] = [];
+    vi.spyOn(Wire, 'sendGap').mockImplementation((_c, _conn, opts) =>
+      gaps.push(`${opts.channelName}:${opts.missedThrough}`),
+    );
+    vi.spyOn(Wire, 'sendReplay').mockImplementation(() => {});
+
+    bumpInboxWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      evictedThroughSeq: 7,
+    });
+
+    drainInboxOnReconnect(core, connection('alice'));
+    drainInboxOnReconnect(core, connection('alice'));
+
+    expect(gaps).toEqual(['room:7', 'room:7']);
+  });
+
+  it('does not repeat the gap once the member has acknowledged past the evicted sequence', () => {
+    const { core, sql } = createCore();
+    const gaps: string[] = [];
+    vi.spyOn(Wire, 'sendGap').mockImplementation((_c, _conn, opts) =>
+      gaps.push(`${opts.channelName}:${opts.missedThrough}`),
+    );
+    vi.spyOn(Wire, 'sendReplay').mockImplementation(() => {});
+
+    bumpInboxWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      evictedThroughSeq: 7,
+    });
+
+    applyInboxAck(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 7,
+      onDelivered: 'delete',
+    });
+
+    drainInboxOnReconnect(core, connection('alice'));
+
+    expect(gaps).toEqual([]);
   });
 });
 

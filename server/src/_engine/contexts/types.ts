@@ -124,6 +124,7 @@ export interface ContextCommonDeps {
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
+    opts?: { lastSeen?: number | null },
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];

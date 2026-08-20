@@ -227,6 +227,7 @@ const RESERVED_ERROR_CODES = new Set([
   'stream-aborted',
   'nudge-overflow',
   'stream-id-collision',
+  'durable-stream-requires-user',
   'rate-limited',
   'stream-already-active',
 ]);

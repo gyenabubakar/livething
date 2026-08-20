@@ -484,9 +484,32 @@ export function loadInboxWatermarks(
     }));
 }
 
-/** Drop a member's overflow watermarks once their gap has been delivered on drain. */
+/** Drop a member's overflow watermarks. Used by a full user purge. */
 export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
   sql.exec(`DELETE FROM __wskit_inbox_watermark WHERE user_id = ?`, userId);
+}
+
+/** Drop a member's channel watermark once an acknowledgement covers its gap. */
+export function clearInboxWatermarkThrough(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: {
+    userId: string;
+    channelName: string;
+    channelFamily: string | null;
+    receivedThrough: number;
+  },
+): void {
+  sql.exec(
+    `
+      DELETE FROM __wskit_inbox_watermark
+      WHERE user_id = ? AND channel_name = ? AND channel_family = ?
+        AND evicted_through_seq <= ?
+    `,
+    params.userId,
+    params.channelName,
+    familyToDb(params.channelFamily),
+    params.receivedThrough,
+  );
 }
 
 /**

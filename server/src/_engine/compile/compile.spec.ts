@@ -109,6 +109,18 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 });
 
+describe('static and family channel scope guard', () => {
+  it('rejects a family pattern that claims a static channel name', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const staticChannel = base.channel('alpha', {});
+    const family = base.channel(['rooms', 'alpha'], {});
+
+    expect(() =>
+      compileHandlerDefinition(base.assemble({ handlers: [staticChannel, family] })),
+    ).toThrow(/family 'rooms'.*matches the static.*'alpha'/);
+  });
+});
+
 describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });

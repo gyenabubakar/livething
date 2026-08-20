@@ -166,7 +166,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
   });
 
-  it('normalizes an undefined request-response payload to an empty-payload frame', () => {
+  it('sends a void request-response acknowledgement with no payload key at all', () => {
     const runtime = createRuntime();
     const connection = createConnection();
     const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
@@ -180,11 +180,51 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
 
     const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    expect('payload' in sent).toBe(false);
     expect(sent).toEqual({
       event: 'ping',
-      payload: {},
       __wskit: { correlationId: 'req123', source: 'client' },
     });
+  });
+
+  it('still runs the outgoing hooks for a void acknowledgement', () => {
+    const seen: string[] = [];
+    const runtime = createRuntime({
+      outgoingHooks: [
+        {
+          owner: APP_HOOK_OWNER,
+          handler: (frame) => {
+            seen.push(frame.event);
+            return frame.payload;
+          },
+        },
+      ],
+    });
+    const connection = createConnection();
+
+    sendThroughPipeline(runtime, connection, {
+      routing: { correlationId: 'req123', source: 'client' },
+      event: 'ping',
+      payload: undefined,
+    });
+
+    expect(seen).toEqual(['ping']);
+  });
+
+  it('lets an outgoing hook answer a void acknowledgement with real data', () => {
+    const runtime = createRuntime({
+      outgoingHooks: [{ owner: APP_HOOK_OWNER, handler: () => ({ stamped: true }) }],
+    });
+    const connection = createConnection();
+    const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
+
+    sendThroughPipeline(runtime, connection, {
+      routing: { correlationId: 'req123', source: 'client' },
+      event: 'ping',
+      payload: undefined,
+    });
+
+    expect(JSON.parse(send.mock.calls[0]![0] as string).payload).toEqual({ stamped: true });
   });
 
   it('still rejects an undefined payload when it is not a request-response', () => {

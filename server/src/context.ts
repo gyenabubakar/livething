@@ -370,7 +370,8 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 
 /**
  * A handle to one specific connection, addressed by its `ConnectionRef`.
- * Returned by `ctx.connections.get(ref)`. Use it to send directly to that socket.
+ * Returned by `ctx.connections.get(ref)`. Use it to send directly to, or close,
+ * that socket.
  *
  * Get a ref from `ConnectionInfo.ref()`, `ctx.connection`, or any connection snapshot.
  */
@@ -380,6 +381,9 @@ export interface ConnectionHandle {
    * is no longer live on this instance (its socket is gone).
    */
   send(event: string, payload: unknown): boolean;
+
+  /** Close this connection only. No-op when the connection is no longer live. */
+  close(code?: number, reason?: string): void;
 }
 
 /**
@@ -612,9 +616,18 @@ export interface InboxBacklogEntry {
  * delivery: seed a member's queue, read who has received a message, and inspect
  * the backlog.
  */
-export interface ChannelInbox {
+export type ChannelBackfillMessage<
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  [E in keyof TOutgoing & string]: Omit<BackfillMessage, 'event' | 'payload'> & {
+    event: E;
+    payload: TOutgoing[E];
+  };
+}[keyof TOutgoing & string];
+
+export interface ChannelInbox<TOutgoing extends Record<string, unknown> = Record<string, unknown>> {
   /** Seed one user's inbox with full frames, drained on their next reconnect. */
-  backfill(userId: string, messages: readonly BackfillMessage[]): void;
+  backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void;
   /** User ids whose received cursor has reached `seq`. */
   receiversOf(seq: number): string[];
   /** One entry per member that still has unacked held rows for this channel. */

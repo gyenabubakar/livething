@@ -211,17 +211,24 @@ function diffAgainstSnapshot<T>(
 
 /**
  * Run ids currently claimed off the queue by an in-progress alarm fire, per
- * runtime. While a run's id is in this set, a persist must not delete its
- * durable row even though the id is (temporarily) absent from the live
+ * durable object. While a run's id is in this set, a persist must not delete
+ * its durable row even though the id is (temporarily) absent from the live
  * `scheduledRuns` map — see `persistSchedulerState`.
+ *
+ * Keyed on the live `scheduledRuns` map rather than the `ScheduledRuntimeAccess`
+ * wrapper: `buildAccess` constructs a fresh wrapper object on every call (the
+ * alarm hook, `scheduleTask`, `cancelScheduled` each build their own), but
+ * `getScheduledRuns()` always returns the same `Map` instance for a given
+ * durable object, so it is the stable identity to key on.
  */
-const claimedRunIds = new WeakMap<ScheduledRuntimeAccess, Set<string>>();
+const claimedRunIds = new WeakMap<Map<string, ScheduledRun>, Set<string>>();
 
 function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
-  let claimed = claimedRunIds.get(runtime);
+  const scheduledRuns = runtime.getScheduledRuns();
+  let claimed = claimedRunIds.get(scheduledRuns);
   if (!claimed) {
     claimed = new Set();
-    claimedRunIds.set(runtime, claimed);
+    claimedRunIds.set(scheduledRuns, claimed);
   }
   return claimed;
 }
@@ -421,8 +428,7 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
 
 /**
  * Create the scheduler tables. Idempotent. The engine routes this through
- * `onBootSchema` so warm boots skip it when the schema marker row says
- * storage is current.
+ * `onBootSchema` so the tables are ensured on every boot.
  */
 export function ensureScheduledSchema(runtime: ScheduledRuntimeAccess): void {
   runtime.getStorage().sql.exec(SCHEDULED_SCHEMA_SQL);

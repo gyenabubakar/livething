@@ -68,10 +68,38 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
     await expect(engine.initialize()).rejects.toThrow(/__proto__/);
   });
 
+  it("rejects an app-owned 'constructor' instead of silently dropping it", async () => {
+    const engine = engineWithApi(() => ({ constructor: () => 'not-a-class-marker' }));
+    await expect(engine.initialize()).rejects.toThrow(/constructor/);
+  });
+
+  it('ignores the constructor marker inherited from a class prototype', async () => {
+    class AdminApi {
+      ping(): string {
+        return 'pong';
+      }
+    }
+    const engine = engineWithApi(() => new AdminApi());
+    await expect(engine.initialize()).resolves.toBeUndefined();
+    expect((engine.admin() as { ping(): string }).ping()).toBe('pong');
+  });
+
   it('an ordinary api method still boots and stays callable', async () => {
     const engine = engineWithApi(() => ({ ping: () => 'pong' }));
     await expect(engine.initialize()).resolves.toBeUndefined();
     const admin = engine.admin() as { ping(): string };
     expect(admin.ping()).toBe('pong');
+  });
+
+  it.each([
+    'toString',
+    'valueOf',
+    'hasOwnProperty',
+    'isPrototypeOf',
+    'propertyIsEnumerable',
+    'toLocaleString',
+  ])("rejects '%s' at boot instead of silently dropping the api method", async (name) => {
+    const engine = engineWithApi(() => ({ [name]: () => 'app-defined' }));
+    await expect(engine.initialize()).rejects.toThrow(new RegExp(name));
   });
 });

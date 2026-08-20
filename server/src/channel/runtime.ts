@@ -821,8 +821,8 @@ function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): b
 
 /**
  * A channel-scoped `send`/`request` recipient: a specific socket
- * (`ConnectionRef`), a whole user (`UserRef`), or a tag / tag group. Everything
- * except a `ConnectionRef` is intersected with channel membership.
+ * (`ConnectionRef`), a whole user (`UserRef`), or a tag / tag group. Every
+ * target is intersected with the channel's current membership.
  */
 export type ChannelRecipient =
   | { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string }

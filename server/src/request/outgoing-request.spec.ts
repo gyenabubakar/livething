@@ -319,6 +319,44 @@ describe('server→client request — outgoing runtime', () => {
     // The targeted form resolves the bare response — no `{ response, from }`.
     await expect(promise).resolves.toEqual({ allowed: true });
   });
+
+  it('ctx.channel.request({ to: userRef }) never asks an anonymous member', async () => {
+    vi.useFakeTimers();
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const anonymous = {
+      id: 'conn_abc123',
+      userId: '',
+      tags: [],
+      ref: env.member('conn_abc123').ref,
+    };
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          family: 'rooms',
+          send: () => true,
+          members: () => [env.member('c1'), anonymous],
+        },
+      },
+    );
+
+    const promise = ctx.channel.request(
+      'ask',
+      { action: 'x' },
+      {
+        to: { __wskit: 'user-ref', id: 'conn_abc123' },
+        timeout: 1000,
+      },
+    );
+
+    expect(env.sent).toHaveLength(0);
+    const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
+    await vi.advanceTimersByTimeAsync(1001);
+    await rejection;
+    vi.useRealTimers();
+  });
 });
 
 const VOLUNTEER = new Map<string, ResolvedServerRequest>([

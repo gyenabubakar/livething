@@ -71,6 +71,10 @@ function usePlugin(socket: object, id: string): unknown {
 type IncomingHook = (message: WireMessage) => WireMessage | void;
 type OpenHook = () => WireMessage[] | void;
 type CloseHook = (code: number, reason: string, suspended: boolean) => void;
+type PluginErrorRegistration = {
+  code?: string;
+  handler: (error: WSKitError<string, unknown>) => void;
+};
 
 /**
  * A plugin only owns plain top-level frames in its namespace. A frame carrying a
@@ -95,7 +99,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 ): PrimitiveRuntime {
   const id = def.id;
   const handlers = new Map<string, Set<(data: unknown) => void>>();
-  const errorHandlers = new Set<(error: WSKitError) => void>();
+  const errorHandlers = new Set<PluginErrorRegistration>();
   let disposed = false;
   let instance: PluginInstance<TApi> | null = null;
 
@@ -187,9 +191,23 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       void (userReconnect = once('onReconnect', userReconnect, handler)),
     onClose: (handler: CloseHook) => void (userClose = once('onClose', userClose, handler)),
 
-    onError(handler: (error: WSKitError) => void): () => void {
-      errorHandlers.add(handler);
-      return () => errorHandlers.delete(handler);
+    onServerError(
+      codeOrHandler: string | ((error: WSKitError<string, unknown>) => void),
+      maybeHandler?: (error: WSKitError<string, unknown>) => void,
+    ): () => void {
+      const code = typeof codeOrHandler === 'string' ? codeOrHandler : undefined;
+      const handler = typeof codeOrHandler === 'function' ? codeOrHandler : maybeHandler;
+      if (!handler)
+        throw new TypeError(`[wskit] plugin '${id}' onServerError requires a callback.`);
+      const registration = { code, handler };
+      errorHandlers.add(registration);
+      return () => errorHandlers.delete(registration);
+    },
+
+    onError(handler: (error: WSKitError<string, unknown>) => void): () => void {
+      const registration = { handler };
+      errorHandlers.add(registration);
+      return () => errorHandlers.delete(registration);
     },
 
     generateId: (prefix?: string) => idGenerator(helpers)(prefix),
@@ -238,14 +256,18 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     return false;
   }
 
-  function dispatchError(error: WSKitError): void {
-    for (const handler of errorHandlers) {
+  function dispatchError(error: WSKitError): boolean {
+    const matching = [...errorHandlers].filter(
+      ({ code }) => code === undefined || code === error.code,
+    );
+    for (const { handler } of matching) {
       try {
         handler(error);
       } catch (e) {
         report(e);
       }
     }
+    return matching.length > 0;
   }
 
   /*
@@ -254,22 +276,18 @@ function createPluginRuntime<P extends SocketContract, TApi>(
    * stream is already claimed by that primitive before the plugin sees it, so one
    * reaching here is unsolicited. The plugin owns its whole namespace, errors
    * included, so it always claims one: a scoped handler gets it with the prefix
-   * stripped; with no handler it surfaces through the reported-error path (the
-   * app's onError catch-all) rather than leaking into the app as a normal frame.
+   * stripped; with no matching handler it reaches the host's onServerError path
+   * rather than leaking into the app as a normal frame.
    */
   function claimError(message: WireMessage): boolean {
     if (message.event !== '__error__' || !ownsFrame(message)) return false;
     const payload = message.payload as { code?: unknown; detail?: unknown } | null;
     if (typeof payload?.code !== 'string' || !payload.code.startsWith(ownPrefix)) return false;
-    if (errorHandlers.size > 0) {
-      // Same reconstruction the top-level onError uses; hand over the plain code.
-      dispatchError(
-        toWSKitError({ code: payload.code.slice(ownPrefix.length), detail: payload.detail }),
-      );
-    } else {
-      // Keep the namespaced code here so it stays unambiguous at the app level.
-      report(toWSKitError(message.payload));
-    }
+    const error = toWSKitError({
+      code: payload.code.slice(ownPrefix.length),
+      detail: payload.detail,
+    });
+    if (!dispatchError(error)) helpers.reportServerError(toWSKitError(message.payload));
     return true;
   }
 

@@ -212,8 +212,8 @@ export interface RegisteredEngineHooks {
 
   /**
    * Like `boot`, but for `ensure*Schema` calls that issue `CREATE TABLE IF
-   * NOT EXISTS`. The engine skips these on warm boots when the schema
-   * marker row (`__wskit_meta.schema_version`) says storage is current.
+   * NOT EXISTS`. These hooks run on every boot so a capability added after
+   * storage was initialized still creates its tables on the next wake.
    */
   bootSchema: (() => void | Promise<void>)[];
 
@@ -606,6 +606,7 @@ export interface ConnectionMembersRuntime {
 
   toConnectionInfo(
     connection: RuntimeConnection,
+    opts?: { lastSeen?: number | null },
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   sendThroughPipeline(

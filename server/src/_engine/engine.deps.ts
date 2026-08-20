@@ -139,12 +139,13 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       sendProtocolMessage(core, connection, opts);
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
-    toConnectionInfo: (connection) =>
+    toConnectionInfo: (connection, opts) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
+        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
@@ -192,12 +193,13 @@ function buildMemberRuntime(core: EngineCore) {
     asyncContext: core.asyncContext,
     connections: core.connections,
     channelMembers: core.channelMembers,
-    toConnectionInfo: (connection: RuntimeConnection) =>
+    toConnectionInfo: (connection: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
           ? (identity) => core.lastSeenService!.at(identity)
           : undefined,
+        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
     sendThroughPipeline: (
       connection: RuntimeConnection,
