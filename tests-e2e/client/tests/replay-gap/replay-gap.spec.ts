@@ -24,6 +24,16 @@ async function openClient(
   return { page, close: () => ctx.close() };
 }
 
+async function dropAndHold(page: Page): Promise<void> {
+  await page.getByTestId('drop').click();
+  await expect(page.getByTestId('reconnect-held')).toHaveText('yes');
+}
+
+async function resumeReconnect(page: Page): Promise<void> {
+  await page.getByTestId('resume-reconnect').click();
+  await expect(page.getByTestId('status')).toHaveText('open');
+}
+
 test.describe('replay-gap (continuity signal)', () => {
   test('top-level: onGap fires when a missed message was evicted, then the surviving row arrives', async ({
     browser,
@@ -36,8 +46,7 @@ test.describe('replay-gap (continuity signal)', () => {
     await alice.page.getByTestId('send-m1').click();
     await expect(alice.page.getByTestId('messages')).toHaveText('m1');
 
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+    await dropAndHold(alice.page);
 
     // Bob publishes m2 then m3 while Alice is offline. With maxMessages: 1, storing
     // m2 evicts m1, then storing m3 evicts m2 — so the eviction watermark climbs to
@@ -49,7 +58,7 @@ test.describe('replay-gap (continuity signal)', () => {
     await bob.page.getByTestId('send-m3').click();
     await expect(bob.page.getByTestId('messages')).toContainText('m3');
 
-    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await resumeReconnect(alice.page);
     await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
 
     // Alice's __replay__ (lastKnownSeq below the watermark) triggers a __gap__
@@ -61,9 +70,8 @@ test.describe('replay-gap (continuity signal)', () => {
 
     // replay() advanced its cursor before gaps() consumed the frame, so another
     // reconnect does not report the same deleted range again.
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
-    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await dropAndHold(alice.page);
+    await resumeReconnect(alice.page);
     await expect(alice.page.getByTestId('reconnects')).toHaveText('2');
     await expect(alice.page.getByTestId('gap-count')).toHaveText('1');
 
@@ -87,8 +95,7 @@ test.describe('replay-gap (continuity signal)', () => {
     await alice.page.getByTestId('room-r1').click();
     await expect(alice.page.getByTestId('room-messages')).toContainText('r1');
 
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+    await dropAndHold(alice.page);
 
     // Bob publishes r2 then r3 while Alice is offline. maxMessages: 1 evicts r1
     // then r2, lifting the channel watermark to r2's seq — strictly above Alice's
@@ -98,7 +105,7 @@ test.describe('replay-gap (continuity signal)', () => {
     await bob.page.getByTestId('room-r3').click();
     await expect(bob.page.getByTestId('room-messages')).toContainText('r3');
 
-    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await resumeReconnect(alice.page);
     await expect(alice.page.getByTestId('reconnects')).not.toHaveText('0');
 
     // The channel gap reaches room.onGap (carrying a real positive watermark seq),
@@ -108,9 +115,8 @@ test.describe('replay-gap (continuity signal)', () => {
     await expect(alice.page.getByTestId('gap')).toHaveText('');
     await expect(alice.page.getByTestId('room-messages')).toContainText('r3');
 
-    await alice.page.getByTestId('drop').click();
-    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
-    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await dropAndHold(alice.page);
+    await resumeReconnect(alice.page);
     await expect(alice.page.getByTestId('reconnects')).toHaveText('2');
     await expect(alice.page.getByTestId('room-gap-count')).toHaveText('1');
 

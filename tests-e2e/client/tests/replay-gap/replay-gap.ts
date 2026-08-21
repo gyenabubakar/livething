@@ -18,7 +18,9 @@ export function setup(): void {
     <button data-testid="room-r2">room-r2</button>
     <button data-testid="room-r3">room-r3</button>
     <button data-testid="drop">drop</button>
+    <button data-testid="resume-reconnect">resume-reconnect</button>
     <span data-testid="status"></span>
+    <span data-testid="reconnect-held"></span>
     <span data-testid="reconnects"></span>
     <span data-testid="messages"></span>
     <span data-testid="room-subscribed"></span>
@@ -29,8 +31,24 @@ export function setup(): void {
     <span data-testid="room-gap-count"></span>
   `);
 
+  const url = wsUrl('replay-gap');
+  let holdReconnect = false;
+  let resumeReconnect: (() => void) | null = null;
+
   const socket = client<ReplayGapClient>()(
-    connect(wsUrl('replay-gap')),
+    connect(() => {
+      if (!holdReconnect) return url;
+
+      el('reconnect-held').textContent = 'yes';
+      return new Promise<string>((resolve) => {
+        resumeReconnect = () => {
+          holdReconnect = false;
+          resumeReconnect = null;
+          el('reconnect-held').textContent = 'no';
+          resolve(url);
+        };
+      });
+    }),
     replay(),
     gaps(),
     dedup(),
@@ -98,8 +116,11 @@ export function setup(): void {
   });
 
   button('drop', () => {
+    holdReconnect = true;
+    el('reconnect-held').textContent = 'no';
     socket.send('server-drop', {});
   });
+  button('resume-reconnect', () => resumeReconnect?.());
 
   el('reconnects').textContent = '0';
   el('gap-count').textContent = '0';
