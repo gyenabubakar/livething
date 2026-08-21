@@ -1,8 +1,8 @@
-import { channels, client, connect, dedup, reconnection, replay } from '@wskit/client';
+import { channels, client, connect, dedup, gaps, reconnection, replay } from '@wskit/client';
 import type { ReplayGapClient } from '@wskit/tests-e2e-handlers/replay-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's onGap against the real replay handler, which keeps only
+// Drives gaps() against the real replay handler, which keeps only
 // the newest row per store (maxMessages: 1). A witness publishes while the
 // subject is offline, evicting the subject's last-known row; on reconnect the
 // server sends __gap__ before the surviving rows, and onGap fires with the
@@ -24,12 +24,15 @@ export function setup(): void {
     <span data-testid="room-subscribed"></span>
     <span data-testid="room-messages"></span>
     <span data-testid="gap"></span>
+    <span data-testid="gap-count"></span>
     <span data-testid="room-gap"></span>
+    <span data-testid="room-gap-count"></span>
   `);
 
   const socket = client<ReplayGapClient>()(
     connect(wsUrl('replay-gap')),
     replay(),
+    gaps(),
     dedup(),
     channels(),
     reconnection({ maxDelay: 400 }),
@@ -40,6 +43,11 @@ export function setup(): void {
   function append(testid: string, value: string): void {
     const span = el(testid);
     span.textContent = span.textContent ? `${span.textContent},${value}` : value;
+  }
+
+  function increment(testid: string): void {
+    const span = el(testid);
+    span.textContent = String(Number(span.textContent) + 1);
   }
 
   socket.state.subscribe(() => {
@@ -55,8 +63,14 @@ export function setup(): void {
   socket.on('chat-msg', (msg) => append('messages', msg.text));
   room.on('room-msg', (msg) => append('room-messages', msg.text));
 
-  socket.onGap((info) => append('gap', String(info.missedThrough)));
-  room.onGap((info) => append('room-gap', String(info.missedThrough)));
+  socket.onGap((info) => {
+    append('gap', String(info.missedThrough));
+    increment('gap-count');
+  });
+  room.onGap((info) => {
+    append('room-gap', String(info.missedThrough));
+    increment('room-gap-count');
+  });
 
   button('connect', () => socket.connect());
   button('send-m1', () => {
@@ -88,6 +102,8 @@ export function setup(): void {
   });
 
   el('reconnects').textContent = '0';
+  el('gap-count').textContent = '0';
+  el('room-gap-count').textContent = '0';
   ready();
 }
 

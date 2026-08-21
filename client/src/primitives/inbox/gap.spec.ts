@@ -2,8 +2,8 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
+import { gaps } from '~/primitives/gaps.ts';
 import { inbox } from '~/primitives/inbox/inbox.ts';
-import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GapInfo } from '~/types.ts';
@@ -26,7 +26,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('protocol frame leak guard (no replay)', () => {
+describe('protocol frame leak guard (no gaps)', () => {
   it('does not deliver a top-level __gap__ to a user socket.on() handler', () => {
     const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox());
     socket.connect();
@@ -43,8 +43,8 @@ describe('protocol frame leak guard (no replay)', () => {
 });
 
 describe('inbox overflow gap surfacing', () => {
-  it('routes a channel-scoped overflow __gap__ to channel.onGap when replay() is installed', () => {
-    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+  it('routes a channel-scoped overflow __gap__ to channel.onGap when gaps() is installed', () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -69,7 +69,7 @@ describe('inbox overflow gap surfacing', () => {
         };
       };
     }
-    const socket = client<FamilyC>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    const socket = client<FamilyC>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -85,7 +85,7 @@ describe('inbox overflow gap surfacing', () => {
     expect(roomGap).toEqual([{ missedThrough: 9, channel: 'room-1', channelFamily: 'rooms' }]);
   });
 
-  it('drops a channel-scoped overflow __gap__ on an inbox-only client without replay() (D1 current behavior)', () => {
+  it('drops a channel-scoped overflow __gap__ on an inbox-only client without gaps()', () => {
     const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox());
     socket.connect();
     const ws = MockWebSocket.last();
@@ -93,9 +93,7 @@ describe('inbox overflow gap surfacing', () => {
     const onMessage = vi.fn();
     socket.channel('room').on('__gap__' as never, onMessage);
 
-    // Without replay() nothing consumes __gap__; the channel primitive keeps it
-    // channel-scoped (never a top-level dispatch) and no onGap handler exists,
-    // so it is silently dropped. Pinned so a D1 fix must consciously change it.
+    // No gap listener exists, and reserved frames never reach application handlers.
     ws.emit({ event: '__gap__', payload: { missedThrough: 7 }, __wskit: { channel: 'room' } });
 
     expect(onMessage).not.toHaveBeenCalled();
@@ -121,8 +119,8 @@ function subscribeOk(ws: MockWebSocket, channel: string, isInbox: boolean) {
 }
 
 describe('inbox — acknowledging an overflow gap', () => {
-  it('acks a gap when replay() is registered before inbox()', async () => {
-    const socket = client<C>()(connect('wss://test'), channels(), dedup(), replay(), inbox());
+  it('acks a gap when gaps() is registered before inbox()', async () => {
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), gaps(), inbox());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -137,7 +135,7 @@ describe('inbox — acknowledging an overflow gap', () => {
   });
 
   it('acks a gap on an inbox channel with __received__ carrying the gap sequence', async () => {
-    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -152,7 +150,7 @@ describe('inbox — acknowledging an overflow gap', () => {
   });
 
   it('does not ack a gap on a channel the client has not subscribed to with inbox', async () => {
-    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -165,7 +163,7 @@ describe('inbox — acknowledging an overflow gap', () => {
   });
 
   it('does not regress the ack when a gap arrives for a sequence already acknowledged', async () => {
-    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), replay());
+    const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();

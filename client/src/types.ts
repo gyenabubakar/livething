@@ -204,14 +204,8 @@ export interface GapInfo {
  * when it has streams.
  */
 
-export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> & {
-  /**
-   * Fires when replay could not fully catch this channel up after a reconnect
-   * because retention had already evicted messages the client hadn't seen. Needs
-   * `replay()` on both client and server. Call the returned function to stop listening.
-   */
-  onGap(callback: (info: GapInfo) => void): () => void;
-} & (C extends { clientRequests: infer R extends Record<string, { payload: any; response: any }> }
+export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
+  (C extends { clientRequests: infer R extends Record<string, { payload: any; response: any }> }
     ? {
         request<E extends keyof R & string>(
           event: E,

@@ -1,16 +1,16 @@
-import { channels, client, connect, dedup, inbox, reconnection, replay } from '@wskit/client';
+import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@wskit/client';
 import type { InboxGapClient } from '@wskit/tests-e2e-handlers/inbox-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives inbox OVERFLOW against the real inbox-gap handler (retention keeps one
 // undelivered row per member). While a member is offline, a second broadcast
 // evicts the first held row and lifts its overflow watermark; on reconnect the
-// drain emits `__gap__` before the surviving row. The `?replay=1` variant runs
-// replay() and surfaces the gap on room.onGap; the default (inbox-only) variant
+// drain emits `__gap__` before the surviving row. The `?gaps=1` variant runs
+// gaps() and surfaces the gap on room.onGap; the default (inbox-only) variant
 // has no gap handler, but inbox still consumes and acknowledges the frame — the
 // D1 decision only hides the gap from application code.
 export function setup(): void {
-  const withReplay = new URLSearchParams(location.search).get('replay') === '1';
+  const withGaps = new URLSearchParams(location.search).get('gaps') === '1';
 
   mount(`
     <button data-testid="connect">connect</button>
@@ -29,24 +29,27 @@ export function setup(): void {
     <span data-testid="gap-count"></span>
     <span data-testid="variant"></span>
   `);
-  el('variant').textContent = withReplay ? 'replay' : 'inbox-only';
+  el('variant').textContent = withGaps ? 'gaps' : 'inbox-only';
 
-  const socket = withReplay
+  const gapsSocket = withGaps
     ? client<InboxGapClient>()(
         connect(wsUrl('inbox-gap')),
         channels(),
-        replay(),
+        gaps(),
         inbox(),
         dedup(),
         reconnection({ maxDelay: 400 }),
       )
-    : client<InboxGapClient>()(
-        connect(wsUrl('inbox-gap')),
-        channels(),
-        inbox(),
-        dedup(),
-        reconnection({ maxDelay: 400 }),
-      );
+    : null;
+  const socket =
+    gapsSocket ??
+    client<InboxGapClient>()(
+      connect(wsUrl('inbox-gap')),
+      channels(),
+      inbox(),
+      dedup(),
+      reconnection({ maxDelay: 400 }),
+    );
 
   const chat = socket.channel('chat');
 
@@ -61,9 +64,9 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  // Only the replay variant carries room.onGap.
-  if (withReplay) {
-    chat.onGap((info) => {
+  // Only the gaps variant carries room.onGap.
+  if (gapsSocket) {
+    gapsSocket.channel('chat').onGap((info) => {
       el('gap').textContent = String(info.missedThrough);
       el('gap-count').textContent = String(Number(el('gap-count').textContent ?? '0') + 1);
     });

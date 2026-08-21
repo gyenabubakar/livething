@@ -7,15 +7,17 @@ import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
+import { gaps } from '~/primitives/gaps.ts';
 import { inbox } from '~/primitives/inbox/inbox.ts';
 import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
+import { replay } from '~/primitives/replay.ts';
 import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
 // BUG 2 regression: `GapInfo` must be importable from the package root, not
 // only from `~/types.ts` — a consumer annotating an `onGap` handler needs it
 // from the same place as every other public type.
-import type { GapInfo as GapInfoFromIndex } from '~/index.ts';
+import type { GapInfo as GapInfoFromIndex, GapsTypeFn as GapsTypeFnFromIndex } from '~/index.ts';
 import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
 import type { GapInfo, StreamHandle } from '~/types.ts';
 
@@ -58,6 +60,7 @@ const socket = client<Full>()(
   clientRequests(),
   serverRequests(),
   stream(),
+  gaps(),
 );
 
 socket.on('server-push', (data) => {
@@ -145,7 +148,11 @@ socket.channel('nope');
 room.onGap((info) => {
   expectTypeOf(info).toEqualTypeOf<GapInfo>();
 });
+socket.onGap((info) => {
+  expectTypeOf(info).toEqualTypeOf<GapInfo>();
+});
 expectTypeOf<GapInfoFromIndex>().toEqualTypeOf<GapInfo>();
+expectTypeOf<GapsTypeFnFromIndex>().toHaveProperty('_api');
 
 expectTypeOf(socket.state.get()).toBeString();
 expectTypeOf(socket.connect()).toEqualTypeOf<void>();
@@ -172,6 +179,8 @@ const onlyRoom = channelsOnly.channel('room');
 expectTypeOf(onlyRoom.subscribe({ token: 't' })).resolves.toEqualTypeOf<void>();
 onlyRoom.on('ch-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
 onlyRoom.onSubscribed(() => {});
+// @ts-expect-error — channel.onGap needs the gaps() primitive
+onlyRoom.onGap(() => {});
 // @ts-expect-error — channel.request needs the clientRequests() primitive
 onlyRoom.request('ch-request', { id: '1' });
 // @ts-expect-error — channel.onRequest needs the serverRequests() primitive
@@ -182,6 +191,10 @@ onlyRoom.onStream('ch-stream', { onChunk: () => {} });
 onlyRoom.stream('ch-stream', {});
 // @ts-expect-error — channel.resumeStream needs the stream() primitive
 onlyRoom.resumeStream('ch-stream', 'id');
+
+const replayOnly = client<Full>()(connect('wss://example.com'), replay());
+// @ts-expect-error — replay() tracks cursors; gaps() owns the listener API
+replayOnly.onGap(() => {});
 
 const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), clientRequests());
 expectTypeOf(

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's onGap against the real replay handler, which keeps
+// Conformance: gaps() against the real replay handler, which keeps
 // only the newest row per store (maxMessages: 1). A witness publishes while the
 // subject is offline, evicting the subject's last-known row and bumping the
 // eviction watermark above the subject's lastKnownSeq — the exact condition a
@@ -56,7 +56,16 @@ test.describe('replay-gap (continuity signal)', () => {
     // carrying the eviction watermark (a real positive seq, not just "some frame"),
     // and the surviving newest row (m3) still arrives after it.
     await expect(alice.page.getByTestId('gap')).toHaveText(/^[1-9]\d*$/);
+    await expect(alice.page.getByTestId('gap-count')).toHaveText('1');
     await expect(alice.page.getByTestId('messages')).toContainText('m3');
+
+    // replay() advanced its cursor before gaps() consumed the frame, so another
+    // reconnect does not report the same deleted range again.
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('reconnects')).toHaveText('2');
+    await expect(alice.page.getByTestId('gap-count')).toHaveText('1');
 
     await alice.close();
     await bob.close();
@@ -95,8 +104,15 @@ test.describe('replay-gap (continuity signal)', () => {
     // The channel gap reaches room.onGap (carrying a real positive watermark seq),
     // NOT the top-level onGap, and the surviving channel row (r3) still arrives after.
     await expect(alice.page.getByTestId('room-gap')).toHaveText(/^[1-9]\d*$/);
+    await expect(alice.page.getByTestId('room-gap-count')).toHaveText('1');
     await expect(alice.page.getByTestId('gap')).toHaveText('');
     await expect(alice.page.getByTestId('room-messages')).toContainText('r3');
+
+    await alice.page.getByTestId('drop').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('reconnecting');
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('reconnects')).toHaveText('2');
+    await expect(alice.page.getByTestId('room-gap-count')).toHaveText('1');
 
     await alice.close();
     await bob.close();

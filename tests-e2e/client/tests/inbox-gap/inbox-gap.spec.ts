@@ -4,20 +4,19 @@ import type { Browser, Page } from '@playwright/test';
 // Conformance: inbox OVERFLOW surfacing against the real inbox-gap handler
 // (retention keeps one undelivered row per member). A member offline across two
 // broadcasts loses the first held row to eviction; on reconnect the drain emits a
-// `__gap__` before the surviving row. This is where the D1 decision bites: only a
-// client running replay() consumes `__gap__` and fires onGap — an inbox-only
+// `__gap__` before the surviving row. Only a client running gaps() fires onGap — an inbox-only
 // client consumes and acknowledges the frame internally, so overflow is hidden
 // from application code.
 interface MemberOptions {
   room: string;
   username: string;
-  withReplay: boolean;
+  withGaps: boolean;
 }
 
 async function open(page: Page, options: MemberOptions): Promise<void> {
-  const { room, username, withReplay } = options;
-  const replayParam = withReplay ? '&replay=1' : '';
-  await page.goto(`/tests/inbox-gap/index.html?room=${room}&username=${username}${replayParam}`);
+  const { room, username, withGaps } = options;
+  const gapsParam = withGaps ? '&gaps=1' : '';
+  await page.goto(`/tests/inbox-gap/index.html?room=${room}&username=${username}${gapsParam}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('open');
@@ -34,13 +33,13 @@ async function openMember(
 }
 
 test.describe('inbox-gap (overflow surfacing / D1)', () => {
-  test('a replay() client surfaces the overflow gap on room.onGap, then the surviving row arrives', async ({
+  test('a gaps() client surfaces the overflow gap on room.onGap, then the surviving row arrives', async ({
     browser,
   }, testInfo) => {
-    const room = `inbox-gap-replay-${testInfo.testId}`;
-    const alice = await openMember(browser, { room, username: 'alice', withReplay: true });
-    const bob = await openMember(browser, { room, username: 'bob', withReplay: true });
-    const carol = await openMember(browser, { room, username: 'carol', withReplay: true });
+    const room = `inbox-gap-visible-${testInfo.testId}`;
+    const alice = await openMember(browser, { room, username: 'alice', withGaps: true });
+    const bob = await openMember(browser, { room, username: 'bob', withGaps: true });
+    const carol = await openMember(browser, { room, username: 'carol', withGaps: true });
 
     await alice.page.getByTestId('sub').click();
     await bob.page.getByTestId('sub').click();
@@ -79,13 +78,13 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await carol.close();
   });
 
-  test('an inbox-only client (no replay) hides the overflow gap but still gets the surviving row [D1]', async ({
+  test('an inbox-only client (no gaps) hides the overflow gap but still gets the surviving row', async ({
     browser,
   }, testInfo) => {
     const room = `inbox-gap-only-${testInfo.testId}`;
-    const alice = await openMember(browser, { room, username: 'alice', withReplay: false });
-    const bob = await openMember(browser, { room, username: 'bob', withReplay: false });
-    const carol = await openMember(browser, { room, username: 'carol', withReplay: false });
+    const alice = await openMember(browser, { room, username: 'alice', withGaps: false });
+    const bob = await openMember(browser, { room, username: 'bob', withGaps: false });
+    const carol = await openMember(browser, { room, username: 'carol', withGaps: false });
 
     await expect(alice.page.getByTestId('variant')).toHaveText('inbox-only');
 
@@ -108,7 +107,7 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     // The surviving row still arrives — guaranteed delivery of what was kept.
     await expect(alice.page.getByTestId('messages')).toHaveText('m2');
 
-    // inbox consumes and acknowledges `__gap__`, but without replay() no gap is
+    // inbox consumes and acknowledges `__gap__`, but without gaps() no gap is
     // surfaced to application code. This documents the current (D1) behavior.
     await alice.page.waitForTimeout(400);
     await expect(alice.page.getByTestId('gap')).toHaveText('');
@@ -122,9 +121,9 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     browser,
   }, testInfo) => {
     const room = `inbox-gap-stale-unsubscribe-${testInfo.testId}`;
-    const alice = await openMember(browser, { room, username: 'alice', withReplay: false });
-    const bob = await openMember(browser, { room, username: 'bob', withReplay: false });
-    const carol = await openMember(browser, { room, username: 'carol', withReplay: false });
+    const alice = await openMember(browser, { room, username: 'alice', withGaps: false });
+    const bob = await openMember(browser, { room, username: 'bob', withGaps: false });
+    const carol = await openMember(browser, { room, username: 'carol', withGaps: false });
 
     await alice.page.getByTestId('sub').click();
     await bob.page.getByTestId('sub').click();

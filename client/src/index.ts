@@ -55,6 +55,8 @@ export type { ServerRequestsOptions } from '~/primitives/server-requests/index.t
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
+export { gaps } from '~/primitives/gaps.ts';
+export type { GapsApi, GapsChannelTypeFn, GapsPrimitive, GapsTypeFn } from '~/primitives/gaps.ts';
 export { inbox, readReceipts } from '~/primitives/inbox/index.ts';
 export type {
   ChannelInboxApi,

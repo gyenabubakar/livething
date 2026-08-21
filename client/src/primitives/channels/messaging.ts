@@ -244,12 +244,6 @@ export function buildChannelMessaging(
     onUnsubscribed: state.onUnsubscribed,
     onKicked: state.onKicked,
     onSubscriptionFailed: state.onSubscriptionFailed,
-    // Overridden by replay()'s augmenter; the type exposes it without replay(), so fail loudly here.
-    onGap(): () => void {
-      throw new Error(
-        '[wskit] channel.onGap needs the replay() primitive — add replay() to client().',
-      );
-    },
   };
 
   applyAugmenters(context.socket, messaging, {
