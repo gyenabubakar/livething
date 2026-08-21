@@ -29,9 +29,10 @@ test.describe('unsubscribe during reconnect (conformance)', () => {
     await expect(page.getByTestId('archive-subscribed')).toHaveText('yes');
     await expect(page.getByTestId('subscribe-flows')).toHaveText('1');
 
-    // Drop the socket and IMMEDIATELY unsubscribe while it reconnects — the frame
-    // is held and must flush on reopen instead of being lost.
+    // Drop the socket, wait until reconnecting has actually started, then
+    // unsubscribe. The frame is held and must flush on reopen instead of being lost.
     await page.getByTestId('server-drop').click();
+    await expect(page.getByTestId('status')).toHaveText('reconnecting');
     await page.getByTestId('unsubscribe').click();
 
     // The socket comes back open.
