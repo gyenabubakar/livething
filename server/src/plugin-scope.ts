@@ -154,6 +154,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (!position) return Reflect.get(target, key, receiver);
 
       const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
+      if (typeof original !== 'function') return original;
       if (position === 'event-first') {
         return (event: unknown, ...rest: unknown[]) =>
           original(pluginWireName(id, event as string), ...rest);

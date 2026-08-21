@@ -1,10 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
@@ -95,6 +97,9 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
     sendToChannelRecipient: (opts) => {
+      if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
+        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.send({ to })');
+      }
       const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
@@ -113,8 +118,12 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
-    kickChannelMembers: (opts) =>
-      core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve(),
+    kickChannelMembers: (opts) => {
+      if (opts.target.__wskit === 'user-ref') {
+        assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
+      }
+      return core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve();
+    },
     subscribeConnectionAsServer: (ref, opts) =>
       core.channelService?.subscribeFromServer(core, ref, opts) ?? Promise.resolve(),
     resolveChannel: (target) => {
@@ -519,7 +528,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
         removed: 0,
         taskExists: false,
       },
-    rescheduleAlarm: () => core.scheduledService?.rescheduleAlarm(core),
+    rescheduleAlarm: () => rescheduleEngineAlarm(core),
     buildCurrentContext: () => {
       const activeId = core.asyncContext.getStore()?.connectionId;
       const connection = activeId ? core.connections.get(activeId) : undefined;

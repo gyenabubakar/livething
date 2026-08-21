@@ -71,6 +71,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   restore();
+  vi.useRealTimers();
 });
 
 describe('plugin() registration and API', () => {
@@ -275,11 +276,14 @@ describe('scoped stream and onRequest', () => {
     });
 
     const { socket, ws } = build(stream(), Feed());
-    void Feed.use(socket).start();
+    const pending = Feed.use(socket).start();
 
     await expect
       .poll(() => ws.sentFrames().some((f) => f.event === '__acme:feed::feed'))
       .toBe(true);
+
+    socket.disconnect();
+    await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 
   it('onRequest() answers a namespaced server request', async () => {
@@ -447,6 +451,7 @@ describe('scoped stream and onRequest', () => {
   });
 
   it('a plugin stream nudge sends the namespaced event', async () => {
+    vi.useFakeTimers();
     interface Wire {
       streams: {
         feed: {
@@ -490,13 +495,33 @@ describe('scoped stream and onRequest', () => {
     ws.emit({ event: '__streamOk__', payload: {}, __wskit: { streamId: 'nudge-sc' } });
     const handle = await starting;
 
-    void handle.nudge('boost', { amount: 2 });
+    const timersBeforeNudge = vi.getTimerCount();
+    const pending = handle.nudge('boost', { amount: 2 });
+    expect(vi.getTimerCount()).toBe(timersBeforeNudge + 1);
 
     // The nudge event carries the plugin's `__acme:feed::` prefix, like its trigger,
     // so the server finds it among the stream's registered nudges.
     const frame = ws.sentFrames().at(-1);
     expect(frame?.event).toBe('__acme:feed::boost');
-    expect(frame?.__wskit?.streamId).toBe('nudge-sc');
+    const streamNudgeId = frame?.__wskit?.streamNudgeId;
+    expect(frame?.__wskit).toEqual({
+      streamId: 'nudge-sc',
+      streamNudgeId: expect.any(String),
+    });
+
+    ws.emit({
+      event: '__nudgeOk__',
+      payload: {},
+      __wskit: { streamId: 'nudge-sc', streamNudgeId },
+    });
+    await expect(pending).resolves.toBeUndefined();
+    expect(vi.getTimerCount()).toBe(timersBeforeNudge);
+
+    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'nudge-sc' } });
+    expect(handle.active).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    socket.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

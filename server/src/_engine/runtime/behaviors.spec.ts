@@ -5,7 +5,7 @@ import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
@@ -242,6 +242,10 @@ describe('handleUpgrade', () => {
 describe('defer retry behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('re-enqueues handler on Defer and stops when the handler succeeds', async () => {

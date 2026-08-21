@@ -4,7 +4,10 @@ import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
-import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
+import {
+  withInvocationScope,
+  withInvocationScopeSync,
+} from '~/_engine/runtime/invocation-scope.ts';
 import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
 import { createAdminContext, RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
 import { createShutdownContext } from '~/lifecycle/context.ts';
@@ -42,7 +45,7 @@ export class Engine<TApi = unknown> {
     this.core = new EngineCore(handler, options);
   }
 
-  /** Set the engine instance id. Only adapters running with a broker call this. */
+  /** Set the stable platform instance id before accepting connections. */
   setInstanceId(id: string): void {
     this.core.setInstanceId(id);
   }
@@ -168,15 +171,16 @@ export class Engine<TApi = unknown> {
    * Each runs the same per-socket wake the lazy path uses, rebuilding its
    * identity, tags, and ephemeral channel membership at boot so a live broadcast
    * reaches even members whose own socket has not woken. Rows for absent ids are
-   * pruned. A no-op without hibernation.
+   * pruned. The Promise rejects if any wake fails; adapters must await it before
+   * handling platform events. A no-op without hibernation.
    */
-  restoreHibernatedConnections(sockets: Iterable<unknown>): void {
+  async restoreHibernatedConnections(sockets: Iterable<unknown>): Promise<void> {
     if (!this.usesHibernation()) return;
     const runtime = EngineDeps.connectionRuntime(this.core);
     const restored = new Set<string>();
     EngineHibernation.withPreloadedConnectionRows(this.core, () => {
       for (const wsKey of sockets) {
-        withInvocationScope(this.core, () => {
+        withInvocationScopeSync(this.core, () => {
           EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
         });
         const id = this.core.wsToConnectionId.get(wsKey);
@@ -264,14 +268,6 @@ export class Engine<TApi = unknown> {
 }
 
 /**
- * Flatten an `api` factory's result into own properties.
- *
- * An api may be a class instance, whose methods live on its prototype. Spread
- * and `Object.entries` only see own properties, so those methods would be lost
- * before an adapter ever looked for them. Methods keep their original receiver,
- * so one that reads `this` (or a private field) still works after the move.
- */
-/**
  * Reject an `api` method whose name JavaScript has already claimed. Enforced in
  * the engine rather than in each adapter, so the rule holds wherever the admin
  * surface is exposed from.
@@ -282,32 +278,104 @@ export class Engine<TApi = unknown> {
  */
 function assertNotReservedApiName(key: string): void {
   if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
-  const reason =
-    key === 'then'
-      ? `'then' makes any object a thenable, so \`await service.admin()\` calls it ` +
-        `instead of resolving. The await never settles.`
-      : `'${key}' is already inherited by the plain object the admin surface is ` +
-        `built on. A method by this name cannot be placed on the surface — the ` +
-        `inherited one is already there — and would go missing without explanation.`;
+  let reason: string;
+  if (key === 'then') {
+    reason =
+      `'then' makes any object a thenable, so \`await service.admin()\` calls it ` +
+      `instead of resolving. The await never settles.`;
+  } else if (key === 'constructor') {
+    reason =
+      `'constructor' is JavaScript's prototype marker. An app member by this name ` +
+      `cannot be exposed on the admin surface.`;
+  } else {
+    reason =
+      `'${key}' is already inherited by the plain object the admin surface is ` +
+      `built on. A method by this name cannot be placed on the surface — the ` +
+      `inherited one is already there — and would go missing without explanation.`;
+  }
   throw new WSKitConfigError(
     `[wskit] assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
+}
+
+/**
+ * A class or ordinary function puts this non-enumerable, configurable,
+ * writable data property on its prototype. It is not an app API member, so do
+ * not reject it while walking a class instance's prototype chain. The check
+ * deliberately reads the constructor's `prototype` descriptor instead of the
+ * property itself: an app can return a function or proxy with a getter there,
+ * and reserved-name validation must not execute app code.
+ */
+function isAutomaticConstructorMarker(
+  api: object,
+  level: object,
+  descriptor: PropertyDescriptor,
+): boolean {
+  if (
+    level === api ||
+    descriptor.get !== undefined ||
+    descriptor.set !== undefined ||
+    descriptor.writable !== true ||
+    descriptor.enumerable !== false ||
+    descriptor.configurable !== true ||
+    typeof descriptor.value !== 'function'
+  ) {
+    return false;
+  }
+
+  try {
+    // A normal function prototype is an ordinary object whose prototype is
+    // Object.prototype. A null-prototype object with a hand-installed function
+    // is app data, not the marker created by that function. A class extending
+    // null is the one legitimate exception; its source still identifies it as
+    // a class without reading any app property.
+    if (
+      Object.getPrototypeOf(level) === null &&
+      !Function.prototype.toString.call(descriptor.value).startsWith('class')
+    ) {
+      return false;
+    }
+    const prototype = Object.getOwnPropertyDescriptor(descriptor.value, 'prototype');
+    return (
+      prototype?.get === undefined &&
+      prototype?.set === undefined &&
+      prototype?.value === level &&
+      prototype.enumerable === false &&
+      prototype.configurable === false &&
+      (prototype.writable === true || prototype.writable === false)
+    );
+  } catch {
+    // A revoked proxy or a hostile descriptor trap is still an app-owned
+    // constructor. Let the reserved-name guard report it as configuration.
+    return false;
+  }
 }
 
 function flattenApi(api: unknown): Record<string, unknown> {
   const flat: Record<string, unknown> = {};
   if (!api || typeof api !== 'object') return flat;
 
+  const seen = new Set<object>();
   for (
     let level: object | null = api;
     level && level !== Object.prototype;
     level = Object.getPrototypeOf(level) as object | null
   ) {
+    if (seen.has(level)) break;
+    seen.add(level);
+
     for (const key of Object.getOwnPropertyNames(level)) {
-      // Every class prototype has an inherited constructor property. It is an
+      const descriptor = Object.getOwnPropertyDescriptor(level, key);
+      // Every class prototype has an own constructor marker. It is an
       // implementation detail, but an app-owned constructor is a real API name
       // and must go through the same reserved-name guard as other built-ins.
-      if (key === 'constructor' && level !== api) continue;
+      if (
+        key === 'constructor' &&
+        descriptor &&
+        isAutomaticConstructorMarker(api, level, descriptor)
+      ) {
+        continue;
+      }
       // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
       // object, so a method by that name would be skipped silently instead of
       // reported.

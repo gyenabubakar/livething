@@ -66,6 +66,7 @@ export function installWebSocketPair(): { pairs: Array<[FakeWebSocket, FakeWebSo
  * Minimal DurableObjectState with spyable storage + alarm hooks.
  */
 export type FakeDOState = {
+  id: { toString: () => string };
   storageMap: Map<string, unknown>;
   getAlarmTime: () => number | null;
   waitUntil: ReturnType<typeof vi.fn>;
@@ -94,6 +95,7 @@ function baseFakeState(): FakeDOState {
   let alarmTime: number | null = null;
 
   return {
+    id: { toString: () => 'fake-instance' },
     storageMap,
     getAlarmTime: () => alarmTime,
     waitUntil: vi.fn(),
@@ -151,6 +153,7 @@ export interface FakeEngine {
     decision: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision),
   ) => void;
   setHibernation: (enabled: boolean) => void;
+  setRestoreFailure: (error?: unknown) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
     handleClose: ReturnType<typeof vi.fn>;
@@ -184,6 +187,7 @@ export function makeFakeEngine(): FakeEngine {
 
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
   let hibernation = false;
+  let restoreFailure: unknown;
 
   // What engine.admin() returns: the admin context (spied), which the app's own
   // api is merged into. WSKitAdmin projects this onto flat RPC methods, so the
@@ -229,6 +233,7 @@ export function makeFakeEngine(): FakeEngine {
   };
 
   const engine = {
+    setInstanceId: vi.fn(),
     initialize: vi.fn(async () => {
       calls.initialize += 1;
     }),
@@ -255,8 +260,9 @@ export function makeFakeEngine(): FakeEngine {
     reconcileConnections: vi.fn((surviving: ReadonlySet<string>) => {
       calls.reconcileConnections.push(surviving);
     }),
-    restoreHibernatedConnections: vi.fn((sockets: Iterable<unknown>) => {
+    restoreHibernatedConnections: vi.fn(async (sockets: Iterable<unknown>) => {
       calls.restoreHibernatedConnections.push([...sockets]);
+      if (restoreFailure !== undefined) throw restoreFailure;
     }),
     admin: vi.fn(() => adminApi),
   } as unknown as Engine;
@@ -269,6 +275,9 @@ export function makeFakeEngine(): FakeEngine {
     },
     setHibernation(enabled) {
       hibernation = enabled;
+    },
+    setRestoreFailure(error) {
+      restoreFailure = error;
     },
     connectionHandle,
     adminApi,

@@ -594,6 +594,11 @@ describe('reliable leave', () => {
   it('ignores a confirmation with a mismatched id, then settles on the matching one', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
+    const stale = vi.fn();
+    (socket as unknown as { on(event: string, handler: () => void): void }).on(
+      '__unsubscribeOk__',
+      stale,
+    );
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -617,6 +622,7 @@ describe('reliable leave', () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
+    expect(stale).not.toHaveBeenCalled();
 
     ws.emit({
       event: '__unsubscribeOk__',

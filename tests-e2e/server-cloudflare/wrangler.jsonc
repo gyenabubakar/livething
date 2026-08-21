@@ -74,6 +74,7 @@
       { "name": "DURABLE_CONFIG_SERVER", "class_name": "DurableConfigServer" },
       { "name": "INBOX_SERVER", "class_name": "InboxServer" },
       { "name": "INBOX_DYNAMIC_SERVER", "class_name": "InboxDynamicServer" },
+      { "name": "INBOX_RETENTION_SERVER", "class_name": "InboxRetentionServer" },
       { "name": "RECEIPTS_SERVER", "class_name": "ReceiptsServer" },
       { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
       { "name": "INBOX_HANDLE_SERVER", "class_name": "InboxHandleServer" },
@@ -193,6 +194,10 @@
     {
       "tag": "v16",
       "new_sqlite_classes": ["InboxDynamicServer"],
+    },
+    {
+      "tag": "v17",
+      "new_sqlite_classes": ["InboxRetentionServer"],
     },
   ],
 }

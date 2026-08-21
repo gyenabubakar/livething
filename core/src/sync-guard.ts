@@ -43,9 +43,28 @@ export function rethrowIfConfigError(error: unknown): void {
  */
 export function assertSyncResult<T>(result: T | Promise<T>, label: string): T {
   if (result && typeof (result as Promise<T>).then === 'function') {
+    // The caller is about to throw synchronously, so consume a rejected
+    // Promise here. Otherwise a bad async callback can report twice: once as
+    // the useful configuration error and again as an unhandled rejection.
+    void Promise.resolve(result).catch(() => {});
     throw new WSKitConfigError(
       `[wskit] async validators are not supported (${label}). Use a sync schema or parse function.`,
     );
   }
   return result as T;
+}
+
+/**
+ * Reject a Promise returned from an API that must finish before its caller
+ * returns. The rejected Promise is observed so the synchronous configuration
+ * error remains the only reported failure.
+ */
+export function assertSynchronousResult<T>(result: T, label: string): T {
+  if (result && typeof (result as { then?: unknown }).then === 'function') {
+    void Promise.resolve(result).catch(() => {});
+    throw new WSKitConfigError(
+      `[wskit] async callbacks are not supported (${label}). Use a synchronous callback.`,
+    );
+  }
+  return result;
 }

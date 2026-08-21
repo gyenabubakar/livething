@@ -6,6 +6,7 @@ import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import { CrossInstanceRef } from '~/errors/errors.ts';
 import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -353,10 +354,17 @@ describe('ctx.connections.get(ref).send', () => {
       instance: 'engine-b',
       userId: 'peer',
     };
-    expect(() => ctx.connections.get(foreign).send('evt', {})).toThrow(
-      '[wskit] ctx.connections.get(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
-        'cross-instance routing requires a broker, which is not configured yet.',
-    );
+    try {
+      ctx.connections.get(foreign).send('evt', {});
+      throw new Error('expected a cross-instance ref error');
+    } catch (error) {
+      expect(CrossInstanceRef.matches(error)).toBe(true);
+      expect((error as ReturnType<typeof CrossInstanceRef>).detail).toEqual({
+        operation: 'ctx.connections.get(ref).send',
+        targetInstance: 'engine-b',
+        engineInstance: 'engine-a',
+      });
+    }
   });
 });
 

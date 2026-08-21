@@ -218,6 +218,7 @@ const RESERVED_ERROR_CODES = new Set([
   'validation-failed',
   'channel-not-found',
   'channel-not-subscribed',
+  'cross-instance-ref',
   'unsupported-protocol',
   'rejoin-rejected',
   'internal-error',
@@ -396,6 +397,20 @@ export const UnsupportedProtocol = /* @__PURE__ */ buildErrorFactory(
  * ```
  */
 export const ChannelNotSubscribed = /* @__PURE__ */ buildErrorFactory('channel-not-subscribed');
+
+/**
+ * Thrown by a server-side ref-addressed operation when the target belongs to
+ * another engine instance. Cross-instance routing needs a broker; until one
+ * is configured, the operation is rejected before any frame is sent.
+ */
+export const CrossInstanceRef = /* @__PURE__ */ buildErrorFactory(
+  'cross-instance-ref',
+  v.object({
+    operation: v.string(),
+    targetInstance: v.optional(v.string()),
+    engineInstance: v.optional(v.string()),
+  }),
+);
 
 /**
  * Sent to the client when the server rejects a persistent channel's auto-rejoin

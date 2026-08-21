@@ -164,6 +164,9 @@ export function createEngineAccess(
     onAlarm: (handler) => {
       core.hooks.alarm.push(handler);
     },
+    registerAlarmSource: (key, source) => {
+      core.alarmSources.set(key, source);
+    },
     onCheck: (handler, validator) => {
       pushChannelHook(core.hooks.check, scope?.channelKey, {
         hook: { handler, validator },
@@ -408,6 +411,12 @@ export function createEngineAccess(
     channelMemberCount: (channelName, channelFamily) =>
       deps.channelMemberCount(channelName, channelFamily),
     getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
+    getInboxChannelScopes: () => ({
+      staticNames: [...core.inboxChannels.keys()].filter((key) => core.compiled.channels.has(key)),
+      familyKeys: [...core.inboxChannels.keys()].filter((key) =>
+        core.compiled.channelFamilies.has(key),
+      ),
+    }),
     invalidateInboxMemberCount: (channelName, channelFamily, userId) => {
       core.inboxMemberCounts.delete(
         InboxRuntime.memberCountKey(channelName, channelFamily, userId),

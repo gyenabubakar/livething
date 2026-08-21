@@ -54,16 +54,13 @@ const handleDoSendToEmpty = base.on('do-send-to-empty', {
 const handleDoSendToConnection = base.on('do-send-to-connection', {
   input: v.object({ connectionId: v.string(), text: v.string() }),
   run(ctx, input) {
-    const ref = {
-      __wskit: 'connection-ref' as const,
-      id: input.connectionId,
-      instance: undefined,
-      userId: input.connectionId,
-    };
-    const delivered = ctx.connections.get(ref).send('message', {
-      text: input.text,
-      from: ctx.meta.username,
-    });
+    const target = ctx.connections.all().find((info) => info.id === input.connectionId);
+    const delivered = target
+      ? ctx.connections.get(target.ref()).send('message', {
+          text: input.text,
+          from: ctx.meta.username,
+        })
+      : false;
     ctx.send('delivery-status', { delivered });
   },
 });

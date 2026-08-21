@@ -4,7 +4,7 @@ import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import { deleteConnectionState, persistAttachment } from './hibernation.ts';
-import { withInvocationScope } from './invocation-scope.ts';
+import { withInvocationScope, withInvocationScopeSync } from './invocation-scope.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
@@ -153,6 +153,59 @@ describe('withInvocationScope', () => {
     ).rejects.toThrow('boom');
 
     expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
+  });
+
+  it('flushes a synchronous callback before returning or rethrowing', () => {
+    const { core, writes } = createFakeCore();
+    const connection = createFakeConnection('c1');
+
+    connection.meta = { sync: true };
+    expect(
+      withInvocationScopeSync(core, () => {
+        persistAttachment(core, connection);
+        return 'done';
+      }),
+    ).toBe('done');
+    expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
+
+    expect(() =>
+      withInvocationScopeSync(core, () => {
+        connection.meta = { failed: true };
+        persistAttachment(core, connection);
+        throw new Error('sync boom');
+      }),
+    ).toThrow('sync boom');
+    expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(2);
+  });
+
+  it('rejects an async callback instead of letting work escape the sync scope', () => {
+    const { core, writes } = createFakeCore();
+
+    expect(() => withInvocationScopeSync(core, () => Promise.resolve('not synchronous'))).toThrow(
+      /async callbacks are not supported/,
+    );
+    expect(writes).toEqual([]);
+  });
+
+  it('rejects an async callback even when nested inside an existing scope', async () => {
+    const { core } = createFakeCore();
+
+    await withInvocationScope(core, async () => {
+      expect(() => withInvocationScopeSync(core, () => Promise.resolve('not synchronous'))).toThrow(
+        /async callbacks are not supported/,
+      );
+    });
+  });
+
+  it('rejects an async hibernation persist callback', () => {
+    const { core } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    const failure = new Error('async persist failed');
+    (core.options as unknown as { hibernation: { persist: () => unknown } }).hibernation.persist =
+      () => Promise.reject(failure);
+
+    expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
+    expect(connection.lastPersistedFingerprint).toBeUndefined();
   });
 
   it('drops a queued flush when the connection is deleted before the scope closes', async () => {

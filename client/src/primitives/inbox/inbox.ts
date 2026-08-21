@@ -1,6 +1,7 @@
 import { channelKey } from '~/internal/channel-key.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
 import { createStore } from '~/internal/store.ts';
+import { isRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
 import {
   rejectPending,
   resolveOwnQuery,
@@ -26,6 +27,7 @@ interface ChannelReceivers {
   store: WritableStore<CursorList>;
   listeners: Set<(userId: string, receivedThrough: number) => void>;
   status: ReadableStore<ChannelStatus> | null;
+  stopStatusWatch: (() => void) | null;
 }
 
 /** Options for the client `inbox()` primitive. */
@@ -71,6 +73,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
             store: createStore<CursorList>(new Map()),
             listeners: new Set(),
             status: null,
+            stopStatusWatch: null,
           };
           channels.set(key, state);
         }
@@ -106,10 +109,13 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         });
       }
 
-      function isStaleUnsubscribeOk(state: ChannelReceivers | undefined): boolean {
-        if (!state?.status) return false;
-        const status = state.status.get();
-        return status === 'subscribed' || status === 'subscribing';
+      function clearScope(key: string, state = channels.get(key)): void {
+        inboxScopes.delete(key);
+        marks.delete(key);
+        if (state) {
+          state.byUserId.clear();
+          state.store.set(new Map());
+        }
       }
 
       return {
@@ -124,15 +130,9 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
             return message;
           }
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
-            const state = channels.get(key);
-            if (message.event === '__unsubscribeOk__' && isStaleUnsubscribeOk(state))
+            if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
               return message;
-            inboxScopes.delete(key);
-            marks.delete(key);
-            if (state) {
-              state.byUserId.clear();
-              state.store.set(new Map());
-            }
+            clearScope(key);
             return message;
           }
 
@@ -204,7 +204,16 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           getAugmenters(socket).push((messaging, scope) => {
             const key = markersKey(scope.markers());
             const state = stateFor(key);
-            state.status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
+            const status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
+            if (state.status !== status) {
+              state.stopStatusWatch?.();
+              state.status = status;
+              state.stopStatusWatch =
+                status?.subscribe((next) => {
+                  if (next === 'failed') clearScope(key, state);
+                }) ?? null;
+              if (status?.get() === 'failed') clearScope(key, state);
+            }
 
             const inboxApi: ChannelInboxApi = {
               receivers: { get: state.store.store.get, subscribe: state.store.store.subscribe },

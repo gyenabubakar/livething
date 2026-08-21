@@ -1,17 +1,20 @@
+import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
 import { sendGap, sendReplay } from '~/_engine/runtime/wire.ts';
 import { listIdentitiesByChannel } from '~/channel/storage.ts';
 import {
   ackInboxRows,
-  bumpInboxWatermark,
   clearInboxWatermarkThrough,
   countInboxRows,
   deleteInboxRowsForChannel,
   deleteInboxWatermarkForChannel,
   insertInboxRows,
   insertInboxRowsForUserId,
+  listExpiredInboxRetentionTargets,
+  listInboxRetentionTargets,
   loadInboxWatermarks,
   loadUndeliveredRows,
-  pruneInboxRetention,
+  nextInboxRetentionAt,
+  pruneInboxRetentionAndBumpWatermark,
 } from '~/inbox/storage.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -125,7 +128,56 @@ export function fanOutToInbox(
       });
       if (countGates && evicted !== null) core.inboxMemberCounts.set(key, cap!);
     }
+
+    if (config.retention.maxAgeMs !== undefined) rescheduleEngineAlarm(core);
   }
+}
+
+/** Return the next age-retention deadline for one static channel or family. */
+export function nextInboxRetentionDeadline(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { channelKey: string; maxAgeMs: number },
+): number | null {
+  return nextInboxRetentionAt(sql, params);
+}
+
+/**
+ * Prune all expired rows in one inbox channel key. A family key may contain
+ * many concrete channel names, so storage returns each concrete member scope
+ * and every prune keeps its own watermark transactionally paired with deletes.
+ */
+export function sweepInboxRetention(
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
+  params: { channelKey: string; retention: InboxRetention; now: number },
+): number {
+  const maxAgeMs = params.retention.maxAgeMs;
+  if (maxAgeMs === undefined && params.retention.maxMessages === undefined) return 0;
+
+  // A count-only retention config has no alarm source, but it still needs a
+  // boot pass so a deploy that lowers maxMessages enforces the new bound on
+  // rows already on disk. Age-retained configs can use the narrower expired
+  // query unless they also carry a count cap, whose bound may have changed.
+  const targets =
+    params.retention.maxMessages !== undefined
+      ? listInboxRetentionTargets(sql, { channelKey: params.channelKey })
+      : listExpiredInboxRetentionTargets(sql, {
+          channelKey: params.channelKey,
+          maxAgeMs: maxAgeMs!,
+          now: params.now,
+        });
+  let pruned = 0;
+  for (const target of targets) {
+    if (
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        ...target,
+        retention: params.retention,
+        now: params.now,
+      }) !== null
+    ) {
+      pruned += 1;
+    }
+  }
+  return pruned;
 }
 
 /** Cache key for a member's per-channel inbox row count. */
@@ -219,6 +271,8 @@ export function clearInboxForChannel(
     channelName: key.channelName,
     channelFamily: key.channelFamily,
   });
+  core.inboxMemberCounts.delete(memberCountKey(key.channelName, key.channelFamily, userId));
+  rescheduleEngineAlarm(core);
 }
 
 /**
@@ -261,14 +315,17 @@ export function backfillInbox(
 }
 
 /**
- * Prune a member's channel rows past its retention limits and, if anything was
- * evicted, raise its overflow watermark so a later drain turns the eviction
- * into a gap. Shared by the live fan-out path and `backfillInbox` so both
- * enforce retention the same way. Returns the highest evicted seq, or `null`
- * when nothing was pruned.
+ * Prune a member's channel rows past its retention limits and, if an
+ * undelivered row was evicted, raise its overflow watermark so a later drain
+ * turns that loss into a gap. The deletes and watermark write happen in one
+ * transaction.
+ * Shared by the live fan-out path and `backfillInbox` so both enforce retention
+ * the same way. Returns the highest evicted seq (including delivered rows), or
+ * `null` when nothing was pruned. The watermark is based only on evicted
+ * undelivered rows.
  */
 function applyInboxRetention(
-  sql: Pick<SQLProvider, 'exec'>,
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   opts: {
     userId: string;
     channelName: string;
@@ -276,20 +333,11 @@ function applyInboxRetention(
     retention: InboxRetention;
   },
 ): number | null {
-  const evictedThrough = pruneInboxRetention(sql, {
+  return pruneInboxRetentionAndBumpWatermark(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
     channelFamily: opts.channelFamily,
     retention: opts.retention,
     now: Date.now(),
   });
-  if (evictedThrough === null) return null;
-
-  bumpInboxWatermark(sql, {
-    userId: opts.userId,
-    channelName: opts.channelName,
-    channelFamily: opts.channelFamily,
-    evictedThroughSeq: evictedThrough,
-  });
-  return evictedThrough;
 }

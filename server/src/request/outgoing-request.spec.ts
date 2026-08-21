@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { RequestInvalidResponse } from '@wskit/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
+import { CrossInstanceRef } from '~/errors/errors.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -56,6 +57,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
   function member(id: string): any {
     return {
       id,
+      userId: id,
       ref: () => ({ __wskit: 'connection-ref', id, instance: undefined, userId: id }),
     };
   }
@@ -252,8 +254,13 @@ describe('server→client request — outgoing runtime', () => {
       userId: 'p',
     };
     expect(() => ctx.connections.get(ref).request('ask', { action: 'x' })).toThrow(
-      /cross-instance/,
+      /cross-instance-ref/,
     );
+    try {
+      ctx.connections.get(ref).request('ask', { action: 'x' });
+    } catch (error) {
+      expect(CrossInstanceRef.matches(error)).toBe(true);
+    }
   });
 
   it('ctx.channel.request stamps the channel routing', async () => {
@@ -317,6 +324,85 @@ describe('server→client request — outgoing runtime', () => {
     env.answerHook('peer', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
 
     // The targeted form resolves the bare response — no `{ response, from }`.
+    await expect(promise).resolves.toEqual({ allowed: true });
+  });
+
+  it('ctx.channel.request({ to }) rejects a cross-instance ConnectionRef before local matching', () => {
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          family: 'rooms',
+          send: () => true,
+          members: () => [env.member('peer')],
+        },
+      },
+    );
+
+    expect(() =>
+      ctx.channel.request(
+        'ask',
+        { action: 'x' },
+        {
+          to: { __wskit: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
+        },
+      ),
+    ).toThrow(/cross-instance-ref/);
+    expect(env.sent).toHaveLength(0);
+  });
+
+  it('ctx.channel.request({ to }) rejects a cross-instance UserRef before local matching', () => {
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          family: 'rooms',
+          send: () => true,
+          members: () => [env.member('peer')],
+        },
+      },
+    );
+
+    expect(() =>
+      ctx.channel.request(
+        'ask',
+        { action: 'x' },
+        { to: { __wskit: 'user-ref', id: 'peer', instance: 'other' } },
+      ),
+    ).toThrow(/cross-instance-ref/);
+    expect(env.sent).toHaveLength(0);
+  });
+
+  it('ctx.channel.request({ to: userRef }) asks a same-instance user member', async () => {
+    const env = install(channelDeclarations('rooms', PERMISSION));
+    const ctx = env.buildCtx(
+      'c1',
+      { channelName: 'room-1', channelFamily: 'rooms' },
+      {
+        channel: {
+          name: 'room-1',
+          family: 'rooms',
+          send: () => true,
+          members: () => [env.member('peer')],
+        },
+      },
+    );
+
+    const promise = ctx.channel.request(
+      'ask',
+      { action: 'x' },
+      { to: { __wskit: 'user-ref', id: 'peer', instance: undefined } },
+    );
+
+    expect(env.sent.map((entry) => entry.connectionId)).toEqual(['peer']);
+    const { correlationId } = env.sent[0]!.opts;
+    env.answerHook('peer', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: true });
   });
 

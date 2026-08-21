@@ -53,9 +53,9 @@ export async function send(page: Page, frame: Frame): Promise<void> {
   }, frame);
 }
 
-export async function subscribe(page: Page): Promise<Frame> {
-  await send(page, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
-  return waitForFrame(page, (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat');
+export async function subscribe(page: Page, channel = 'chat'): Promise<Frame> {
+  await send(page, { event: '__subscribe__', payload: {}, __wskit: { channel } });
+  return waitForFrame(page, (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === channel);
 }
 
 export async function closeSocket(page: Page): Promise<void> {

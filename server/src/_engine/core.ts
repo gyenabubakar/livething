@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
   RateLimited,
@@ -58,9 +59,10 @@ export class EngineCore {
   logger: PublicApi.Logger;
 
   /**
-   * Engine id for multi-instance setups. `undefined` means single-instance —
-   * every local ref carries `undefined` and the broker is skipped. Adapters
-   * with a broker call `setInstanceId(...)` so refs carry a real id.
+   * Engine id for multi-instance setups. Adapters that expose more than one
+   * addressable engine set this before accepting connections so refs cannot
+   * be mistaken for refs from another engine. `undefined` is reserved for
+   * adapters that truly have one addressable engine.
    */
   engineInstanceId: string | undefined;
 
@@ -124,9 +126,10 @@ export class EngineCore {
 
   /**
    * In-memory mirror of each member's receipt cursors, keyed by channel and
-   * identity. Cursors are only ever advanced (never deleted), so this stays valid
-   * for the instance lifetime and lets an ack skip the read before its write. A
-   * hibernation wake starts empty and re-seeds from storage on first touch.
+   * identity. Cursors advance monotonically during a live instance and are
+   * cleared when their durable rows are purged, so an ack can skip the read
+   * before its write without surviving a user purge. A hibernation wake starts
+   * empty and re-seeds from storage on first touch.
    */
   readonly inboxReceiptCursors = new Map<
     string,
@@ -136,9 +139,9 @@ export class EngineCore {
   /**
    * In-memory count of each member's inbox rows, keyed by channel and identity.
    * Seeded from storage on first touch and bumped as fan-out writes rows, so the
-   * per-member retention prune runs only when the row cap could be exceeded. An
-   * undercount just keeps a few rows past the cap until the next prune — never a
-   * dropped or duplicated delivery — so it is safe to skip precise invalidation.
+   * per-member retention prune runs only when the row cap could be exceeded. It
+   * is invalidated when rows are acknowledged, backfilled, or cleared, and an
+   * undercount only keeps a few rows past the cap until the next prune.
    */
   readonly inboxMemberCounts = new Map<string, number>();
 
@@ -171,6 +174,7 @@ export class EngineCore {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
+    CrossInstanceRef.code,
     DurableStreamRequiresUser.code,
     RateLimited.code,
     RejoinRejected.code,
@@ -201,6 +205,8 @@ export class EngineCore {
   // per changed row instead of rewriting the whole table on each persist.
   readonly scheduledRunsPersisted = new Map<string, string>();
   readonly scheduledDlqPersisted = new Map<string, string>();
+  /** Framework-owned alarm sources. The adapter exposes one durable alarm. */
+  readonly alarmSources = new Map<symbol, () => number | null>();
   readonly installedFeatures = new Set<symbol>();
 
   /**

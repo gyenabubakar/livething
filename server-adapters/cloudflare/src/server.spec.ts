@@ -394,6 +394,7 @@ describe('engine wiring in the constructor', () => {
 
     expect(fake.calls.create).toHaveLength(1);
     const engineOptions = fake.calls.create[0] as Record<string, unknown>;
+    expect(fake.engine.setInstanceId).toHaveBeenCalledWith('fake-instance');
     expect(engineOptions.env).toEqual(env);
     expect(engineOptions.storage).toBeDefined();
     expect(engineOptions.platform).toBeDefined();
@@ -425,6 +426,75 @@ describe('engine wiring in the constructor', () => {
     expect(fake.calls.restoreHibernatedConnections[0]).toEqual([sockA, sockB]);
     // The eager restore supersedes the id-collecting reconcile at boot.
     expect(fake.calls.reconcileConnections).toHaveLength(0);
+  });
+
+  it('blocks every lifecycle entrypoint when hibernation restore fails', async () => {
+    const failure = new Error('restore failed');
+    const Cls = buildClass({ hibernation: true });
+    fake.setRestoreFailure(failure);
+    const sockA = { tag: 'a' } as unknown;
+    const sockB = { tag: 'b' } as unknown;
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const ready = (instance as unknown as { ready: Promise<void> }).ready;
+
+    const bootError = await ready.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(bootError).toBe(failure);
+    expect(fake.calls.restoreHibernatedConnections).toEqual([[sockA, sockB]]);
+    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
+
+    const calls = [
+      instance.fetch(upgradeRequest()),
+      instance.webSocketMessage({} as WebSocket, 'hello'),
+      instance.webSocketClose({} as WebSocket, 1000, 'bye'),
+      instance.webSocketError({} as WebSocket, failure),
+      instance.alarm(),
+      instance.shutdown(),
+      instance.admin(),
+    ];
+    for (const call of calls) {
+      await expect(call).rejects.toBe(failure);
+    }
+
+    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(fake.calls.handleHibernationWake).toHaveLength(0);
+    expect(fake.calls.handleAlarm).toBe(0);
+    expect(fake.calls.handleShutdown).toBe(0);
+
+    // Vitest reports an unhandled rejection if the boot restore promise is
+    // dropped; yielding here lets that check run before the test completes.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('observes a boot failure even when no lifecycle event arrives to await ready', async () => {
+    const failure = new Error('restore failed before the first event');
+    const Cls = buildClass({ hibernation: true });
+    fake.setRestoreFailure(failure);
+
+    const unhandled: unknown[] = [];
+    function onUnhandled(reason: unknown) {
+      unhandled.push(reason);
+    }
+    const processLike = (
+      globalThis as unknown as {
+        process: {
+          on(event: string, handler: (reason: unknown) => void): void;
+          off(event: string, handler: (reason: unknown) => void): void;
+        };
+      }
+    ).process;
+    processLike.on('unhandledRejection', onUnhandled);
+    try {
+      new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    } finally {
+      processLike.off('unhandledRejection', onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
   });
 
   it('does not restore or reconcile against surviving sockets in standard mode', async () => {
@@ -507,10 +577,22 @@ describe('WSKitDurableObject admin()', () => {
 
     const target = { __wskit: 'user-ref', id: 'u1', instance: undefined } as const;
     await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
-    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(target, {
-      reason: 'banned',
-      revoke: true,
-    });
+    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(
+      { ...target, instance: 'fake-instance' },
+      {
+        reason: 'banned',
+        revoke: true,
+      },
+    );
+  });
+
+  it('preserves an explicit foreign user-ref instance for the engine to reject', async () => {
+    const { admin } = await adminOf();
+    const target = { __wskit: 'user-ref', id: 'u1', instance: 'other' } as const;
+
+    await admin.channelKick('lobby', target, { reason: 'foreign' });
+
+    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(target, { reason: 'foreign' });
   });
 
   it('leaves the context plumbing off the stub surface', async () => {

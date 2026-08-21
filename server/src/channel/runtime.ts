@@ -446,12 +446,13 @@ async function runSubscribeFlow(
 
   // `check`/`commit`/`revalidate` run inline in the `base.channel(...)` config,
   // alongside the `capabilities` array they would need to infer their brand
-  // from, so they are typed with no channel-only members (`ctx.channel.inbox`,
-  // `ctx.channel.readReceipts`). Build a separate ctx carrying the
-  // `isSubscribeGate` marker for them, so the channel-only context extenders
-  // skip attaching those members here — the shared `ctx` above (used for
-  // `subscribe` below) is untouched. Built lazily, and only when a gate hook
-  // is actually registered for this channel.
+  // from, so they are typed with no channel-owned capability members
+  // (`ctx.channel.inbox`, `ctx.channel.readReceipts`, or its request verbs).
+  // Build a separate ctx carrying the `isSubscribeGate` marker for them, so
+  // channel-only extenders and channel request wiring skip attaching those
+  // members here — the shared `ctx` above (used for `subscribe` below) is
+  // untouched. Built lazily, and only when a gate hook is actually registered
+  // for this channel.
   let gateCtx: Record<PropertyKey, unknown> | undefined;
   function buildGateCtx(): Record<PropertyKey, unknown> {
     return (gateCtx ??= runtime.buildConnectionContext(connection, {

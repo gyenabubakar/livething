@@ -1,6 +1,13 @@
 import { WSKitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
-import { CloseCodes, Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
+import {
+  CloseCodes,
+  CrossInstanceRef,
+  Defer,
+  DeferExhausted,
+  Disconnect,
+  RejectUpgrade,
+} from './errors.ts';
 
 describe('CloseCodes', () => {
   it('exposes the standard 1xxx codes', () => {
@@ -135,5 +142,24 @@ describe('DeferExhausted parser — bad payload', () => {
     expect(() => DeferExhausted({ event: 'x', retries: Infinity } as any)).toThrow(
       'Validation failed',
     );
+  });
+});
+
+describe('CrossInstanceRef', () => {
+  it('carries the rejected operation and instance details', () => {
+    const err = CrossInstanceRef({
+      operation: 'ctx.channel.request({ to })',
+      targetInstance: 'other',
+      engineInstance: 'local',
+    });
+
+    expect(err).toBeInstanceOf(WSKitError);
+    expect(err.code).toBe('cross-instance-ref');
+    expect(err.detail).toEqual({
+      operation: 'ctx.channel.request({ to })',
+      targetInstance: 'other',
+      engineInstance: 'local',
+    });
+    expect(CrossInstanceRef.matches(err)).toBe(true);
   });
 });

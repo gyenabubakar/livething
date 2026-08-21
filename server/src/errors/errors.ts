@@ -11,6 +11,7 @@ export {
   ValidationFailed,
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
   NudgeOverflow,

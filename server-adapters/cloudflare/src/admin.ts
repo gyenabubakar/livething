@@ -44,10 +44,24 @@ function toPlainInfo<TMeta>(info: ConnectionInfo<TMeta>): AdminConnectionInfo<TM
  */
 export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
   readonly #ctx: AdminContext<Record<string, unknown>, TMeta>;
+  readonly #instanceId: string | undefined;
 
-  constructor(ctx: AdminContext<Record<string, unknown>, TMeta>) {
+  constructor(ctx: AdminContext<Record<string, unknown>, TMeta>, instanceId?: string) {
     super();
     this.#ctx = ctx;
+    this.#instanceId = instanceId;
+  }
+
+  /**
+   * A ref crossing the Worker → DO RPC boundary cannot retain the instance
+   * field when it was created by an older/single-instance caller. Treat an
+   * omitted instance as local to this admin surface; an explicit other id is
+   * left intact so the engine can reject it rather than silently rerouting.
+   */
+  #localTarget(target: UserRef | TagRef): UserRef | TagRef {
+    if (target.__wskit !== 'user-ref' || target.instance !== undefined) return target;
+    if (this.#instanceId === undefined) return target;
+    return { ...target, instance: this.#instanceId };
   }
 
   /** Resolve one live connection's ref by id, so the Worker never forges one. */
@@ -131,7 +145,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
     target: UserRef | TagRef,
     opts: { reason: string; revoke?: boolean },
   ): Promise<void> {
-    return this.#channel(channel).kick(target, opts);
+    return this.#channel(channel).kick(this.#localTarget(target), opts);
   }
 }
 
@@ -149,6 +163,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
  */
 export function buildAdmin<TApi, TMeta>(
   surface: AdminContext<Record<string, unknown>, TMeta> & TApi,
+  instanceId?: string,
 ): WSKitAdmin<TMeta> & TApi {
   const devMethods = Object.entries(surface as Record<string, unknown>).filter(
     ([key, value]) =>
@@ -156,12 +171,14 @@ export function buildAdmin<TApi, TMeta>(
       !ADMIN_CONTEXT_MEMBERS.has(key) &&
       !(key in WSKitAdmin.prototype),
   );
-  if (devMethods.length === 0) return new WSKitAdmin(surface) as WSKitAdmin<TMeta> & TApi;
+  if (devMethods.length === 0) {
+    return new WSKitAdmin(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
+  }
 
   const Extended = class extends WSKitAdmin<TMeta> {};
   const proto = Extended.prototype as unknown as Record<string, unknown>;
   for (const [key, value] of devMethods) {
     proto[key] = value;
   }
-  return new Extended(surface) as WSKitAdmin<TMeta> & TApi;
+  return new Extended(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
 }

@@ -159,4 +159,42 @@ test.describe('inbox-gap (overflow surfacing / D1)', () => {
     await bob.close();
     await carol.close();
   });
+
+  test('a stale confirmation during a newer leave does not clear receipt state', async ({
+    browser,
+  }, testInfo) => {
+    const room = `inbox-gap-stale-pending-${testInfo.testId}`;
+    const alice = await openMember(browser, {
+      room,
+      username: 'race-alice',
+      withGaps: false,
+    });
+    const bob = await openMember(browser, { room, username: 'race-bob', withGaps: false });
+
+    await alice.page.getByTestId('sub').click();
+    await bob.page.getByTestId('sub').click();
+    await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
+    await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
+    await bob.page.getByTestId('send-m1').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1');
+    await expect(alice.page.getByTestId('receivers')).toHaveText(/race-alice=\d+/);
+
+    await alice.page.getByTestId('leave-rejoin-stale-race').click();
+    await expect(alice.page.getByTestId('race-leave-started')).toHaveText('yes');
+    await expect(alice.page.getByTestId('race-newer-leave-started')).toHaveText('yes');
+
+    // The first leave's delayed confirmation is released only after leave two
+    // is pending. The old id must not settle leave two or erase the live cursor.
+    await expect(alice.page.getByTestId('race-stale-delivered')).toHaveText('yes');
+    await expect(alice.page.getByTestId('race-receipts-preserved')).toHaveText('yes');
+    await expect(alice.page.getByTestId('race-newer-leave-settled')).toHaveText('yes');
+    await expect(alice.page.getByTestId('race-rejoined')).toHaveText('yes');
+
+    await bob.page.getByTestId('send-m2').click();
+    await expect(alice.page.getByTestId('messages')).toHaveText('m1,m2');
+
+    await alice.close();
+    await bob.close();
+  });
 });

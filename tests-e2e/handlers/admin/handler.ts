@@ -105,9 +105,7 @@ export const adminHandler = base.assemble({
     },
 
     async kickFrom(channel: string, userId: string): Promise<void> {
-      await ctx.channels
-        .get(channel)
-        .kick({ __wskit: 'user-ref', id: userId, instance: undefined }, { reason: 'admin kick' });
+      await ctx.channels.get(channel).kick(ctx.users.get(userId).ref(), { reason: 'admin kick' });
     },
 
     scheduleAnnounce(delayMs: number, text: string): void {

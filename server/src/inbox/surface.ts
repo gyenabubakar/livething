@@ -34,6 +34,7 @@ export function buildInboxSurface<
         frames,
         retention: config?.retention,
       });
+      if (config?.retention?.maxAgeMs !== undefined) engine.rescheduleAlarm?.();
       // These rows bypassed the live fan-out that keeps the count cache warm, so
       // the cached value is now too low. Drop it and let the next write re-read.
       engine.invalidateInboxMemberCount?.(channelName, channelFamily, userId);

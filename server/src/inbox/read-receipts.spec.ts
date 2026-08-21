@@ -6,7 +6,7 @@ import {
   advanceReceivedThrough,
   ensureReceiptsSchema,
 } from '~/inbox/receipts-storage.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type {
   ResolvedInboxOptions,
@@ -29,6 +29,7 @@ function harness(
   const handlers = new Map<string, Handler>();
   const broadcasts: Array<Record<string, unknown>> = [];
   const sentFrames: Array<{ connectionId: string; frame: unknown }> = [];
+  const invalidateInboxMemberCount = vi.fn();
 
   const engine = {
     getScopeInfo: () => ({ channelKey: opts.channelKey ?? 'room' }),
@@ -45,15 +46,23 @@ function harness(
     sendProtocolFrame: (connectionId: string, frame: unknown) =>
       sentFrames.push({ connectionId, frame }),
     getInboxChannel: () => opts.inboxConfig,
+    invalidateInboxMemberCount,
   } as unknown as EngineAccess;
 
   readReceipts(options).__setup!(engine as never);
-  return { sql, handlers, broadcasts, sentFrames };
+  return { sql, handlers, broadcasts, sentFrames, invalidateInboxMemberCount };
 }
 
-function memberConnection(id: string, channelName: string, channelFamily: string | null = null) {
+function memberConnection(
+  id: string,
+  channelName: string,
+  options: { channelFamily?: string | null; userId?: string } = {},
+) {
+  const channelFamily = options.channelFamily ?? null;
+  const userId = options.userId ?? 'alice';
   return {
     id,
+    userId,
     channelMemberships: new Map([
       [createChannelMembershipKey(channelName, channelFamily), { channelName, channelFamily }],
     ]),
@@ -90,7 +99,10 @@ describe('readReceipts __read__ handler', () => {
       broadcastReceipts: true,
       maxReceiptAudience: 256,
     };
-    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
+    const { sql, handlers, broadcasts, invalidateInboxMemberCount } = harness(
+      { maxReceiptAudience: 256 },
+      { inboxConfig },
+    );
     insertInboxRows(sql, {
       userIds: ['alice'],
       channelName: 'room',
@@ -113,6 +125,7 @@ describe('readReceipts __read__ handler', () => {
       payload: { userId: 'alice', receivedThrough: 5 },
     });
     expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
+    expect(invalidateInboxMemberCount).toHaveBeenCalledWith('room', null, 'alice');
   });
 
   it('settles inbox rows but withholds the __received__ tick when inbox broadcastReceipts is off', () => {
@@ -193,6 +206,24 @@ describe('readReceipts __read__ handler', () => {
     expect(handlers.get('__read__')!(ctx, readFrame(5))).toBe(true);
     expect(broadcasts).toEqual([]);
   });
+
+  it('drops an anonymous read ack even when ctx.user.id has a stale fallback', () => {
+    const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 });
+    const anonymous = { ...memberConnection('c1', 'room'), userId: '' };
+
+    expect(handlers.get('__read__')!(ctxFor('c1', anonymous), readFrame(5))).toBe(true);
+
+    expect(broadcasts).toEqual([]);
+    expect(
+      advanceReadThrough(sql, {
+        channelName: 'room',
+        channelFamily: null,
+        userId: 'c1',
+        readThrough: 0,
+        now: 1,
+      }).readThrough,
+    ).toBe(0);
+  });
 });
 
 describe('readReceipts __readQuery__ handler', () => {
@@ -258,7 +289,7 @@ describe('readReceipts scope isolation', () => {
     const ctx = {
       user: { id: 'alice' },
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
-      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', 'rooms'),
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
     const frame = {
       event: '__read__',
@@ -292,7 +323,7 @@ describe('readReceipts scope isolation', () => {
     const ctx = {
       user: { id: 'alice' },
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
-      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', 'rooms'),
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
     const frame = {
       event: '__readQuery__',

@@ -1,3 +1,4 @@
+import { WSKitConfigError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
@@ -134,6 +135,165 @@ describe('Engine.admin() surfacing the app api', () => {
       const engine = buildEngine(() => new Api());
 
       expect(() => engine.admin()).toThrow(/then/);
+    });
+
+    it('rejects an app-defined constructor reached through a custom prototype', () => {
+      const prototype = Object.create(null) as Record<string, unknown>;
+      prototype.constructor = vi.fn();
+      const api = Object.create(prototype) as Record<string, unknown>;
+      const engine = buildEngine(() => api);
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it('rejects an own constructor on a null-prototype api', () => {
+      const api = Object.create(null) as Record<string, unknown>;
+      Object.defineProperty(api, 'constructor', {
+        value: vi.fn(),
+        enumerable: true,
+      });
+      const engine = buildEngine(() => api);
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it('rejects an own constructor even when its prototype points back to the api', () => {
+      const api = Object.create(null) as Record<string, unknown>;
+      function AppConstructor() {}
+      AppConstructor.prototype = api;
+      Object.defineProperty(api, 'constructor', {
+        value: AppConstructor,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      const engine = buildEngine(() => api);
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it("does not execute a constructor function's prototype getter while rejecting it", () => {
+      const api = Object.create(null) as Record<string, unknown>;
+      let reads = 0;
+      const AppConstructor = new Proxy(function AppConstructor() {}, {
+        get: (target, key, receiver) => {
+          if (key === 'prototype') {
+            reads += 1;
+            return api;
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      });
+      Object.defineProperty(api, 'constructor', {
+        value: AppConstructor,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      const engine = buildEngine(() => api);
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(reads).toBe(0);
+    });
+
+    it('rejects an inherited constructor-shaped object', () => {
+      const prototype = Object.create(null) as Record<string, unknown>;
+      Object.defineProperty(prototype, 'constructor', {
+        value: { prototype },
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      const engine = buildEngine(() => Object.create(prototype));
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it('rejects a function marker forged on a null-prototype custom prototype', () => {
+      const prototype = Object.create(null) as Record<string, unknown>;
+      function AppConstructor() {}
+      AppConstructor.prototype = prototype;
+      Object.defineProperty(prototype, 'constructor', {
+        value: AppConstructor,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      const engine = buildEngine(() => Object.create(prototype));
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it('rejects an inherited bound constructor', () => {
+      const prototype = Object.create(null) as Record<string, unknown>;
+      function AppConstructor() {}
+      Object.defineProperty(prototype, 'constructor', {
+        value: AppConstructor.bind(null),
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      const engine = buildEngine(() => Object.create(prototype));
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(() => engine.admin()).toThrow(/constructor/);
+    });
+
+    it('rejects an inherited constructor accessor without invoking it', () => {
+      const prototype = Object.create(null) as Record<string, unknown>;
+      let reads = 0;
+      Object.defineProperty(prototype, 'constructor', {
+        get: () => {
+          reads += 1;
+          return () => 'app-defined';
+        },
+        configurable: true,
+      });
+      const engine = buildEngine(() => Object.create(prototype));
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(reads).toBe(0);
+    });
+
+    it('rejects a constructor reported by a proxy without reading the app value', () => {
+      const target = Object.create(null) as Record<string, unknown>;
+      let reads = 0;
+      const api = new Proxy(target, {
+        ownKeys: () => ['constructor'],
+        getOwnPropertyDescriptor: () => ({
+          value: () => 'app-defined',
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        }),
+        get: () => {
+          reads += 1;
+          return undefined;
+        },
+      });
+      const engine = buildEngine(() => api);
+
+      expect(() => engine.admin()).toThrow(WSKitConfigError);
+      expect(reads).toBe(0);
+    });
+
+    it('ignores symbol members because the admin surface exposes string methods', () => {
+      const hidden = Symbol('hidden');
+      const api = Object.assign(Object.create(null), { ping: () => 'pong' }) as Record<
+        string | symbol,
+        unknown
+      >;
+      api[hidden] = () => 'not exposed';
+      const engine = buildEngine(() => api as Record<string, unknown>);
+
+      const admin = engine.admin() as unknown as { ping(): string };
+      expect(admin.ping()).toBe('pong');
+      expect(hidden in (admin as object)).toBe(false);
     });
 
     it('leaves an ordinary api method alone', () => {

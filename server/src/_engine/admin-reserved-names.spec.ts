@@ -1,3 +1,4 @@
+import { WSKitConfigError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
@@ -70,7 +71,38 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
 
   it("rejects an app-owned 'constructor' instead of silently dropping it", async () => {
     const engine = engineWithApi(() => ({ constructor: () => 'not-a-class-marker' }));
+    const initialization = engine.initialize();
+    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toThrow(/constructor/);
+  });
+
+  it('rejects an own constructor that spoofs a prototype marker during boot', async () => {
+    const api = Object.create(null) as Record<string, unknown>;
+    function AppConstructor() {}
+    AppConstructor.prototype = api;
+    Object.defineProperty(api, 'constructor', {
+      value: AppConstructor,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    });
+    const engine = engineWithApi(() => api);
+
+    await expect(engine.initialize()).rejects.toBeInstanceOf(WSKitConfigError);
     await expect(engine.initialize()).rejects.toThrow(/constructor/);
+  });
+
+  it('rejects an inherited app-owned constructor during public handler boot', async () => {
+    const prototype = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(prototype, 'constructor', {
+      value: () => 'app-defined',
+      enumerable: true,
+    });
+    const engine = engineWithApi(() => Object.create(prototype));
+
+    const initialization = engine.initialize();
+    await expect(initialization).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(initialization).rejects.toThrow(/constructor/);
   });
 
   it('ignores the constructor marker inherited from a class prototype', async () => {
@@ -80,6 +112,22 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
       }
     }
     const engine = engineWithApi(() => new AdminApi());
+    await expect(engine.initialize()).resolves.toBeUndefined();
+    expect((engine.admin() as { ping(): string }).ping()).toBe('pong');
+  });
+
+  it('ignores an automatic marker on a class prototype that extends null', async () => {
+    class NullPrototypeApi extends null {
+      constructor() {
+        return Object.create(NullPrototypeApi.prototype) as NullPrototypeApi;
+      }
+
+      ping(): string {
+        return 'pong';
+      }
+    }
+    const engine = engineWithApi(() => new NullPrototypeApi());
+
     await expect(engine.initialize()).resolves.toBeUndefined();
     expect((engine.admin() as { ping(): string }).ping()).toBe('pong');
   });

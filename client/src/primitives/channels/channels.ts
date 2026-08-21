@@ -3,6 +3,7 @@ import { channelKey } from '~/internal/channel-key.ts';
 import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
 import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
+import { markRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
 import {
   buildChannelMessaging,
   buildFamilyHandle,
@@ -198,12 +199,17 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               return message;
             }
             case '__unsubscribeOk__': {
-              // Settle the matching leave op. A non-matching id (a stale ack from
-              // an earlier connection) is ignored inside confirmLeave.
+              // Only the active leave owns this confirmation. Consume a stale
+              // ack here before it reaches receipt primitives: their state can
+              // outlive a rejoin, so a receipt primitive must never infer
+              // ownership from the channel's current status.
               const id = wskit?.unsubscribeId;
-              if (typeof id === 'string') state.confirmLeave(id);
-              // Forward so inbox() can forget this scope's ack tracking on leave.
-              return message;
+              if (typeof id !== 'string') return null;
+              const confirmation = state.confirmLeave(id);
+              if (!confirmation) return null;
+              // Receipt primitives preserve their scope only when this same ack
+              // also launched a queued rejoin.
+              return confirmation.rejoinPending ? markRejoinConfirmation(message) : message;
             }
             case '__memberSync__':
             case '__memberJoin__':

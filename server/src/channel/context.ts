@@ -16,6 +16,14 @@ type ChannelHandleDeps = Pick<
   | 'subscribeConnectionAsServer'
 >;
 
+interface ChannelHandleScope {
+  channelName: string;
+  channelFamily: string | null;
+  params?: Record<string, string>;
+  /** Subscribe gate contexts do not expose channel-only capability surfaces. */
+  isSubscribeGate?: boolean;
+}
+
 /**
  * Build a `ChannelHandle` bound to the given resolved channel. Used both by
  * `ctx.channel` (in-channel handlers) and `ctx.channels.get(...)` (anywhere).
@@ -24,10 +32,12 @@ type ChannelHandleDeps = Pick<
  */
 export function buildChannelHandle(
   connection: EngineRuntimeTypes.RuntimeConnection,
-  scope: { channelName: string; channelFamily: string | null; params?: Record<string, string> },
+  scope: ChannelHandleScope,
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
-  const handle: PublicApi.ChannelHandle = {
+  type RuntimeChannelHandle = Omit<PublicApi.ChannelHandle, 'inbox' | 'readReceipts'> &
+    Partial<Pick<PublicApi.ChannelHandle, 'inbox' | 'readReceipts'>>;
+  const handle: RuntimeChannelHandle = {
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
@@ -74,18 +84,21 @@ export function buildChannelHandle(
         revoke: opts.revoke,
         channelFamily: scope.channelFamily,
       }),
-    inbox: () => null,
-    readReceipts: () => null,
   };
 
-  for (const augment of deps.channelHandleAugmenters ?? []) {
-    augment(handle as unknown as Record<PropertyKey, unknown>, {
-      channelName: scope.channelName,
-      channelFamily: scope.channelFamily,
-    });
+  if (!scope.isSubscribeGate) {
+    handle.inbox = () => null;
+    handle.readReceipts = () => null;
+
+    for (const augment of deps.channelHandleAugmenters ?? []) {
+      augment(handle as unknown as Record<PropertyKey, unknown>, {
+        channelName: scope.channelName,
+        channelFamily: scope.channelFamily,
+      });
+    }
   }
 
-  return handle;
+  return handle as unknown as PublicApi.ChannelHandle;
 }
 
 type ChannelsApiDeps = ChannelHandleDeps &
@@ -113,12 +126,13 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 export function buildChannelsApi(
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: ChannelsApiDeps,
+  options?: { isSubscribeGate?: boolean },
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {
       const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
-      return buildChannelHandle(connection, resolved, deps);
+      return buildChannelHandle(connection, { ...resolved, ...options }, deps);
     },
   };
 }
@@ -130,6 +144,7 @@ export function buildChannelFamilyExtra(
         channel?: EngineCompileTypes.CompiledChannel;
         channelName?: string;
         channelFamily?: string | null;
+        isSubscribeGate?: boolean;
       }
     | undefined,
   deps: ChannelHandleDeps,
@@ -140,5 +155,11 @@ export function buildChannelFamilyExtra(
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
   const channelFamily = scope.channelFamily ?? null;
   const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
-  return { channel: buildChannelHandle(connection, { channelName, channelFamily, params }, deps) };
+  return {
+    channel: buildChannelHandle(
+      connection,
+      { channelName, channelFamily, params, isSubscribeGate: scope.isSubscribeGate },
+      deps,
+    ),
+  };
 }

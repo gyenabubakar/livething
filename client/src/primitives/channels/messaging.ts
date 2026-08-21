@@ -134,11 +134,7 @@ export function buildChannelMessaging(
       // old payload promise rejecting after a newer subscribe) clobbering the new one.
       function failSubscribe(error: unknown): void {
         if (state.pending !== thisPending) return;
-        thisPending?.reject(error);
-        state.pending = null;
-        state.pendingPromise = null;
-        state.pendingSubscribeFrame = null;
-        state.releaseLazy();
+        state.failPendingSubscribe(error);
       }
 
       function sendSubscribe(resolved: unknown): void {

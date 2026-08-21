@@ -243,7 +243,10 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       configurable: true,
       enumerable: true,
       get(this: Record<PropertyKey, unknown>) {
-        return (this[CHANNELS_API] ??= channelContext.buildChannelsApi(connectionOf(this), deps));
+        const scope = this[ENGINE_CHANNEL_META] as EngineContextTypes.EngineChannelMeta | undefined;
+        return (this[CHANNELS_API] ??= channelContext.buildChannelsApi(connectionOf(this), deps, {
+          isSubscribeGate: scope?.isSubscribeGate,
+        }));
       },
     });
   }

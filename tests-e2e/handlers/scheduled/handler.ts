@@ -98,15 +98,12 @@ const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
 
 const handleSendToConnTask = base.scheduled('send-to-conn-task', {
   run(ctx, data) {
-    const ref = {
-      __wskit: 'connection-ref' as const,
-      id: data.connectionId,
-      instance: undefined,
-      userId: data.connectionId,
-    };
-    const delivered = ctx.connections.get(ref).send('schedule-send-to-conn-delivery', {
-      text: data.text,
-    });
+    const target = ctx.connections.all().find((info) => info.id === data.connectionId);
+    const delivered = target
+      ? ctx.connections.get(target.ref()).send('schedule-send-to-conn-delivery', {
+          text: data.text,
+        })
+      : false;
     ctx.broadcast('schedule-send-to-conn-status', {
       connectionId: data.connectionId,
       delivered,

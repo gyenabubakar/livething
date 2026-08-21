@@ -7,6 +7,7 @@ export {
   ValidationFailed,
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
   NudgeOverflow,
@@ -31,6 +32,7 @@ export {
   isWSKitConfigError,
   rethrowIfConfigError,
   assertSyncResult,
+  assertSynchronousResult,
 } from './sync-guard.ts';
 export {
   isValidWSKitIdentifier,

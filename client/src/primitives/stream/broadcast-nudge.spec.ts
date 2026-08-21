@@ -260,6 +260,11 @@ describe('broadcast scope and seq deduplication', () => {
 
     expect(onChunk).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs3');
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 'bs3', eventName: 'ask-ai' },
+    });
   });
 
   it('fires onTimeout when no broadcast chunk arrives within the per-chunk timeout', () => {
@@ -302,6 +307,11 @@ describe('late onStream subscriber receives subsequent chunks', () => {
     expect(firstChunks).toHaveBeenCalledTimes(2);
     expect(lateChunks).toHaveBeenCalledTimes(1);
     expect(lateChunks).toHaveBeenCalledWith({ text: 'chunk2' }, 'bsf1');
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 'bsf1', eventName: 'ask-ai' },
+    });
   });
 });
 

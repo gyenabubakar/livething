@@ -41,10 +41,7 @@ const handleRemoveMember = base.on('remove-member', {
   async run(ctx, input) {
     await ctx.channels
       .get('archive-room')
-      .kick(
-        { __wskit: 'user-ref', id: input.identity, instance: undefined },
-        { reason: 'removed', revoke: true },
-      );
+      .kick(ctx.users.get(input.identity).ref(), { reason: 'removed', revoke: true });
   },
 });
 

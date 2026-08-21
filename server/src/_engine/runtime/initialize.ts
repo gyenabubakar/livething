@@ -124,12 +124,43 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }
+
+  // Boot, init, and any capability setup may have created durable work after
+  // their own hooks ran. Recompute the one adapter alarm from every source.
+  accessDeps.rescheduleAlarm();
 }
 
 /** Adapter scheduled-callback entry. Runs `initialize` first, then walks scheduled hooks. */
 export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
   await initialize(core, accessDeps);
-  for (const hook of core.hooks.alarm) {
-    await hook();
+  const failures: unknown[] = [];
+  try {
+    for (const hook of core.hooks.alarm) {
+      try {
+        await hook();
+      } catch (error) {
+        // One capability's durable cleanup must not starve another capability
+        // that shares the adapter's single alarm. Keep running every hook so
+        // successful sources can make progress; the failure is rethrown below
+        // so the adapter can apply its normal alarm retry policy.
+        failures.push(error);
+      }
+    }
+  } finally {
+    // A source may have removed its due work, while another source may still
+    // have a future deadline. Always rebuild the shared alarm, even when one
+    // hook fails and the adapter retries the alarm invocation.
+    try {
+      accessDeps.rescheduleAlarm();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, '[wskit] one or more durable alarm hooks failed');
   }
 }

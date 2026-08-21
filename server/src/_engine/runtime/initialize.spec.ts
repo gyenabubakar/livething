@@ -359,6 +359,26 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
   });
 });
 
+describe('engine.handleAlarm — shared source failure does not starve later hooks', () => {
+  it('runs every alarm hook, then rethrows the failure for adapter retry', async () => {
+    const engine = buildEngine(tinyHandler);
+    await engine.initialize();
+
+    const events: string[] = [];
+    const failure = new Error('retention storage temporarily unavailable');
+    engine.core.hooks.alarm.push(async () => {
+      events.push('inbox');
+      throw failure;
+    });
+    engine.core.hooks.alarm.push(async () => {
+      events.push('scheduled');
+    });
+
+    await expect(engine.handleAlarm()).rejects.toBe(failure);
+    expect(events).toEqual(['inbox', 'scheduled']);
+  });
+});
+
 describe('engine declaredErrorCodes', () => {
   it('includes the internal-error fallback code', () => {
     const engine = buildEngine(tinyHandler);

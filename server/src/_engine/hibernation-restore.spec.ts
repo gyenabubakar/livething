@@ -45,7 +45,11 @@ function hibernatedSocket(id: string) {
   };
 }
 
-function buildEngine(storage: { sql: SQLProvider; kv: KVProvider }): Engine {
+function buildEngine(
+  storage: { sql: SQLProvider; kv: KVProvider },
+  restore: (wsKey: unknown) => unknown = (wsKey) =>
+    (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
+): Engine {
   const base = define({
     env: t<Record<string, never>>(),
     hibernation: { enabled: true },
@@ -67,7 +71,7 @@ function buildEngine(storage: { sql: SQLProvider; kv: KVProvider }): Engine {
     id: 'test',
     hibernation: {
       persist: () => {},
-      restore: (wsKey) => (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
+      restore,
     },
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
@@ -111,7 +115,7 @@ describe('hibernation restore — live delivery to a passive member', () => {
       });
     }
 
-    engine.restoreHibernatedConnections([kofi.ws, ama.ws, yaw.ws]);
+    await engine.restoreHibernatedConnections([kofi.ws, ama.ws, yaw.ws]);
 
     // Kofi and Ama never send a message; without eager restore their membership
     // would be missing and the broadcast would skip them.
@@ -129,5 +133,34 @@ describe('hibernation restore — live delivery to a passive member', () => {
 
     expect(received(kofi)?.payload).toEqual({ text: 'akwaaba' });
     expect(received(ama)?.payload).toEqual({ text: 'akwaaba' });
+  });
+
+  it('rejects boot restore failures instead of leaving an unobserved wake promise', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const failure = new Error('attachment restore failed');
+    const engine = buildEngine(storage, () => {
+      throw failure;
+    });
+    await engine.initialize();
+
+    const socket = hibernatedSocket('broken');
+
+    await expect(engine.restoreHibernatedConnections([socket.ws])).rejects.toBe(failure);
+    expect(engine.core.preloadedConnectionRows).toBeUndefined();
+    expect(engine.core.connections.size).toBe(0);
+  });
+
+  it('rejects an async adapter restore instead of treating its Promise as an empty snapshot', async () => {
+    const storage = { sql: createTestSql(), kv: createTestKV() };
+    const engine = buildEngine(storage, () => Promise.reject(new Error('async restore failed')));
+    await engine.initialize();
+
+    const socket = hibernatedSocket('async');
+
+    await expect(engine.restoreHibernatedConnections([socket.ws])).rejects.toThrow(
+      /async callbacks are not supported/,
+    );
+    expect(engine.core.preloadedConnectionRows).toBeUndefined();
+    expect(engine.core.connections.size).toBe(0);
   });
 });

@@ -85,6 +85,9 @@ export interface UpgradeDecision {
  * per-socket state across hibernation cycles. The engine writes a snapshot to
  * `persist(wsKey, snapshot)` whenever connection state changes; on wake,
  * `restore(wsKey)` returns the most recent snapshot the platform held onto.
+ * Both callbacks must finish synchronously. The engine rejects a Promise or
+ * thenable from either callback because a hibernation wake cannot safely defer
+ * its attachment or index updates.
  *
  * Adapters that support hibernation declare this object on their
  * `adapter` config; adapters that don't omit it. The presence of
@@ -146,7 +149,9 @@ export interface EngineOptions {
 /**
  * The runtime engine created by the adapter from a compiled server definition.
  * Handles connections, message routing, and lifecycle. `TApi` carries the
- * handler's `api` type through to {@link EngineClass.admin}.
+ * handler's `api` type through to {@link EngineClass.admin}. An adapter with
+ * multiple addressable instances should call `setInstanceId(...)` before
+ * accepting connections so refs cannot be confused across instances.
  */
 export type Engine<TApi = unknown> = EngineClass<TApi>;
 

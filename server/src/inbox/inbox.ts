@@ -1,5 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { hasChannelMembership } from '~/channel/runtime.ts';
 import { registerInboxHandleAugmenter } from '~/inbox/augment.ts';
 import { broadcastReceipt } from '~/inbox/receipts-broadcast.ts';
@@ -11,7 +12,9 @@ import {
 import {
   applyInboxAck,
   DEFAULT_MAX_RECEIPT_AUDIENCE,
+  nextInboxRetentionDeadline,
   scopeMatchesChannel,
+  sweepInboxRetention,
 } from '~/inbox/runtime.ts';
 import { registerInboxRuntime } from '~/inbox/service.ts';
 import { ensureInboxSchema } from '~/inbox/storage.ts';
@@ -38,6 +41,10 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
     throw new Error(
       "[wskit] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
     );
+  }
+  if (config.retention) {
+    assertOptionalPositiveInteger(config.retention.maxAgeMs, 'retention.maxAgeMs', 'inbox()');
+    assertOptionalPositiveInteger(config.retention.maxMessages, 'retention.maxMessages', 'inbox()');
   }
   const broadcastReceipts = config.broadcastReceipts ?? false;
   const maxReceiptAudience = config.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE;
@@ -92,6 +99,34 @@ export function inbox(config: InboxOptions): InboxPrimitive {
       registerInboxRuntime(engine);
       registerInboxHandleAugmenter(engine);
       engine.registerInboxChannel(channelKey, options);
+
+      const maxAgeMs = options.retention?.maxAgeMs;
+      if (maxAgeMs !== undefined) {
+        const retentionAlarmKey = Symbol(`inbox-retention:${channelKey}`);
+        engine.registerAlarmSource(retentionAlarmKey, () =>
+          nextInboxRetentionDeadline(engine.storage.sql, { channelKey, maxAgeMs }),
+        );
+        engine.onAlarm(() => {
+          sweepInboxRetention(engine.storage.sql, {
+            channelKey,
+            retention: options.retention!,
+            now: Date.now(),
+          });
+        });
+      }
+      if (options.retention) {
+        // Run every configured retention bound at boot. This matters when a
+        // deployment changes maxMessages while the object is quiet: count-only
+        // retention has no alarm source, so its only reconciliation point is
+        // the next boot.
+        engine.onBoot(() => {
+          sweepInboxRetention(engine.storage.sql, {
+            channelKey,
+            retention: options.retention!,
+            now: Date.now(),
+          });
+        });
+      }
 
       engine.onBootSchema(() => {
         ensureInboxSchema(engine.storage.sql);
@@ -162,6 +197,7 @@ function buildReceivedHandler(deps: {
         receivedThrough: frame.payload.receivedThrough,
         onDelivered: options.onDelivered,
       });
+      engine.invalidateInboxMemberCount?.(channelName, channelFamily, userId);
 
       const cursors = advanceReceivedThrough(
         engine.storage.sql,

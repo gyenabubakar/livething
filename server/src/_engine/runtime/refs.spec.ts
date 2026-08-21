@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
+import { CrossInstanceRef } from '~/errors/errors.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -60,5 +61,30 @@ describe('ctx.connections.get(ref).close', () => {
 
     expect(self.descriptor.close).not.toHaveBeenCalled();
     expect(deps.logger.error).toHaveBeenCalled();
+  });
+});
+
+describe('assertLocalRef', () => {
+  it('throws a public CrossInstanceRef error for a foreign instance', () => {
+    const connection = createConnection('peer');
+    const deps = baseDeps([connection], { instanceId: 'local' });
+    const handle = buildConnectionHandle(deps).connection({
+      ...localRef('peer'),
+      instance: 'other',
+    });
+
+    expect(() => handle.send('event', {})).toThrow(/cross-instance-ref/);
+
+    try {
+      handle.send('event', {});
+    } catch (error) {
+      expect(CrossInstanceRef.matches(error)).toBe(true);
+      expect((error as ReturnType<typeof CrossInstanceRef>).detail).toEqual({
+        operation: 'ctx.connections.get(ref).send',
+        targetInstance: 'other',
+        engineInstance: 'local',
+      });
+    }
+    expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
   });
 });

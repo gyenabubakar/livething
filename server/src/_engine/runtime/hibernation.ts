@@ -1,3 +1,4 @@
+import { assertSynchronousResult } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -45,10 +46,11 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
   ConnectionStore.writeConnectionRow(core.storage.sql, row);
-  connection.lastPersistedFingerprint = fingerprint;
   // Cheap adapter call that updates the in-memory hibernation tag. Runs once
   // per SQL write — when the SQL write is skipped, this is skipped too.
-  core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  const persistResult = core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  assertSynchronousResult(persistResult, 'adapter hibernation.persist');
+  connection.lastPersistedFingerprint = fingerprint;
 }
 
 /**

@@ -32,6 +32,11 @@ describe('inbox capability — option resolution and validation', () => {
     });
   });
 
+  it('rejects non-positive or non-integer retention bounds', () => {
+    expect(() => inbox({ retention: { maxAgeMs: 0 } })).toThrow(/retention\.maxAgeMs/);
+    expect(() => inbox({ retention: { maxMessages: 1.5 } })).toThrow(/retention\.maxMessages/);
+  });
+
   it('turns receipt broadcasting on when asked', () => {
     expect(inbox({ broadcastReceipts: true }).options.broadcastReceipts).toBe(true);
   });

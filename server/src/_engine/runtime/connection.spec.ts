@@ -8,6 +8,7 @@ import {
   runConnectionLifecycle,
   wakeHibernatedConnection,
 } from '~/_engine/runtime/connection.ts';
+import { addConnectionTag } from '~/_engine/runtime/tag-index.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -303,6 +304,72 @@ describe('connection runtime', () => {
     vi.useRealTimers();
   });
 
+  it('rolls back indexes when the initial hibernation persist fails', () => {
+    const connections = new Map();
+    const usersByKey = new Map();
+    const wsToConnectionId = new Map();
+    const channelMembers = new Map();
+    const tagMembers = new Map();
+    const deleted: string[] = [];
+    const failure = new Error('persist failed');
+    const wsKey = Symbol('ws');
+
+    expect(() =>
+      acceptConnection(
+        {
+          compiled: {
+            outgoing: new Map(),
+            incoming: new Map(),
+            requests: new Map(),
+            streams: new Map(),
+            resumableStreams: new Map(),
+            recordedStreams: new Map(),
+            intercepts: [],
+            channels: new Map(),
+            channelFamilies: new Map(),
+            scheduled: new Map(),
+            requires: {},
+            replayClaimedChannelKeys: new Set(),
+          },
+          connections,
+          usersByKey,
+          wsToConnectionId,
+          channelMembers,
+          tagMembers,
+          generateId: () => 'conn_1',
+          persistAttachment() {
+            throw failure;
+          },
+          deleteConnectionState(id) {
+            deleted.push(id);
+          },
+          buildConnectionContext(connection) {
+            return { id: connection.id };
+          },
+          async runConnectionLifecycle() {},
+          async processTextMessage() {},
+          async handleConnectionClose() {},
+          async handleRuntimeError() {},
+        },
+        wsKey,
+        {
+          send() {},
+          close() {},
+          bufferedAmount() {
+            return 0;
+          },
+          userId: 'persist-test',
+        },
+      ),
+    ).toThrow(failure);
+
+    expect(connections.size).toBe(0);
+    expect(usersByKey.size).toBe(0);
+    expect(wsToConnectionId.size).toBe(0);
+    expect(tagMembers.size).toBe(0);
+    expect(deleted).toEqual(['conn_1']);
+  });
+
   it('wakeHibernatedConnection sends __error__ for each orphaned stream ID in the attachment', () => {
     const sent: string[] = [];
     const wsKey = {
@@ -488,6 +555,78 @@ describe('connection runtime', () => {
 
     expect(reloaded).toEqual(['user-1']);
     expect(tagMembers.get('persistent:role/admin')?.size).toBe(1);
+  });
+
+  it('rolls back every in-memory index when wake fails after restoring state', () => {
+    const wsKey = {
+      send() {},
+      close() {},
+    };
+    const connections = new Map();
+    const usersByKey = new Map();
+    const wsToConnectionId = new Map();
+    const channelMembers = new Map();
+    const tagMembers = new Map();
+    const failure = new Error('persistent tag storage failed');
+
+    expect(() =>
+      wakeHibernatedConnection(
+        {
+          compiled: {
+            outgoing: new Map(),
+            incoming: new Map(),
+            requests: new Map(),
+            streams: new Map(),
+            resumableStreams: new Map(),
+            recordedStreams: new Map(),
+            intercepts: [],
+            channels: new Map(),
+            channelFamilies: new Map(),
+            scheduled: new Map(),
+            requires: {},
+            replayClaimedChannelKeys: new Set(),
+          },
+          connections,
+          usersByKey,
+          wsToConnectionId,
+          channelMembers,
+          tagMembers,
+          generateId: () => 'conn_1',
+          persistAttachment() {},
+          restoreAttachment: () => ({ id: 'conn_1' }),
+          readConnectionState: () => ({
+            connection_id: 'conn_1',
+            user_id: 'user-1',
+            meta: {},
+            ephemeral_tags: [{ group: 'role', key: 'admin' }],
+            ephemeral_memberships: [{ channelName: 'room', channelFamily: null }],
+            active_stream_ids: [],
+          }),
+          reloadPersistentTags(connection) {
+            addConnectionTag(tagMembers, connection, {
+              kind: 'persistent',
+              group: 'tier',
+              key: 'pro',
+            });
+            throw failure;
+          },
+          buildConnectionContext(connection) {
+            return { id: connection.id };
+          },
+          async runConnectionLifecycle() {},
+          async processTextMessage() {},
+          async handleConnectionClose() {},
+          async handleRuntimeError() {},
+        },
+        wsKey,
+      ),
+    ).toThrow(failure);
+
+    expect(connections.size).toBe(0);
+    expect(usersByKey.size).toBe(0);
+    expect(wsToConnectionId.size).toBe(0);
+    expect(channelMembers.size).toBe(0);
+    expect(tagMembers.size).toBe(0);
   });
 
   it.each([

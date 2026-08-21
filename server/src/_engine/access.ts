@@ -277,6 +277,14 @@ export interface EngineAccess {
   onAlarm(handler: () => void | Promise<void>): void;
 
   /**
+   * Contribute one framework-owned deadline to the adapter's single durable
+   * alarm. Sources are combined and the earliest deadline wins.
+   *
+   * @internal
+   */
+  registerAlarmSource(key: symbol, source: () => number | null): void;
+
+  /**
    * Register the async check phase for a channel subscribe guard.
    *
    * The handler runs before membership is committed and may be async. The
@@ -929,11 +937,19 @@ export interface EngineAccess {
   getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
 
   /**
+   * List the active static and dynamic inbox scopes. Used by boot cleanup to
+   * discard rows left behind when a deployed contract removes an inbox scope.
+   * Optional so older/test access doubles remain valid.
+   *
+   * @internal
+   */
+  getInboxChannelScopes?(): { staticNames: readonly string[]; familyKeys: readonly string[] };
+
+  /**
    * Drop a member's cached inbox row count so the next write re-reads it from
-   * storage. A path that inserts rows without going through the live fan-out —
-   * `inbox.backfill(...)` — leaves the cached count too low, which would let the
-   * following fan-out skip a retention check it owes. Optional: an engine access
-   * without it (a test double) keeps no cache to invalidate.
+   * storage. Backfill can make the cache too low; an ack, read-settlement, or
+   * channel leave can make it too high after rows are removed. Optional: an
+   * engine access without it (a test double) keeps no cache to invalidate.
    *
    * @internal
    */

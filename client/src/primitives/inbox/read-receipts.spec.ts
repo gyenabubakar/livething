@@ -285,6 +285,82 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
       __wskit: { channel: 'room' },
     });
   });
+
+  it('ignores an earlier leave ack while a newer leave is pending', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    const leave1 = room.unsubscribe();
+    const leave1Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const rejoin1 = room.subscribe();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+    });
+    await leave1;
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
+    });
+    await rejoin1;
+
+    const leave2 = room.unsubscribe();
+    const leave2Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    let leave2Settled = false;
+    void leave2.then(() => {
+      leave2Settled = true;
+    });
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+    });
+    await Promise.resolve();
+    expect(leave2Settled).toBe(false);
+    expect(room.readers.get()).toEqual(new Map([['bob', 5]]));
+
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave2Id },
+    });
+    await leave2;
+    expect(room.readers.get()).toEqual(new Map());
+  });
+
+  it('clears preserved state when a queued rejoin payload fails', async () => {
+    const { socket, ws } = build();
+    const room = await subscribed(socket, ws);
+    ws.emit({
+      event: '__read__',
+      payload: { userId: 'bob', readThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const error = new Error('rejoin payload failed');
+    const rejoin = room.subscribe(() => {
+      throw error;
+    });
+
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+
+    await expect(leave).resolves.toBeUndefined();
+    await expect(rejoin).rejects.toBe(error);
+    expect(room.readers.get()).toEqual(new Map());
+  });
 });
 
 describe('read-receipts — readersOf query over __readQuery__', () => {

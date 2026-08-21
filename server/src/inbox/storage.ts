@@ -52,10 +52,20 @@ export function ensureInboxSchema(sql: Pick<SQLProvider, 'exec'>): void {
 /** How a channel treats a member's rows once they ack them. */
 export type OnDelivered = 'delete' | 'retain';
 
-/** Retention limits for a member's kept (delivered) inbox rows. */
+/**
+ * Retention limits for a member's inbox rows. `maxAgeMs` is enforced on writes
+ * and by the shared durable alarm, so it also cleans quiet channels.
+ */
 export interface InboxRetention {
   readonly maxAgeMs?: number;
   readonly maxMessages?: number;
+}
+
+/** A concrete stored channel scope whose rows need an inbox retention pass. */
+export interface InboxRetentionTarget {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
 }
 
 /**
@@ -318,11 +328,86 @@ export function countInboxRows(
 }
 
 /**
+ * Return the first timestamp at which a row in a configured channel can be
+ * pruned by its age bound. The `+ 1` matches the strict `created_at < cutoff`
+ * predicate used by pruning and avoids re-arming an alarm for the same exact
+ * millisecond when a row is exactly at its age limit.
+ */
+export function nextInboxRetentionAt(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { channelKey: string; maxAgeMs: number },
+): number | null {
+  const row = sql
+    .exec<{ next_at: number | null }>(
+      `
+        SELECT MIN(created_at + ? + 1) AS next_at
+        FROM __wskit_inbox
+        WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
+      `,
+      params.maxAgeMs,
+      params.channelKey,
+      params.channelKey,
+    )
+    .one();
+  return row?.next_at == null ? null : Number(row.next_at);
+}
+
+/** List concrete member/channel scopes with at least one expired inbox row. */
+export function listExpiredInboxRetentionTargets(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { channelKey: string; maxAgeMs: number; now: number },
+): InboxRetentionTarget[] {
+  const cutoff = params.now - params.maxAgeMs;
+  return sql
+    .exec<{ user_id: string; channel_name: string; channel_family: string }>(
+      `
+        SELECT DISTINCT user_id, channel_name, channel_family
+        FROM __wskit_inbox
+        WHERE ((channel_name = ? AND channel_family = '') OR channel_family = ?)
+          AND created_at < ?
+      `,
+      params.channelKey,
+      params.channelKey,
+      cutoff,
+    )
+    .toArray()
+    .map((row) => ({
+      userId: String(row.user_id),
+      channelName: String(row.channel_name),
+      channelFamily: familyFromDb(String(row.channel_family)),
+    }));
+}
+
+/** List every concrete member/channel scope under one configured channel key. */
+export function listInboxRetentionTargets(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: { channelKey: string },
+): InboxRetentionTarget[] {
+  return sql
+    .exec<{ user_id: string; channel_name: string; channel_family: string }>(
+      `
+        SELECT DISTINCT user_id, channel_name, channel_family
+        FROM __wskit_inbox
+        WHERE (channel_name = ? AND channel_family = '') OR channel_family = ?
+      `,
+      params.channelKey,
+      params.channelKey,
+    )
+    .toArray()
+    .map((row) => ({
+      userId: String(row.user_id),
+      channelName: String(row.channel_name),
+      channelFamily: familyFromDb(String(row.channel_family)),
+    }));
+}
+
+/**
  * Enforce a member's retention limits for one channel by dropping the oldest
  * rows past the age or count cap — including undelivered rows, since a member
  * that falls too far behind is exactly the overflow case. Returns the highest
- * seq that was evicted, or `null` when nothing was dropped, so the caller can
- * raise the member's overflow watermark (which a later drain turns into a gap).
+ * seq that was evicted, or `null` when nothing was dropped. The transactional
+ * wrapper separately tracks whether an undelivered row was removed before
+ * raising the member's overflow watermark.
  */
 export function pruneInboxRetention(
   sql: Pick<SQLProvider, 'exec'>,
@@ -334,20 +419,43 @@ export function pruneInboxRetention(
     now: number;
   },
 ): number | null {
+  return pruneInboxRetentionDetailed(sql, params).evictedThrough;
+}
+
+interface InboxRetentionEviction {
+  evictedThrough: number | null;
+  undeliveredEvictedThrough: number | null;
+}
+
+function pruneInboxRetentionDetailed(
+  sql: Pick<SQLProvider, 'exec'>,
+  params: {
+    userId: string;
+    channelName: string;
+    channelFamily: string | null;
+    retention: InboxRetention;
+    now: number;
+  },
+): InboxRetentionEviction {
   const { userId, channelName, channelFamily, retention, now } = params;
   const family = familyToDb(channelFamily);
-  let evictedThrough: number | null = null;
+  let eviction: InboxRetentionEviction = {
+    evictedThrough: null,
+    undeliveredEvictedThrough: null,
+  };
 
   if (retention.maxAgeMs !== undefined) {
     const cutoff = now - retention.maxAgeMs;
-    evictedThrough = evictOldest(sql, {
-      userId,
-      channelName,
-      family,
-      where: 'created_at < ?',
-      bind: [cutoff],
-      previous: evictedThrough,
-    });
+    eviction = mergeRetentionEvictions(
+      eviction,
+      evictOldest(sql, {
+        userId,
+        channelName,
+        family,
+        where: 'created_at < ?',
+        bind: [cutoff],
+      }),
+    );
   }
 
   if (retention.maxMessages !== undefined) {
@@ -368,21 +476,56 @@ export function pruneInboxRetention(
       )
       .one();
     if (seqCap?.seq != null) {
-      evictedThrough = evictOldest(sql, {
-        userId,
-        channelName,
-        family,
-        where: 'seq <= ?',
-        bind: [Number(seqCap.seq)],
-        previous: evictedThrough,
-      });
+      eviction = mergeRetentionEvictions(
+        eviction,
+        evictOldest(sql, {
+          userId,
+          channelName,
+          family,
+          where: 'seq <= ?',
+          bind: [Number(seqCap.seq)],
+        }),
+      );
     }
   }
 
-  return evictedThrough;
+  return eviction;
 }
 
-/** Delete the member's rows matching `where` and return the highest seq removed. */
+/**
+ * Prune a member's channel rows and persist the resulting overflow watermark
+ * as one atomic operation. If either the deletes or the watermark write fails,
+ * SQLite rolls the whole retention pass back so an undelivered row can never be
+ * lost without the gap that describes it. Delivered rows are already
+ * acknowledged and therefore do not create a new gap.
+ */
+export function pruneInboxRetentionAndBumpWatermark(
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
+  params: {
+    userId: string;
+    channelName: string;
+    channelFamily: string | null;
+    retention: InboxRetention;
+    now: number;
+  },
+): number | null {
+  return sql.transaction((tx) => {
+    const eviction = pruneInboxRetentionDetailed(tx, params);
+    if (eviction.evictedThrough === null) return null;
+
+    if (eviction.undeliveredEvictedThrough !== null) {
+      bumpInboxWatermark(tx, {
+        userId: params.userId,
+        channelName: params.channelName,
+        channelFamily: params.channelFamily,
+        evictedThroughSeq: eviction.undeliveredEvictedThrough,
+      });
+    }
+    return eviction.evictedThrough;
+  });
+}
+
+/** Delete the member's rows matching `where` and report delivered state. */
 function evictOldest(
   sql: Pick<SQLProvider, 'exec'>,
   params: {
@@ -391,22 +534,26 @@ function evictOldest(
     family: string;
     where: string;
     bind: unknown[];
-    previous: number | null;
   },
-): number | null {
-  const { userId, channelName, family, where, bind, previous } = params;
+): InboxRetentionEviction {
+  const { userId, channelName, family, where, bind } = params;
   const scope = [userId, channelName, family];
   const highest = sql
-    .exec<{ seq: number | null }>(
+    .exec<{ seq: number | null; undelivered_seq: number | null }>(
       `
-        SELECT MAX(seq) AS seq FROM __wskit_inbox
+        SELECT
+          MAX(seq) AS seq,
+          MAX(CASE WHEN delivered_at IS NULL THEN seq END) AS undelivered_seq
+        FROM __wskit_inbox
         WHERE user_id = ? AND channel_name = ? AND channel_family = ? AND ${where}
       `,
       ...scope,
       ...bind,
     )
     .one();
-  if (highest?.seq == null) return previous;
+  if (highest?.seq == null) {
+    return { evictedThrough: null, undeliveredEvictedThrough: null };
+  }
 
   sql.exec(
     `
@@ -416,13 +563,36 @@ function evictOldest(
     ...scope,
     ...bind,
   );
-  return Math.max(previous ?? 0, Number(highest.seq));
+  return {
+    evictedThrough: Number(highest.seq),
+    undeliveredEvictedThrough:
+      highest.undelivered_seq == null ? null : Number(highest.undelivered_seq),
+  };
+}
+
+function mergeRetentionEvictions(
+  first: InboxRetentionEviction,
+  second: InboxRetentionEviction,
+): InboxRetentionEviction {
+  return {
+    evictedThrough: maxNullable(first.evictedThrough, second.evictedThrough),
+    undeliveredEvictedThrough: maxNullable(
+      first.undeliveredEvictedThrough,
+      second.undeliveredEvictedThrough,
+    ),
+  };
+}
+
+function maxNullable(first: number | null, second: number | null): number | null {
+  if (first === null) return second;
+  if (second === null) return first;
+  return Math.max(first, second);
 }
 
 /**
- * Raise a member's overflow watermark to the highest seq retention evicted, so a
- * later drain knows the member missed everything up to that point. Never lowers
- * an existing watermark.
+ * Raise a member's overflow watermark to the highest undelivered seq retention
+ * evicted, so a later drain knows the member missed everything up to that point.
+ * Never lowers an existing watermark.
  */
 export function bumpInboxWatermark(
   sql: Pick<SQLProvider, 'exec'>,
@@ -519,6 +689,55 @@ export function clearInboxWatermarkThrough(
 export function purgeInboxByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
   sql.exec('DELETE FROM __wskit_inbox WHERE user_id = ?', userId);
   clearInboxWatermarks(sql, userId);
+}
+
+/**
+ * Remove inbox data for channel scopes no longer present in the deployed
+ * contract. Inbox rows are intentionally scoped by both the concrete channel
+ * name and family key, so a removed static channel cannot retain data merely
+ * because a dynamic family happens to use the same string in a later deploy.
+ */
+export function deleteInboxRowsOutsideScopes(
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
+  scopes: { staticNames: readonly string[]; familyKeys: readonly string[] },
+): void {
+  const staticNames = new Set(scopes.staticNames);
+  const familyKeys = new Set(scopes.familyKeys);
+
+  sql.transaction((tx) => {
+    // Do not put every active scope into one IN (...) list: a large contract
+    // can exceed the adapter's bound-parameter limit. Stored scope pairs are
+    // already the smallest set we need to inspect, and stale pairs are
+    // removed one at a time inside the same transaction.
+    const storedScopes = tx
+      .exec<{ channel_name: string; channel_family: string }>(
+        `
+        SELECT channel_name, channel_family FROM __wskit_inbox
+        UNION
+        SELECT channel_name, channel_family FROM __wskit_inbox_watermark
+      `,
+      )
+      .toArray();
+
+    for (const scope of storedScopes) {
+      const active =
+        scope.channel_family === ''
+          ? staticNames.has(scope.channel_name)
+          : familyKeys.has(scope.channel_family);
+      if (active) continue;
+
+      tx.exec(
+        `DELETE FROM __wskit_inbox WHERE channel_name = ? AND channel_family = ?`,
+        scope.channel_name,
+        scope.channel_family,
+      );
+      tx.exec(
+        `DELETE FROM __wskit_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
+        scope.channel_name,
+        scope.channel_family,
+      );
+    }
+  });
 }
 
 /**

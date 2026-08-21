@@ -26,9 +26,9 @@ export interface EngineChannelMeta {
    * written inside the same `base.channel(...)` config object as
    * `capabilities`, so TypeScript cannot yet resolve what that list adds to
    * `ctx.channel` — it has not finished reading the object it is still
-   * type-checking. Channel-only context extenders (inbox, read receipts)
-   * read this flag to skip attaching their member, matching that gap at
-   * runtime too.
+   * type-checking. Channel-only context extenders, handle augmenters (inbox,
+   * read receipts), and channel request wiring read this flag to skip
+   * attaching their members, matching that gap at runtime too.
    */
   isSubscribeGate?: boolean;
 }

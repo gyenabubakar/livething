@@ -17,8 +17,33 @@ interface C {
   };
 }
 
+interface FamilyC {
+  channels: {
+    rooms: {
+      addressing: 'dynamic';
+      inbox: true;
+      incoming: { msg: { text: string } };
+      outgoing: { chat: { text: string } };
+    };
+  };
+}
+
 function build() {
   const socket = client<C>()(connect('wss://test'), channels(), dedup(), inbox(), reconnection());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildFamilyReceived() {
+  const socket = client<FamilyC>()(
+    connect('wss://test'),
+    channels(),
+    dedup(),
+    inbox(),
+    reconnection(),
+  );
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -110,6 +135,81 @@ describe('inbox — ack gating', () => {
         __wskit: { channel: 'room-1', channelFamily: 'rooms' },
       },
     ]);
+  });
+
+  it('does not let a stale family leave id clear another family member', async () => {
+    const { socket, ws } = buildFamilyReceived();
+    const first = socket.channel('rooms', 'room-1');
+    const second = socket.channel('rooms', 'room-2');
+
+    const firstSubscribe = first.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: {
+        source: 'client',
+        channel: 'room-1',
+        channelFamily: 'rooms',
+        inbox: true,
+      },
+    });
+    await firstSubscribe;
+
+    const secondSubscribe = second.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: {
+        source: 'client',
+        channel: 'room-2',
+        channelFamily: 'rooms',
+        inbox: true,
+      },
+    });
+    await secondSubscribe;
+
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room-1', channelFamily: 'rooms' },
+    });
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 7 },
+      __wskit: { channel: 'room-2', channelFamily: 'rooms' },
+    });
+
+    const leave = first.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const rejoin = first.subscribe();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room-1', channelFamily: 'rooms', unsubscribeId },
+    });
+    await leave;
+
+    // The id belongs to room-1, even though it is still a stale frame for the
+    // active room-2 scope. It must not clear room-2's receipt cursor.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room-2', channelFamily: 'rooms', unsubscribeId },
+    });
+    expect(second.receivers.get()).toEqual(new Map([['bob', 7]]));
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: {
+        source: 'client',
+        channel: 'room-1',
+        channelFamily: 'rooms',
+        inbox: true,
+      },
+    });
+    await rejoin;
+    expect(first.receivers.get()).toEqual(new Map([['bob', 5]]));
   });
 });
 
@@ -554,5 +654,135 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
     await flush();
 
     expect(receivedFrames(ws)).toHaveLength(1);
+  });
+
+  it('ignores an earlier leave ack while a newer leave is pending', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    // Keep the first leave's receipt state through a queued rejoin. This is the
+    // continuity window in which its confirmation is no longer actionable for
+    // receipt cleanup, even though it matches the leave that was sent.
+    const leave1 = room.unsubscribe();
+    const leave1Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const rejoin1 = room.subscribe();
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+    });
+    await leave1;
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'room', inbox: true },
+    });
+    await rejoin1;
+    expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
+
+    // A duplicate from the first leave is stale even while the channel is live.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+    });
+    expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
+
+    const leave2 = room.unsubscribe();
+    const leave2Id = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    let leave2Settled = false;
+    void leave2.then(() => {
+      leave2Settled = true;
+    });
+
+    // The old confirmation must not clear state for the newer leave. A gap
+    // arriving in the same reordered window still gets its inbox ack.
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave1Id },
+    });
+    await Promise.resolve();
+    expect(leave2Settled).toBe(false);
+    expect(room.receivers.get()).toEqual(new Map([['bob', 5]]));
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 20 },
+      __wskit: { channel: 'room' },
+    });
+    await flush();
+    expect(receivedFrames(ws).at(-1)).toEqual({
+      event: '__received__',
+      payload: { receivedThrough: 20 },
+      __wskit: { channel: 'room' },
+    });
+
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId: leave2Id },
+    });
+    await leave2;
+    expect(room.receivers.get()).toEqual(new Map());
+
+    // Once the active leave is confirmed, a later gap is no longer in an
+    // inbox scope and must not create a new acknowledgement.
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 30 },
+      __wskit: { channel: 'room' },
+    });
+    await flush();
+    expect(receivedFrames(ws)).not.toContainEqual({
+      event: '__received__',
+      payload: { receivedThrough: 30 },
+      __wskit: { channel: 'room' },
+    });
+  });
+
+  it('clears preserved state when a queued rejoin payload fails', async () => {
+    const { socket, ws } = buildReceived();
+    const room = await subscribedReceived(socket, ws);
+
+    ws.emit({
+      event: '__received__',
+      payload: { userId: 'bob', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    const error = new Error('rejoin payload failed');
+    const rejoin = room.subscribe(() => {
+      throw error;
+    });
+
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'room', unsubscribeId },
+    });
+
+    await expect(leave).resolves.toBeUndefined();
+    await expect(rejoin).rejects.toBe(error);
+    expect(room.receivers.get()).toEqual(new Map());
+
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 9 },
+      __wskit: { channel: 'room' },
+    });
+    await flush();
+    expect(receivedFrames(ws)).not.toContainEqual({
+      event: '__received__',
+      payload: { receivedThrough: 9 },
+      __wskit: { channel: 'room' },
+    });
   });
 });

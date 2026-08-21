@@ -144,11 +144,12 @@ export const ADMIN_CONTEXT_MEMBERS: ReadonlySet<string> = new Set(ADMIN_CONTEXT_
  *
  * - `then` makes any object a thenable, so `await` on the admin surface calls it
  *   instead of resolving. The await never settles.
- * - Every other name here (`constructor`, `toString`, `valueOf`, `__proto__`,
- *   and the rest of `Object.prototype`) is already inherited by the plain
- *   object the admin surface is built on. A method by one of these names cannot
- *   be placed on the surface — the inherited one is already there — and would
- *   go missing without explanation.
+ * - `constructor`, `toString`, `valueOf`, `__proto__`, and the rest of
+ *   `Object.prototype` are already inherited by the plain object the admin
+ *   surface is built on. An app member by one of these names is rejected — the
+ *   inherited one is already there — and would otherwise go missing without
+ *   explanation. The engine ignores only the automatic constructor marker on a
+ *   traversed class or ordinary function prototype.
  *
  * The engine enforces this when it builds the admin surface, so every adapter
  * inherits the rule rather than restating it. An adapter needs this set only if

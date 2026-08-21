@@ -21,6 +21,14 @@ describe('scopePluginContext — sendReplay (S1)', () => {
     scoped.channel.sendReplay('feed', { n: 1 }, { wire: true });
     expect(channelSendReplay).toHaveBeenCalledWith('__acme:feed::feed', { n: 1 }, { wire: true });
   });
+
+  it('does not invent optional send-like methods', () => {
+    const scoped = scopePluginContext(ID, {});
+
+    expect(scoped.request).toBeUndefined();
+    expect(scoped.broadcastRequest).toBeUndefined();
+    expect(scoped.sendReplay).toBeUndefined();
+  });
 });
 
 describe('scopePluginContext — tag broadcastRequest (S2)', () => {

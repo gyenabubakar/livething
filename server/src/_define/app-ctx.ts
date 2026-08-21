@@ -446,10 +446,20 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
  * cannot see a channel's own request types — those exist only on the active
  * `ctx.channel` handle inside that channel's handler.
  */
-type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = ChannelHandle<
-  Record<string, unknown>,
-  TMeta
-> &
+type ChannelHandleForContext<
+  TOutgoing extends Record<string, unknown>,
+  TMeta,
+  TGate extends boolean,
+> = TGate extends true
+  ? Omit<ChannelHandle<TOutgoing, TMeta>, 'inbox' | 'readReceipts'>
+  : ChannelHandle<TOutgoing, TMeta>;
+
+type ChannelsGetHandle<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean,
+> = ChannelHandleForContext<Record<string, unknown>, TMeta, TGate> &
   ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
 
 /**
@@ -458,16 +468,26 @@ type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = 
  * when `requests()` is listed. The channel handle has no current connection, so
  * only the broadcast verb is added (not the targeted `request`).
  */
-type TypedChannelsGetHandle<R, TMeta, TCaps extends readonly AnyCapability[]> =
+type TypedChannelsGetHandle<
+  R,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean,
+> =
   R extends ChannelRef<infer TOutgoing extends Record<string, unknown>, infer TServerRequests>
-    ? ChannelHandle<TOutgoing, TMeta> &
+    ? ChannelHandleForContext<TOutgoing, TMeta, TGate> &
         ('requests' extends BrandsOf<TCaps>
           ? BroadcastRequestArm<BroadcastServerRequests<{ serverRequests: TServerRequests }>>
           : {})
     : never;
 
 /** The `ctx.channels` surface — owned by the `channels()` capability. */
-export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+export interface ChannelsCtx<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean = false,
+> {
   /**
    * Look up a channel to send into it, read its members, or ask its members a
    * broadcast request — from any handler.
@@ -478,9 +498,9 @@ export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability
    * for the loose escape hatch when the name is only known at runtime.
    */
   readonly channels: {
-    get<R extends ChannelRef>(ref: R): TypedChannelsGetHandle<R, TMeta, TCaps>;
-    get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
-    get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
+    get<R extends ChannelRef>(ref: R): TypedChannelsGetHandle<R, TMeta, TCaps, TGate>;
+    get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps, TGate>;
+    get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps, TGate>;
   };
 }
 
@@ -515,6 +535,7 @@ export type CtxExtensionsOf<
   TSlots,
   TMeta,
   TCaps extends readonly AnyCapability[],
+  TGate extends boolean = false,
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
   ('last-seen' extends FeaturesOf<TCaps> ? LastSeenCtx : {}) &
   ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
@@ -524,7 +545,7 @@ export type CtxExtensionsOf<
       ? SendReplayCtx<TSlots>
       : {}) &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
-  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TSlots, TMeta, TCaps> : {}) &
+  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TSlots, TMeta, TCaps, TGate> : {}) &
   (HasKeys<EphemeralTags<TSlots>> extends true
     ? TagsCtx<TSlots, TMeta, TCaps>
     : HasKeys<PersistentTags<TSlots>> extends true
@@ -550,11 +571,12 @@ export type AppCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
+  TGate extends boolean = false,
 > = CoreCtx<TSlots, TEnv, TMeta> &
   ConnectionsCtx<TSlots, TMeta, TCaps> &
   UsersCtx<TSlots, TMeta, TCaps> &
   FrameMatchCtx<TSlots> &
-  CtxExtensionsOf<TSlots, TMeta, TCaps>;
+  CtxExtensionsOf<TSlots, TMeta, TCaps, TGate>;
 
 /**
  * The `ctx` the `api` factory on `assemble({ handlers, api })` receives — the

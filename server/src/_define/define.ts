@@ -614,9 +614,10 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /**
    * Inject a synthetic replay frame for one of this channel's outgoing events.
    * Used from a channel custom-replay handler; `wire` carries the seq/messageId
-   * the client uses to dedup.
+   * the client uses to dedup. It is absent when replay is not active for this
+   * channel.
    */
-  sendReplay<E extends keyof TOutgoing & string>(
+  sendReplay?<E extends keyof TOutgoing & string>(
     event: E,
     payload: TOutgoing[E],
     wire: ReplayWire,
@@ -642,24 +643,26 @@ type ChannelBroadcastRequests<TServerRequests> = BroadcastServerRequests<{
  */
 type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> =
   'requests' extends BrandsOf<TCaps>
-    ? {
-        /**
-         * Ask a server→client request this channel declared and resolve its
-         * typed answer. Targets the calling connection by default; pass `{ to }`
-         * to ask a specific member instead — a `ConnectionRef`, or a
-         * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
-         * answer from a matching member wins.
-         */
-        request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
-          event: E,
-          payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
-            ? P
-            : never,
-          options?: { timeout?: number; to?: ChannelRecipient },
-        ): Promise<
-          ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
-        >;
-      } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
+    ? [keyof TServerRequests] extends [never]
+      ? {}
+      : {
+          /**
+           * Ask a server→client request this channel declared and resolve its
+           * typed answer. Targets the calling connection by default; pass `{ to }`
+           * to ask a specific member instead — a `ConnectionRef`, or a
+           * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
+           * answer from a matching member wins.
+           */
+          request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
+            event: E,
+            payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
+              ? P
+              : never,
+            options?: { timeout?: number; to?: ChannelRecipient },
+          ): Promise<
+            ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
+          >;
+        } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
     : {};
 
 /**
@@ -685,7 +688,10 @@ type ChannelCapabilityArm<
           ? { readonly readReceipts: ChannelReadReceipts }
           : {});
 
-/** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
+/**
+ * The `ctx` a channel message handler receives — adds the typed `ctx.channel`.
+ * Channel replay, when active, is scoped to that handle rather than the root.
+ */
 export type ChannelCtx<
   TSlots,
   TEnv,
@@ -695,13 +701,17 @@ export type ChannelCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
   TChannelBrand extends string = never,
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'sendReplay'> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
     ChannelRequestArm<TServerRequests, TCaps> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
-/** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
+/**
+ * The looser `ctx` a channel gate/lifecycle hook receives (sends accept any
+ * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
+ * channel contexts do not expose the root `ctx.sendReplay` method.
+ */
 export type ChannelGateCtx<
   TSlots,
   TEnv,
@@ -709,8 +719,12 @@ export type ChannelGateCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
   TChannelBrand extends string = never,
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
+  /** `true` for check/commit/revalidate, whose ctx omits channel-only handles. */
+  TIsSubscribeGate extends boolean = false,
+  TServerRequests = {},
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
+    ChannelRequestArm<TServerRequests, TCaps> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
@@ -767,34 +781,40 @@ export type ChannelConfig<
   /**
    * Async gate before the subscriber is counted. Return a value forwarded to
    * `commit`; throw to reject. Written inside this same config object, before
-   * `capabilities` can be read back, so `ctx.channel.inbox` and
-   * `ctx.channel.readReceipts` are not available here — read them in
-   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
    */
   check?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
     input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
   /**
    * Sync gate after the subscriber is counted (members include the joiner).
    * Throw to reject. Written inside this same config object, before
-   * `capabilities` can be read back, so `ctx.channel.inbox` and
-   * `ctx.channel.readReceipts` are not available here — read them in
-   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
    */
   commit?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
     checkResult: Awaited<TCheckResult>,
   ) => void;
   /**
    * Re-authorize on auto-rejoin after reconnect (persistent memberships).
    * Throw to drop. Written inside this same config object, before
-   * `capabilities` can be read back, so `ctx.channel.inbox` and
-   * `ctx.channel.readReceipts` are not available here — read them in
-   * `subscribe`, `unsubscribe`, or `sessionEnd` instead.
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
    */
   revalidate?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
   ) => void | Promise<void>;
   /** Whether membership survives a reconnect (default `'persistent'`). */
   readonly membership?: 'persistent' | 'ephemeral';
@@ -1318,7 +1338,7 @@ export type ChannelObjectCore<
       >
     : {}) &
   ('intercepts' extends BrandsOf<TCaps>
-    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>
+    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing, TServerRequests>
     : {});
 
 /** The `on` / lifecycle methods every channel object carries. */
@@ -1363,19 +1383,46 @@ export interface ChannelCoreMethods<
   /** Runs after a client subscribes to this channel. */
   subscribe(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
     ) => void | Promise<void>,
   ): void;
   /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
   unsubscribe(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
     ) => void | Promise<void>,
   ): void;
   /** Runs on every session end, including a plain disconnect. */
   sessionEnd(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
     ) => void | Promise<void>,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
@@ -1436,11 +1483,21 @@ export interface ChannelInterceptMethods<
   TCaps extends readonly AnyCapability[],
   TChannelBrand extends string = never,
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+  TServerRequests = {},
 > {
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing>,
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
       frame: InterceptFrame,
     ) => unknown | void,
   ): void;

@@ -98,12 +98,12 @@ for (const socketCount of [200, 1000]) {
   const { engine, sockets } = await seed(socketCount);
 
   describe(`hibernation boot restore · ${socketCount} surviving sockets`, () => {
-    bench('restoreHibernatedConnections', () => {
+    bench('restoreHibernatedConnections', async () => {
       // Back to the woken-but-empty state before each run; the rows stay on disk.
       engine.core.connections.clear();
       engine.core.usersByKey.clear();
       engine.core.wsToConnectionId.clear();
-      engine.restoreHibernatedConnections(sockets);
+      await engine.restoreHibernatedConnections(sockets);
     });
   });
 }

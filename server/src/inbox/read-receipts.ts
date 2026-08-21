@@ -97,7 +97,10 @@ function buildReadHandler(deps: ReadHandlerDeps) {
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
-    const userId = (ctx as { user?: { id?: string } }).user?.id ?? '';
+    const connection = (ctx as { [ENGINE_INTERNAL_CONNECTION]?: RuntimeConnection })[
+      ENGINE_INTERNAL_CONNECTION
+    ];
+    const userId = connection?.userId ?? '';
     if (!userId) return true;
 
     const channelName = frame.__wskit.channel;
@@ -211,6 +214,7 @@ function settleInboxOnRead(
     receivedThrough: opts.cursors.receivedThrough,
     onDelivered: inboxConfig.onDelivered,
   });
+  engine.invalidateInboxMemberCount?.(opts.channelName, opts.channelFamily, opts.userId);
   return inboxConfig;
 }
 

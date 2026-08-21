@@ -1,7 +1,7 @@
 import { ENGINE_CHANNEL_META, ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import { inbox } from './inbox.ts';
@@ -20,6 +20,7 @@ function harness(
   const handlers = new Map<string, Handler>();
   const broadcasts: Array<Record<string, unknown>> = [];
   const sentFrames: Array<{ connectionId: string; frame: unknown }> = [];
+  const invalidateInboxMemberCount = vi.fn();
 
   const bootSchemaHooks: Array<() => void> = [];
   const engine = {
@@ -37,11 +38,12 @@ function harness(
     broadcastToChannel: (b: Record<string, unknown>) => broadcasts.push(b),
     sendProtocolFrame: (connectionId: string, frame: unknown) =>
       sentFrames.push({ connectionId, frame }),
+    invalidateInboxMemberCount,
   } as unknown as EngineAccess;
 
   inbox(config).__setup!(engine as never);
   for (const run of bootSchemaHooks) run();
-  return { sql, handlers, broadcasts, sentFrames };
+  return { sql, handlers, broadcasts, sentFrames, invalidateInboxMemberCount };
 }
 
 function ctxFor(userId: string, connection: unknown) {
@@ -106,13 +108,14 @@ describe('inbox __received__ handler', () => {
   }
 
   it('settles a member ack by deleting rows up to receivedThrough', () => {
-    const { sql, handlers } = harness();
+    const { sql, handlers, invalidateInboxMemberCount } = harness();
     seedRow(sql, 1);
     seedRow(sql, 2);
 
     handlers.get('__received__')!(ctxFor('alice', member()), receivedFrame(1));
 
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([2]);
+    expect(invalidateInboxMemberCount).toHaveBeenCalledWith('room', null, 'alice');
   });
 
   it('drops the ack from a socket that has left the channel', () => {

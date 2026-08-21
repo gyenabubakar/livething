@@ -1,4 +1,4 @@
-import { CloseCodes, StreamAborted } from '@wskit/core';
+import { assertSynchronousResult, CloseCodes, StreamAborted } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
@@ -55,6 +55,28 @@ function removeConnectionFromUserIndex(
   if (!members) return;
   members.delete(connection);
   if (members.size === 0) usersByKey.delete(key);
+}
+
+/**
+ * Undo the in-memory half of a connection setup that failed after indexing
+ * the connection. Wake callers keep durable state so a later boot can retry;
+ * accept callers decide separately whether to delete their row.
+ */
+function rollbackConnectionIndexes(
+  runtime: Pick<
+    ConnectionRuntime,
+    'connections' | 'usersByKey' | 'channelMembers' | 'tagMembers' | 'wsToConnectionId'
+  >,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  runtime.connections.delete(connection.id);
+  removeConnectionFromUserIndex(runtime.usersByKey, connection);
+  runtime.wsToConnectionId.delete(connection.wsKey);
+
+  for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
+    ChannelPrimitive.removeChannelMembership(runtime.channelMembers, connection, membership);
+  }
+  removeConnectionFromTagIndex(runtime.tagMembers, connection);
 }
 
 /**
@@ -482,7 +504,13 @@ export function acceptConnection(
   // moment the connection is live. Then the gate is set so onConnect state
   // changes (channel subscribes, ephemeral tag adds, etc.) batch into one
   // flush after the hook resolves.
-  runtime.persistAttachment(connection);
+  try {
+    runtime.persistAttachment(connection);
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    runtime.deleteConnectionState?.(connection.id);
+    throw error;
+  }
   connection.pendingWrites = { active: true };
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -541,7 +569,9 @@ export function wakeHibernatedConnection(
   // back to a generated id when there is nothing to read (defensive: a
   // missing attachment means the row is gone too, so this socket becomes a
   // fresh connection with empty state instead of crashing on wake).
-  const attachment = runtime.restoreAttachment ? runtime.restoreAttachment(wsKey) : undefined;
+  const attachment = runtime.restoreAttachment
+    ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
+    : undefined;
   const attachmentId =
     attachment &&
     typeof attachment === 'object' &&
@@ -569,6 +599,9 @@ export function wakeHibernatedConnection(
   const id = row?.connection_id ?? attachmentId ?? runtime.generateId('conn');
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
+  if (runtime.connections.has(id)) {
+    throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
+  }
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
     __wskit: 'tag-ref' as const,
     kind: 'ephemeral' as const,
@@ -617,34 +650,39 @@ export function wakeHibernatedConnection(
     quality: 'good',
   };
 
-  runtime.connections.set(connection.id, connection);
-  addConnectionToUserIndex(runtime.usersByKey, connection);
-  runtime.wsToConnectionId.set(wsKey, connection.id);
+  try {
+    runtime.connections.set(connection.id, connection);
+    addConnectionToUserIndex(runtime.usersByKey, connection);
+    runtime.wsToConnectionId.set(wsKey, connection.id);
 
-  for (const t of row?.ephemeral_tags ?? []) {
-    addConnectionTag(runtime.tagMembers, connection, {
-      kind: 'ephemeral',
-      group: t.group,
-      key: t.key,
-    });
-  }
+    for (const t of row?.ephemeral_tags ?? []) {
+      addConnectionTag(runtime.tagMembers, connection, {
+        kind: 'ephemeral',
+        group: t.group,
+        key: t.key,
+      });
+    }
 
-  for (const membership of row?.ephemeral_memberships ?? []) {
-    ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
-      channelName: membership.channelName,
-      channelFamily: membership.channelFamily,
-    });
-  }
+    for (const membership of row?.ephemeral_memberships ?? []) {
+      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
+        channelName: membership.channelName,
+        channelFamily: membership.channelFamily,
+      });
+    }
 
-  // The snapshot above only holds ephemeral tags. Persistent tags are
-  // user-scoped, so reload them from durable storage on wake.
-  runtime.reloadPersistentTags?.(connection);
+    // The snapshot above only holds ephemeral tags. Persistent tags are
+    // user-scoped, so reload them from durable storage on wake.
+    runtime.reloadPersistentTags?.(connection);
 
-  // Re-persist so the row reflects the cleared active_stream_ids (the wake
-  // path drained them above) and the attachment carries the correct id
-  // even if it was missing before.
-  if (restoredStreamIds.length > 0) {
-    runtime.persistAttachment(connection);
+    // Re-persist so the row reflects the cleared active_stream_ids (the wake
+    // path drained them above) and the attachment carries the correct id
+    // even if it was missing before.
+    if (restoredStreamIds.length > 0) {
+      runtime.persistAttachment(connection);
+    }
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    throw error;
   }
 
   connection.lifecycleReady = Promise.resolve();

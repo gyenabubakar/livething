@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { error, RequestInvalidResponse, WSKitError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -144,11 +145,12 @@ function infoMatchesRecipient(
   info: PublicApi.ConnectionInfo,
   to: PublicApi.ChannelRecipient,
 ): boolean {
+  const ref = info.ref();
   switch (to.__wskit) {
     case 'connection-ref':
-      return info.id === to.id;
+      return ref.instance === to.instance && info.id === to.id;
     case 'user-ref':
-      return info.userId !== '' && info.userId === to.id;
+      return ref.instance === to.instance && info.userId !== '' && info.userId === to.id;
     case 'tag-ref':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
     case 'group-handle':
@@ -437,7 +439,9 @@ function toRejection(payload: unknown): unknown {
  * The runtime primitive the `requests({...})` capability contributes. Its
  * `__setup` installs the server→client request surfaces (`ctx.request`,
  * `ctx.connections.get(ref).request`, `ctx.channel.request`) and the inbound
- * answer-frame + disconnect seams. The pending-request map lives in this module,
+ * answer-frame + disconnect seams. Channel-owned request verbs stay off
+ * subscribe-gate contexts because those callbacks cannot infer the channel's
+ * own request declaration map. The pending-request map lives in this module,
  * so the engine core never imports any of it (tree-shaking: a server without
  * `requests()` pulls none of this).
  */
@@ -536,8 +540,13 @@ export function makeServerRequestsPrimitive(
         const channelHandle = ctx.channel as
           | (PublicApi.ChannelHandle & Record<string, unknown>)
           | undefined;
+        const channelScope = ctx[ENGINE_CHANNEL_META] as { isSubscribeGate?: boolean } | undefined;
 
-        if (channelHandle && connectionId) {
+        // Channel request declarations live on the channel config object. The
+        // check/commit/revalidate callbacks are contextualized before that
+        // object has finished inferring its declarations, so their gate ctx
+        // must not receive request methods that its public type cannot name.
+        if (channelHandle && connectionId && !channelScope?.isSubscribeGate) {
           channelHandle.request = (
             event: string,
             payload: unknown,
@@ -554,6 +563,9 @@ export function makeServerRequestsPrimitive(
             // `from` is dropped so the resolved type stays the bare response.
             const to = options?.to;
             if (to) {
+              if (to.__wskit === 'connection-ref' || to.__wskit === 'user-ref') {
+                assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
+              }
               return runtime
                 .sendBroadcastRequest({
                   targets: membersToTargets(
@@ -576,7 +588,7 @@ export function makeServerRequestsPrimitive(
             });
           };
         }
-        if (channelHandle) {
+        if (channelHandle && !channelScope?.isSubscribeGate) {
           channelHandle.broadcastRequest = (
             event: string,
             payload: unknown,

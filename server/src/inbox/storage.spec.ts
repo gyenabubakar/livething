@@ -5,13 +5,17 @@ import {
   bumpInboxWatermark,
   clearInboxWatermarks,
   deleteInboxRowsForChannel,
+  deleteInboxRowsOutsideScopes,
   deleteInboxWatermarkForChannel,
   ensureInboxSchema,
   insertInboxRows,
   insertInboxRowsForUserId,
+  listExpiredInboxRetentionTargets,
   loadInboxWatermarks,
   loadUndeliveredRows,
+  nextInboxRetentionAt,
   pruneInboxRetention,
+  pruneInboxRetentionAndBumpWatermark,
   purgeInboxByUser,
 } from './storage.ts';
 import type { InboxFrame } from './storage.ts';
@@ -477,6 +481,78 @@ describe('inbox/storage — retention and watermark', () => {
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([3]);
   });
 
+  it('finds the first age deadline and skips the exact cutoff millisecond', () => {
+    const sql = setup();
+    seed(sql, [
+      { seq: 1, now: 10 },
+      { seq: 2, now: 20 },
+      { seq: 3, now: 90 },
+    ]);
+
+    expect(nextInboxRetentionAt(sql, { channelKey: 'room', maxAgeMs: 50 })).toBe(61);
+  });
+
+  it('finds expired member scopes for both static channels and dynamic families', () => {
+    const sql = setup();
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 10,
+    });
+    insertInboxRows(sql, {
+      userIds: ['bob'],
+      channelName: 'room:one',
+      channelFamily: 'rooms',
+      frame: frame(2),
+      now: 20,
+    });
+
+    expect(
+      listExpiredInboxRetentionTargets(sql, { channelKey: 'room', maxAgeMs: 50, now: 100 }),
+    ).toEqual([{ userId: 'alice', channelName: 'room', channelFamily: null }]);
+    expect(
+      listExpiredInboxRetentionTargets(sql, { channelKey: 'rooms', maxAgeMs: 50, now: 100 }),
+    ).toEqual([{ userId: 'bob', channelName: 'room:one', channelFamily: 'rooms' }]);
+  });
+
+  it('deletes rows and watermarks for scopes removed by a deployment', () => {
+    const sql = setup();
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'chat',
+      channelFamily: null,
+      frame: frame(1),
+      now: 10,
+    });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room:one',
+      channelFamily: 'rooms',
+      frame: frame(2),
+      now: 10,
+    });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'old-chat',
+      channelFamily: null,
+      frame: frame(3),
+      now: 10,
+    });
+    bumpInboxWatermark(sql, {
+      userId: 'alice',
+      channelName: 'old-chat',
+      channelFamily: null,
+      evictedThroughSeq: 3,
+    });
+
+    deleteInboxRowsOutsideScopes(sql, { staticNames: ['chat'], familyKeys: ['rooms'] });
+
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([1, 2]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+  });
+
   it('both limits together return the highest evicted seq across the two', () => {
     const sql = setup();
     seed(sql, [
@@ -498,6 +574,241 @@ describe('inbox/storage — retention and watermark', () => {
     // Age drops 1,2; count keeps newest 2 (4,5) dropping 3 too. Highest evicted is 3.
     expect(evicted).toBe(3);
     expect(loadUndeliveredRows(sql, 'alice').map((r) => r.seq)).toEqual([4, 5]);
+  });
+
+  it('eviction and its overflow watermark commit together for mixed delivered and undelivered rows', () => {
+    const sql = setup();
+    seed(
+      sql,
+      [1, 2, 3].map((seq) => ({ seq, now: seq })),
+    );
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 1,
+      onDelivered: 'retain',
+      now: 10,
+    });
+
+    const evicted = pruneInboxRetentionAndBumpWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      retention: { maxMessages: 1 },
+      now: 100,
+    });
+
+    expect(evicted).toBe(2);
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([3]);
+    expect(
+      sql
+        .exec<{
+          delivered_at: number | null;
+        }>('SELECT delivered_at FROM __wskit_inbox WHERE user_id = ? AND seq = ?', 'alice', 3)
+        .one()?.delivered_at,
+    ).toBeNull();
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 2 },
+    ]);
+  });
+
+  it('does not raise a gap when retention removes only delivered rows', () => {
+    const sql = setup();
+    seed(sql, [{ seq: 1, now: 10 }]);
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 1,
+      onDelivered: 'retain',
+      now: 20,
+    });
+
+    expect(
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        userId: 'alice',
+        channelName: 'room',
+        channelFamily: null,
+        retention: { maxAgeMs: 50 },
+        now: 100,
+      }),
+    ).toBe(1);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+  });
+
+  it('does not raise a gap when maxMessages evicts only delivered rows', () => {
+    const sql = setup();
+    seed(
+      sql,
+      [1, 2, 3].map((seq) => ({ seq, now: seq })),
+    );
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 3,
+      onDelivered: 'retain',
+      now: 10,
+    });
+
+    expect(
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        userId: 'alice',
+        channelName: 'room',
+        channelFamily: null,
+        retention: { maxMessages: 1 },
+        now: 100,
+      }),
+    ).toBe(2);
+    expect(
+      sql
+        .exec<{
+          seq: number;
+          delivered_at: number | null;
+        }>('SELECT seq, delivered_at FROM __wskit_inbox ORDER BY seq')
+        .toArray(),
+    ).toEqual([{ seq: 3, delivered_at: 10 }]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+  });
+
+  it('does not raise a gap when combined retention ages out only a delivered row', () => {
+    const sql = setup();
+    seed(sql, [
+      { seq: 1, now: 10 },
+      { seq: 2, now: 90 },
+      { seq: 3, now: 95 },
+    ]);
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 1,
+      onDelivered: 'retain',
+      now: 20,
+    });
+
+    expect(
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        userId: 'alice',
+        channelName: 'room',
+        channelFamily: null,
+        retention: { maxAgeMs: 50, maxMessages: 2 },
+        now: 100,
+      }),
+    ).toBe(1);
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([2, 3]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+  });
+
+  it('raises a watermark only through the highest evicted undelivered row', () => {
+    const sql = setup();
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(2),
+      now: 2,
+    });
+    ackInboxRows(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      receivedThrough: 2,
+      onDelivered: 'retain',
+      now: 10,
+    });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(1),
+      now: 1,
+    });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(3),
+      now: 3,
+    });
+
+    expect(
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        userId: 'alice',
+        channelName: 'room',
+        channelFamily: null,
+        retention: { maxMessages: 1 },
+        now: 100,
+      }),
+    ).toBe(2);
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([3]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 1 },
+    ]);
+  });
+
+  it('merges overflow watermarks across repeated pruning passes', () => {
+    const sql = setup();
+    seed(
+      sql,
+      [1, 2, 3].map((seq) => ({ seq, now: seq })),
+    );
+
+    pruneInboxRetentionAndBumpWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      retention: { maxMessages: 1 },
+      now: 100,
+    });
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'room',
+      channelFamily: null,
+      frame: frame(4),
+      now: 4,
+    });
+    pruneInboxRetentionAndBumpWatermark(sql, {
+      userId: 'alice',
+      channelName: 'room',
+      channelFamily: null,
+      retention: { maxMessages: 1 },
+      now: 200,
+    });
+
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([4]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([
+      { channelName: 'room', channelFamily: null, evictedThroughSeq: 3 },
+    ]);
+  });
+
+  it('rolls back evictions when writing the overflow watermark fails', () => {
+    const sql = createTestSql({
+      onExec(query) {
+        if (query.includes('INSERT OR REPLACE INTO __wskit_inbox_watermark')) {
+          throw new Error('injected watermark failure');
+        }
+      },
+    });
+    ensureInboxSchema(sql);
+    seed(
+      sql,
+      [1, 2, 3].map((seq) => ({ seq, now: seq })),
+    );
+
+    expect(() =>
+      pruneInboxRetentionAndBumpWatermark(sql, {
+        userId: 'alice',
+        channelName: 'room',
+        channelFamily: null,
+        retention: { maxMessages: 1 },
+        now: 100,
+      }),
+    ).toThrow('injected watermark failure');
+
+    expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([1, 2, 3]);
+    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
   });
 
   it('returns null when nothing is over the limit', () => {

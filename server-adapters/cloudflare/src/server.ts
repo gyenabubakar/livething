@@ -22,8 +22,8 @@ import type { WSKitAdmin } from './admin.ts';
  * exposes two RPC methods. `stub.shutdown()` triggers every `onShutdown` hook
  * and closes every open WebSocket gracefully — use it before a deploy or
  * maintenance window. `stub.admin()` returns the connectionless admin surface,
- * so `await stub.admin().purgeUser(userId)` reaches into the running server
- * from a webhook or cron with no socket of its own.
+ * so `const admin = await stub.admin(); await admin.purgeUser(userId)` reaches
+ * into the running server from a webhook or cron with no socket of its own.
  */
 export interface WSKitDurableObjectInstance<
   Env = unknown,
@@ -33,8 +33,9 @@ export interface WSKitDurableObjectInstance<
   /** Gracefully drain the Durable Object: run `onShutdown`, close every socket. */
   shutdown(): Promise<void>;
   /**
-   * The connectionless admin surface — `await stub.admin().purgeUser(id)`, plus
-   * whatever the handler's own `api` factory returned.
+   * The connectionless admin surface — `const admin = await stub.admin();
+   * await admin.purgeUser(id)`, plus whatever the handler's own `api` factory
+   * returned.
    */
   admin(): Promise<WSKitAdmin<TMeta> & TApi>;
 }
@@ -110,17 +111,26 @@ const buildServe = adapter<
             ctx.waitUntil?.(promise);
           },
         });
+        // Durable Object refs can be passed through application code and must
+        // carry the stable DO id so a ref from another DO cannot match a local
+        // connection with the same generated id.
+        this.engine.setInstanceId(ctx.id.toString());
 
-        this.ready = ctx.blockConcurrencyWhile(async () => {
+        const ready = ctx.blockConcurrencyWhile(async () => {
           await this.engine.initialize();
           // Restore every surviving socket's membership eagerly so a broadcast reaches members that have not sent since the wake.
           if (this.engine.usesHibernation()) {
+            await this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
             this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-            this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
           } else {
             this.engine.reconcileConnections(new Set());
           }
         });
+        // Keep the boot failure available to every later lifecycle method,
+        // while marking the constructor-owned Promise as observed when no
+        // event ever arrives to await it.
+        void ready.catch(() => {});
+        this.ready = ready;
       }
 
       private handleRejectedUpgrade(
@@ -301,7 +311,8 @@ const buildServe = adapter<
       /**
        * The connectionless admin surface — reach it from your Worker as
        * `stub.admin()` and call an operation on the result, e.g.
-       * `await stub.admin().purgeUser(userId)` from an auth webhook.
+       * `const admin = await stub.admin(); await admin.purgeUser(userId)` from
+       * an auth webhook.
        *
        * Hibernated sockets are woken first (as in `shutdown()`) so an operation
        * like `purgeUser` or `broadcast` reaches every connection, not just
@@ -316,7 +327,7 @@ const buildServe = adapter<
             this.engine.handleHibernationWake(ws);
           }
         }
-        return buildAdmin(this.engine.admin());
+        return buildAdmin(this.engine.admin(), this.ctx.id.toString());
       }
     };
   },

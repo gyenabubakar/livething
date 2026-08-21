@@ -1,3 +1,4 @@
+import { CrossInstanceRef } from '@wskit/core';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -50,18 +51,19 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
 }
 
 /**
- * Throw when a `ConnectionRef` names another engine instance.
+ * Throw when an addressable `ConnectionRef` or `UserRef` names another engine
+ * instance.
  *
  * A ref's `instance` is `undefined` in single-instance setups and always
  * resolves locally. When a broker is configured (future), it carries the target
  * instance id. Until then, any op that targets a different instance has no
- * transport to reach it, so we refuse early with one consistent message — every
+ * transport to reach it, so we refuse early with one consistent public error — every
  * ref-addressed op (`ctx.connections.get(ref).send`, `channelHandle.subscribe(ref)`,
  * …) shares this error family.
  *
- * @param ref        The target connection ref.
+ * @param ref        The target connection or user ref.
  * @param instanceId This engine's instance id (`undefined` single-instance).
- * @param opLabel    The op name shown in the message, e.g. `ctx.connections.get(ref).send`.
+ * @param opLabel    The operation name stored in the error detail, e.g. `ctx.connections.get(ref).send`.
  */
 export function assertLocalRef(
   ref: { readonly instance: string | undefined },
@@ -69,10 +71,10 @@ export function assertLocalRef(
   opLabel: string,
 ): void {
   if (ref.instance !== instanceId) {
-    throw new Error(
-      `[wskit] ${opLabel} targets instance "${ref.instance ?? 'undefined'}" but this engine is ` +
-        `"${instanceId ?? 'undefined'}" — cross-instance routing requires a broker, which is not ` +
-        'configured yet.',
-    );
+    throw CrossInstanceRef({
+      operation: opLabel,
+      ...(ref.instance === undefined ? {} : { targetInstance: ref.instance }),
+      ...(instanceId === undefined ? {} : { engineInstance: instanceId }),
+    });
   }
 }

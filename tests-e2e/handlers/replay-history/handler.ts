@@ -201,7 +201,11 @@ export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
 export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
   input: RequestRoomHistory,
   run(ctx) {
-    ctx.channel.sendReplay(
+    const sendReplay = ctx.channel.sendReplay;
+    if (!sendReplay) {
+      throw new Error('channel replay is not active for replay-room');
+    }
+    sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },
       { seq: 0, messageId: 'room-manual-001' },

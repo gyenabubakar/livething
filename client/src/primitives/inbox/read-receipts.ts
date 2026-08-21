@@ -1,6 +1,7 @@
 import { channelKey } from '~/internal/channel-key.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
 import { createStore } from '~/internal/store.ts';
+import { isRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
 import {
   rejectPending,
   resolveOwnQuery,
@@ -21,14 +22,9 @@ interface ChannelReaders {
   byUserId: Map<string, number>;
   store: WritableStore<CursorList>;
   listeners: Set<(userId: string, readThrough: number) => void>;
-  /**
-   * The channel's live subscription status, captured from `channels()` once a
-   * handle for this channel is built. Used to tell a genuine `__unsubscribeOk__`
-   * apart from a stale one that arrives after the member has already rejoined —
-   * `channels()` still forwards both, since it only tracks staleness for its own
-   * state. `null` until a handle has been built for this channel.
-   */
+  /** The channel status used to clear state if a queued rejoin fails. */
   status: ReadableStore<ChannelStatus> | null;
+  stopStatusWatch: (() => void) | null;
 }
 
 /** Options for the client `readReceipts()` primitive. */
@@ -65,6 +61,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
             store: createStore<CursorList>(new Map()),
             listeners: new Set(),
             status: null,
+            stopStatusWatch: null,
           };
           channels.set(key, state);
         }
@@ -86,14 +83,12 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
         }
       }
 
-      // A genuine unsubscribe leaves the channel 'subscribed'/'subscribing' only
-      // if a rejoin was queued or already landed before this confirmation arrived
-      // — in that case the confirmation is stale (or for a leave already
-      // superseded) and must not wipe state a live rejoin still needs.
-      function isStaleUnsubscribeOk(state: ChannelReaders | undefined): boolean {
-        if (!state?.status) return false;
-        const status = state.status.get();
-        return status === 'subscribed' || status === 'subscribing';
+      function clearScope(key: string, state = channels.get(key)): void {
+        ownReceived.delete(key);
+        if (state) {
+          state.byUserId.clear();
+          state.store.set(new Map());
+        }
       }
 
       return {
@@ -104,14 +99,9 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           const key = channelKey(message.__wskit?.channelFamily, channel);
 
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
-            const state = channels.get(key);
-            if (message.event === '__unsubscribeOk__' && isStaleUnsubscribeOk(state))
+            if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
               return message;
-            ownReceived.delete(key);
-            if (state) {
-              state.byUserId.clear();
-              state.store.set(new Map());
-            }
+            clearScope(key);
             return message;
           }
 
@@ -147,8 +137,16 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
             // channels() builds every channel messaging with a `status` store; it
             // runs before this augmenter registers (readReceipts sorts after
             // channels), so it is always present by the time a handle is built.
-            state.status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
-
+            const status = (messaging as { status?: ReadableStore<ChannelStatus> }).status ?? null;
+            if (state.status !== status) {
+              state.stopStatusWatch?.();
+              state.status = status;
+              state.stopStatusWatch =
+                status?.subscribe((next) => {
+                  if (next === 'failed') clearScope(key, state);
+                }) ?? null;
+              if (status?.get() === 'failed') clearScope(key, state);
+            }
             const readApi: ChannelReadReceiptsApi = {
               readers: { get: state.store.store.get, subscribe: state.store.store.subscribe },
               onRead: (callback) => {

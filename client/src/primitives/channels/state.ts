@@ -273,15 +273,17 @@ export class ChannelState {
    * match the outstanding leave (a stale one from an earlier connection) is
    * ignored.
    */
-  confirmLeave(unsubscribeId: string): void {
+  confirmLeave(unsubscribeId: string): { rejoinPending: boolean } | null {
     const leave = this.pendingLeave;
-    if (!leave || leave.unsubscribeId !== unsubscribeId) return;
+    if (!leave || leave.unsubscribeId !== unsubscribeId) return null;
     this.pendingLeave = null;
     this.pendingLeavePromise = null;
     leave.resolve();
     const deferred = this.deferredSubscribe;
     this.deferredSubscribe = null;
+    const rejoinPending = deferred !== null;
     deferred?.();
+    return { rejoinPending };
   }
 
   /**

@@ -22,9 +22,11 @@ interface InboxOptionsBase {
  * Per-channel inbox settings. `retention` is required with `onDelivered: 'retain'`
  * (kept rows need a bound so they can age out) — omitting it is a type error and
  * the capability throws the same at build time. In the default `delete` mode
- * `retention` is optional: there it caps the *undelivered* queue, so a member
- * that falls too far behind gets a `__gap__` instead of a backlog that grows
- * forever.
+ * `retention` is optional: acknowledged rows are already gone, so
+ * `maxMessages` bounds the undelivered queue. In `retain` mode both delivered
+ * and undelivered rows count toward `maxMessages`; pruning a delivered row
+ * never raises an overflow gap, while pruning an undelivered row does.
+ * `maxAgeMs` is also swept by the shared durable alarm while a channel is quiet.
  */
 export type InboxOptions =
   | (InboxOptionsBase & { readonly onDelivered?: 'delete'; readonly retention?: InboxRetention })
