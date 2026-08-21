@@ -12,14 +12,32 @@ export function setup(): void {
     <button data-testid="connect">connect</button>
     <button data-testid="sub-archive">sub-archive</button>
     <button data-testid="server-drop">server-drop</button>
+    <button data-testid="resume-reconnect">resume-reconnect</button>
     <button data-testid="queued-send">queued-send</button>
     <span data-testid="status"></span>
+    <span data-testid="reconnect-held"></span>
     <span data-testid="archive-subscribed"></span>
     <span data-testid="room-messages"></span>
   `);
 
+  const url = wsUrl('persistence');
+  let holdReconnect = false;
+  let resumeReconnect: (() => void) | null = null;
+
   const socket = client<PersistenceClient>()(
-    connect(wsUrl('persistence')),
+    connect(() => {
+      if (!holdReconnect) return url;
+
+      el('reconnect-held').textContent = 'yes';
+      return new Promise<string>((resolve) => {
+        resumeReconnect = () => {
+          holdReconnect = false;
+          resumeReconnect = null;
+          el('reconnect-held').textContent = 'no';
+          resolve(url);
+        };
+      });
+    }),
     channels(),
     reconnection(),
     // Buffering holds the channel send made while reconnecting; its flush runs in
@@ -47,8 +65,11 @@ export function setup(): void {
   });
 
   button('server-drop', () => {
+    holdReconnect = true;
+    el('reconnect-held').textContent = 'no';
     socket.send('server-drop', {});
   });
+  button('resume-reconnect', () => resumeReconnect?.());
 
   // Called while reconnecting — the channel send is queued and must reach the
   // server only after the rejoin __subscribe__.
