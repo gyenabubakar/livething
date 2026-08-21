@@ -14,7 +14,7 @@ import type { RoomMsg } from '../inbox/events.ts';
 // the raw-wire probe can observe both kinds of row disappearing on the shared
 // durable alarm. The top-level recurring task proves that the inbox alarm does
 // not replace another capability's scheduled work.
-const RETENTION_MS = 300;
+const RETENTION_MS = 1_000;
 
 const base = define({
   env: t<Env>(),

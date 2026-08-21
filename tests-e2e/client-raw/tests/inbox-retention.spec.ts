@@ -208,7 +208,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     // No channel traffic occurs while the held row ages. The top-level
     // recurring task is a separate alarm source and should still fire.
     await waitForFrame(bob.page, (frame) => frame.event === 'retention-heartbeat');
-    await bob.page.waitForTimeout(700);
+    await bob.page.waitForTimeout(1_200);
 
     const after = await probe(bob.page);
     expect(after.rows).toBe(0);
@@ -275,7 +275,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     expect(before.deliveredRows).toBe(1);
     expect(before.watermarkRows).toBe(0);
 
-    await bob.page.waitForTimeout(700);
+    await bob.page.waitForTimeout(1_400);
     const after = await probe(bob.page);
     expect(after.rows).toBe(0);
     expect(after.deliveredRows).toBe(0);
@@ -312,7 +312,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await expect(bob.page.getByTestId('status')).toHaveText('disconnected');
 
     await reconnect(bob.page);
-    await bob.page.waitForTimeout(700);
+    await bob.page.waitForTimeout(1_400);
     const after = await probe(bob.page);
     expect(after.rows).toBe(0);
     expect(after.watermarkRows).toBe(1);
