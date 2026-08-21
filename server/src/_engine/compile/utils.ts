@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertSyncResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -105,7 +105,11 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
   if (!validator) return value;
 
   if (isStandardSchema(validator)) {
-    const result = assertSyncResult(validator['~standard'].validate(value), event);
+    const result = assertSynchronousResult(
+      validator['~standard'].validate(value),
+      event,
+      'validator',
+    );
 
     if (result && typeof result === 'object' && 'issues' in result) {
       const rawIssues = (result as { issues: Array<{ message: string; path?: unknown[] }> }).issues;

@@ -244,11 +244,6 @@ export function listReceivers(
     .map((row) => row.user_id);
 }
 
-/** Delete every receipt cursor row for one user, across every channel. Used by `purgeUser`. */
-export function purgeReceiptsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_inbox_receipts WHERE user_id = ?', userId);
-}
-
 /** User ids whose `read_through` has reached `seq`. Backs `readersOf(seq)`. */
 export function listReaders(
   sql: Pick<SQLProvider, 'exec'>,

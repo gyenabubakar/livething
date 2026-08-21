@@ -31,7 +31,6 @@ export {
   WSKitConfigError,
   isWSKitConfigError,
   rethrowIfConfigError,
-  assertSyncResult,
   assertSynchronousResult,
 } from './sync-guard.ts';
 export {

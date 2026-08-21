@@ -1,7 +1,7 @@
 import { rescheduleAlarm } from '~/_engine/alarm.ts';
-import { clearCacheEntriesForUser, purgeReceiptsByUser } from '~/inbox/receipts-storage.ts';
+import { clearCacheEntriesForUser } from '~/inbox/receipts-storage.ts';
 import { clearInboxForChannel, drainInboxOnReconnect, fanOutToInbox } from '~/inbox/runtime.ts';
-import { deleteInboxRowsOutsideScopes, purgeInboxByUser } from '~/inbox/storage.ts';
+import { deleteInboxRowsOutsideScopes } from '~/inbox/storage.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { InboxService } from '~/_engine/runtime/feature-slots.ts';
@@ -38,13 +38,51 @@ export function registerInboxRuntime(engine: EngineAccess): void {
       if (scopes) deleteInboxRowsOutsideScopes(engine.storage.sql, scopes);
     });
 
-    engine.onPurgeUser((core, userId) => {
+    engine.onPurgeUser(async (core, userId) => {
       const engineCore = core as EngineCore;
-      purgeInboxByUser(engineCore.storage.sql, userId);
-      purgeReceiptsByUser(engineCore.storage.sql, userId);
-      clearCacheEntriesForUser(engineCore.inboxReceiptCursors, userId);
-      clearCacheEntriesForUser(engineCore.inboxMemberCounts, userId);
-      rescheduleAlarm(engineCore);
+      const failures: unknown[] = [];
+      try {
+        engineCore.storage.sql.transaction((tx) => {
+          tryDelete(() => tx.exec('DELETE FROM __wskit_inbox WHERE user_id = ?', userId), failures);
+          tryDelete(
+            () => tx.exec('DELETE FROM __wskit_inbox_watermark WHERE user_id = ?', userId),
+            failures,
+          );
+          tryDelete(
+            () => tx.exec('DELETE FROM __wskit_inbox_receipts WHERE user_id = ?', userId),
+            failures,
+          );
+        });
+      } catch (error) {
+        failures.push(error);
+      } finally {
+        try {
+          clearCacheEntriesForUser(engineCore.inboxReceiptCursors, userId);
+        } catch (error) {
+          failures.push(error);
+        }
+        try {
+          clearCacheEntriesForUser(engineCore.inboxMemberCounts, userId);
+        } catch (error) {
+          failures.push(error);
+        }
+        try {
+          await rescheduleAlarm(engineCore);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `Inbox purge for '${userId}' was incomplete`);
+      }
     });
   });
+}
+
+function tryDelete(operation: () => unknown, failures: unknown[]): void {
+  try {
+    operation();
+  } catch (error) {
+    failures.push(error);
+  }
 }

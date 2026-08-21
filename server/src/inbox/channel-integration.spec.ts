@@ -18,6 +18,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox } from './capability.ts';
+import {
+  advanceReadThrough,
+  advanceReceivedThrough,
+  listReaders,
+  listReceivers,
+} from './receipts-storage.ts';
 
 function buildEngine(
   handler: ServerDefinition,
@@ -135,6 +141,20 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       channelFamily: null,
       evictedThroughSeq: 1,
     });
+    advanceReceivedThrough(storage.sql, {
+      channelName: 'legacy',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 1,
+      now: 1,
+    });
+    advanceReadThrough(storage.sql, {
+      channelName: 'legacy',
+      channelFamily: null,
+      userId: 'alice',
+      readThrough: 1,
+      now: 1,
+    });
 
     const secondChat = base.channel('chat', { capabilities: [inbox()] });
     const second = buildEngine(base.assemble({ handlers: [secondChat] }), storage);
@@ -142,6 +162,12 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
 
     expect(loadUndeliveredRows(storage.sql, 'alice')).toEqual([]);
     expect(loadInboxWatermarks(storage.sql, 'alice')).toEqual([]);
+    expect(
+      listReceivers(storage.sql, { channelName: 'legacy', channelFamily: null, seq: 1 }),
+    ).toEqual([]);
+    expect(
+      listReaders(storage.sql, { channelName: 'legacy', channelFamily: null, seq: 1 }),
+    ).toEqual([]);
   });
 
   it('reconciles a changed count cap on boot without creating an age alarm', async () => {

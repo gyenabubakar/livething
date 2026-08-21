@@ -208,6 +208,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     },
 
     send(event: string, payload: unknown, options?: { ttl?: number }): boolean {
+      if (typeof event !== 'string' || event.length === 0) return false;
       const result = helpers.send({ event: namespacedName(id, event), payload }, options);
       return result === 'sent' || result === 'buffered';
     },

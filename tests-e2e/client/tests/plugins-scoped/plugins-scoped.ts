@@ -38,8 +38,8 @@ interface FeedWire {
   };
   channels: {
     room: {
-      outgoing: { chat: { text: string } };
-      incoming: { joined: { who: string }; said: { text: string } };
+      outgoing: { chat: { text: string }; ping: {}; pong: {} };
+      incoming: { joined: { who: string }; said: { text: string }; ping: {}; pong: {} };
     };
     thread: { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
   };
@@ -75,8 +75,8 @@ interface FeedHost {
   };
   channels: {
     '__e2e:feed::room': {
-      outgoing: { chat: { text: string } };
-      incoming: { joined: { who: string }; said: { text: string } };
+      outgoing: { chat: { text: string }; ping: {}; pong: {} };
+      incoming: { joined: { who: string }; said: { text: string }; ping: {}; pong: {} };
     };
     '__e2e:feed::thread': { addressing: 'dynamic'; incoming: { posted: { thread: string } } };
   };
@@ -93,6 +93,10 @@ interface FeedApi {
   joinRoom(onJoined: (who: string) => void): Promise<void>;
   onSaid(cb: (text: string) => void): void;
   chat(text: string): void;
+  ping(): boolean;
+  pong(): boolean;
+  onChannelPing(cb: () => void): void;
+  onChannelPong(cb: () => void): void;
   joinThread(id: string, onPosted: (thread: string) => void): Promise<void>;
   triggerPluginFailure(): void;
   triggerRoomFullError(): void;
@@ -107,6 +111,8 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const welcomeCbs = new Set<(name: string) => void>();
     const joinedCbs = new Set<(who: string) => void>();
     const saidCbs = new Set<(text: string) => void>();
+    const channelPingCbs = new Set<() => void>();
+    const channelPongCbs = new Set<() => void>();
     const pluginFailureCbs = new Set<(code: string, reason: string) => void>();
     const roomFullErrorCbs = new Set<(code: string) => void>();
 
@@ -116,6 +122,8 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const room = socket.channel('room');
     room.on('joined', (m) => joinedCbs.forEach((cb) => cb(m.who)));
     room.on('said', (m) => saidCbs.forEach((cb) => cb(m.text)));
+    room.on('ping', () => channelPingCbs.forEach((cb) => cb()));
+    room.on('pong', () => channelPongCbs.forEach((cb) => cb()));
 
     socket.onServerError('plugin-failure', (error) =>
       pluginFailureCbs.forEach((cb) => cb(error.code, error.detail.reason)),
@@ -153,6 +161,10 @@ const Feed = plugin<FeedWire, FeedApi>()({
         // Send on the plugin channel: `chat` must go out as `__e2e:feed::chat`
         // (namespaced) so the server's channel handler receives it.
         chat: (text) => void room.send('chat', { text }),
+        ping: () => room.send('ping', {}),
+        pong: () => room.send('pong', {}),
+        onChannelPing: (cb) => void channelPingCbs.add(cb),
+        onChannelPong: (cb) => void channelPongCbs.add(cb),
         // A dynamic-family member: `thread:<id>` under the plugin namespace.
         joinThread: (id, onPosted) => {
           const t = socket.channel('thread', `thread:${id}`);
@@ -181,6 +193,8 @@ export function setup(): void {
     <button data-testid="join-room">join-room</button>
     <button data-testid="join-room-fail">join-room-fail</button>
     <button data-testid="chat">chat</button>
+    <button data-testid="channel-ping">channel-ping</button>
+    <button data-testid="channel-pong">channel-pong</button>
     <button data-testid="join-thread">join-thread</button>
     <button data-testid="trigger-plugin-failure">trigger-plugin-failure</button>
     <button data-testid="trigger-room-full-error">trigger-room-full-error</button>
@@ -196,6 +210,9 @@ export function setup(): void {
     <span data-testid="joined"></span>
     <span data-testid="subscribe-error"></span>
     <span data-testid="said"></span>
+    <span data-testid="channel-ping-seen"></span>
+    <span data-testid="channel-pong-seen"></span>
+    <span data-testid="socket-error"></span>
     <span data-testid="posted"></span>
     <span data-testid="plugin-error-code"></span>
     <span data-testid="plugin-error-detail"></span>
@@ -212,6 +229,10 @@ export function setup(): void {
     channels(),
     Feed(),
   );
+
+  socket.onError((error) => {
+    el('socket-error').textContent = error instanceof Error ? error.message : String(error);
+  });
 
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();
@@ -261,6 +282,12 @@ export function setup(): void {
     void feed.echo('boom').catch((error: unknown) => {
       el('echo-error').textContent = error instanceof WSKitError ? error.code : String(error);
     });
+    feed.onChannelPing(() => {
+      el('channel-ping-seen').textContent = 'yes';
+    });
+    feed.onChannelPong(() => {
+      el('channel-pong-seen').textContent = 'yes';
+    });
   });
   button('stream-feed', () => drain(feed.streamFeed(), 'feed-rows'));
   button('stream-plain', () => drain(feed.streamPlain(), 'plain-rows'));
@@ -289,6 +316,12 @@ export function setup(): void {
   // Send on the plugin channel; the server echoes it back as `said`, which only
   // arrives if the outgoing `chat` reached the server's namespaced handler.
   button('chat', () => feed.chat('hey room'));
+  button('channel-ping', () => {
+    el('socket-error').textContent = `ping:${feed.ping()}`;
+  });
+  button('channel-pong', () => {
+    el('socket-error').textContent = `pong:${feed.pong()}`;
+  });
   button('join-thread', () =>
     // Join one specific thread; the server echoes back the concrete member it saw.
     feed.joinThread('general', (thread) => {

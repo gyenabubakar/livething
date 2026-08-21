@@ -13,6 +13,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type {
+  AdminContext,
+  ConnectionContext,
+  InitContext,
+  ShutdownContext,
+  TaskContext,
+} from '~/context.ts';
 
 function createConnection(id: string, userId: string = id): RuntimeConnection {
   return {
@@ -403,19 +410,26 @@ describe('ctx.cancelScheduled', () => {
   });
 });
 
-describe('ctx.setAlarm', () => {
-  it('calls the timer provider setAlarm with the given timestamp', () => {
-    const setAlarm = vi.fn(async () => {});
+describe('connection context alarms', () => {
+  it('does not expose the adapter alarm writer to product handlers', () => {
     const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      getTimers: () => ({ ...createTestTimers(), setAlarm }),
-    });
+    const deps = baseDeps({ connections: new Map([[connection.id, connection]]) });
 
     const ctx = buildConnectionContext(deps, connection);
-    ctx.setAlarm(1_700_000_000_000);
 
-    expect(setAlarm).toHaveBeenCalledWith(1_700_000_000_000);
+    expect('setAlarm' in ctx).toBe(false);
+    expect((ctx as Record<string, unknown>).setAlarm).toBeUndefined();
+
+    type HasAlarmWriter<T> = 'setAlarm' extends keyof T ? true : false;
+    const publicContextsExposeAlarm = [
+      false satisfies HasAlarmWriter<ConnectionContext>,
+      false satisfies HasAlarmWriter<InitContext>,
+      false satisfies HasAlarmWriter<ShutdownContext>,
+      false satisfies HasAlarmWriter<TaskContext>,
+      false satisfies HasAlarmWriter<AdminContext>,
+    ] as const;
+
+    expect(publicContextsExposeAlarm).toEqual([false, false, false, false, false]);
   });
 });
 

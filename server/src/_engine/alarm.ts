@@ -33,7 +33,7 @@ export function registerAlarmSource(
  * so one optional feature cannot corrupt the shared alarm with `NaN`, an unsafe
  * integer, or a non-positive value.
  */
-export function rescheduleAlarm(core: Pick<EngineCore, 'alarmSources' | 'timers'>): void {
+export function rescheduleAlarm(core: Pick<EngineCore, 'alarmSources' | 'timers'>): Promise<void> {
   let next: number | null = null;
   for (const source of core.alarmSources.values()) {
     const candidate = source();
@@ -47,7 +47,7 @@ export function rescheduleAlarm(core: Pick<EngineCore, 'alarmSources' | 'timers'
     alarmSyncStates.set(core, state);
   }
   state.desired = next;
-  if (state.pending) return;
+  if (state.pending) return state.pending;
 
   const pending = flushAlarm(core, state);
   state.pending = pending;
@@ -62,6 +62,7 @@ export function rescheduleAlarm(core: Pick<EngineCore, 'alarmSources' | 'timers'
       error: error instanceof Error ? error.message : String(error),
     });
   });
+  return pending;
 }
 
 async function flushAlarm(core: Pick<EngineCore, 'timers'>, state: AlarmSyncState): Promise<void> {

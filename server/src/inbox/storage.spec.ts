@@ -1,6 +1,12 @@
 import { createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import {
+  advanceReceivedThrough,
+  ensureReceiptsSchema,
+  listReaders,
+  listReceivers,
+} from './receipts-storage.ts';
+import {
   ackInboxRows,
   bumpInboxWatermark,
   clearInboxWatermarks,
@@ -16,7 +22,6 @@ import {
   nextInboxRetentionAt,
   pruneInboxRetention,
   pruneInboxRetentionAndBumpWatermark,
-  purgeInboxByUser,
 } from './storage.ts';
 import type { InboxFrame } from './storage.ts';
 
@@ -27,6 +32,7 @@ function frame(seq: number, overrides: Partial<InboxFrame> = {}): InboxFrame {
 function setup() {
   const sql = createTestSql();
   ensureInboxSchema(sql);
+  ensureReceiptsSchema(sql);
   return sql;
 }
 
@@ -416,6 +422,13 @@ describe('inbox/storage — leave clears rows and watermark', () => {
       channelFamily: null,
       evictedThroughSeq: 3,
     });
+    advanceReceivedThrough(sql, {
+      channelName: 'old-chat',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 3,
+      now: 10,
+    });
 
     deleteInboxWatermarkForChannel(sql, {
       userId: 'alice',
@@ -551,6 +564,75 @@ describe('inbox/storage — retention and watermark', () => {
 
     expect(loadUndeliveredRows(sql, 'alice').map((row) => row.seq)).toEqual([1, 2]);
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
+    expect(listReceivers(sql, { channelName: 'old-chat', channelFamily: null, seq: 1 })).toEqual(
+      [],
+    );
+  });
+
+  it('deletes a stale scope that exists only in receipts', () => {
+    const sql = setup();
+    advanceReceivedThrough(sql, {
+      channelName: 'old-chat',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 3,
+      now: 10,
+    });
+    sql.exec(
+      'UPDATE __wskit_inbox_receipts SET read_through = ? WHERE channel_name = ?',
+      3,
+      'old-chat',
+    );
+
+    deleteInboxRowsOutsideScopes(sql, { staticNames: ['chat'], familyKeys: [] });
+
+    expect(listReceivers(sql, { channelName: 'old-chat', channelFamily: null, seq: 1 })).toEqual(
+      [],
+    );
+    expect(listReaders(sql, { channelName: 'old-chat', channelFamily: null, seq: 1 })).toEqual([]);
+  });
+
+  it('rolls back stale-scope deletion across inbox, watermarks, and receipts', () => {
+    let fail = true;
+    const sql = createTestSql({
+      onExec(query) {
+        if (fail && query.includes('DELETE FROM __wskit_inbox_watermark')) {
+          fail = false;
+          throw new Error('injected reconcile failure');
+        }
+      },
+    });
+    ensureInboxSchema(sql);
+    ensureReceiptsSchema(sql);
+    insertInboxRows(sql, {
+      userIds: ['alice'],
+      channelName: 'old-chat',
+      channelFamily: null,
+      frame: frame(1),
+      now: 10,
+    });
+    bumpInboxWatermark(sql, {
+      userId: 'alice',
+      channelName: 'old-chat',
+      channelFamily: null,
+      evictedThroughSeq: 1,
+    });
+    advanceReceivedThrough(sql, {
+      channelName: 'old-chat',
+      channelFamily: null,
+      userId: 'alice',
+      receivedThrough: 1,
+      now: 10,
+    });
+
+    expect(() => deleteInboxRowsOutsideScopes(sql, { staticNames: [], familyKeys: [] })).toThrow(
+      'injected reconcile failure',
+    );
+    expect(loadUndeliveredRows(sql, 'alice')).toHaveLength(1);
+    expect(loadInboxWatermarks(sql, 'alice')).toHaveLength(1);
+    expect(listReceivers(sql, { channelName: 'old-chat', channelFamily: null, seq: 1 })).toEqual([
+      'alice',
+    ]);
   });
 
   it('both limits together return the highest evicted seq across the two', () => {
@@ -844,37 +926,5 @@ describe('inbox/storage — retention and watermark', () => {
 
     clearInboxWatermarks(sql, 'alice');
     expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-  });
-});
-
-describe('inbox/storage — purgeInboxByUser', () => {
-  it("drops one user id's inbox rows and watermarks, leaving another user id intact", () => {
-    const sql = setup();
-    insertInboxRows(sql, {
-      userIds: ['alice', 'bob'],
-      channelName: 'room',
-      channelFamily: null,
-      frame: frame(1),
-      now: 1000,
-    });
-    bumpInboxWatermark(sql, {
-      userId: 'alice',
-      channelName: 'room',
-      channelFamily: null,
-      evictedThroughSeq: 5,
-    });
-    bumpInboxWatermark(sql, {
-      userId: 'bob',
-      channelName: 'room',
-      channelFamily: null,
-      evictedThroughSeq: 5,
-    });
-
-    purgeInboxByUser(sql, 'alice');
-
-    expect(loadUndeliveredRows(sql, 'alice')).toEqual([]);
-    expect(loadInboxWatermarks(sql, 'alice')).toEqual([]);
-    expect(loadUndeliveredRows(sql, 'bob')).toHaveLength(1);
-    expect(loadInboxWatermarks(sql, 'bob')).toHaveLength(1);
   });
 });

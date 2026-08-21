@@ -931,9 +931,6 @@ export interface ConnectionContext<
   /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
-  setAlarm(time: number): void;
-
   /** SQL storage access. */
   sql: SQLProvider;
 
@@ -1234,6 +1231,10 @@ export interface AdminContext<
    * // Keep channel-owned broadcast content, just stop crediting alice as its creator.
    * await ctx.purgeUser('alice', { keepBroadcastContent: true });
    * ```
+   *
+   * Cleanup is best effort: every registered capability and live socket is
+   * attempted even when another step fails. The promise rejects with an
+   * `AggregateError` after all cleanup attempts finish.
    */
   purgeUser(userId: string, options?: PurgeUserOptions): Promise<void>;
 

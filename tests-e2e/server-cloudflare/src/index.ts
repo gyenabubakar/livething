@@ -374,6 +374,55 @@ export default {
       return new Response(null, { status: 204 });
     }
 
+    if (url.pathname === '/ws/receipts/seed-stale') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      await (await env.RECEIPTS_SERVER.get(id).admin()).seedStaleReceipt();
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/receipts/stale-count') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      const count = await (await env.RECEIPTS_SERVER.get(id).admin()).staleReceiptCount();
+      return Response.json({ count });
+    }
+
+    if (url.pathname === '/ws/receipts/drop-inbox') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      await (await env.RECEIPTS_SERVER.get(id).admin()).dropInboxTable();
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/receipts/receivers') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      const users = await (
+        await env.RECEIPTS_SERVER.get(id).admin()
+      ).receiptUsers(
+        url.searchParams.get('channel') ?? 'chat',
+        Number(url.searchParams.get('seq') ?? 0),
+      );
+      return Response.json({ users });
+    }
+
+    if (url.pathname === '/ws/receipts/purge') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      try {
+        await (await env.RECEIPTS_SERVER.get(id).admin()).purgeUser('alice');
+        return new Response(null, { status: 204 });
+      } catch {
+        return new Response(null, { status: 500 });
+      }
+    }
+
+    if (url.pathname === '/ws/receipts/restart') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      try {
+        await env.RECEIPTS_SERVER.get(id).restart();
+      } catch {
+        /* expected — ctx.abort() tears down the instance */
+      }
+      return new Response(null, { status: 204 });
+    }
+
     if (url.pathname === '/ws/durable-config/restart') {
       const id = env.DURABLE_CONFIG_SERVER.idFromName(room);
       try {

@@ -683,15 +683,6 @@ export function clearInboxWatermarkThrough(
 }
 
 /**
- * Delete every inbox row and overflow watermark for one user, across every
- * channel. Used by `purgeUser`.
- */
-export function purgeInboxByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
-  sql.exec('DELETE FROM __wskit_inbox WHERE user_id = ?', userId);
-  clearInboxWatermarks(sql, userId);
-}
-
-/**
  * Remove inbox data for channel scopes no longer present in the deployed
  * contract. Inbox rows are intentionally scoped by both the concrete channel
  * name and family key, so a removed static channel cannot retain data merely
@@ -715,6 +706,8 @@ export function deleteInboxRowsOutsideScopes(
         SELECT channel_name, channel_family FROM __wskit_inbox
         UNION
         SELECT channel_name, channel_family FROM __wskit_inbox_watermark
+        UNION
+        SELECT channel_name, channel_family FROM __wskit_inbox_receipts
       `,
       )
       .toArray();
@@ -733,6 +726,11 @@ export function deleteInboxRowsOutsideScopes(
       );
       tx.exec(
         `DELETE FROM __wskit_inbox_watermark WHERE channel_name = ? AND channel_family = ?`,
+        scope.channel_name,
+        scope.channel_family,
+      );
+      tx.exec(
+        `DELETE FROM __wskit_inbox_receipts WHERE channel_name = ? AND channel_family = ?`,
         scope.channel_name,
         scope.channel_family,
       );

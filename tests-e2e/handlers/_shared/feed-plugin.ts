@@ -47,7 +47,14 @@ const h = define({
 // mismatch there would silently drop delivery.
 const room = h.channel('room', {
   capabilities: [inbox()],
-  outgoing: { emits: { joined: t<{ who: string }>(), said: t<{ text: string }>() } },
+  outgoing: {
+    emits: {
+      joined: t<{ who: string }>(),
+      said: t<{ text: string }>(),
+      ping: t<{}>(),
+      pong: t<{}>(),
+    },
+  },
   // A declared error thrown from a channel lifecycle handler leaves the server
   // namespaced (`__e2e:feed::room-full`); the client plugin must reject the
   // subscribe with the plain `room-full`.
@@ -64,6 +71,18 @@ const roomChat = room.on('chat', {
   input: v.object({ text: v.string() }),
   run(ctx, payload) {
     ctx.channel.broadcast('said', { text: payload.text }, { includeSelf: true });
+  },
+});
+
+const roomPing = room.on('ping', {
+  run(ctx) {
+    ctx.channel.broadcast('said', { text: 'ping' }, { includeSelf: true });
+  },
+});
+
+const roomPong = room.on('pong', {
+  run(ctx) {
+    ctx.channel.broadcast('said', { text: 'pong' }, { includeSelf: true });
   },
 });
 
@@ -201,6 +220,8 @@ export const Feed = plugin('e2e:feed', {
       feedRecorded,
       room,
       roomChat,
+      roomPing,
+      roomPong,
       thread,
       threadPost,
     ],

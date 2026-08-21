@@ -2,7 +2,7 @@
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { assertValidWSKitIdentifier } from './identifier.ts';
-import { assertSyncResult } from './sync-guard.ts';
+import { assertSynchronousResult } from './sync-guard.ts';
 
 // ---------------------------------------------------------------------------
 // Close codes
@@ -267,7 +267,11 @@ function buildErrorFactory(
   const validate: ValidateFn<any> | undefined = !schema
     ? undefined
     : (value: unknown) => {
-        const result = assertSyncResult(schema['~standard'].validate(value), `error("${code}")`);
+        const result = assertSynchronousResult(
+          schema['~standard'].validate(value),
+          `error("${code}")`,
+          'validator',
+        );
         if (result.issues) {
           throw new Error(
             `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,

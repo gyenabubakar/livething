@@ -101,6 +101,24 @@ describe('gaps()', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('does not remove a newer top-level listener when old cleanup repeats', () => {
+    const socket = client<Contract>()(connect('wss://test'), gaps());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const oldListener = vi.fn();
+    const newListener = vi.fn();
+    const offOld = socket.onGap(oldListener);
+    offOld();
+    socket.onGap(newListener);
+    offOld();
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: {} });
+
+    expect(oldListener).not.toHaveBeenCalled();
+    expect(newListener).toHaveBeenCalledOnce();
+  });
+
   it('stops delivering to a channel listener after it unsubscribes', () => {
     const socket = client<Contract>()(connect('wss://test'), channels(), gaps());
     socket.connect();
@@ -113,6 +131,53 @@ describe('gaps()', () => {
     ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
 
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not remove a newer channel listener when old cleanup repeats', () => {
+    const socket = client<Contract>()(connect('wss://test'), channels(), gaps());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const oldListener = vi.fn();
+    const newListener = vi.fn();
+    const room = socket.channel('room');
+    const offOld = room.onGap(oldListener);
+    offOld();
+    room.onGap(newListener);
+    offOld();
+
+    ws.emit({ event: '__gap__', payload: { missedThrough: 3 }, __wskit: { channel: 'room' } });
+
+    expect(oldListener).not.toHaveBeenCalled();
+    expect(newListener).toHaveBeenCalledOnce();
+  });
+
+  it('does not remove a newer dynamic-family listener when old cleanup repeats', () => {
+    interface FamilyContract {
+      channels: {
+        rooms: { addressing: 'dynamic'; incoming: {}; outgoing: {} };
+      };
+    }
+    const socket = client<FamilyContract>()(connect('wss://test'), channels(), gaps());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const room = socket.channel('rooms', 'general');
+    const oldListener = vi.fn();
+    const newListener = vi.fn();
+    const offOld = room.onGap(oldListener);
+    offOld();
+    room.onGap(newListener);
+    offOld();
+
+    ws.emit({
+      event: '__gap__',
+      payload: { missedThrough: 3 },
+      __wskit: { channel: 'general', channelFamily: 'rooms' },
+    });
+
+    expect(oldListener).not.toHaveBeenCalled();
+    expect(newListener).toHaveBeenCalledOnce();
   });
 
   it('consumes a malformed gap without calling listeners or leaking it', () => {

@@ -14,7 +14,6 @@ import {
   cancelScheduledRuns,
   ensureScheduledSchema,
   handleScheduledAlarm,
-  rescheduleScheduledAlarm,
   scheduleTaskRun,
 } from './runtime.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
@@ -415,55 +414,6 @@ describe('scheduled/runtime', () => {
       error: { message: 'fourth', name: 'Error' },
     });
     now.mockRestore();
-  });
-
-  it('clears the durable alarm when the scheduled queue empties', () => {
-    const deleteAlarm = vi.fn(async () => {});
-    const runtime = {
-      getScheduledRuns: () => new Map<string, ScheduledRun>(),
-      getTimers: () => ({
-        setAlarm: vi.fn(async () => {}),
-        deleteAlarm,
-        getAlarm: vi.fn(async () => null),
-      }),
-    };
-
-    rescheduleScheduledAlarm(runtime);
-
-    // Native durable alarms (e.g. CF DOs) must be cleared too — otherwise
-    // the platform wakes the DO at the previously-set time and finds
-    // nothing scheduled, billing for a wake that does no work.
-    expect(deleteAlarm).toHaveBeenCalledTimes(1);
-  });
-
-  it('sets the durable alarm to the earliest queued run time', () => {
-    const setAlarm = vi.fn(async () => {});
-    const runtime = {
-      getScheduledRuns: () =>
-        new Map<string, ScheduledRun>([
-          [
-            'a',
-            {
-              id: 'a',
-              taskId: 'flush',
-              time: 500,
-              data: undefined,
-              attempts: 0,
-              recurring: false,
-              retry: true,
-            },
-          ],
-        ]),
-      getTimers: () => ({
-        setAlarm,
-        deleteAlarm: vi.fn(async () => {}),
-        getAlarm: vi.fn(async () => null),
-      }),
-    };
-
-    rescheduleScheduledAlarm(runtime);
-
-    expect(setAlarm).toHaveBeenCalledWith(500);
   });
 
   it('retries with custom backoff schedule and dead-letters after exhausting it', async () => {

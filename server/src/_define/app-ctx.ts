@@ -259,9 +259,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   readonly log: Logger;
   /** Keep a promise running past the end of the handler (for example Cloudflare `waitUntil`). */
   waitUntil(promise: Promise<unknown>): void;
-  /** Set the next alarm on the adapter's timer surface (unix ms). */
-  setAlarm(time: number): void;
-
   /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with

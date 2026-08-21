@@ -38,9 +38,14 @@ export function gaps(): GapsPrimitive {
           handlers.set(key, scopedHandlers);
         }
         scopedHandlers.add(callback);
+        let active = true;
         return () => {
+          if (!active) return;
+          active = false;
           scopedHandlers.delete(callback);
-          if (scopedHandlers.size === 0) handlers.delete(key);
+          if (scopedHandlers.size === 0 && handlers.get(key) === scopedHandlers) {
+            handlers.delete(key);
+          }
         };
       }
 

@@ -84,13 +84,15 @@ export function buildChannelMessaging(
     },
     send(event, payload, options) {
       assertReady();
-      // A reserved protocol name (ping/pong or the __ namespace) can't be a user
-      // event — the server drops it, so don't put it on the wire. Check the plain
-      // name; the plugin prefix is added only after it passes.
-      if (isReservedEventName(event)) return false;
+      // Validate the actual wire name. A plugin channel turns `ping` into a
+      // namespaced user event, while a plain channel keeps it as a protocol
+      // frame and must still reject it.
+      if (typeof event !== 'string' || event.length === 0) return false;
+      const wireEvent = eventPrefix + event;
+      if (isReservedEventName(wireEvent)) return false;
       const ttl = options?.ttl ?? context.resolveTtl(event);
       const result = helpers.send(
-        { event: eventPrefix + event, payload, __wskit: markers() },
+        { event: wireEvent, payload, __wskit: markers() },
         ttl !== undefined ? { ttl } : undefined,
       );
       return result === 'sent' || result === 'buffered';

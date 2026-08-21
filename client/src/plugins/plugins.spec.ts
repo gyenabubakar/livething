@@ -27,6 +27,8 @@ interface AppContract {
   };
   outgoing: {
     '__acme:chat::typing': { on: boolean };
+    '__acme:hb::ping': {};
+    '__acme:hb::pong': {};
   };
   clientRequests: {
     '__acme:chat::send-message': { payload: { text: string }; response: { id: string } };
@@ -38,7 +40,15 @@ interface AppContract {
     '__acme:feed::feed': { payload: { from: number }; chunk: { row: number }; kind: 'persistent' };
   };
   channels: {
-    '__acme:chat::thread': { addressing: 'dynamic'; incoming: { post: { text: string } } };
+    '__acme:chat::room': {
+      incoming: { ping: {}; pong: {} };
+      outgoing: { ping: {}; pong: {} };
+    };
+    '__acme:chat::thread': {
+      addressing: 'dynamic';
+      incoming: { post: { text: string }; ping: {}; pong: {} };
+      outgoing: { ping: {}; pong: {} };
+    };
   };
   errors: {
     '__acme:chat::room-full': { limit: number };
@@ -215,6 +225,114 @@ describe('scoped receive — on()', () => {
 });
 
 describe('scoped send — send() and request()', () => {
+  it('allows namespaced ping/pong but rejects empty and non-string plugin events', () => {
+    type HeartbeatWire = { outgoing: { ping: {}; pong: {} } };
+    type HeartbeatApi = { send: (event: 'ping' | 'pong') => boolean };
+    const Heartbeat = plugin<HeartbeatWire, HeartbeatApi>()({
+      id: 'acme:hb',
+      setup(socket) {
+        return { api: () => ({ send: (event) => socket.send(event, {}) }) };
+      },
+    });
+
+    const { socket, ws } = build(Heartbeat());
+    const send = Heartbeat.use(socket).send as unknown as (
+      event: unknown,
+      payload?: unknown,
+    ) => boolean;
+
+    expect(send('ping')).toBe(true);
+    expect(send('pong')).toBe(true);
+    expect(send('')).toBe(false);
+    expect(send(null)).toBe(false);
+    expect(ws.sentFrames().map((frame) => frame.event)).toEqual([
+      '__acme:hb::ping',
+      '__acme:hb::pong',
+    ]);
+  });
+
+  it('allows ping and pong as plugin-channel events after namespacing', async () => {
+    type ChatChannels = {
+      channels: {
+        room: { incoming: { ping: {}; pong: {} }; outgoing: { ping: {}; pong: {} } };
+        thread: {
+          addressing: 'dynamic';
+          incoming: { ping: {}; pong: {} };
+          outgoing: { ping: {}; pong: {} };
+        };
+      };
+    };
+    const Chat = plugin<ChatChannels, { rooms: () => unknown }>()({
+      id: 'acme:chat',
+      dependencies: [channels],
+      setup(socket) {
+        return {
+          api: () => ({
+            rooms: () => ({
+              static: socket.channel('room'),
+              dynamic: socket.channel('thread', 'one'),
+            }),
+          }),
+        };
+      },
+    });
+
+    const { socket, ws } = build(channels(), Chat());
+    const rooms = Chat.use(socket).rooms() as {
+      static: {
+        subscribe(): Promise<void>;
+        send(event: string, payload: unknown): boolean;
+      };
+      dynamic: {
+        subscribe(): Promise<void>;
+        send(event: string, payload: unknown): boolean;
+      };
+    };
+    const subscribed = rooms.static.subscribe();
+    expect(ws.sentFrames().at(-1)).toMatchObject({
+      event: '__subscribe__',
+      __wskit: { channel: '__acme:chat::room' },
+    });
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: '__acme:chat::room' },
+    });
+    await subscribed;
+
+    expect(rooms.static.send('ping', {})).toBe(true);
+    expect(rooms.static.send('pong', {})).toBe(true);
+    expect(rooms.static.send('', {})).toBe(false);
+    expect(rooms.static.send(null as unknown as string, {})).toBe(false);
+    expect(
+      ws
+        .sentFrames()
+        .slice(-2)
+        .map((frame) => frame.event),
+    ).toEqual(['__acme:chat::ping', '__acme:chat::pong']);
+
+    const dynamicSubscribed = rooms.dynamic.subscribe();
+    expect(ws.sentFrames().at(-1)).toMatchObject({
+      event: '__subscribe__',
+      __wskit: { channel: 'one', channelFamily: '__acme:chat::thread' },
+    });
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'one', channelFamily: '__acme:chat::thread' },
+    });
+    await dynamicSubscribed;
+    expect(rooms.dynamic.send('ping', {})).toBe(true);
+    expect(rooms.dynamic.send('pong', {})).toBe(true);
+    expect(rooms.dynamic.send('', {})).toBe(false);
+    expect(
+      ws
+        .sentFrames()
+        .slice(-2)
+        .map((frame) => frame.event),
+    ).toEqual(['__acme:chat::ping', '__acme:chat::pong']);
+  });
+
   it('send() prefixes the event with the plugin namespace on the wire', () => {
     const Chat = plugin<ChatWire, { startTyping: () => boolean }>()({
       id: 'acme:chat',

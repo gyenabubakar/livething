@@ -762,21 +762,3 @@ export function cancelScheduledRuns(
   runtime.rescheduleAlarm();
   return { taskExists, removed };
 }
-
-/**
- * Ask the adapter's durable alarm API to wake the engine when the next
- * queued task is due.
- */
-export function rescheduleScheduledAlarm(
-  runtime: Pick<ScheduledRuntimeAccess, 'getScheduledRuns' | 'getTimers'>,
-): void {
-  const timers = runtime.getTimers();
-  const nextRun = [...runtime.getScheduledRuns().values()].sort((a, b) => a.time - b.time)[0];
-
-  if (!nextRun) {
-    void timers.deleteAlarm();
-    return;
-  }
-
-  void timers.setAlarm(nextRun.time);
-}

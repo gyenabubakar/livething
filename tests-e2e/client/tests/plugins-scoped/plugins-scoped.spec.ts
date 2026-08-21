@@ -99,6 +99,20 @@ test.describe('plugins — scoped client plugin (conformance)', () => {
     await expect.poll(async () => page.getByTestId('said').textContent()).toBe('hey room');
   });
 
+  test('plugin channel ping and pong round-trip as namespaced user events', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sc-channel-heartbeat-${testInfo.testId}`);
+    await page.getByTestId('join-room').click();
+    await expect.poll(async () => page.getByTestId('joined').textContent()).toBe('joined');
+
+    await page.getByTestId('channel-ping').click();
+    await expect.poll(async () => page.getByTestId('said').textContent()).toBe('ping');
+
+    await page.getByTestId('channel-pong').click();
+    await expect.poll(async () => page.getByTestId('said').textContent()).toBe('pong');
+  });
+
   test('scoped dynamic-family channel addresses a specific member', async ({ page }, testInfo) => {
     await open(page, `sc-thread-${testInfo.testId}`);
     await page.getByTestId('join-thread').click();

@@ -72,6 +72,48 @@ export const handleAskCursor = chat.on('ask-cursor', {
 // expose receiversOf (inbox) and markAsRead/readersOf (readReceipts).
 export const receiptsHandler = base.assemble({
   handlers: [handleServerDrop, handleSendRoomMsg, handleAskCursor, chat],
+  api: (ctx) => ({
+    seedStaleReceipt() {
+      ctx.sql.exec(
+        `INSERT OR REPLACE INTO __wskit_inbox_receipts
+          (channel_name, channel_family, user_id, received_through, read_through, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        'old-chat',
+        '',
+        'alice',
+        3,
+        3,
+        Date.now(),
+      );
+    },
+    staleReceiptCount(): number {
+      return Number(
+        ctx.sql
+          .exec<{
+            count: number;
+          }>(
+            'SELECT COUNT(*) AS count FROM __wskit_inbox_receipts WHERE channel_name = ?',
+            'old-chat',
+          )
+          .one()?.count ?? 0,
+      );
+    },
+    dropInboxTable() {
+      ctx.sql.exec('DROP TABLE __wskit_inbox');
+    },
+    receiptUsers(channelName: string, seq: number): string[] {
+      return ctx.sql
+        .exec<{ user_id: string }>(
+          `SELECT user_id FROM __wskit_inbox_receipts
+           WHERE channel_name = ? AND channel_family = ? AND received_through >= ?`,
+          channelName,
+          '',
+          seq,
+        )
+        .toArray()
+        .map((row) => row.user_id);
+    },
+  }),
 });
 
 export type ReceiptsClient = InferClient<typeof receiptsHandler>;

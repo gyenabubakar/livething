@@ -317,10 +317,6 @@ export function buildConnectionContext(
 
   assignMessagingApi(base, connection, deps);
 
-  base.setAlarm = (time: number) => {
-    void deps.getTimers().setAlarm(time);
-  };
-
   const channelExtra = deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps);
   if (channelExtra?.channel) base.channel = channelExtra.channel;
 
