@@ -47,6 +47,9 @@ describe('isReservedEventName', () => {
     // A plugin event is a real, sendable user event in its namespace.
     expect(isReservedEventName('__acme:presence::heartbeat')).toBe(false);
     expect(isReservedEventName('__e2e:feed::feed')).toBe(false);
+    // Even names that are reserved on their own are fine once namespaced.
+    expect(isReservedEventName('__acme:hb::ping')).toBe(false);
+    expect(isReservedEventName('__acme:hb::pong')).toBe(false);
     // A protocol frame has no `::` and stays reserved.
     expect(isReservedEventName('__streamStart__')).toBe(true);
     expect(isReservedEventName('__subscribe__')).toBe(true);

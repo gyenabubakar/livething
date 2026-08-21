@@ -55,7 +55,7 @@ test.describe('server→client request', () => {
     await expect(page.getByTestId('error-outcome')).toHaveText('request-no-response');
   });
 
-  test('a bare-marker ack resolves the server promise with undefined, ignoring any payload the client returns', async ({
+  test('an { out }-only ack resolves the server promise with undefined, ignoring any payload the client returns', async ({
     page,
   }) => {
     await page.getByTestId('trigger-ack').click();

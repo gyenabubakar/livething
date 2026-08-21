@@ -65,7 +65,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
     __wskit: 'sequence',
     __kind: 'infrastructure',
     __identity: [SEQUENCE_KEY],
-    __requires: persist ? { storage: true } : {},
+    __requires: {},
     persist,
     batchSize,
     __setup(engine) {
@@ -77,7 +77,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
 
         if (persist) {
           engine.onBootSchema(() => {
-            ensureSequenceSchema(engine.requireStorage().sql);
+            ensureSequenceSchema(engine.storage.sql);
           });
         }
 
@@ -86,7 +86,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
         engine.onWSKitStamp(() => {
           if (persist) {
             persistentAllocator ??= createPersistentSequenceAllocator(
-              engine.requireStorage().sql,
+              engine.storage.sql,
               batchSize,
             );
             return { seq: persistentAllocator.next() };

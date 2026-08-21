@@ -81,6 +81,19 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
       expectTypeOf(cast).toMatchTypeOf<{ event: string }>();
     });
   });
+
+  it('are typed on ctx without intercepts() — they are core', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [emits({ msg: t<{ text: string }>() })],
+    });
+    base.on('x', {
+      run(ctx) {
+        expectTypeOf(ctx.matches).toBeFunction();
+        expectTypeOf(ctx.unsafeCast).toBeFunction();
+      },
+    });
+  });
 });
 
 describe('localKey() no-arg', () => {

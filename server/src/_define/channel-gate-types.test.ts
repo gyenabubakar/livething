@@ -2,6 +2,9 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
+import { replay } from '~/replay/capability.ts';
+import { requests } from '~/request/capability.ts';
+import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 
@@ -73,6 +76,114 @@ describe('channel handler ctx typing', () => {
         expectTypeOf(ctx.channel.params).not.toBeAny();
         expectTypeOf(ctx.channel.members()).not.toBeAny();
         ctx.channel.send('message', { text: 'hi' });
+      },
+    });
+  });
+});
+
+describe('channel gate surface typing', () => {
+  it('omits channel-only handles from gate contexts but keeps channel membership reads', () => {
+    const gateBase = define({ env: t<Env>(), capabilities: [channels()] });
+    gateBase.channel('gated', {
+      check(ctx) {
+        expectTypeOf(ctx.channel.members).toBeFunction();
+        const handle = ctx.channels.get('gated');
+        // @ts-expect-error — channel-only inbox access is not part of gate ctx.
+        handle.inbox;
+        // @ts-expect-error — channel-only read-receipts access is not part of gate ctx.
+        handle.readReceipts;
+      },
+    });
+  });
+
+  it('omits channel-owned request methods from check, commit, and revalidate', () => {
+    const requestGateBase = define({
+      env: t<Env>(),
+      capabilities: [
+        channels(),
+        requests({
+          ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
+        }),
+        tags((ephemeral) => [ephemeral('role', t<string>())]),
+      ],
+    });
+
+    requestGateBase.channel('request-gated', {
+      outgoing: {
+        requests: {
+          ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
+        },
+      },
+      check(ctx) {
+        // The request map belongs to this same config object, so it is not
+        // available while the gate callbacks are being contextually typed.
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.request;
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.broadcastRequest;
+        expectTypeOf(ctx.channel.send).toBeFunction();
+        expectTypeOf(ctx.channel.broadcast).toBeFunction();
+        expectTypeOf(ctx.channel.members).toBeFunction();
+        expectTypeOf(ctx.request).toBeFunction();
+        expectTypeOf(ctx.broadcastRequest).toBeFunction();
+        expectTypeOf(ctx.tags.ephemeral('role').broadcastRequest).toBeFunction();
+        // @ts-expect-error — stream generators have their own ctx, not a gate ctx.
+        ctx.stream;
+        expectTypeOf(ctx.channels.get('request-gated').broadcastRequest).toBeFunction();
+      },
+      commit(ctx) {
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.request;
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.broadcastRequest;
+      },
+      revalidate(ctx) {
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.request;
+        // @ts-expect-error — channel request methods are not part of gate ctx.
+        ctx.channel.broadcastRequest;
+      },
+    });
+
+    const normal = requestGateBase.channel('request-normal', {
+      outgoing: {
+        requests: {
+          ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
+        },
+      },
+    });
+    normal.on('message', {
+      run(ctx) {
+        expectTypeOf(ctx.channel.request).toBeFunction();
+        expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
+      },
+    });
+    normal.subscribe((ctx) => {
+      expectTypeOf(ctx.channel.request).toBeFunction();
+      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
+    });
+    normal.unsubscribe((ctx) => {
+      expectTypeOf(ctx.channel.request).toBeFunction();
+      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
+    });
+    normal.sessionEnd((ctx) => {
+      expectTypeOf(ctx.channel.request).toBeFunction();
+      expectTypeOf(ctx.channel.broadcastRequest).toBeFunction();
+    });
+  });
+
+  it('keeps replay channel-scoped instead of exposing the root replay method', () => {
+    const replayBase = define({
+      env: t<Env>(),
+      capabilities: [channels(), replay.history()],
+    });
+    replayBase.channel('replay-gated', {
+      check(ctx) {
+        // The channel handle owns replay for channel-scoped contexts. The
+        // root replay method is only for non-channel handlers.
+        // @ts-expect-error — channel gate contexts do not expose root replay.
+        ctx.sendReplay;
+        expectTypeOf(ctx.channel.sendReplay).not.toBeAny();
       },
     });
   });

@@ -17,7 +17,7 @@ export const serverRequestContract = define({
   capabilities: [
     requests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
-      'ping-ack': t<{ note: string }>(),
+      'ping-ack': { out: t<{ note: string }>() },
     }),
     emits({
       outcome: t<{ allowed: boolean }>(),
@@ -93,11 +93,8 @@ const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
   },
 });
 
-export const serverRequestHandler = serverRequestContract.assemble(
-  handleTrigger,
-  handleTriggerTimeout,
-  handleTriggerAck,
-  handleTriggerUndeclared,
-);
+export const serverRequestHandler = serverRequestContract.assemble({
+  handlers: [handleTrigger, handleTriggerTimeout, handleTriggerAck, handleTriggerUndeclared],
+});
 
 export type ServerRequestClient = InferClient<typeof serverRequestHandler>;

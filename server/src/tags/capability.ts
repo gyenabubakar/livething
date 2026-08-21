@@ -1,5 +1,6 @@
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
+import { tagPersistenceRuntimePrimitive } from '~/tags/service.ts';
 import { resolveTagGroupDefs, tagGroups } from '~/tags/tags.ts';
 import type { Capability, UnionToIntersection } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -59,8 +60,7 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  * Enable tags — named groups you attach to connections to address or count them
  * (for example everyone with `role:admin`). Listing this grants the `ctx.tags`
  * surface and the optional initial ephemeral tags in `upgrade(...)`. Persistent
- * groups, which survive restarts, additionally need the `persistence()`
- * capability.
+ * groups survive restarts; ephemeral ones do not.
  *
  * Declare groups with the two builders: `ephemeral(name, type?)` for in-memory
  * groups and `persistent(name, type?)` for durable ones. A `t<T>()` marker types
@@ -96,7 +96,7 @@ export const tags = withCapabilityKind(function tags<const TDefs extends readonl
   builder: TagsBuilder<TDefs>,
 ): TagsCapability<TDefs> {
   const defs = resolveTagGroupDefs(builder as TagsConfig);
-  const primitives: Primitive[] = [];
+  const primitives: Primitive[] = [tagPersistenceRuntimePrimitive()];
   const ephemeral = registrationsFor(defs, 'ephemeral');
   const persistent = registrationsFor(defs, 'persistent');
   if (ephemeral.length > 0) primitives.push(tagGroups('ephemeral', ephemeral));

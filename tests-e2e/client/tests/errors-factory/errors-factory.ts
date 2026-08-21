@@ -1,12 +1,12 @@
 import { client, connect } from '@wskit/client';
-import type { WSKitError } from '@wskit/client/errors';
+import { WSKitError } from '@wskit/client/errors';
 import type { ErrorsFactoryClient } from '@wskit/tests-e2e-handlers/errors-factory';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's base socket against the real `errors-factory` handler.
-// Server errors that no request or stream claims surface on socket.onError as a
-// typed WSKitError — every trigger here is a fire-and-forget incoming event, so
-// the error always arrives that way.
+// Server errors that no request or stream claims surface on socket.onServerError
+// as a typed WSKitError — every trigger here is a fire-and-forget incoming event,
+// so the error always arrives that way.
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
@@ -18,6 +18,9 @@ export function setup(): void {
     <span data-testid="status"></span>
     <span data-testid="error-code"></span>
     <span data-testid="error-result"></span>
+    <span data-testid="specific-error-code"></span>
+    <span data-testid="specific-error-detail"></span>
+    <span data-testid="unmatched-specific-error"></span>
   `);
 
   const socket = client<ErrorsFactoryClient>()(connect(wsUrl('errors-factory')));
@@ -26,9 +29,19 @@ export function setup(): void {
     el('status').textContent = socket.state.get();
   });
 
-  socket.onError((err: WSKitError) => {
+  socket.onServerError((err) => {
+    if (!(err instanceof WSKitError)) return;
     el('error-code').textContent = errorCode(err);
     el('error-result').textContent = `${err.code}:${JSON.stringify(err.detail ?? {})}`;
+  });
+
+  socket.onServerError('not-found', (err) => {
+    el('specific-error-code').textContent = err.code;
+    el('specific-error-detail').textContent = err.detail.id;
+  });
+
+  socket.onServerError('forbidden', (err) => {
+    el('unmatched-specific-error').textContent = err.code;
   });
 
   button('connect', () => socket.connect());

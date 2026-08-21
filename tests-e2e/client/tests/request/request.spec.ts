@@ -18,12 +18,17 @@ test.describe('request (conformance)', () => {
     await expect(page.getByTestId('time')).toHaveText('fixed-now-string');
   });
 
-  test('a handler that never responds rejects with request-no-response', async ({
-    page,
-  }, testInfo) => {
+  test('a handler that returns nothing resolves as a void ack', async ({ page }, testInfo) => {
     await open(page, `req-noresp-${testInfo.testId}`);
     await page.getByTestId('no-response').click();
-    await expect(page.getByTestId('no-response-error')).toHaveText('request-no-response');
+    await expect(page.getByTestId('no-response-result')).toHaveText('acked');
+    await expect(page.getByTestId('no-response-value')).toHaveText('undefined');
+  });
+
+  test('a handler that throws rejects the request', async ({ page }, testInfo) => {
+    await open(page, `req-throw-${testInfo.testId}`);
+    await page.getByTestId('throwing-request').click();
+    await expect(page.getByTestId('throw-error')).toHaveText('internal-error');
   });
 
   test('channel-scoped request resolves after subscribe', async ({ page }, testInfo) => {

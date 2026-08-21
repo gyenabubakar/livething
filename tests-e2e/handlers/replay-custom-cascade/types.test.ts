@@ -5,7 +5,7 @@ describe('ReplayCustomCascadeClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplayCustomCascadeClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplayCustomCascadeClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplayCustomCascadeClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['errors']>().not.toBeAny();
@@ -21,8 +21,8 @@ describe('ReplayCustomCascadeClient — top-level slots are empty', () => {
     expectTypeOf<keyof ReplayCustomCascadeClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof ReplayCustomCascadeClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ReplayCustomCascadeClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

@@ -6,7 +6,7 @@ import { dedup } from './capability.ts';
 describe('dedup() capability', () => {
   it('adds the dedup primitive and the dedup feature flag', () => {
     const base = define({ env: t<Record<string, never>>(), capabilities: [dedup({ cap: 128 })] });
-    const handler = base.assemble();
+    const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'dedup')).toBe(true);
     expect(handler.__features?.has('dedup')).toBe(true);
   });

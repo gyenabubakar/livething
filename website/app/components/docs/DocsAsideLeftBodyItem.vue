@@ -4,27 +4,14 @@ import type { ContentNavigationItem } from '@nuxt/content'
 const props = defineProps<{
   item: ContentNavigationItem
   level: number
+  isOpen: boolean
 }>()
+
+const emit = defineEmits<{ toggle: [] }>()
 
 const route = useRoute()
 
-/**
- * Walk down to the first descendant page so parents that point at a folder
- * (no index file) still navigate somewhere useful — typically their `Overview`
- * child. Mirrors `getFirstPagePath` in `docus/composables/useSubNavigation`.
- */
-function getFirstPagePath(item: ContentNavigationItem): string {
-  let current = item
-  while (current.children?.length) {
-    const [first] = current.children
-    if (!first) break
-    current = first
-  }
-  return current.path
-}
-
 const hasChildren = computed(() => Array.isArray(props.item.children) && props.item.children.length > 0)
-const linkPath = computed(() => hasChildren.value ? getFirstPagePath(props.item) : props.item.path)
 /**
  * Only leaf items light up. Section parents (with children) keep their neutral
  * style even when one of their descendants is active — the visual signal lives
@@ -32,7 +19,9 @@ const linkPath = computed(() => hasChildren.value ? getFirstPagePath(props.item)
  */
 const isActive = computed(() => !hasChildren.value && route.path === props.item.path)
 
-const itemClasses = 'flex items-center gap-1.5 px-2.5 py-1.5 text-sm transition-colors'
+const { isOpen: isChildOpen, toggle: toggleChild } = useSidebarGroupToggle(computed(() => props.item.children ?? []))
+
+const itemClasses = 'flex w-full items-center gap-1.5 px-2.5 py-1.5 pr-2 text-sm transition-colors'
 const inactiveClasses = 'text-muted hover:text-default'
 const activeClasses = 'text-primary font-medium'
 const headerClasses = 'text-default font-medium hover:text-primary'
@@ -41,11 +30,9 @@ const headerClasses = 'text-default font-medium hover:text-primary'
 <template>
   <li>
     <ULink
-      :to="linkPath"
-      :class="[
-        itemClasses,
-        isActive ? activeClasses : (hasChildren ? headerClasses : inactiveClasses),
-      ]"
+      v-if="!hasChildren"
+      :to="item.path"
+      :class="[itemClasses, isActive ? activeClasses : inactiveClasses]"
     >
       <UIcon
         v-if="typeof item.icon === 'string'"
@@ -54,16 +41,37 @@ const headerClasses = 'text-default font-medium hover:text-primary'
       />
       <span class="truncate">{{ item.title }}</span>
     </ULink>
-    <ul
-      v-if="hasChildren"
-      class="ml-3 mt-px flex flex-col border-l border-default/60 pl-3"
+    <button
+      v-else
+      type="button"
+      :class="[itemClasses, headerClasses, 'group']"
+      :aria-label="isOpen ? `Collapse ${item.title}` : `Expand ${item.title}`"
+      :aria-expanded="isOpen"
+      @click="emit('toggle')"
     >
-      <DocsAsideLeftBodyItem
-        v-for="(child, index) in item.children"
-        :key="child.path ?? `${item.path}-${index}`"
-        :item="child"
-        :level="level + 1"
+      <UIcon
+        v-if="typeof item.icon === 'string'"
+        :name="item.icon"
+        class="size-4 shrink-0"
       />
-    </ul>
+      <span class="min-w-0 flex-1 truncate text-left">{{ item.title }}</span>
+      <UIcon :name="isOpen ? 'i-ph-minus' : 'i-ph-plus'" class="size-3.5 shrink-0 text-dimmed transition-colors group-hover:text-primary" />
+    </button>
+    <div
+      v-if="hasChildren"
+      class="grid transition-[grid-template-rows] duration-200 ease-out"
+      :class="isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'"
+    >
+      <ul class="ml-3 flex flex-col overflow-hidden border-l border-default/60 pl-3">
+        <DocsAsideLeftBodyItem
+          v-for="(child, index) in item.children"
+          :key="child.path ?? `${item.path}-${index}`"
+          :item="child"
+          :level="level + 1"
+          :is-open="isChildOpen(index)"
+          @toggle="toggleChild(index)"
+        />
+      </ul>
+    </div>
   </li>
 </template>

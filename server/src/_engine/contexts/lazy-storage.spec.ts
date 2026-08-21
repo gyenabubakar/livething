@@ -9,10 +9,8 @@ function view(listResult: string[] = []) {
     delete: vi.fn(async () => {}),
     list: vi.fn(async () => listResult),
   };
-  function requireStorage(): any {
-    return { sql: {}, kv: kvImpl };
-  }
-  return { ...createLazyStorageView(requireStorage), kvImpl };
+  const storage: any = { sql: {}, kv: kvImpl };
+  return { ...createLazyStorageView(storage), kvImpl };
 }
 
 describe('lazy kv — reserved-key guard (kv namespace hardening)', () => {

@@ -2,7 +2,7 @@ import type { WSKitError } from '@wskit/core';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
-import type { ConnectionState, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
+import type { ConnectionState, ErrorsOf, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
 
 /**
  * The connection methods every socket has, no matter the contract. The typed
@@ -31,10 +31,6 @@ export interface SocketConnection {
   onReconnectFailed(callback: () => void): () => void;
   /** Runs on every close. */
   onClose(callback: (event: CloseEvent) => void): () => void;
-  /** Runs on a WebSocket-level error. */
-  onError(callback: (error: Event) => void): () => void;
-  /** Runs on a typed server error that no request or stream claimed. */
-  onError(callback: (error: WSKitError) => void): () => void;
 
   /** Turn console logging on or off at runtime. */
   setDebug(enabled: boolean): void;
@@ -56,10 +52,35 @@ export interface SocketContractBrand<TContract extends SocketContract> {
 }
 
 /**
+ * Every error the contract's `errors` section declares, as a discriminated union
+ * of `WSKitError`, each typed to its own code and detail. Use it when a typed
+ * contract error is needed in an API or helper; the runtime `onError` callback
+ * is `unknown` because local code can throw any JavaScript value. A contract
+ * from `InferClient` already folds in the framework's built-in errors alongside
+ * your server's and any plugins'.
+ */
+export type ContractError<TContract extends SocketContract> = {
+  [TCode in keyof ErrorsOf<TContract> & string]: WSKitError<TCode, ErrorsOf<TContract>[TCode]>;
+}[keyof ErrorsOf<TContract> & string];
+
+type ContractErrorCode<TContract extends SocketContract> = keyof ErrorsOf<TContract> & string;
+
+/**
  * The socket type you work with: the connection methods plus typed `on()` and
  * `send()` for your contract. Primitives add their own methods on top through
  * `client()`.
  */
 export type Socket<TContract extends SocketContract = SocketContract> = SocketConnection &
   Messaging<IncomingOf<TContract> & object, OutgoingOf<TContract> & object> &
-  SocketContractBrand<TContract>;
+  SocketContractBrand<TContract> & {
+    /** Runs on transport events and values thrown by handlers, primitives, or plugins. */
+    onError(callback: (error: unknown) => void): () => void;
+
+    /** Runs on any unclaimed server error, including codes added by a newer server. */
+    onServerError(callback: (error: WSKitError<string, unknown>) => void): () => void;
+    /** Runs only when an unclaimed server error has this declared contract code. */
+    onServerError<TCode extends ContractErrorCode<TContract>>(
+      code: TCode,
+      callback: (error: WSKitError<TCode, ErrorsOf<TContract>[TCode]>) => void,
+    ): () => void;
+  };

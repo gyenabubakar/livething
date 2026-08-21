@@ -69,13 +69,15 @@ const handleKvTtlZeroProbe = base.on('kv-ttl-zero-probe', {
   },
 });
 
-export const ctxKvHandler = base.assemble(
-  handleKvSet,
-  handleKvGet,
-  handleKvDelete,
-  handleKvSetGet,
-  handleKvListProbe,
-  handleKvTtlZeroProbe,
-);
+export const ctxKvHandler = base.assemble({
+  handlers: [
+    handleKvSet,
+    handleKvGet,
+    handleKvDelete,
+    handleKvSetGet,
+    handleKvListProbe,
+    handleKvTtlZeroProbe,
+  ],
+});
 
 export type CtxKvClient = InferClient<typeof ctxKvHandler>;

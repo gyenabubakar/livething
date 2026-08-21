@@ -33,3 +33,8 @@ AUDIT.md
 .playwright-mcp/
 
 .notes.md
+
+# Stray screenshots dropped in the repo root (subdirectory image assets stay tracked)
+/*.png
+/*.jpg
+/*.jpeg

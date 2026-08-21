@@ -1,3 +1,4 @@
+import { assertSynchronousResult } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -44,11 +45,12 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   const fingerprint = JSON.stringify(row);
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
-  ConnectionStore.writeConnectionRow(core.requireStorage().sql, row);
-  connection.lastPersistedFingerprint = fingerprint;
+  ConnectionStore.writeConnectionRow(core.storage.sql, row);
   // Cheap adapter call that updates the in-memory hibernation tag. Runs once
   // per SQL write — when the SQL write is skipped, this is skipped too.
-  core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  const persistResult = core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  assertSynchronousResult(persistResult, 'adapter hibernation.persist');
+  connection.lastPersistedFingerprint = fingerprint;
 }
 
 /**
@@ -60,7 +62,28 @@ export function readConnectionState(
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
   if (!core.hibernationEnabled) return null;
-  return ConnectionStore.readConnectionRow(core.requireStorage().sql, connectionId);
+  const preloaded = core.preloadedConnectionRows;
+  if (preloaded) return preloaded.get(connectionId) ?? null;
+  return ConnectionStore.readConnectionRow(core.storage.sql, connectionId);
+}
+
+/**
+ * Read every persisted row once and serve the boot restore's per-socket lookups
+ * from it, so waking N sockets costs one query rather than N. The callback owns
+ * the whole restore pass; the preload is dropped afterwards so later wakes go
+ * back to reading live rows.
+ */
+export function withPreloadedConnectionRows(core: EngineCore, run: () => void): void {
+  if (!core.hibernationEnabled) {
+    run();
+    return;
+  }
+  core.preloadedConnectionRows = ConnectionStore.readAllConnectionRows(core.storage.sql);
+  try {
+    run();
+  } finally {
+    core.preloadedConnectionRows = undefined;
+  }
 }
 
 /**
@@ -80,7 +103,7 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
       }
     }
   }
-  ConnectionStore.deleteConnectionRow(core.requireStorage().sql, connectionId);
+  ConnectionStore.deleteConnectionRow(core.storage.sql, connectionId);
 }
 
 /**
@@ -89,5 +112,5 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
  */
 export function reconcileConnections(core: EngineCore, surviving: ReadonlySet<string>): void {
   if (!core.hibernationEnabled) return;
-  ConnectionStore.reconcileConnectionRows(core.requireStorage().sql, surviving);
+  ConnectionStore.reconcileConnectionRows(core.storage.sql, surviving);
 }

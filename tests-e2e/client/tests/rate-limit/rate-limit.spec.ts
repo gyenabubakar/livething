@@ -12,7 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('rate-limit (conformance)', () => {
-  test('spamming a capped event past its cap delivers rate-limited + retryAfter to onError', async ({
+  test('spamming a capped event past its cap delivers rate-limited + retryAfter to onServerError', async ({
     page,
   }, testInfo) => {
     await open(page, `rl-tick-${testInfo.testId}`);
@@ -28,7 +28,7 @@ test.describe('rate-limit (conformance)', () => {
     expect(Number(retry)).toBeGreaterThanOrEqual(1);
   });
 
-  test('a per-handler override caps one event tighter and still hits onError', async ({
+  test('a per-handler override caps one event tighter and still hits onServerError', async ({
     page,
   }, testInfo) => {
     await open(page, `rl-expensive-${testInfo.testId}`);

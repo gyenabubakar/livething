@@ -41,13 +41,17 @@
       "types": "./dist/rate-limit/capability.d.ts",
       "import": "./dist/rate-limit.js"
     },
-    "./persistence": {
-      "types": "./dist/persistence/capability.d.ts",
-      "import": "./dist/persistence.js"
-    },
     "./replay": {
       "types": "./dist/replay/capability.d.ts",
       "import": "./dist/replay.js"
+    },
+    "./inbox": {
+      "types": "./dist/inbox/capability.d.ts",
+      "import": "./dist/inbox.js"
+    },
+    "./last-seen": {
+      "types": "./dist/last-seen/capability.d.ts",
+      "import": "./dist/last-seen.js"
     },
     "./streams": {
       "types": "./dist/streams.d.ts",

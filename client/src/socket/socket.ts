@@ -3,8 +3,9 @@ import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { createStore } from '~/internal/store.ts';
 import { isThenable } from '~/internal/thenable.ts';
-import { isReservedEventName } from '~/internal/wire-validation.ts';
+import { isProtocolFrameEvent, isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
+import type { WSKitError } from '@wskit/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
   FrameOwner,
@@ -39,26 +40,10 @@ type SocketEvents = {
   reconnectFailed: [];
   close: [event: CloseEvent];
   error: [error: unknown];
+  serverError: [error: WSKitError];
 };
 
-/**
- * A unique per-socket token mixed into every generated id. `randomUUID` is ideal;
- * when it's missing (older runtimes) fall back to 16 bytes from `getRandomValues`,
- * which is just as collision-resistant — crucially it does NOT share a seeded
- * counter the way a weak RNG might, so two fresh sockets can't mint the same
- * token. Only with no secure RNG at all does it drop to `Math.random`.
- */
-function makeIdScope(): string {
-  const crypto = globalThis.crypto;
-  if (crypto?.randomUUID) return crypto.randomUUID();
-  if (crypto?.getRandomValues) {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    let hex = '';
-    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
-    return hex;
-  }
-  return Math.random().toString(36).slice(2, 10);
-}
+type ServerErrorRegistration = { code?: string };
 
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
@@ -101,6 +86,13 @@ export class WSKitSocket {
 
   /** @internal — set after construction, once add-on modules are ready. */
   _primitives: readonly PrimitiveRuntime[] = [];
+
+  // The send and receive loops run on every frame and only call onIncoming or
+  // onOutgoing. Most primitives don't have those hooks, so we pick the ones that
+  // do just once here and let the loops skip the rest.
+  private _incoming: readonly PrimitiveRuntime[] = [];
+  private _outgoing: readonly PrimitiveRuntime[] = [];
+
   private _knownTags: ReadonlySet<string> = new Set();
 
   /** @internal — the writable half; `_setState` drives it and `state` exposes it. */
@@ -165,17 +157,19 @@ export class WSKitSocket {
     | ((message: WireMessage, options?: InternalSendOptions) => boolean)
     | null = null;
 
-  private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
+  private readonly _shared = new Map<string, unknown>();
 
-  private _idCounter = 0;
+  // One shared error callback, so the send loop doesn't make a new one per message.
+  private readonly _reportBound = (error: unknown): void => this._reportError(error);
 
-  private readonly _idScope = makeIdScope();
+  private readonly _serverErrorRegistrations = new Set<ServerErrorRegistration>();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
   private readonly _logger: PrimitiveLogger = {
+    debug: false,
     info: (...args) => this._logAt('log', ...args),
     warn: (...args) => this._logAt('warn', ...args),
     error: (...args) => this._logAt('error', ...args),
@@ -186,6 +180,7 @@ export class WSKitSocket {
   constructor(config: SocketConfig) {
     this._config = config;
     this._debug = config.debug ?? false;
+    this._logger.debug = this._debug;
     this._lazy = config.lazy ?? false;
     this._parse = config.parse ?? defaultParse;
     this._serialize = config.serialize ?? defaultSerialize;
@@ -195,6 +190,8 @@ export class WSKitSocket {
   /** @internal — attach the primitive runtimes after they're set up. */
   _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
     this._primitives = primitives;
+    this._incoming = primitives.filter((p) => p.onIncoming);
+    this._outgoing = primitives.filter((p) => p.onOutgoing);
   }
 
   /** @internal — the set of installed primitive tags, for `helpers.hasPrimitive`. */
@@ -215,16 +212,29 @@ export class WSKitSocket {
    * stay, so calling `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
+    this._teardown(code, reason, { intentional: true, suspended: false });
+  }
+
+  /**
+   * The shared teardown behind `disconnect()` and `suspend()`. `intentional` is
+   * a deliberate full stop (`disconnect`), which resets the session so the next
+   * connect is a first connect, not a reconnect. `suspended` is a temporary
+   * platform pause (`suspend`) that will resume as the same session — both are
+   * passed to each primitive's `onClose`.
+   */
+  private _teardown(
+    code: number,
+    reason: string,
+    { intentional, suspended }: { intentional: boolean; suspended: boolean },
+  ): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    // A deliberate teardown resets the session: the next connect() is treated
-    // as a first connect, not a reconnect (so onReconnect/replay don't fire).
-    this._isFirstConnect = true;
+    if (intentional) this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
-    // Was there anything to tear down? A disconnect() on an already-closed
-    // socket must not fire a second onClose. Closing a connecting/reconnecting
-    // socket still counts (matches native close-during-connecting).
+    // Was there anything to tear down? A teardown on an already-closed socket
+    // must not fire a second onClose. Closing a connecting/reconnecting socket
+    // still counts (matches native close-during-connecting).
     const wasActive = this._state !== 'closed';
 
     if (this.ws) {
@@ -245,7 +255,7 @@ export class WSKitSocket {
     // live listeners.
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(code, reason, true, false);
+        primitive.onClose?.(code, reason, intentional, suspended);
       } catch (error) {
         this._reportError(error);
       }
@@ -254,7 +264,7 @@ export class WSKitSocket {
     this._clearLazyIdleTimer();
 
     // Fire the user-facing close only once: skip it when we were already closed
-    // so a redundant disconnect doesn't emit a second onClose.
+    // so a redundant teardown doesn't emit a second onClose.
     if (wasActive) {
       this._setState('closed');
       this._emitter.emit('close', { code, reason, wasClean: true });
@@ -316,21 +326,42 @@ export class WSKitSocket {
   }
 
   /**
-   * An error worth knowing about: a WebSocket-level `Event`, a typed server error
-   * (`WSKitError`) that no request or stream claimed, or any value thrown by one of
-   * your handlers, listeners, or a plugin/primitive hook — surfaced here instead of
-   * swallowed. With no listener attached, the value is rethrown out of band (via
-   * `queueMicrotask`) so it surfaces to the global error handler.
+   * A transport-level event or a value thrown by a handler, listener, primitive,
+   * or plugin hook. With no listener, it is rethrown out of band.
    */
   onError(callback: (error: unknown) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
-  setDebug(enabled: boolean): void {
-    this._debug = enabled;
+  /** Listen for every unclaimed server error, including codes this client does not know. */
+  onServerError(callback: (error: WSKitError<string, unknown>) => void): () => void;
+  /** Listen only for an unclaimed server error with one code. */
+  onServerError(code: string, callback: (error: WSKitError<string, unknown>) => void): () => void;
+  onServerError(
+    codeOrCallback: string | ((error: WSKitError<string, unknown>) => void),
+    maybeCallback?: (error: WSKitError<string, unknown>) => void,
+  ): () => void {
+    const code = typeof codeOrCallback === 'string' ? codeOrCallback : undefined;
+    const callback = typeof codeOrCallback === 'function' ? codeOrCallback : maybeCallback;
+    if (!callback) throw new TypeError('[wskit] onServerError requires a callback.');
+
+    const registration: ServerErrorRegistration = { code };
+    this._serverErrorRegistrations.add(registration);
+    const off = this._emitter.on('serverError', (error) => {
+      if (registration.code === undefined || registration.code === error.code) callback(error);
+    });
+    return () => {
+      this._serverErrorRegistrations.delete(registration);
+      off();
+    };
   }
 
-  /** @internal — the set of actions an add-on module can call on the core engine. */
+  setDebug(enabled: boolean): void {
+    this._debug = enabled;
+    this._logger.debug = enabled;
+  }
+
+  /** @internal — the set of actions a primitive can call on the socket. */
   _helpers(): PrimitiveHelpers {
     return {
       config: this._config,
@@ -343,12 +374,9 @@ export class WSKitSocket {
 
       send: (message, options) => this._send(message, options),
 
-      generateId: (prefix) => {
-        const id = ++this._idCounter;
-        return prefix ? `${prefix}-${this._idScope}-${id}` : `${this._idScope}-${id}`;
-      },
-
       getState: () => this._state,
+
+      state: this.state,
 
       hasPrimitive: (tag) => this._knownTags.has(tag),
 
@@ -383,24 +411,9 @@ export class WSKitSocket {
         this._outgoingFallback = handler;
       },
 
-      emitSignal: (name, value) => {
-        const set = this._signalHandlers.get(name);
-        if (set) dispatchToHandlers(set, this._logger, value);
-      },
+      shared: this._shared,
 
-      onSignal: (name, handler) => {
-        let set = this._signalHandlers.get(name);
-        if (!set) {
-          set = new Set();
-          this._signalHandlers.set(name, set);
-        }
-
-        set.add(handler);
-
-        return () => {
-          set.delete(handler);
-        };
-      },
+      reportServerError: (error) => this._reportServerError(error),
 
       disconnect: (code, reason) => this.disconnect(code, reason),
 
@@ -408,46 +421,15 @@ export class WSKitSocket {
 
       suspend: (code, reason) => this._suspend(code, reason),
 
-      resume: () => this._resume(),
+      // Resuming a suspended transport is exactly a fresh connect: the session
+      // was never reset (suspend keeps it), so `_openConnection` treats it as a
+      // reconnect and primitives rejoin/resume as usual.
+      resume: () => this.connect(),
     };
   }
 
   private _suspend(code = 1000, reason = 'background'): void {
-    this._intentionalClose = true;
-    this._connectAttemptId++;
-    this._clearLazyIdleTimer();
-
-    const wasActive = this._state !== 'closed';
-
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      this.ws.onmessage = null;
-      this.ws.close(code, reason);
-      this.ws = null;
-    }
-    this.protocol = null;
-
-    for (const primitive of this._primitives) {
-      try {
-        primitive.onClose?.(code, reason, false, true);
-      } catch (error) {
-        this._reportError(error);
-      }
-    }
-    this._clearLazyIdleTimer();
-
-    if (wasActive) {
-      this._setState('closed');
-      this._emitter.emit('close', { code, reason, wasClean: true });
-    }
-  }
-
-  private _resume(): void {
-    if (this._state === 'open' || this._state === 'connecting') return;
-    this._intentionalClose = false;
-    this._openConnection();
+    this._teardown(code, reason, { intentional: false, suspended: true });
   }
 
   /**
@@ -722,12 +704,11 @@ export class WSKitSocket {
     // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
     // and skip that module so the rest of the pipeline still runs.
     let message: WireMessage = parsed;
-    for (const primitive of this._primitives) {
-      if (!primitive.onIncoming) continue;
+    for (const primitive of this._incoming) {
       try {
-        const result = primitive.onIncoming(message);
+        const result = primitive.onIncoming!(message);
         if (result === null) {
-          this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
+          if (this._debug) this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
           return;
         }
         message = result;
@@ -736,11 +717,11 @@ export class WSKitSocket {
       }
     }
 
-    // An `__error__` frame no module claimed becomes an onError call instead of a normal event.
-    // Route through _reportError so that with no listener it still reaches the
-    // host's global handler rather than being silently dropped by the emitter.
+    // An `__error__` frame no module claimed becomes an onServerError call instead
+    // of a normal event. It never falls into onError: those callbacks are for
+    // local, transport, and hook failures.
     if (message.event === '__error__') {
-      this._reportError(toWSKitError(message.payload));
+      this._reportServerError(toWSKitError(message.payload));
       return;
     }
 
@@ -753,7 +734,7 @@ export class WSKitSocket {
         } catch (error) {
           if (error === Block) {
             // An intentional drop: stop the chain and drop the message.
-            this._log(`intercept dropped '${message.event}'`);
+            if (this._debug) this._log(`intercept dropped '${message.event}'`);
             return;
           }
           // A real error is isolated like an onIncoming throw above: log it and
@@ -763,6 +744,10 @@ export class WSKitSocket {
         }
       }
     }
+
+    // An unclaimed reserved protocol frame is protocol bookkeeping, not user traffic — drop it
+    // rather than leak to a `.on()` handler. Plugin-namespaced `__id::event` frames pass through.
+    if (isProtocolFrameEvent(message.event)) return;
 
     // Top-level handlers only see top-level events. Messages tagged with a
     // channel or stream id are delivered by the matching add-on module, so they
@@ -833,17 +818,10 @@ export class WSKitSocket {
     this._ensureConnected();
 
     let outgoing: WireMessage | null = message;
-    for (const primitive of this._primitives) {
-      if (!primitive.onOutgoing) continue;
-
+    for (const primitive of this._outgoing) {
       // Block cancels the send; any other throw is reported and the message
       // passes through unchanged.
-      const onOutgoing = primitive.onOutgoing;
-      outgoing = runMessageHook(
-        (m) => onOutgoing(m),
-        outgoing!,
-        (error) => this._reportError(error),
-      );
+      outgoing = runMessageHook(primitive.onOutgoing!, outgoing!, this._reportBound);
 
       if (outgoing === null) {
         this._log('a primitive cancelled the send');
@@ -855,12 +833,12 @@ export class WSKitSocket {
     // while offline, or while a staggered flush is still draining so a live send
     // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
     if (this._outgoingFallback?.(outgoing, options)) {
-      this._log(`send('${outgoing.event}') buffered`);
+      if (this._debug) this._log(`send('${outgoing.event}') buffered`);
       return 'buffered';
     }
 
     if (this._state !== 'open' || !this.ws) {
-      this._log(`send('${outgoing.event}') not sent — not connected`);
+      if (this._debug) this._log(`send('${outgoing.event}') not sent — not connected`);
       // connecting/reconnecting still has a flush coming; closed does not.
       return this._state === 'connecting' || this._state === 'reconnecting'
         ? 'connecting'
@@ -946,6 +924,20 @@ export class WSKitSocket {
   private _reportError(error: unknown): void {
     if (this._emitter.listenerCount('error') > 0) {
       this._emitter.emit('error', error);
+    } else {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
+
+  /** Surface an unclaimed server error without routing it to the local error event. */
+  _reportServerError(error: WSKitError): void {
+    const handled = [...this._serverErrorRegistrations].some(
+      ({ code }) => code === undefined || code === error.code,
+    );
+    if (handled) {
+      this._emitter.emit('serverError', error);
     } else {
       queueMicrotask(() => {
         throw error;

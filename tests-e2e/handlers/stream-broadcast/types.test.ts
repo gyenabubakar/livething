@@ -5,7 +5,7 @@ describe('StreamBroadcastClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<StreamBroadcastClient['incoming']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['outgoing']>().not.toBeAny();
-    expectTypeOf<StreamBroadcastClient['requests']>().not.toBeAny();
+    expectTypeOf<StreamBroadcastClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['channels']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['errors']>().not.toBeAny();
@@ -124,8 +124,8 @@ describe('StreamBroadcastClient — empty slots', () => {
     expectTypeOf<keyof StreamBroadcastClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof StreamBroadcastClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof StreamBroadcastClient['clientRequests']>().toBeNever();
   });
 });
 

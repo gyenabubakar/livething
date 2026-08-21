@@ -16,45 +16,50 @@ import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugin.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
+import { inbox, readReceipts } from '~/inbox/capability.ts';
+import { rateLimit } from '~/rate-limit/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
+import type { DefineConfig, ScopedDefineConfig } from '~/_define/define.ts';
+import type { InferPluginClient } from '~/_define/plugin.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 // ---------------------------------------------------------------------------
 // Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
 // ---------------------------------------------------------------------------
 const scopedBase = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'p-online': t<{ id: string }>() }), scheduled({ 'p-task': null })],
 });
 
 const scopedHandler = scopedBase.on('beat', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('p-online', { id: ctx.id });
+    ctx.send('p-online', { id: ctx.connection.id });
   },
 });
 
 const ApiPlugin = plugin('acme:presence', {
-  handler: scopedBase.assemble(scopedHandler),
-  api: (ctx) => {
-    // The declared emit with the right payload is allowed.
-    ctx.send('p-online', { id: ctx.id });
+  handler: scopedBase.assemble({
+    handlers: [scopedHandler],
+    api: (ctx) => {
+      // The declared emit with the right payload is allowed.
+      ctx.send('p-online', { id: ctx.connection.id });
 
-    // @ts-expect-error — wrong payload shape for a declared emit
-    ctx.send('p-online', { id: 123 });
+      // @ts-expect-error — wrong payload shape for a declared emit
+      ctx.send('p-online', { id: 123 });
 
-    // @ts-expect-error — undeclared method does not exist on the scoped ctx
-    ctx.nope();
+      // @ts-expect-error — undeclared method does not exist on the scoped ctx
+      ctx.nope();
 
-    // The `scheduled()` capability arm is present because it was listed.
-    ctx.schedule('p-task', { time: 0 });
+      // The `scheduled()` capability arm is present because it was listed.
+      ctx.schedule('p-task', { time: 0 });
 
-    return { ok: true };
-  },
+      return { ok: true };
+    },
+  }),
 });
 void ApiPlugin;
 
@@ -63,18 +68,20 @@ void ApiPlugin;
 // through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server
 // ctx / contract slot, not on the client `InferClient`.
 // ---------------------------------------------------------------------------
-const inferBase = define({ scoped: true, capabilities: [emits({ e: t<{ n: number }>() })] });
+const inferBase = define({ scope: 'plugin', capabilities: [emits({ e: t<{ n: number }>() })] });
 const inferHandler = inferBase.on('x', {
   run(ctx) {
     ctx.send('e', { n: 1 });
   },
 });
 const InferApiPlugin = plugin('acme:infer', {
-  handler: inferBase.assemble(inferHandler),
-  api: (ctx) => {
-    void ctx;
-    return { foo: 1, bar: () => 'x' };
-  },
+  handler: inferBase.assemble({
+    handlers: [inferHandler],
+    api: (ctx) => {
+      void ctx;
+      return { foo: 1, bar: () => 'x' };
+    },
+  }),
 });
 
 const inferHost = define({ env: t<{}>(), capabilities: [InferApiPlugin()] });
@@ -95,13 +102,11 @@ inferHost.on('host-probe', {
 // Gap 3 — a plain plugin's events fold into the host's TOP-LEVEL client maps
 // under their `__<id>::` wire-prefixed names, flipped into the client view. The
 // client carries no `plugins` key; short names never appear; a made-up prefixed
-// name is rejected. (No channel here on purpose — a channel-bearing scoped
-// handler degrades its captured contract to `any`, which would mask the
-// per-name discrimination this gap proves; the channel itself is covered by
-// gap 4 below.)
+// name is rejected. (No channel here — this gap isolates top-level name
+// discrimination; a plugin channel is covered by gap 4 below.)
 // ---------------------------------------------------------------------------
 const leakScoped = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'pl-out': t<{ a: number }>() })],
 });
 
@@ -109,11 +114,13 @@ const leakOn = leakScoped.on('pl-in', { input: v.object({ a: v.number() }), run(
 const leakReq = leakScoped.on('pl-also-in', { run() {} });
 
 const LeakPlugin = plugin('acme:leak', {
-  handler: leakScoped.assemble(leakOn, leakReq),
-  api: (ctx) => {
-    void ctx;
-    return {};
-  },
+  handler: leakScoped.assemble({
+    handlers: [leakOn, leakReq],
+    api: (ctx) => {
+      void ctx;
+      return {};
+    },
+  }),
 });
 
 const leakHost = define({
@@ -121,7 +128,7 @@ const leakHost = define({
   capabilities: [emits({ 'host-out': t<{ h: number }>() }), LeakPlugin()],
 });
 const leakHostOn = leakHost.on('host-in', { input: v.object({ h: v.number() }), run() {} });
-const leakHostDef = leakHost.assemble(leakHostOn);
+const leakHostDef = leakHost.assemble({ handlers: [leakHostOn] });
 type LeakClient = InferClient<typeof leakHostDef>;
 
 // The host's own names are present at the top level (discrimination guard so the
@@ -146,7 +153,7 @@ expectTypeOf<LeakClient['outgoing']>().toHaveProperty('__acme:leak::pl-also-in')
 // are concrete literals, not a `__id::${string}` index signature.
 expectTypeOf<LeakClient['incoming']>().not.toHaveProperty('__acme:leak::nope');
 
-// The client no longer carries a `plugins` key — plugin events live in the
+// The client does not carry a `plugins` key — plugin events live in the
 // normal maps, not a separate grouping.
 expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 
@@ -155,7 +162,7 @@ expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 // prefixed `__<id>::family` name, flipped into the client view. The channel's
 // inner events stay scoped to it and are NOT prefixed.
 // ---------------------------------------------------------------------------
-const chScoped = define({ scoped: true, capabilities: [channels(), requests()] });
+const chScoped = define({ scope: 'plugin', capabilities: [channels(), requests()] });
 const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   subscribe: v.object({ token: v.string() }),
   outgoing: {
@@ -164,10 +171,12 @@ const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   },
 });
 const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
-const ChPlugin = plugin('acme:chan', { handler: chScoped.assemble(chFamHandler), api: () => ({}) });
+const ChPlugin = plugin('acme:chan', {
+  handler: chScoped.assemble({ handlers: [chFamHandler], api: () => ({}) }),
+});
 
 const chHost = define({ env: t<{}>(), capabilities: [ChPlugin()] });
-const chHostDef = chHost.assemble(chHost.on('host-noop', { run() {} }));
+const chHostDef = chHost.assemble({ handlers: [chHost.on('host-noop', { run() {} })] });
 type ChClient = InferClient<typeof chHostDef>;
 
 // The short family name never appears; the prefixed one is the address.
@@ -191,29 +200,122 @@ expectTypeOf<ChFamScope['serverRequests']['fam-confirm']['response']>().toEqualT
 }>();
 
 // ---------------------------------------------------------------------------
+// InferPluginClient — a plugin author derives the client-side contract from the
+// server plugin, in the client's perspective with PLAIN (un-prefixed) names.
+// ---------------------------------------------------------------------------
+type LeakWire = InferPluginClient<typeof LeakPlugin>;
+// server emit -> client incoming; server on -> client outgoing; plain names.
+expectTypeOf<LeakWire['incoming']>().toEqualTypeOf<{ 'pl-out': { a: number } }>();
+expectTypeOf<LeakWire['outgoing']>().toHaveProperty('pl-in');
+expectTypeOf<LeakWire['outgoing']>().toHaveProperty('pl-also-in');
+// Never prefixed, and never leaks the server-perspective direction.
+expectTypeOf<LeakWire['incoming']>().not.toHaveProperty('__acme:leak::pl-out');
+expectTypeOf<LeakWire['incoming']>().not.toHaveProperty('pl-in');
+
+// Accepts the capability the factory returns, too, not only the factory.
+type LeakWireFromCap = InferPluginClient<ReturnType<typeof LeakPlugin>>;
+expectTypeOf<LeakWireFromCap['incoming']>().toEqualTypeOf<{ 'pl-out': { a: number } }>();
+
+// A plugin channel comes through under its plain family name, flipped to the
+// client view, its inner events unprefixed — exactly a client channel contract.
+type ChWire = InferPluginClient<typeof ChPlugin>;
+expectTypeOf<ChWire['channels']>().toHaveProperty('fam');
+expectTypeOf<ChWire['channels']>().not.toHaveProperty('__acme:chan::fam');
+expectTypeOf<ChWire['channels']['fam']['incoming']>().toHaveProperty('fam-tick');
+expectTypeOf<ChWire['channels']['fam']['outgoing']>().toHaveProperty('fam-ping');
+
+// ---------------------------------------------------------------------------
 // dependsOn — host-owned engine factories only. A behavior capability the
 // plugin can own itself (requests, channels, …) and a plugin factory are both
 // compile errors: a plugin lists behavior in its own capabilities, and only the
 // host's engines (which carry __hostOnly) are valid dependsOn targets.
 // ---------------------------------------------------------------------------
-const depScoped = define({ scoped: true });
+const depScoped = define({ scope: 'plugin' });
 const DepPlugin = plugin('acme:dep', {
-  handler: depScoped.assemble(depScoped.on('noop', { run() {} })),
+  handler: depScoped.assemble({ handlers: [depScoped.on('noop', { run() {} })] }),
 });
 
-const depHost = define({ scoped: true });
+const depHost = define({ scope: 'plugin' });
 // A host-owned engine factory is accepted.
 plugin('acme:ok', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
-  dependsOn: [persistence],
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
+  dependsOn: [rateLimit],
 });
 plugin('acme:behavior', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
   // @ts-expect-error — requests is a behavior capability a plugin owns itself, not a dependsOn target.
   dependsOn: [requests],
 });
 plugin('acme:bad', {
-  handler: depHost.assemble(depHost.on('noop', { run() {} })),
+  handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
   // @ts-expect-error — a plugin factory is not a valid dependsOn target.
   dependsOn: [DepPlugin],
+});
+
+// ---------------------------------------------------------------------------
+// `scope` selects the builder. Today `'plugin'` is the only scoped form, and an
+// app never sets it — both are compile-time gates, not runtime checks.
+//
+// These assert against the config types directly rather than through `define`.
+// A failed `define(...)` call reports one error for the whole call, so it can
+// go red for a reason other than the field under test; a `satisfies` clause
+// pins each error to its own property. An unnecessary directive is itself an
+// error (TS2578), so none of these can pass vacuously.
+// ---------------------------------------------------------------------------
+
+({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — a top-level config never carries a scope.
+  scope: 'plugin',
+}) satisfies DefineConfig<Record<string, never>>;
+
+({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
+  scoped: true,
+}) satisfies DefineConfig<Record<string, never>>;
+
+({ scope: 'plugin' }) satisfies ScopedDefineConfig;
+
+({
+  // @ts-expect-error — 'channel' is not a scope the builder knows.
+  scope: 'channel',
+}) satisfies ScopedDefineConfig;
+
+// And end to end, so the overload itself is covered: a typo'd flag on a real
+// call is rejected, with TypeScript pointing at the correct field.
+// @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
+define({ env: t<Record<string, never>>(), scoped: true });
+
+// ---------------------------------------------------------------------------
+// `inbox()` / `readReceipts()` are channel-only capabilities — the
+// `__channelOnly` brand rejects them from the host's and a plugin's top-level
+// `capabilities`. The gate lives on `define(...)`'s own generic constraint,
+// not on `DefineConfig`/`ScopedDefineConfig` themselves (their `TCaps` bound
+// is the wider `AnyCapability`), so — unlike the `satisfies` checks above —
+// this one only fires through a real call, the same way the `scope` overload
+// check just above does.
+// ---------------------------------------------------------------------------
+define({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [inbox()],
+});
+
+define({
+  scope: 'plugin',
+  // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [inbox()],
+});
+
+define({
+  env: t<Record<string, never>>(),
+  // @ts-expect-error — readReceipts() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [readReceipts()],
+});
+
+define({
+  scope: 'plugin',
+  // @ts-expect-error — readReceipts() is channel-only; list it in a channel's own `capabilities`.
+  capabilities: [readReceipts()],
 });

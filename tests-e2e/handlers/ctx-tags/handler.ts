@@ -47,7 +47,7 @@ const handleGetMyTags = base.on('get-my-tags', {
 const handleGetConnectionInfo = base.on('get-connection-info', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('connection-info', { count: ctx.getConnections().length });
+    ctx.send('connection-info', { count: ctx.connections.all().length });
   },
 });
 
@@ -65,12 +65,14 @@ const handleGetByTag = base.on('get-by-tag', {
   },
 });
 
-export const ctxTagsHandler = base.assemble(
-  handleTagSelf,
-  handleUntagSelf,
-  handleGetMyTags,
-  handleGetConnectionInfo,
-  handleGetByTag,
-);
+export const ctxTagsHandler = base.assemble({
+  handlers: [
+    handleTagSelf,
+    handleUntagSelf,
+    handleGetMyTags,
+    handleGetConnectionInfo,
+    handleGetByTag,
+  ],
+});
 
 export type CtxTagsClient = InferClient<typeof ctxTagsHandler>;

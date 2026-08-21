@@ -42,9 +42,9 @@ function getDb(platform: Platform): DrizzleSqliteDODatabase<typeof schema> {
 // Last-connection fields and the hook counters are also kept per DO: the tests
 // pair the id observed at connect with the same connection's later reads, and a
 // module-level counter would be shared across every DO on the isolate (state
-// bleed under parallel load). This in-memory-per-DO map mirrors the old plugin
-// setup() closure — fine for within-session counts; for durable counts use the
-// DO's SQL the way shutdown_count does.
+// bleed under parallel load). This in-memory-per-DO map is fine for
+// within-session counts; for durable counts use the DO's SQL the way
+// shutdown_count does.
 interface DoState {
   lastGeneratedId: string | null;
   lastState: LastConnectionState | null;
@@ -75,7 +75,7 @@ function getState(platform: Platform): DoState {
 }
 
 const h = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [
     emits({
       'drizzle-ready': t<{ tables: string[] }>(),
@@ -103,7 +103,7 @@ const h = define({
   ],
 });
 
-h.init((ctx) => {
+h.onInit((ctx) => {
   const db = getDb(ctx.platform as Platform);
 
   db.run(
@@ -124,24 +124,24 @@ h.init((ctx) => {
   db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
 });
 
-h.connect((ctx) => {
+h.onConnect((ctx) => {
   const state = getState(ctx.platform as Platform);
-  state.lastGeneratedId = `drizzle-${ctx.id}`;
-  const self = ctx.getConnections().find((c) => c.id === ctx.id);
+  state.lastGeneratedId = `drizzle-${ctx.connection.id}`;
+  const self = ctx.connections.all().find((c) => c.id === ctx.connection.id);
   const meta = ctx.meta as { username?: unknown };
   state.lastState = {
-    id: ctx.id,
+    id: ctx.connection.id,
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 
-h.disconnect((ctx) => {
+h.onDisconnect((ctx) => {
   getState(ctx.platform as Platform).disconnectCount++;
 });
 
-h.shutdown((ctx) => {
+h.onShutdown((ctx) => {
   getDb(ctx.platform as Platform).run(
     "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
   );
@@ -160,7 +160,7 @@ h.intercept((ctx, frame) => {
   }
 });
 
-h.outgoing((ctx, frame) => {
+h.onOutgoing((ctx, frame) => {
   // The outgoing-hook ctx is resolved per send: it is the sending connection's
   // ctx for a direct ctx.send, but undefined for a broadcast (no one connection
   // owns it). Only the connection-scoped sends carry a platform, so only those
@@ -300,68 +300,71 @@ const taskWithData = h.scheduled('drizzle-task-with-data', {
 });
 
 export const Drizzle = plugin('e2e:drizzle', {
-  handler: h.assemble(
-    triggerDenied,
-    triggerError,
-    triggerVacuum,
-    triggerEvery,
-    triggerFlaky,
-    triggerAlwaysFail,
-    triggerQueryDlq,
-    triggerTaskWithData,
-    vacuum,
-    everyTick,
-    flaky,
-    alwaysFail,
-    queryDlq,
-    taskWithData,
-  ),
+  handler: h.assemble({
+    handlers: [
+      triggerDenied,
+      triggerError,
+      triggerVacuum,
+      triggerEvery,
+      triggerFlaky,
+      triggerAlwaysFail,
+      triggerQueryDlq,
+      triggerTaskWithData,
+      vacuum,
+      everyTick,
+      flaky,
+      alwaysFail,
+      queryDlq,
+      taskWithData,
+    ],
+    api: (ctx) => {
+      const db = getDb(ctx.platform as Platform);
+      const state = getState(ctx.platform as Platform);
+      return {
+        insert(data: Omit<InsertRecord, 'id' | 'createdAt'>) {
+          const [row] = db.insert(records).values(data).returning().all();
+          return row!;
+        },
+        findAll() {
+          return db.select().from(records).orderBy(records.id).all();
+        },
+        findById(id: number) {
+          return db.select().from(records).where(eq(records.id, id)).get();
+        },
+        deleteById(id: number) {
+          const deleted = db.delete(records).where(eq(records.id, id)).returning().all();
+          return deleted.length > 0;
+        },
+        count() {
+          const [row] = db.select({ value: count() }).from(records).all();
+          return row?.value ?? 0;
+        },
+        getMessageCount() {
+          return state.messageCount;
+        },
+        getOutgoingCount() {
+          return state.outgoingCount;
+        },
+        getDisconnectCount() {
+          return state.disconnectCount;
+        },
+        getLastGeneratedId() {
+          return state.lastGeneratedId;
+        },
+        getLastState() {
+          return state.lastState;
+        },
+        getShutdownCount() {
+          return (
+            db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ??
+            0
+          );
+        },
+        getCurrentConnectionId() {
+          return ctx.connection.id ?? null;
+        },
+      };
+    },
+  }),
   observesHostTraffic: true,
-  api: (ctx) => {
-    const db = getDb(ctx.platform as Platform);
-    const state = getState(ctx.platform as Platform);
-    return {
-      insert(data: Omit<InsertRecord, 'id' | 'createdAt'>) {
-        const [row] = db.insert(records).values(data).returning().all();
-        return row!;
-      },
-      findAll() {
-        return db.select().from(records).orderBy(records.id).all();
-      },
-      findById(id: number) {
-        return db.select().from(records).where(eq(records.id, id)).get();
-      },
-      deleteById(id: number) {
-        const deleted = db.delete(records).where(eq(records.id, id)).returning().all();
-        return deleted.length > 0;
-      },
-      count() {
-        const [row] = db.select({ value: count() }).from(records).all();
-        return row?.value ?? 0;
-      },
-      getMessageCount() {
-        return state.messageCount;
-      },
-      getOutgoingCount() {
-        return state.outgoingCount;
-      },
-      getDisconnectCount() {
-        return state.disconnectCount;
-      },
-      getLastGeneratedId() {
-        return state.lastGeneratedId;
-      },
-      getLastState() {
-        return state.lastState;
-      },
-      getShutdownCount() {
-        return (
-          db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ?? 0
-        );
-      },
-      getCurrentConnectionId() {
-        return ctx.id ?? null;
-      },
-    };
-  },
 });

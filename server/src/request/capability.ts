@@ -17,24 +17,20 @@ export interface RequestBuildConfig {
 }
 
 /**
- * One server→client request declaration. Either a bare `t<…>()` marker — an
+ * One server→client request declaration, always `{ out, in? }`. `out` is the
+ * type the server sends (a marker, trusted, not validated outbound). `in` is the
+ * schema the client's answer is validated against; omit it for an
  * acknowledgement request, where the client just confirms receipt and the caller
- * resolves with no value — or `{ out, in }`, where `out` is the type the server
- * sends (a marker, trusted, not validated outbound) and `in` is the schema the
- * client's answer is validated against. Targeted vs fan-out is decided by the
- * verb (`request` vs `broadcastRequest`), not the declaration.
+ * resolves with no value. Targeted vs fan-out is decided by the verb (`request`
+ * vs `broadcastRequest`), not the declaration.
  */
-export type ServerRequestDeclaration =
-  | TypeMarker<any>
-  | { readonly out: TypeMarker<any>; readonly in: Validator };
+export type ServerRequestDeclaration = {
+  readonly out: TypeMarker<any>;
+  readonly in?: Validator;
+};
 
 /** The `out` (server→client payload) type a request declaration carries. */
-type PayloadOf<TDeclaration> =
-  TDeclaration extends TypeMarker<infer U>
-    ? U
-    : TDeclaration extends { out: TypeMarker<infer U> }
-      ? U
-      : unknown;
+type PayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> } ? U : unknown;
 
 /** The `in` (client→server answer) type a declaration carries; `void` for an acknowledgement. */
 type ResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> } ? U : void;
@@ -86,9 +82,7 @@ export interface RequestsCapability<
 }
 
 function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedServerRequest {
-  return {
-    responseValidator: 'in' in declaration ? declaration.in : undefined,
-  };
+  return { responseValidator: declaration.in };
 }
 
 /**
@@ -100,7 +94,7 @@ function resolveServerRequest(declaration: ServerRequestDeclaration): ResolvedSe
  *
  * Passing a declaration map also enables **server→client** requests: the server
  * asks one connection a question with `ctx.request(event, payload)` (or
- * `ctx.connection(ref).request(...)` / `ctx.channel.request(...)`) and awaits
+ * `ctx.connections.get(ref).request(...)` / `ctx.channel.request(...)`) and awaits
  * the client's typed answer. Each `response` schema validates the client's
  * reply; an answer that fails it rejects the server promise with
  * `request-invalid-response`.
@@ -160,9 +154,10 @@ export const requests = withCapabilityKind(function requests<
       event,
       async (ctx: { respond(value: unknown): void }, payload: unknown) => {
         const result = await run(ctx, payload);
-        // `undefined` is the only "no answer" signal (rejects the client with
-        // request-no-response); a returned `null` is a real, nullable response.
-        if (result !== undefined) ctx.respond(result);
+        // A nullish return (`null`/`undefined`, or no `return` at all) is a void
+        // acknowledgement — leave it unanswered so the runtime sends the empty
+        // correlated frame. Only a real value is forwarded as the response.
+        if (result != null) ctx.respond(result);
       },
       config.input ? { validator: config.input } : undefined,
     );

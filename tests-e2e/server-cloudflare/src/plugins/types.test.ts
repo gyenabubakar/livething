@@ -5,7 +5,7 @@ describe('PluginsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<PluginsClient['incoming']>().not.toBeAny();
     expectTypeOf<PluginsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<PluginsClient['requests']>().not.toBeAny();
+    expectTypeOf<PluginsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<PluginsClient['streams']>().not.toBeAny();
     expectTypeOf<PluginsClient['channels']>().not.toBeAny();
     expectTypeOf<PluginsClient['errors']>().not.toBeAny();
@@ -118,13 +118,15 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
     >().toEqualTypeOf<{ who: string }>();
   });
   it('exposes the plugin request under its prefixed name', () => {
-    expectTypeOf<PluginsClient['requests']['__e2e:feed::echo']>().toEqualTypeOf<{
+    expectTypeOf<PluginsClient['clientRequests']['__e2e:feed::echo']>().toEqualTypeOf<{
       payload: { text: string };
       response: { echoed: string };
     }>();
   });
   it('exposes the plugin emit under its prefixed name', () => {
-    expectTypeOf<PluginsClient['incoming']['__e2e:feed::pong']>().toEqualTypeOf<{ note: string }>();
+    expectTypeOf<PluginsClient['incoming']['__e2e:feed::welcome']>().toEqualTypeOf<{
+      name: string;
+    }>();
   });
   it('exposes all three plugin stream kinds under prefixed names', () => {
     // Both durable kinds surface as 'persistent' on the client; plain is 'ephemeral'.
@@ -140,6 +142,19 @@ describe('PluginsClient — Feed plugin (prefixed __id:: names, top-level)', () 
     expectTypeOf<
       PluginsClient['streams']['__e2e:feed::feed-recorded']['kind']
     >().toEqualTypeOf<'persistent'>();
+  });
+
+  it('exposes a plugin stream nudge under a plain nested key, not a prefixed one', () => {
+    // The stream KEY is namespaced (`__e2e:feed::nudgeable`), but its nested nudge
+    // key stays plain — nudges live inside the stream, not as top-level wire events.
+    // The `__id::` prefix is added on the wire at send time (the scoped socket), so
+    // the contract keeps the plain name the plugin author declared and calls.
+    expectTypeOf<
+      PluginsClient['streams']['__e2e:feed::nudgeable']['nudges']['boost']
+    >().toEqualTypeOf<{ amount: number }>();
+    expectTypeOf<PluginsClient['streams']['__e2e:feed::nudgeable']['nudges']>().not.toHaveProperty(
+      '__e2e:feed::boost',
+    );
   });
 });
 

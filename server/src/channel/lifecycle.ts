@@ -10,15 +10,15 @@ import type { Validator } from '~/types.ts';
 export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler called only on a TRUE leave — when the client sends `__unsubscribe__`,
- * is kicked, or is removed via `removeMember(identity)`. The user has left
- * the group; for persistent channels the durable membership row has been
- * deleted. NOT fired on plain disconnect of a persistent channel — that case
- * fires `onSessionEnd` instead.
+ * Handler called only on a TRUE leave — when the client sends `__unsubscribe__`
+ * or is kicked. The user has left the group; for persistent channels the
+ * durable membership row has been deleted too, unless the kick was a
+ * non-revoking one (in which case the row survives so the user auto-rejoins).
+ * NOT fired on plain disconnect of a persistent channel — that case fires
+ * `onSessionEnd` instead.
  *
- * On ephemeral channels (no `persistence: true`, or `persistent: false` on the
- * channel) disconnect IS a true leave, so this hook fires together with
- * `onSessionEnd` for every leave path.
+ * On an ephemeral channel (`membership: 'ephemeral'`) disconnect IS a true leave, so
+ * this hook fires together with `onSessionEnd` for every leave path.
  */
 export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
@@ -177,12 +177,12 @@ export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePr
     __requires: {},
     handler,
     __validate(view: ValidationView) {
-      if (view.channelKey && !view.isChannelPersistent(view.channelKey)) {
+      if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
           `[wskit] Channel "${view.channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
             `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
-            `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
-            `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
+            `Remove \`membership: 'ephemeral'\` from this channel, or remove the .revalidate() hook (use \`.check()\` ` +
+            `for first-subscribe authorization).`,
         );
       }
     },
@@ -259,7 +259,7 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
 
 /**
  * Creates an `onUnsubscribe` lifecycle primitive for a channel. The handler
- * runs only on a TRUE leave — `__unsubscribe__`, kick, or `removeMember`.
+ * runs only on a TRUE leave — `__unsubscribe__` or kick.
  * Not fired on plain disconnect of a persistent channel (`onSessionEnd` fires there instead).
  * Use this for cleanup, presence tracking, or releasing locks.
  */
@@ -279,8 +279,8 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
 /**
  * Creates an `onSessionEnd` lifecycle primitive for a channel. The handler
  * runs whenever this connection's view of the channel ends — a true leave
- * (`__unsubscribe__`, kick, `removeMember`) OR a plain disconnect. Use this
- * for per-session cleanup or for counting active connections.
+ * (`__unsubscribe__`, kick) OR a plain disconnect. Use this for per-session
+ * cleanup or for counting active connections.
  */
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
   return {

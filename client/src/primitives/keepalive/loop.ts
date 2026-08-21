@@ -8,7 +8,7 @@ export interface KeepaliveLoopOptions {
   thresholds?: QualityThresholds;
 }
 
-/** The few things the loop asks the engine to do. */
+/** The few things the loop asks the socket helpers to do. */
 interface KeepaliveCallbacks {
   sendPing: () => void;
   forceClose: () => void;

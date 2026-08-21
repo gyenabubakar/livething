@@ -1,6 +1,8 @@
 import { Disconnected, Timeout } from '~/errors.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
-import { getAugmenters } from '~/internal/scoped.ts';
+import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { idGenerator } from '~/internal/id.ts';
+import { namespacePrefixOf } from '~/internal/namespace.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent, wireIdError } from '~/internal/wire-validation.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
@@ -198,11 +200,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           const { event, payload } = details;
           const eventError = wireIdError(event, event, 'event');
           if (eventError) return Promise.reject(eventError);
-          const streamNudgeId = helpers.generateId('nudge');
+          const streamNudgeId = idGenerator(helpers)('nudge');
           let result: SendResult;
           try {
             result = helpers.rawSend({
-              event,
+              // A plugin stream's nudge event needs the same `__id::` prefix its
+              // trigger carries (the server registers nudges under it); derive it
+              // from the stream's own namespaced event. A plain app stream gets ''.
+              event: namespacePrefixOf(state.event) + event,
               payload,
               __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
             });
@@ -247,7 +252,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         payload: unknown,
         context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
       ): Promise<StreamHandle<unknown>> {
-        const streamId = context.options?.streamId ?? helpers.generateId('stream');
+        const streamId = context.options?.streamId ?? idGenerator(helpers)('stream');
         // Reject a bad event or streamId locally — the server rejects such a frame
         // before it can route the error back to settle this Promise.
         const idError =
@@ -469,7 +474,19 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             }
             case '__error__': {
               if (envelope?.correlationId !== undefined) return message;
-              const error = toWSKitError(message.payload);
+              // A plugin stream's server error arrives namespaced (`__id::code`);
+              // strip it back to the plain code using the stream's own namespaced
+              // event, wherever that stream is tracked. Built-in codes (e.g.
+              // `stream-aborted`) don't carry the prefix and pass through unchanged.
+              const streamEvent =
+                triggers.get(streamId)?.event ??
+                streams.get(streamId)?.event ??
+                broadcastRuns.get(streamId)?.event ??
+                envelope?.eventName;
+              const error = unscopeErrorCode(
+                streamEvent,
+                toWSKitError(message.payload),
+              ) as WSKitError;
               // A non-terminal error (a rejected nudge) settles its nudge() Promise
               // and leaves the stream running.
               if (envelope?.streamTerminated === false) {
@@ -512,7 +529,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                   state.resumeTimer = null;
                 }
                 if (seq !== undefined) state.lastSeq = seq;
-                helpers.log.info(`stream '${streamId}' chunk received`);
+                if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
                 state.queue.push(message.payload);
                 startChunkTimer(state);
               }
@@ -660,20 +677,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               triggerOptions?: StreamTriggerOptions,
             ) => {
               scope.assertReady?.();
-              return triggerStream(event, payload, {
+              return triggerStream(scopedName(scope, event), payload, {
                 markers: scope.markers(),
                 options: triggerOptions,
               });
             };
             messaging.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
-              subscribeBroadcast(event, handlers, scope.markers());
+              subscribeBroadcast(scopedName(scope, event), handlers, scope.markers());
             messaging.resumeStream = (
               event: string,
               streamId: string,
               resumeOptions?: { lastKnownSeq?: number },
             ) => {
               scope.assertReady?.();
-              return resumeStream(event, streamId, {
+              return resumeStream(scopedName(scope, event), streamId, {
                 markers: scope.markers(),
                 options: resumeOptions,
               });

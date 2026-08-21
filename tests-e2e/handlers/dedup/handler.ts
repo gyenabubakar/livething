@@ -22,6 +22,6 @@ const room = base.channel('room', {
   outgoing: { emits: {} },
 });
 
-export const dedupHandler = base.assemble(handleDoEcho, room);
+export const dedupHandler = base.assemble({ handlers: [handleDoEcho, room] });
 
 export type DedupClient = InferClient<typeof dedupHandler>;

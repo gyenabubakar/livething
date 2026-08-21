@@ -67,6 +67,15 @@
 			JSON.stringify({ event: 'send-room-message', payload: { text }, __wskit: { channel: 'room' } }),
 		);
 	}
+	function sendToTaggedMember(tag: string, text: string) {
+		ws?.send(
+			JSON.stringify({
+				event: 'send-to-tagged-member',
+				payload: { tag, text },
+				__wskit: { channel: 'room' },
+			}),
+		);
+	}
 </script>
 
 <h1>ctx-channels feature</h1>
@@ -87,6 +96,18 @@
 </button>
 <button data-testid="send-after-resub" onclick={() => sendRoom('after-resub')}>
 	Send after-resub
+</button>
+<button
+	data-testid="send-to-user2"
+	onclick={() => sendToTaggedMember('user2', 'to-user2')}
+>
+	Send to user2 by tag
+</button>
+<button
+	data-testid="send-to-nonmember"
+	onclick={() => sendToTaggedMember('ghost', 'to-ghost')}
+>
+	Send to nonmember tag
 </button>
 
 <span data-testid="status">{status}</span>

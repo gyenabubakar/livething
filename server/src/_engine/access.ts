@@ -45,12 +45,24 @@ export interface EngineAccess {
   onBoot(handler: () => void | Promise<void>): void;
 
   /**
-   * Like `onBoot`, but for `ensure*Schema` calls. The engine skips these on
-   * warm boots when the schema marker row says storage is already current.
-   * Use this ONLY for idempotent `CREATE TABLE IF NOT EXISTS` work — never
-   * for cleanup or state restoration, which must always run.
+   * Like `onBoot`, but for `ensure*Schema` calls. The engine runs these on
+   * every boot so a capability added after storage initialization still gets
+   * its tables. Use this ONLY for idempotent `CREATE TABLE IF NOT EXISTS` work
+   * — never for cleanup or state restoration, which must always run.
    */
   onBootSchema(handler: () => void | Promise<void>): void;
+
+  /**
+   * Register per-user durable cleanup, run by `admin().purgeUser()`. A
+   * capability that owns per-user durable rows (channel membership,
+   * persistent tags, ...) registers a handler here to drop its own rows.
+   * Runs before the user's live sockets are closed. The `core` argument is
+   * the live engine core, opaque here — a handler casts it internally to
+   * reach the storage and services it needs.
+   *
+   * @internal
+   */
+  onPurgeUser(handler: (core: unknown, userId: string) => void | Promise<void>): void;
 
   /**
    * Observe or rewrite incoming wire messages before the engine routes them.
@@ -159,6 +171,14 @@ export interface EngineAccess {
   onConnectionActivity(handler: (connectionId: string) => void | Promise<void>): void;
 
   /**
+   * Observe a real message from one live connection: every valid event frame —
+   * protocol frames like `__subscribe__` / `__received__` and app events — but
+   * not transport keepalive pings. Use this for "last did something" signals,
+   * where an idle connection's keepalive should not count as activity.
+   */
+  onMessageActivity(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
    * Run logic when the server finishes booting.
    *
    * This receives the same init-style context that user-facing `onInit`
@@ -220,9 +240,9 @@ export interface EngineAccess {
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
     ) =>
-      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
-          identity?: string;
+          userId?: string;
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
@@ -242,7 +262,7 @@ export interface EngineAccess {
    * handlers stop running.
    */
   onProtocolMessage(
-    event: EngineRuntimeTypes.IncomingProtocolEvent,
+    event: Protocol.IncomingProtocolEvent,
     handler: (
       ctx: unknown,
       frame: Protocol.IncomingProtocolFrame,
@@ -255,6 +275,14 @@ export interface EngineAccess {
    * Scheduled tasks use this to process due work.
    */
   onAlarm(handler: () => void | Promise<void>): void;
+
+  /**
+   * Contribute one framework-owned deadline to the adapter's single durable
+   * alarm. Sources are combined and the earliest deadline wins.
+   *
+   * @internal
+   */
+  registerAlarmSource(key: symbol, source: () => number | null): void;
 
   /**
    * Register the async check phase for a channel subscribe guard.
@@ -320,19 +348,11 @@ export interface EngineAccess {
    */
   extendContext(factory: (baseCtx: unknown) => Record<string, unknown>): void;
 
-  /**
-   * Read the adapter storage dependency.
-   *
-   * This throws if the current adapter did not provide storage.
-   */
-  requireStorage(): ContextApi.StorageProvider;
+  /** The adapter's SQL and key-value storage. Every adapter provides this. */
+  readonly storage: ContextApi.StorageProvider;
 
-  /**
-   * Read the adapter timer dependency.
-   *
-   * This throws if the current adapter did not provide timers.
-   */
-  requireTimers(): ContextApi.TimerProvider;
+  /** The adapter's durable alarm implementation. Every adapter provides this. */
+  readonly timers: ContextApi.TimerProvider;
 
   /**
    * Read the scope object the engine keeps open while it is running one
@@ -392,15 +412,6 @@ export interface EngineAccess {
   setSequencePersistent(enabled: boolean): void;
 
   /**
-   * Tell the engine the contract enabled persistence via `persistence: true`.
-   * The engine then creates the identity-keyed durable tables at boot and
-   * starts writing channel memberships and persistent tags across reconnects.
-   *
-   * @internal
-   */
-  setPersistenceEnabled(enabled: boolean): void;
-
-  /**
    * Register a set of declared tag groups of one kind. Used by the contract's
    * `tagGroups` config. Throws if a `(kind, name)` is declared twice in the
    * same contract.
@@ -413,20 +424,34 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Record a per-channel `persistent` override. The engine reads
-   * this back at runtime via `isChannelPersistent(channelKey)` to decide
+   * Record a per-channel `membership` override. The engine reads
+   * this back at runtime via `isChannelDurable(channelKey)` to decide
    * whether to write a durable membership row on subscribe.
    *
    * @internal
    */
-  setChannelPersistent(channelKey: string, enabled: boolean): void;
+  setChannelDurable(channelKey: string, durable: boolean): void;
+
+  /**
+   * Record a channel's resolved inbox settings. The inbox fan-out, ack, and
+   * clear paths read these back by channel key at runtime. Set by `inbox()`.
+   *
+   * @internal
+   */
+  registerInboxChannel(channelKey: string, options: FeatureSlots.ResolvedInboxOptions): void;
+
+  /**
+   * Record that a channel opted into read receipts, so `__subscribeOk__` can
+   * carry the flag. Set by `readReceipts()`. @internal
+   */
+  registerReadReceiptsChannel(channelKey: string): void;
 
   /**
    * Check whether a durable-row `(channel_name, channel_family)` pair still
-   * maps to a registered persistent channel. Used by boot-time reconcile.
+   * maps to a registered durable channel. Used by boot-time reconcile.
    * @internal
    */
-  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean;
+  isDurableMembershipPairDurable(channelName: string, channelFamily: string | null): boolean;
 
   /**
    * Read the engine's logger. Used by primitives that emit boot-time or
@@ -481,14 +506,22 @@ export interface EngineAccess {
    * @internal
    */
   registerPluginLifecycle(
-    kind: 'init' | 'connect' | 'disconnect' | 'shutdown' | 'error' | 'validationError',
+    kind:
+      | 'init'
+      | 'connect'
+      | 'disconnect'
+      | 'shutdown'
+      | 'error'
+      | 'validationError'
+      | 'ping'
+      | 'pong',
     pluginId: string,
     handler: (ctx: unknown, ...rest: unknown[]) => void | Promise<void>,
   ): void;
 
   /**
    * Register one new-model plugin `upgrade` hook. Runs before the app's upgrade
-   * (inbound onion); it may own `identity`, but the single-owner rule is
+   * (inbound onion); it may own `userId`, but the single-owner rule is
    * enforced at runtime.
    *
    * @internal
@@ -499,31 +532,91 @@ export interface EngineAccess {
       request: Request,
       helpers: LifecycleTypes.UpgradeHelpers,
     ) =>
-      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
-          identity?: string;
+          userId?: string;
           meta?: Record<string, unknown>;
           tags?: readonly ContextApi.TagRef[];
         }>,
   ): void;
 
   /**
-   * Refresh the idle timeout for one live connection.
+   * Refresh the idle timeout for one live connection. When the window passes
+   * with no inbound frame the engine closes the socket as idle. Each call
+   * replaces the previous window instead of stacking a second timer.
    *
-   * Built-in primitives such as `keepalive()` use this instead of reaching
-   * into the engine's connection map directly.
+   * Primitives such as `keepalive()` use this instead of reaching into the
+   * engine's connection map directly.
    */
   refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number): void;
 
   /**
-   * Set the keepalive ping interval (ms) used for new connections. `keepalive()`
-   * calls this so the ping fires often enough that a quiet-but-alive client
-   * always answers within the close window. Only the engine's own keepalive
-   * pinger reads it; left unset, the pinger uses its built-in default.
+   * Send one bare `ping` text frame to a live connection, doing nothing when
+   * that connection has already gone away. Returns whether the frame was
+   * actually sent, so a caller can stop acting on a connection that is gone.
+   *
+   * Only `keepalive()` may call this. A `pong` carries no id, so the only way
+   * to know which ping it answers is for one thing to be sending them. A second
+   * sender makes `keepalive()` time the wrong ping and report a wrong
+   * `ctx.latency`.
+   */
+  sendPing(connectionId: string): boolean;
+
+  /**
+   * Record a measured round-trip time against one connection so it surfaces as
+   * `ctx.latency` / `ctx.quality` and on every `ConnectionInfo`. Only
+   * `keepalive()` measures a round-trip, so only `keepalive()` calls this.
    *
    * @internal
    */
-  setKeepalivePingInterval(intervalMs: number): void;
+  setConnectionLatency(
+    connectionId: string,
+    latency: number | null,
+    quality: EngineRuntimeTypes.RuntimeConnection['quality'],
+  ): void;
+
+  /**
+   * Build the context for one live connection, or `undefined` when it has gone
+   * away. The `onPing` / `onPong` lifecycle primitives use this to hand the app
+   * a real `ctx` rather than a bare connection id.
+   *
+   * @internal
+   */
+  getConnectionContext(connectionId: string): unknown;
+
+  /**
+   * Observe a bare `ping` frame arriving from a client. The engine registers
+   * its own reply hook first, so by the time a handler added here runs, the
+   * client has already been answered with `pong`.
+   */
+  onPing(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Observe a bare `pong` frame arriving from a client — the client's reply to
+   * a ping the server sent. `keepalive()` registers here during capability
+   * setup, so its measurement lands before any handler the app adds.
+   */
+  onPong(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Register an app-level `base.onPing` hook. Kept apart from `onPing` so the
+   * dispatch runs the app after the engine, `keepalive()`, and any plugin
+   * observers — the capability → plugin → app order. Used by the `onPing`
+   * lifecycle primitive; a capability registers with `onPing` instead.
+   */
+  onAppPing(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /** Register an app-level `base.onPong` hook. Runs last, for the same reason. */
+  onAppPong(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
+   * Release whatever a capability holds for one connection, once it has closed.
+   *
+   * This runs inside the engine's own teardown, after every `disconnect` hook,
+   * and cannot be skipped by a user hook that throws. Register per-connection
+   * timers and map entries for release here rather than in `onDisconnect`.
+   */
+  onConnectionCleanup(handler: (connectionId: string) => void): void;
 
   /**
    * Access the engine's in-memory table of queued scheduled runs.
@@ -591,6 +684,19 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Send a `__gap__` frame to one connection. `missedThrough` is the scope's
+   * eviction watermark (highest seq retention deleted). @internal
+   */
+  sendGap(
+    connectionId: string,
+    options: {
+      channelName: string | null;
+      channelFamily: string | null;
+      missedThrough: number;
+    },
+  ): void;
+
+  /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
    * as a normal `ctx.send(...)`: the payload is a plain object and the event
    * is declared in the routing scope. Used by the replay primitive to enforce
@@ -633,6 +739,18 @@ export interface EngineAccess {
    * `sendReplay` instead.
    */
   rawSend(connectionId: string, event: string, payload: unknown): void;
+
+  /**
+   * Like `rawSend`, but carries a `__wskit` routing block (channel scope,
+   * correlationId) on the frame. Used to answer a scoped, correlated protocol
+   * query — e.g. `inbox()` replying to a `__receivedQuery__` on one connection.
+   *
+   * @internal
+   */
+  sendProtocolFrame(
+    connectionId: string,
+    options: { event: string; payload: unknown; wskit?: Record<string, unknown> },
+  ): void;
 
   /**
    * Register the plain-stream trigger so the dispatch hub can start a matched
@@ -681,12 +799,20 @@ export interface EngineAccess {
   setBuildTagsApi(build: FeatureSlots.BuildTagsApi): void;
 
   /**
-   * Register the durable membership/persistent-tag operations. Set by the
-   * `persistence()` capability so storage code stays out of a bare handler.
+   * Register the durable channel-membership operations. Set by the
+   * `channels()` capability so storage code stays out of a bare handler.
    *
    * @internal
    */
-  setPersistenceService(service: FeatureSlots.PersistenceService): void;
+  setChannelMembershipService(service: FeatureSlots.ChannelMembershipService): void;
+
+  /**
+   * Register the persistent-tag restore operation. Set by the `tags()`
+   * capability so tag storage code stays out of a bare handler.
+   *
+   * @internal
+   */
+  setTagPersistenceService(service: FeatureSlots.TagPersistenceService): void;
 
   /**
    * Register the scheduled-task runtime. Set by `scheduled()` and by durable
@@ -698,16 +824,14 @@ export interface EngineAccess {
   setScheduledService(service: FeatureSlots.ScheduledService): void;
 
   /**
-   * Register the intercept pipeline runner and the `ctx.matches` / `unsafeCast`
-   * frame matchers. Set by the `intercepts()` capability so a handler without it
-   * skips the intercept block and never bundles the pipeline.
+   * Register the intercept pipeline runner. Set by the `intercepts()` capability
+   * so a handler without it skips the intercept block and never bundles the
+   * pipeline. The `ctx.matches` / `ctx.unsafeCast` frame matchers are core and
+   * always present, so they are not registered here.
    *
    * @internal
    */
-  setInterceptRuntime(
-    runIntercepts: FeatureSlots.RunIntercepts,
-    frameMatch: FeatureSlots.FrameMatch,
-  ): void;
+  setInterceptRuntime(runIntercepts: FeatureSlots.RunIntercepts): void;
 
   /**
    * Register the channel subscribe/leave/kick runtime. Set by the `channels()`
@@ -726,4 +850,130 @@ export interface EngineAccess {
    * @internal
    */
   setChannelContext(context: FeatureSlots.ChannelContext): void;
+
+  /**
+   * Register the inbox fan-out / drain / clear runtime. Set by the `inbox()`
+   * capability so a handler without it never bundles the inbox storage or
+   * per-member delivery code.
+   *
+   * @internal
+   */
+  setInboxService(service: FeatureSlots.InboxService): void;
+
+  /**
+   * Register the last-seen surface so other capabilities (inbox backlog, channel
+   * member data) can read a member's last-seen timestamp and whether it is online
+   * now, without importing the last-seen runtime. Set by the `lastSeen()` capability.
+   *
+   * @internal
+   */
+  setLastSeenService(service: FeatureSlots.LastSeenService): void;
+
+  /**
+   * Read the registered last-seen surface, or `undefined` when `lastSeen()` is
+   * not listed. `inbox().backlog()` reads it to fill `lastSeenAt`.
+   *
+   * @internal
+   */
+  getLastSeenService(): FeatureSlots.LastSeenService | undefined;
+
+  /**
+   * Register a channel-handle augmenter. Set by capabilities that graft a
+   * per-channel surface onto every channel handle (inbox, read receipts), so
+   * `channels()` never value-imports them.
+   *
+   * @internal
+   */
+  addChannelHandleAugmenter(augmenter: FeatureSlots.ChannelHandleAugmenter): void;
+
+  /**
+   * Whether any live connection on this instance currently belongs to the
+   * given user id. Read by inbox backlog and the last-seen surface to report
+   * a member's online state without scanning the connection map themselves.
+   *
+   * @internal
+   */
+  isUserOnline(userId: string): boolean;
+
+  /**
+   * The identity of one live connection by id, or `undefined` when no such
+   * connection is live on this instance. Read by the `lastSeen()` capability's
+   * activity stamp, which only gets a connection id.
+   *
+   * @internal
+   */
+  getConnectionIdentity(connectionId: string): string | undefined;
+
+  /**
+   * Broadcast one already-built protocol frame (e.g. a `__received__` /
+   * `__read__` receipt fan-out) to every live member of a channel. Offline
+   * members are not reached — the frame is a live presence signal, and the
+   * stored cursor stays readable either way.
+   *
+   * @internal
+   */
+  broadcastToChannel(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+  }): void;
+
+  /**
+   * Count the live members currently in a channel. Used to skip the
+   * delivered/read receipt fan-out once a channel is larger than `maxReceiptAudience`.
+   *
+   * @internal
+   */
+  channelMemberCount(channelName: string, channelFamily: string | null): number;
+
+  /**
+   * Read the resolved inbox settings for a channel key, or `undefined` when the
+   * channel has no inbox. `readReceipts()` uses this to settle inbox rows with the
+   * right delete/keep lifecycle when `__read__` advances the received mark.
+   *
+   * @internal
+   */
+  getInboxChannel(channelKey: string): FeatureSlots.ResolvedInboxOptions | undefined;
+
+  /**
+   * List the active static and dynamic inbox scopes. Used by boot cleanup to
+   * discard rows left behind when a deployed contract removes an inbox scope.
+   * Optional so older/test access doubles remain valid.
+   *
+   * @internal
+   */
+  getInboxChannelScopes?(): { staticNames: readonly string[]; familyKeys: readonly string[] };
+
+  /**
+   * Drop a member's cached inbox row count so the next write re-reads it from
+   * storage. Backfill can make the cache too low; an ack, read-settlement, or
+   * channel leave can make it too high after rows are removed. Optional: an
+   * engine access without it (a test double) keeps no cache to invalidate.
+   *
+   * @internal
+   */
+  invalidateInboxMemberCount?(
+    channelName: string,
+    channelFamily: string | null,
+    userId: string,
+  ): void;
+
+  /**
+   * The per-instance receipt-cursor cache, so an ack can skip re-reading a
+   * member's cursor before advancing it. Optional: an engine access without it
+   * (a test double) falls back to reading the cursor from storage.
+   *
+   * @internal
+   */
+  receiptCursorCache?(): Map<string, { receivedThrough: number; readThrough: number }>;
+
+  /**
+   * Whether a channel key opted into read receipts via `readReceipts()`. Read by
+   * the read-receipts handle-augmenter to decide whether `handle.readReceipts()`
+   * returns a surface or `null`.
+   *
+   * @internal
+   */
+  hasReadReceiptsChannel(channelKey: string): boolean;
 }

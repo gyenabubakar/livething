@@ -6,16 +6,15 @@ import { installMockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
-interface C {
+interface AppContract {
   incoming: { message: { text: string } };
-  outgoing: { ping: Record<string, never> };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
 function buildSocket<const P extends readonly Primitive<any, any>[]>(
-  ...primitives: [...P] & ValidatePrimitives<C, P>
+  ...primitives: [...P] & ValidatePrimitives<AppContract, P>
 ) {
-  return client<C>()(connect('wss://test'), ...primitives);
+  return client<AppContract>()(connect('wss://test'), ...primitives);
 }
 
 let restore: () => void;
@@ -26,56 +25,42 @@ afterEach(() => {
   restore();
 });
 
-describe('Plugin.use — failed build is not retried (plugin-build-retry)', () => {
-  it('a singleton whose build() throws must not re-run build on subsequent use() calls', () => {
-    const KEY = Symbol('acme:failing');
-    const buildSpy = vi.fn(() => {
+describe('Plugin.use — a failed API build is not retried', () => {
+  it('remembers the error and does not re-run the builder on later use() calls', () => {
+    const builder = vi.fn(() => {
       throw new Error('build failed');
     });
-
-    const Failing = plugin({
+    const Failing = plugin<{}, unknown>()({
       id: 'acme:failing',
-      key: KEY,
-      setup: () => buildSpy,
+      setup: () => ({ api: builder }),
     });
 
     const socket = buildSocket(Failing());
 
     expect(() => Failing.use(socket)).toThrow('build failed');
     expect(() => Failing.use(socket)).toThrow('build failed');
-    expect(() => Failing.use(socket)).toThrow('build failed');
-    expect(buildSpy).toHaveBeenCalledTimes(1);
+    expect(builder).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('Plugin.use — not-registered error branches', () => {
-  it('throws WSKitConfigError with the singleton message when the plugin was never passed to client()', () => {
-    const KEY = Symbol('acme:singleton');
-    const Singleton = plugin({ id: 'acme:singleton', key: KEY, setup: () => () => ({}) });
-
-    const socket = buildSocket(); // Singleton intentionally omitted
-
-    expect(() => Singleton.use(socket)).toThrow(WSKitConfigError);
-    expect(() => Singleton.use(socket)).toThrow(
-      'this plugin is not registered on this socket. Pass it to client().',
-    );
-  });
-
-  it('throws WSKitConfigError with the keyed message when no instance matches the registrationId', () => {
-    const KEY = Symbol('acme:repeatable');
-    const Repeatable = plugin<{ tracker: string }, { tracker: string }>({
-      id: 'acme:repeatable',
-      key: KEY,
-      registrationId: (args) => args.tracker,
-      setup: (args) => () => ({ tracker: args.tracker }),
+describe('Plugin.use — not registered', () => {
+  it('throws when the plugin was never passed to client()', () => {
+    const Chat = plugin<{}, { ok: true }>()({
+      id: 'acme:chat',
+      setup: () => ({ api: () => ({ ok: true }) }),
     });
 
-    // Register only 'ga'; ask for 'mixpanel' which was never registered.
-    const socket = buildSocket(Repeatable({ tracker: 'ga' }));
+    const socket = buildSocket(); // Chat intentionally omitted
 
-    expect(() => Repeatable.use(socket, 'mixpanel')).toThrow(WSKitConfigError);
-    expect(() => Repeatable.use(socket, 'mixpanel')).toThrow(
-      "no plugin instance with registrationId 'mixpanel' is registered on this socket.",
-    );
+    expect(() => Chat.use(socket)).toThrow(WSKitConfigError);
+    expect(() => Chat.use(socket)).toThrow(/not registered on this socket/);
+  });
+
+  it('throws for an observe-only plugin that exposes no API', () => {
+    const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
+
+    const socket = buildSocket(Watcher());
+
+    expect(() => Watcher.use(socket)).toThrow(/exposes no API/);
   });
 });

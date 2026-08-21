@@ -143,13 +143,15 @@ const handleRoomsEcho = rooms.on('echo', {
   },
 });
 
-export const interceptHandler = base.assemble(
-  handleEcho,
-  handleInterceptReq,
-  handleNudgeStream,
-  handleRoomEcho,
-  handleChNudgeStream,
-  handleRoomsEcho,
-);
+export const interceptHandler = base.assemble({
+  handlers: [
+    handleEcho,
+    handleInterceptReq,
+    handleNudgeStream,
+    handleRoomEcho,
+    handleChNudgeStream,
+    handleRoomsEcho,
+  ],
+});
 
 export type InterceptClient = InferClient<typeof interceptHandler>;

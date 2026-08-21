@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { recordedStream } from './capability.ts';
@@ -10,22 +9,10 @@ import { compileRecordedStreamDef } from './compile.ts';
 import { recordedStream as recordedStreamDef } from './definition.ts';
 
 describe('recordedStream build-time validation', () => {
-  it('throws when recordedStream is declared without persistence: true', () => {
-    const base = define({ env: t<Record<string, unknown>>(), capabilities: [recordedStream()] });
-    const handle = base.recordedStream('tokens', {
-      input: v.object({}),
-      chunk: t<{ token: string }>(),
-      async *run() {
-        yield { token: 'hi' };
-      },
-    });
-    expect(() => base.assemble(handle)).toThrow(/persistence\(\) capability/);
-  });
-
   it('builds when declared inside a channel', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), channels(), recordedStream()],
+      capabilities: [channels(), recordedStream()],
     });
     const rooms = base.channel('rooms');
     const handle = rooms.recordedStream('tokens', {
@@ -35,13 +22,13 @@ describe('recordedStream build-time validation', () => {
         yield { token: 'hi' };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
-  it('builds when persistence is enabled and the stream is top-level', () => {
+  it('builds when the stream is top-level', () => {
     const base = define({
       env: t<Record<string, unknown>>(),
-      capabilities: [persistence(), recordedStream()],
+      capabilities: [recordedStream()],
     });
     const handle = base.recordedStream('tokens', {
       input: v.object({}),
@@ -50,7 +37,7 @@ describe('recordedStream build-time validation', () => {
         yield { token: 'hi' };
       },
     });
-    expect(() => base.assemble(handle)).not.toThrow();
+    expect(() => base.assemble({ handlers: [handle] })).not.toThrow();
   });
 
   // FLAGGED: the new API has no "declaration without a handler" state — a

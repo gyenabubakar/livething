@@ -72,9 +72,9 @@ test.describe('plugins (conformance)', () => {
   test('a client→plugin incoming event reaches the handler and the plugin replies', async ({
     page,
   }, testInfo) => {
-    await open(page, `plg-ping-${testInfo.testId}`);
-    await page.getByTestId('feed-ping').click();
-    await expect.poll(async () => page.getByTestId('feed-pong').textContent()).toBe('hi');
+    await open(page, `plg-hello-${testInfo.testId}`);
+    await page.getByTestId('feed-hello').click();
+    await expect.poll(async () => page.getByTestId('feed-welcome').textContent()).toBe('alice');
   });
 
   test('a client→plugin request returns the plugin response', async ({ page }, testInfo) => {

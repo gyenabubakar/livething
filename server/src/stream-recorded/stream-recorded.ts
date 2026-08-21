@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { DurableNudgeDeclaration } from '~/stream-resumable/stream-resumable.ts';
@@ -51,8 +50,7 @@ export function recordedGenerateFactory(
     __wskit: 'recorded-stream-generate',
     __kind: 'handler',
     __identity: [RECORDED_STREAM_GENERATE_KEY, input.event],
-    __requires: { storage: true },
-    __requiresCapabilities: [CAPABILITY_KIND.persistence],
+    __requires: {},
     event: input.event,
     validator: input.validator,
     generator: input.generator,

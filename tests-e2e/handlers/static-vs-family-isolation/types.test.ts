@@ -5,7 +5,7 @@ describe('StaticVsFamilyIsolationClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['incoming']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['outgoing']>().not.toBeAny();
-    expectTypeOf<StaticVsFamilyIsolationClient['requests']>().not.toBeAny();
+    expectTypeOf<StaticVsFamilyIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['channels']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['errors']>().not.toBeAny();
@@ -131,8 +131,8 @@ describe('StaticVsFamilyIsolationClient — channels', () => {
 });
 
 describe('StaticVsFamilyIsolationClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof StaticVsFamilyIsolationClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof StaticVsFamilyIsolationClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

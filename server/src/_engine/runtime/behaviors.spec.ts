@@ -5,14 +5,14 @@ import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { cancelStream } from '~/stream/runtime.ts';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
 function createConnection(id = 'conn_1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -20,7 +20,7 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -65,16 +65,13 @@ function baseDispatchRuntime(
     generateId() {
       return 'id_1';
     },
-    requireTimers() {
-      return { setTimeout: () => undefined, clearTimeout() {} };
-    },
     buildConnectionContext(connection: RuntimeConnection) {
       return { id: connection.id };
     },
     toConnectionInfo(connection: RuntimeConnection) {
       return {
         id: connection.id,
-        identity: connection.identity,
+        userId: connection.userId,
         meta: connection.meta,
         tags: [],
         channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
@@ -85,7 +82,7 @@ function baseDispatchRuntime(
           __wskit: 'connection-ref' as const,
           id: connection.id,
           instance: undefined,
-          identity: connection.identity,
+          userId: connection.userId,
         }),
       };
     },
@@ -98,6 +95,10 @@ function baseDispatchRuntime(
     async handleSubscribe() {},
     async handleUnsubscribe() {},
     streamCancel: cancelStream,
+    pluginPingHooks: [],
+    pluginPongHooks: [],
+    appPingHooks: [],
+    appPongHooks: [],
     ...overrides,
   } as any;
 }
@@ -243,6 +244,10 @@ describe('defer retry behavior', () => {
     vi.useFakeTimers();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('re-enqueues handler on Defer and stops when the handler succeeds', async () => {
     const connection = createConnection();
     let attempts = 0;
@@ -337,6 +342,72 @@ describe('defer retry behavior', () => {
     // The retry must be a no-op — no side effects for a gone connection.
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it('does not retry a Defer thrown from a request handler — surfaces it as an error', async () => {
+    // Defer re-queues the frame; a request would re-run and re-answer a
+    // correlation the client already settled. Only an on() handler may Defer, so
+    // a request-handler Defer runs once and routes to the error path
+    // (internal-error on the wire), never a retry.
+    const connection = createConnection();
+    const handler = vi.fn(async () => {
+      throw Defer(10);
+    });
+    const errors: any[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        requests: new Map([['ask', { event: 'ask', handler, validator: undefined }]]),
+      } as any,
+      connections: new Map([[connection.id, connection]]),
+      requestDispatch: async (_rt: any, _c: any, opts: any) => {
+        await opts.request.handler({ respond() {} }, opts.payload);
+      },
+      async handleRuntimeError(_c: any, opts: any) {
+        errors.push(opts);
+      },
+    } as any);
+
+    await dispatchIncoming(runtime, connection, {
+      event: 'ask',
+      payload: {},
+      wskit: { correlationId: 'c1' } as any,
+    });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].error.__wskit).toBe('defer');
+  });
+
+  it('does not retry a Defer thrown from an intercept — surfaces it as an error', async () => {
+    // An intercept fires on every frame kind, so a Defer there could re-queue a
+    // request or stream frame. It runs once and routes to the error path.
+    const connection = createConnection();
+    const handler = vi.fn(async () => {});
+    let interceptCalls = 0;
+    const errors: any[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
+      } as any,
+      connections: new Map([[connection.id, connection]]),
+      runIntercepts: async () => {
+        interceptCalls += 1;
+        throw Defer(10);
+      },
+      async handleRuntimeError(_c: any, opts: any) {
+        errors.push(opts);
+      },
+    } as any);
+
+    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(interceptCalls).toBe(1);
+    expect(handler).not.toHaveBeenCalled();
+    expect(errors[0].error.__wskit).toBe('defer');
+  });
 });
 
 describe('Disconnect thrown from handler', () => {
@@ -388,21 +459,129 @@ describe('Block at dispatch', () => {
 });
 
 describe('processTextMessage protocol branches', () => {
-  it('responds to raw "ping" text frames with "pong"', async () => {
+  it('fans a raw "ping" text frame out to the ping hooks, in order', async () => {
     const connection = createConnection();
+    const calls: string[] = [];
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [() => void calls.push('first'), () => void calls.push('second')],
+      pongHooks: [() => void calls.push('pong')],
+    } as any;
 
     await processTextMessage(runtimeWithActivity, connection, 'ping');
 
-    expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
+    expect(calls).toEqual(['first', 'second']);
   });
 
-  it('logs activity hook failures and continues routing text frames', async () => {
+  it('fans a raw "pong" text frame out to the pong hooks, in order', async () => {
+    const connection = createConnection();
+    const calls: string[] = [];
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [() => void calls.push('ping')],
+      pongHooks: [() => void calls.push('first'), () => void calls.push('second')],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(calls).toEqual(['first', 'second']);
+  });
+
+  it('never parses a bare ping or pong as JSON', async () => {
+    const connection = createConnection();
+    const warn = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn, error: vi.fn() },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('logs a throwing ping hook and lets the remaining hooks run', async () => {
     const connection = createConnection();
     const error = vi.fn();
+    const after = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn: vi.fn(), error },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [
+        vi.fn(() => {
+          throw new Error('ping hook failed');
+        }),
+        after,
+      ],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] ping hook threw',
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    expect(after).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('logs a throwing pong hook and lets the remaining hooks run', async () => {
+    const connection = createConnection();
+    const error = vi.fn();
+    const after = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn: vi.fn(), error },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [],
+      messageActivityHooks: [],
+      pingHooks: [],
+      pongHooks: [
+        vi.fn(() => {
+          throw new Error('pong hook failed');
+        }),
+        after,
+      ],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] pong hook threw',
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    expect(after).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('logs activity hook failures and still fans the ping out', async () => {
+    const connection = createConnection();
+    const error = vi.fn();
+    const pingHook = vi.fn();
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
       logger: { warn: vi.fn(), error },
@@ -414,6 +593,9 @@ describe('processTextMessage protocol branches', () => {
           throw new Error('activity failed');
         }),
       ],
+      messageActivityHooks: [],
+      pingHooks: [pingHook],
+      pongHooks: [],
     } as any;
 
     await processTextMessage(runtimeWithActivity, connection, 'ping');
@@ -422,7 +604,56 @@ describe('processTextMessage protocol branches', () => {
       '[wskit] connection activity hook threw',
       expect.objectContaining({ connectionId: connection.id }),
     );
-    expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
+    expect(pingHook).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('runs message-activity hooks on a real frame but not on a transport ping', async () => {
+    const connection = createConnection();
+    const connectionActivity = vi.fn();
+    const messageActivity = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [connectionActivity],
+      messageActivityHooks: [messageActivity],
+      pingHooks: [],
+      pongHooks: [],
+      handleRuntimeError: vi.fn(),
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+    expect(connectionActivity).toHaveBeenCalledTimes(1);
+    expect(messageActivity).not.toHaveBeenCalled();
+
+    await processTextMessage(
+      runtimeWithActivity,
+      connection,
+      JSON.stringify({ event: 'noop', payload: {} }),
+    );
+    expect(messageActivity).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('counts a pong as connection activity but not as message activity', async () => {
+    const connection = createConnection();
+    const connectionActivity = vi.fn();
+    const messageActivity = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [connectionActivity],
+      messageActivityHooks: [messageActivity],
+      pingHooks: [],
+      pongHooks: [],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'pong');
+
+    expect(connectionActivity).toHaveBeenCalledWith(connection.id);
+    expect(messageActivity).not.toHaveBeenCalled();
   });
 
   it('cancels an active stream on __streamCancel__', async () => {
@@ -446,7 +677,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       activeStreams,
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,
@@ -469,7 +700,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       logger: { warn, error: vi.fn() },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(runtimeWithActivity, connection, '{not json');
 
@@ -483,7 +714,7 @@ describe('processTextMessage protocol branches', () => {
       connections: new Map([[connection.id, connection]]),
       logger: { warn, error: vi.fn() },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     // Each of these is valid JSON, so JSON.parse succeeds. Without a shape
     // guard, reading `parsed.event` would throw and crash the adapter's
@@ -513,7 +744,7 @@ describe('processTextMessage protocol branches', () => {
         errors.push({ error, event, routing });
       },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,
@@ -546,7 +777,7 @@ describe('processTextMessage protocol branches', () => {
         errors.push({ error, event, routing });
       },
     });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+    const runtimeWithActivity = { ...runtime, activityHooks: [], messageActivityHooks: [] } as any;
 
     await processTextMessage(
       runtimeWithActivity,
@@ -572,8 +803,8 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   function makeRuntime(id: string, row: Record<string, unknown> | null) {
     return {
       compiled: baseCompiled() as any,
-      timers: undefined,
       connections: new Map(),
+      usersByKey: new Map(),
       channelMembers: new Map(),
       tagMembers: new Map(),
       wsToConnectionId: new Map(),
@@ -594,7 +825,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
   it('restores memberships from the persisted connection row', () => {
     const runtime = makeRuntime('hib_1', {
       connection_id: 'hib_1',
-      identity: 'hib_1',
+      user_id: 'hib_1',
       meta: {},
       ephemeral_tags: [],
       ephemeral_memberships: [
@@ -635,7 +866,7 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
 
 describe('onAfterSend async rejection', () => {
   it('logs errors from an after-send hook that returns a rejecting promise', async () => {
-    const { sendThroughPipeline } = await import('~/_engine/runtime/messages.ts');
+    const { sendThroughPipeline } = await import('~/outgoing/runtime.ts');
 
     const connection = createConnection();
     const error = vi.fn();

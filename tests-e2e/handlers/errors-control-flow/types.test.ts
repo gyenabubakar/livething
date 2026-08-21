@@ -5,7 +5,7 @@ describe('ErrorsControlFlowClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ErrorsControlFlowClient['incoming']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['requests']>().not.toBeAny();
+    expectTypeOf<ErrorsControlFlowClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['errors']>().not.toBeAny();

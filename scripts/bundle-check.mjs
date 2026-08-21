@@ -38,6 +38,12 @@ const repoRoot = resolve(here, '..');
 // requests and rate-limit all use it internally), so it is present in every
 // server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
 // streams likewise carry no durable marker — there is nothing to persist.
+//
+// Channel membership is durable by default, and `channels()` creates and owns
+// its table unconditionally, so `channel` and `channelStorage` are split
+// apart — `channel` is the wire runtime, present wherever a channel is
+// targeted (for example channel-scoped requests or replay); `channelStorage`
+// is the membership table, owned only by `channels()` itself.
 // ---------------------------------------------------------------------------
 const SERVER_DIST = resolve(repoRoot, 'server/dist');
 
@@ -47,15 +53,24 @@ const SERVER_ENGINES = {
     label: 'durable-stream engine (recorded chunk store)',
   },
   channel: { marker: '__subscribeOk__', label: 'channel runtime' },
+  channelStorage: {
+    marker: '__wskit_channel_memberships',
+    label: 'channel membership storage engine',
+  },
   scheduled: { marker: '__wskit_scheduled', label: 'scheduled-task engine' },
   sequence: { marker: '__wskit_sequence', label: 'sequence engine' },
-  persistence: { marker: '__wskit_channel_memberships', label: 'persistence engine' },
   tags: { marker: '__wskit_tags', label: 'tags storage engine' },
   replay: { marker: '__wskit_replay', label: 'replay engine' },
+  inbox: { marker: '__wskit_inbox', label: 'inbox engine' },
+  lastSeen: { marker: '__wskit_last_seen', label: 'last-seen engine' },
   keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
   dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
   request: { marker: '__wskit: "request"', label: 'request engine' },
   rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
+  // `plugin.ts` is a bundle entry, so a bundler keeps the module whole: one
+  // value import of anything it exports drags the wire-namespacing pass and the
+  // plugin-scoped context in with it. This marker is the canary for that edge.
+  plugin: { marker: '__wskit: "pluginSurface"', label: 'plugin runtime' },
 };
 
 function serverScenarios(f) {
@@ -85,14 +100,6 @@ function serverScenarios(f) {
       owns: 'rateLimit',
       alsoPulls: [],
     },
-    // Rejoin restores a reconnecting connection's tag memberships, so the
-    // persistence engine pulls the tags storage engine.
-    {
-      name: 'persistence',
-      source: importStar(f('persistence.js')),
-      owns: 'persistence',
-      alsoPulls: ['tags'],
-    },
     // Replay can be channel-scoped, so it pulls the channel runtime.
     { name: 'replay', source: importStar(f('replay.js')), owns: 'replay', alsoPulls: ['channel'] },
     // Durable streams schedule background sweeps to retire their stored state, so
@@ -112,10 +119,34 @@ function serverScenarios(f) {
       owns: null,
       alsoPulls: [],
     },
-    { name: 'channels', source: importStar(f('channels.js')), owns: 'channel', alsoPulls: [] },
+    // `channels()` owns both the wire runtime and the membership table it
+    // creates and manages — a channel is durable by default, and
+    // `persistent: false` opts a channel out per channel.
+    {
+      name: 'channels',
+      source: importStar(f('channels.js')),
+      owns: ['channel', 'channelStorage'],
+      alsoPulls: [],
+    },
     { name: 'tags', source: importStar(f('tags.js')), owns: 'tags', alsoPulls: [] },
+    // Inbox reads channel membership to resolve who a channel's messages go to,
+    // so it pulls in the membership table's SQL (channelStorage), not the wire
+    // runtime — inbox is a channel-only capability, so `channels()` is always
+    // listed alongside it anyway.
+    {
+      name: 'inbox',
+      source: importStar(f('inbox.js')),
+      owns: 'inbox',
+      alsoPulls: ['channelStorage'],
+    },
+    {
+      name: 'last-seen',
+      source: importStar(f('last-seen.js')),
+      owns: 'lastSeen',
+      alsoPulls: [],
+    },
     { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
-    { name: 'plugin', source: importStar(f('plugin.js')), owns: null, alsoPulls: [] },
+    { name: 'plugin', source: importStar(f('plugin.js')), owns: 'plugin', alsoPulls: [] },
   ];
 }
 
@@ -189,7 +220,13 @@ async function runSuite({ label, distDir, engines }, scenarios) {
   await assertMarkersResolve(distDir, engines, failures);
 
   for (const scenario of scenarios) {
-    const allowed = new Set([scenario.owns, ...scenario.alsoPulls].filter(Boolean));
+    // `owns` is normally one engine id, but a scenario can legitimately own more
+    // than one (for example `channels()` owns both the wire runtime and the
+    // membership table it creates), so it also accepts an array.
+    const owned = new Set(
+      Array.isArray(scenario.owns) ? scenario.owns : [scenario.owns].filter(Boolean),
+    );
+    const allowed = new Set([...owned, ...scenario.alsoPulls]);
     const code = await bundle(scenario.source);
     const present = new Set(Object.keys(engines).filter((id) => code.includes(engines[id].marker)));
 
@@ -206,7 +243,7 @@ async function runSuite({ label, distDir, engines }, scenarios) {
     //    the marker, or update `owns`/`alsoPulls` for this scenario.
     for (const id of allowed) {
       if (!present.has(id)) {
-        const kind = id === scenario.owns ? 'own engine' : 'documented dependency';
+        const kind = owned.has(id) ? 'own engine' : 'documented dependency';
         failures.push(
           `  [${label} · ${scenario.name}] expected ${kind} ${engines[id].label} is absent — marker drift or dependency removed`,
         );

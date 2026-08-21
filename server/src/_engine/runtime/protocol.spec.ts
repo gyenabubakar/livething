@@ -1,9 +1,15 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import {
+  IncomingProtocolFrame,
   isProtocolEventName,
   OUTGOING_PROTOCOL_EVENT_NAMES,
   OutgoingProtocolFrame,
+  parseUserEventFrame,
+  ReadFanoutFrame,
+  ReadQueryResultFrame,
+  ReceivedFanoutFrame,
+  ReceivedQueryResultFrame,
   UserEventFrameSchema,
   WSKitProtocolSchema,
 } from './protocol.ts';
@@ -48,8 +54,8 @@ describe('wire-string length caps', () => {
   });
 
   it('caps streamId consistently between protocol frames and user-event __wskit', () => {
-    // Regression: user-event __wskit.streamId used to be unbounded while the
-    // protocol frames capped it at 128.
+    // Regression: user-event __wskit.streamId must be capped at 128, the same
+    // as protocol frames.
     const tooLong = v.safeParse(WSKitProtocolSchema, { streamId: 's'.repeat(ID_MAX + 1) });
     expect(tooLong.success).toBe(false);
     const ok = v.safeParse(WSKitProtocolSchema, { streamId: 's'.repeat(ID_MAX) });
@@ -65,7 +71,7 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
   __subscribeOk__: {
     event: '__subscribeOk__',
     payload: {},
-    __wskit: { channel: 'room', source: 'client', channelPersistent: false },
+    __wskit: { channel: 'room', source: 'client', channelMembership: 'ephemeral' },
   },
   __unsubscribeOk__: {
     event: '__unsubscribeOk__',
@@ -122,6 +128,31 @@ const OUTGOING_FRAME_SAMPLES: Record<string, unknown> = {
     payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
     __wskit: { channel: 'room', source: 'server' },
   },
+  __received__: {
+    event: '__received__',
+    payload: { userId: 'u1', receivedThrough: 5 },
+    __wskit: { channel: 'room' },
+  },
+  __read__: {
+    event: '__read__',
+    payload: { userId: 'u1', readThrough: 3 },
+    __wskit: { channel: 'room' },
+  },
+  __receivedQuery__: {
+    event: '__receivedQuery__',
+    payload: { userIds: ['u1', 'u2'] },
+    __wskit: { channel: 'room', correlationId: 'rq1' },
+  },
+  __readQuery__: {
+    event: '__readQuery__',
+    payload: { userIds: ['u1', 'u2'] },
+    __wskit: { channel: 'room', correlationId: 'rq2' },
+  },
+  __gap__: {
+    event: '__gap__',
+    payload: { missedThrough: 42 },
+    __wskit: { channel: 'room' },
+  },
 };
 
 describe('outgoing protocol-frame conformance', () => {
@@ -158,10 +189,186 @@ describe('outgoing protocol-frame conformance', () => {
   });
 });
 
+describe('receipt fanout payloads pin the field names the server actually sends', () => {
+  // server/src/inbox/inbox.ts and server/src/inbox/read-receipts.ts build these
+  // exact payload shapes (`payload: { userId, receivedThrough }`, etc.) when they
+  // broadcast a receipt or answer a query. If those files ever go back to
+  // `identity`/`identities`, or this schema drifts back to them, one side breaks
+  // silently — nothing else in the engine validates an outgoing frame at
+  // runtime. This test is the only thing pinning the two together.
+  it('__received__ fanout uses userId, not identity', () => {
+    const result = v.safeParse(ReceivedFanoutFrame, {
+      event: '__received__',
+      payload: { userId: 'u1', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReceivedFanoutFrame, {
+      event: '__received__',
+      payload: { identity: 'u1', receivedThrough: 5 },
+      __wskit: { channel: 'room' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__read__ fanout uses userId, not identity', () => {
+    const result = v.safeParse(ReadFanoutFrame, {
+      event: '__read__',
+      payload: { userId: 'u1', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReadFanoutFrame, {
+      event: '__read__',
+      payload: { identity: 'u1', readThrough: 3 },
+      __wskit: { channel: 'room' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__receivedQuery__ result uses userIds, not identities', () => {
+    const result = v.safeParse(ReceivedQueryResultFrame, {
+      event: '__receivedQuery__',
+      payload: { userIds: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq1' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReceivedQueryResultFrame, {
+      event: '__receivedQuery__',
+      payload: { identities: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq1' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+
+  it('__readQuery__ result uses userIds, not identities', () => {
+    const result = v.safeParse(ReadQueryResultFrame, {
+      event: '__readQuery__',
+      payload: { userIds: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq2' },
+    });
+    expect(result.success).toBe(true);
+
+    const withOldField = v.safeParse(ReadQueryResultFrame, {
+      event: '__readQuery__',
+      payload: { identities: ['u1', 'u2'] },
+      __wskit: { channel: 'room', correlationId: 'rq2' },
+    });
+    expect(withOldField.success).toBe(false);
+  });
+});
+
+const INCOMING_RECEIPT_SAMPLES: Record<string, unknown> = {
+  __received__: {
+    event: '__received__',
+    payload: { receivedThrough: 5 },
+    __wskit: { channel: 'room' },
+  },
+  __read__: {
+    event: '__read__',
+    payload: { readThrough: 3 },
+    __wskit: { channel: 'room' },
+  },
+  __receivedQuery__: {
+    event: '__receivedQuery__',
+    payload: { seq: 5 },
+    __wskit: { channel: 'room', correlationId: 'rq1' },
+  },
+  __readQuery__: {
+    event: '__readQuery__',
+    payload: { seq: 5 },
+    __wskit: { channel: 'room', correlationId: 'rq2' },
+  },
+};
+
+describe('incoming receipt-frame conformance', () => {
+  it.each(Object.entries(INCOMING_RECEIPT_SAMPLES))(
+    'round-trips %s through the incoming schema',
+    (_event, frame) => {
+      const result = v.safeParse(IncomingProtocolFrame, frame);
+      expect(result.success).toBe(true);
+    },
+  );
+});
+
 describe('protocol event detection', () => {
   it('detects protocol-shaped double-underscore names', () => {
     expect(isProtocolEventName('__subscribe__')).toBe(true);
     expect(isProtocolEventName('__e2e:feed::ping')).toBe(false);
     expect(isProtocolEventName('ping')).toBe(false);
   });
+});
+
+describe('parseUserEventFrame matches valibot exactly', () => {
+  const valid: unknown[] = [
+    { event: 'chat', payload: { text: 'hi' } },
+    { event: 'chat' },
+    { event: 'chat', payload: 'a string payload' },
+    { event: 'chat', payload: [1, 2, 3] },
+    { event: 'chat', payload: null },
+    { event: 'e', payload: {}, __wskit: {} },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1' } },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1', channelFamily: 'room' } },
+    { event: 'e', payload: {}, __wskit: { channel: 'room:1', channelFamily: null } },
+    { event: 'e', payload: {}, __wskit: { messageId: 'm1', seq: 0 } },
+    {
+      event: 'a'.repeat(ID_MAX),
+      payload: { a: 1 },
+      __wskit: {
+        correlationId: 'r1',
+        source: 'client',
+        channel: 'c'.repeat(CHANNEL_MAX),
+        channelFamily: 'fam',
+        streamId: 's1',
+        streamKind: 'persistent',
+        streamNudgeId: 'n1',
+        streamTerminated: false,
+        eventName: 'ev',
+        messageId: 'm1',
+        seq: 42,
+      },
+    },
+  ];
+
+  const invalid: unknown[] = [
+    null,
+    'not an object',
+    42,
+    [{ event: 'chat' }],
+    {},
+    { payload: {} },
+    { event: '' },
+    { event: 'a'.repeat(ID_MAX + 1) },
+    { event: 123 },
+    { event: 'chat', extra: 1 },
+    { event: 'chat', __wskit: 'nope' },
+    { event: 'chat', __wskit: ['nope'] },
+    { event: 'chat', __wskit: { unknownKey: 1 } },
+    { event: 'chat', __wskit: { channel: 'c'.repeat(CHANNEL_MAX + 1) } },
+    { event: 'chat', __wskit: { channel: '' } },
+    { event: 'chat', __wskit: { messageId: '' } },
+    { event: 'chat', __wskit: { channelFamily: '' } },
+    { event: 'chat', __wskit: { channelFamily: 'f'.repeat(ID_MAX + 1) } },
+    { event: 'chat', __wskit: { seq: -1 } },
+    { event: 'chat', __wskit: { seq: 1.5 } },
+    { event: 'chat', __wskit: { seq: '3' } },
+    { event: 'chat', __wskit: { source: 'nobody' } },
+    { event: 'chat', __wskit: { streamKind: 'weird' } },
+    { event: 'chat', __wskit: { streamTerminated: 'yes' } },
+  ];
+
+  it.each(valid.map((f, i) => [i, f]))('valid frame #%i parses identically', (_i, frame) => {
+    expect(parseUserEventFrame(frame)).toEqual(v.parse(UserEventFrameSchema, frame));
+  });
+
+  it.each(invalid.map((f, i) => [i, f]))(
+    'invalid frame #%i is rejected like valibot',
+    (_i, frame) => {
+      expect(v.safeParse(UserEventFrameSchema, frame).success).toBe(false);
+      expect(() => parseUserEventFrame(frame)).toThrow();
+    },
+  );
 });

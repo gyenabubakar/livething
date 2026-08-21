@@ -61,7 +61,7 @@ const SCOPED_SENDS: Record<string, SendPosition> = {
   sendReplay: 'event-first',
 };
 
-/** The methods on a `ctx.connection(ref)` handle whose first arg is the event name. */
+/** The methods on a `ctx.connections.get(ref)` handle whose first arg is the event name. */
 const SCOPED_CONNECTION_METHODS = new Set(['send', 'request']);
 
 /** The methods on a `ctx.channel` handle whose first arg is the channel event name. */
@@ -97,7 +97,7 @@ export function scopePluginContext(id: string, ctx: any): any {
           original(pluginWireName(id, task as string), ...rest);
       }
 
-      // `ctx.connection(ref).send/request/sendWithAck('evt', ...)` — the handle
+      // `ctx.connections.get(ref).send/request/sendWithAck('evt', ...)` — the handle
       // is built fresh per call, so wrap each event-first method to namespace the
       // event like a plain `ctx.send`.
       if (key === 'connection') {
@@ -154,6 +154,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (!position) return Reflect.get(target, key, receiver);
 
       const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
+      if (typeof original !== 'function') return original;
       if (position === 'event-first') {
         return (event: unknown, ...rest: unknown[]) =>
           original(pluginWireName(id, event as string), ...rest);
@@ -205,7 +206,7 @@ export function scopePluginThrow<TArgs extends unknown[], TReturn>(
 }
 
 /**
- * Wrap a handle (a `ctx.connection(ref)` or `ctx.channel` object) so each named
+ * Wrap a handle (a `ctx.connections.get(ref)` or `ctx.channel` object) so each named
  * method prefixes its first arg — the event name — with the plugin namespace.
  * Other methods on the handle pass through untouched.
  */

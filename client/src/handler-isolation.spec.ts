@@ -162,6 +162,11 @@ describe('a throwing presence or stream callback is isolated from its siblings',
       ws.emit({ event: 'feed', payload: {}, __wskit: { streamId: 's1' } }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 's1', eventName: 'feed' },
+    });
   });
 });
 

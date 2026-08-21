@@ -161,16 +161,16 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
   });
 
-  it("custom `per: ctx => ctx.identity` shares the bucket across that user's sockets", () => {
+  it("custom `per: ctx => ctx.user.id` shares the bucket across that user's sockets", () => {
     const c = clock();
     const rt = new RateLimitRuntime(
-      plan([['top', { id: 1, windowMs: 60_000, max: 2, per: (ctx: any) => ctx.identity }]]),
+      plan([['top', { id: 1, windowMs: 60_000, max: 2, per: (ctx: any) => ctx.user.id }]]),
       c.read.bind(c),
     );
-    expect(rt.check({ id: 'c1', identity: 'u-42' }, 'e')).toBeNull();
-    expect(rt.check({ id: 'c2', identity: 'u-42' }, 'e')).toBeNull();
-    expect(rt.check({ id: 'c3', identity: 'u-42' }, 'e')).not.toBeNull();
-    expect(rt.check({ id: 'c4', identity: 'u-99' }, 'e')).toBeNull();
+    expect(rt.check({ id: 'c1', user: { id: 'u-42' } }, 'e')).toBeNull();
+    expect(rt.check({ id: 'c2', user: { id: 'u-42' } }, 'e')).toBeNull();
+    expect(rt.check({ id: 'c3', user: { id: 'u-42' } }, 'e')).not.toBeNull();
+    expect(rt.check({ id: 'c4', user: { id: 'u-99' } }, 'e')).toBeNull();
   });
 
   it('routes the same connection to different buckets depending on scope', () => {

@@ -2,8 +2,8 @@ import { WIRE_LIMITS } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +14,7 @@ interface C {
     general: {
       incoming: { message: { text: string }; typing: { who: string }; feed: { token: string } };
       outgoing: { 'send-message': { text: string } };
-      requests: { history: { payload: { before: string }; response: { items: string[] } } };
+      clientRequests: { history: { payload: { before: string }; response: { items: string[] } } };
     };
     rooms: {
       addressing: 'dynamic';
@@ -471,7 +471,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -489,7 +489,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       second.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'server', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'server', channel: 'general', channelMembership: 'persistent' },
       });
 
       expect(() => room.send('send-message', { text: 'hi' })).toThrow();
@@ -519,7 +519,7 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       const leave = room.unsubscribe();
@@ -577,7 +577,7 @@ describe('reliable leave', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       const leave = room.unsubscribe();
@@ -594,6 +594,11 @@ describe('reliable leave', () => {
   it('ignores a confirmation with a mismatched id, then settles on the matching one', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');
+    const stale = vi.fn();
+    (socket as unknown as { on(event: string, handler: () => void): void }).on(
+      '__unsubscribeOk__',
+      stale,
+    );
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -617,6 +622,7 @@ describe('reliable leave', () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
+    expect(stale).not.toHaveBeenCalled();
 
     ws.emit({
       event: '__unsubscribeOk__',
@@ -780,7 +786,7 @@ describe('reliable leave', () => {
 
 describe('scoped request and ack', () => {
   it('channel request tags the channel and resolves', async () => {
-    const { socket, ws } = build(channels(), requestResponse());
+    const { socket, ws } = build(channels(), clientRequests());
     const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
       request(event: string, payload: unknown): Promise<unknown>;
     };
@@ -804,7 +810,7 @@ describe('scoped request and ack', () => {
   });
 
   it('channel request is guarded before subscribe', () => {
-    const { socket } = build(channels(), requestResponse());
+    const { socket } = build(channels(), clientRequests());
     const room = socket.channel('general') as ReturnType<(typeof socket)['channel']> & {
       request(event: string, payload: unknown): Promise<unknown>;
     };
@@ -997,6 +1003,15 @@ interface PluginChannelC {
   };
 }
 
+// A plugin owns its `__id::` channels, so they are not on the top-level typed
+// socket. The channels primitive still routes them at runtime, so these tests
+// reach the channel by name the way a plugin's scoped socket does.
+type PluginRoomHandle = {
+  on(event: 'joined', handler: (data: { who: string }) => void): () => void;
+  subscribe(): Promise<void>;
+};
+type ChannelByName = (name: string) => PluginRoomHandle;
+
 describe('plugin-channel namespace delivery (A3)', () => {
   function buildPlugin() {
     const socket = client<PluginChannelC>()(connect('wss://test'), channels());
@@ -1008,7 +1023,7 @@ describe('plugin-channel namespace delivery (A3)', () => {
 
   it("delivers a plugin channel's __id::-prefixed event under its bare contract name", async () => {
     const { socket, ws } = buildPlugin();
-    const room = socket.channel('__e2e:feed::room');
+    const room = (socket.channel as unknown as ChannelByName)('__e2e:feed::room');
     const seen: { who: string }[] = [];
     room.on('joined', (data) => seen.push(data));
 
@@ -1030,7 +1045,7 @@ describe('plugin-channel namespace delivery (A3)', () => {
 
   it("only strips the channel's own prefix — a foreign-prefixed event is not delivered as the bare name", async () => {
     const { socket, ws } = buildPlugin();
-    const room = socket.channel('__e2e:feed::room');
+    const room = (socket.channel as unknown as ChannelByName)('__e2e:feed::room');
     const joined = vi.fn();
     room.on('joined', joined);
 
@@ -1048,5 +1063,71 @@ describe('plugin-channel namespace delivery (A3)', () => {
       __wskit: { source: 'server', channel: '__e2e:feed::room' },
     });
     expect(joined).not.toHaveBeenCalled();
+  });
+});
+
+describe('protocol frame forwarding stays channel-scoped', () => {
+  it('settles subscribe state yet never delivers __subscribeOk__ to a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    // A user could register the reserved name; it must never fire.
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__subscribeOk__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general', inbox: true },
+    });
+    await expect(p).resolves.toBeUndefined();
+    expect(topLevel).not.toHaveBeenCalled();
+  });
+
+  it('settles a leave on __unsubscribeOk__ without reaching a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__unsubscribeOk__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await p;
+
+    const leave = room.unsubscribe();
+    const unsubscribeId = ws.sentFrames().at(-1).__wskit.unsubscribeId;
+    ws.emit({
+      event: '__unsubscribeOk__',
+      payload: {},
+      __wskit: { channel: 'general', unsubscribeId },
+    });
+    await expect(leave).resolves.toBeUndefined();
+    expect(topLevel).not.toHaveBeenCalled();
+  });
+
+  it('fires onKicked on __kicked__ without reaching a top-level handler', async () => {
+    const { socket, ws } = build(channels());
+    const topLevel = vi.fn();
+    (socket as unknown as { on(e: string, h: () => void): void }).on('__kicked__', topLevel);
+
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: {},
+      __wskit: { source: 'client', channel: 'general' },
+    });
+    await p;
+    const onKicked = vi.fn();
+    room.onKicked(onKicked);
+
+    ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });
+
+    expect(onKicked).toHaveBeenCalledWith('spam');
+    expect(topLevel).not.toHaveBeenCalled();
   });
 });

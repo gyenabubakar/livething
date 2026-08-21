@@ -1,17 +1,17 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { capabilityDisplayName } from '~/_define/capability-kinds.ts';
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
 import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/capability.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { ClientPluginContract } from '~/infer-client.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 /**
  * A host capability factory accepted by a plugin's `dependsOn` — only the
- * host-owned engines (`persistence`, `dedup`, `sequence`, `keepalive`,
- * `rateLimit`, `replay`), which carry `__hostOnly: true`. A behavior capability
+ * host-owned engines (`dedup`, `sequence`, `keepalive`, `rateLimit`,
+ * `replay`), which carry `__hostOnly: true`. A behavior capability
  * a plugin can own itself (`requests`, `channels`, streams, …) is not assignable
  * and is rejected at compile time: a plugin lists those in its own
  * `capabilities` rather than depending on the host for them. Plugin factories
@@ -36,6 +36,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'scheduled',
   'scheduledSurface',
   'tag-groups',
+  'tag-persistence-runtime',
   'errors',
   'onInit',
   'onConnect',
@@ -44,6 +45,8 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onError',
   'onValidationError',
   'onUpgrade',
+  'onPing',
+  'onPong',
   // Observers that ride along stamped with their owner, not namespaced events.
   'intercept',
   'outgoingHook',
@@ -70,16 +73,15 @@ const PLUGIN_SURFACE_KEY = Symbol('pluginSurface');
 /**
  * Build the `ctx.plugin(id)` accessor for one connection context. It runs the
  * registered plugin's API factory against a plugin-scoped context (sends prefixed
- * with the plugin namespace) and caches the result per context so repeated calls
- * return the same API object.
+ * with the plugin namespace) and caches the result by id, so repeated calls in
+ * one context return the same API object and the factory runs at most once.
  */
 function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
   const base = baseCtx as Record<PropertyKey, unknown>;
   const pluginApiCache = new Map<string, unknown>();
   return {
-    plugin: (id: string, registrationId?: string) => {
-      const cacheKey = registrationId ? `${id}#${registrationId}` : id;
-      if (pluginApiCache.has(cacheKey)) return pluginApiCache.get(cacheKey);
+    plugin: (id: string) => {
+      if (pluginApiCache.has(id)) return pluginApiCache.get(id);
       const factory = engine.getPluginApiFactory(id);
       if (!factory) {
         throw new Error(
@@ -88,7 +90,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
         );
       }
       const api = factory(scopePluginContext(id, base));
-      pluginApiCache.set(cacheKey, api);
+      pluginApiCache.set(id, api);
       return api;
     },
   };
@@ -113,12 +115,19 @@ function pluginSurfacePrimitive(): Primitive {
   };
 }
 
-/** The scoped-handler shape a plugin manifest accepts, carrying its own contract and ctx. */
-type ScopedHandler<TContract extends ServerContract, TScopedCtx = unknown> = ServerDefinition<
-  readonly Primitive[],
-  TContract,
-  TScopedCtx
-> & { readonly __scoped?: boolean };
+/**
+ * The scoped-handler shape a plugin manifest accepts, carrying its own contract,
+ * ctx, and — when the scoped `assemble({ handlers, api })` declared one — its api
+ * factory. `plugin(id, { handler })` reads the api off the handler, so the api is
+ * authored in one place next to the handlers it wraps.
+ */
+type ScopedHandler<
+  TContract extends ServerContract,
+  TScopedCtx = unknown,
+  TApi = unknown,
+> = ServerDefinition<readonly Primitive[], TContract, TScopedCtx, TApi> & {
+  readonly __scoped?: boolean;
+};
 
 /** The plain-object manifest passed to `plugin(id, ...)`. */
 export interface PluginManifest<
@@ -126,22 +135,20 @@ export interface PluginManifest<
   TApi = unknown,
   TScopedCtx = unknown,
 > {
-  /** The plugin's behavior — a scoped handler from `define({ scoped: true }).assemble(...)`. */
-  readonly handler: ScopedHandler<TContract, TScopedCtx>;
   /**
-   * Host capability factories the host must list (e.g. `requests`, `persistence`).
+   * The plugin's behavior — a scoped handler from
+   * `define({ scope: 'plugin' }).assemble({ handlers, api })`. Any `api` the host
+   * reaches via `ctx.plugin(id)` is authored on that `assemble`, not here.
+   */
+  readonly handler: ScopedHandler<TContract, TScopedCtx, TApi>;
+  /**
+   * Host capability factories the host must list (e.g. `requests`, `rateLimit`).
    * A missing prerequisite is a build error. Only host capability factories are
    * accepted — a plugin factory is rejected at compile time, because the
    * dependency matcher reads a host capability's identity token, which plugin
    * factories don't carry (they would always fail the check at runtime).
    */
   readonly dependsOn?: readonly HostCapabilityFactory[];
-  /**
-   * Per-connection API the host reaches via `ctx.plugin(id)`. Runs against the
-   * plugin's own scoped ctx — the same `ctx` the plugin's `h.on(...)` handlers
-   * receive, scoped to the plugin's capabilities and emits.
-   */
-  readonly api?: (ctx: TScopedCtx) => TApi;
   /**
    * Opt the plugin's `intercept`/`outgoing` hooks into seeing the host app's
    * frames, not just the plugin's own. Off by default (least privilege): a
@@ -184,8 +191,7 @@ export interface PluginCapability<
   /**
    * Capability identity tokens the host must provide: the explicit `dependsOn`
    * plus the host-owned requirements auto-derived from the plugin's own
-   * capabilities (e.g. a plugin durable stream implies persistence). Checked at
-   * the host's `assemble()`. @internal
+   * capabilities. Checked at the host's `assemble()`. @internal
    */
   readonly __pluginRequiredKinds: readonly string[];
   /** Whether the plugin opted its hooks into observing host traffic. @internal */
@@ -213,6 +219,43 @@ export type GrantableCapability = AnyCapability & {
   readonly __requiresHostGrant?: never;
 };
 
+/**
+ * The client-side contract for a server plugin — its own events, requests,
+ * streams, and channels flipped into the client's perspective, with plain names.
+ * A client plugin author passes this to `plugin<...>()` instead of hand-writing
+ * the contract, so the two halves stay in step:
+ *
+ * Derive it beside the server plugin and export the result, the way `InferClient`
+ * is used for a whole app. The client half then imports one plain type.
+ *
+ * ```ts
+ * // server plugin
+ * export const Presence = plugin('acme:presence', { handler, api });
+ * export type PresenceWire = InferPluginClient<typeof Presence>;
+ *
+ * // client plugin
+ * import type { PresenceWire } from './server-plugin';
+ *
+ * const PresenceClient = plugin<PresenceWire, PresenceApi>()({
+ *   id: 'acme:presence',
+ *   setup(socket) { ... },
+ * });
+ * ```
+ *
+ * Accepts either the plugin factory (`typeof Presence`) or the capability it
+ * returns (`ReturnType<typeof Presence>`).
+ */
+export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
+  string,
+  infer TContract,
+  unknown,
+  boolean
+>
+  ? ClientPluginContract<TContract>
+  : TPlugin extends PluginCapability<string, infer TContract, unknown, boolean>
+    ? ClientPluginContract<TContract>
+    : never;
+
 /** Build the primitive whose `__setup` registers the plugin's API factory with the engine. */
 function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {
   return {
@@ -231,44 +274,9 @@ function assertSupported(id: string, primitive: Primitive): void {
   if (ALLOWED_PLUGIN_KINDS.has(primitive.__wskit)) return;
   throw new Error(
     `[wskit] plugin('${id}') uses '${primitive.__wskit}', which a plugin cannot contribute. ` +
-      'Host-owned engines (dedup, persistence, replay, rateLimit, …) belong on the host — list ' +
+      'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
       'them there and reach them from the plugin with dependsOn.',
   );
-}
-
-/**
- * Verify that every plugin listed in a host's `capabilities[]` has its
- * `dependsOn` prerequisites satisfied by another listed capability.
- * A missing prerequisite is a build error at `assemble()`, never a runtime
- * surprise.
- *
- * Matching is by stable capability identity: each factory and the capability it
- * produces share a `__capabilityKind` token (see `withCapabilityKind` /
- * `stampKind`). The matcher reads the token off each `dependsOn` factory WITHOUT
- * calling it — so an arg-requiring factory such as `keepalive` never crashes —
- * and compares against the tokens of the host's listed capabilities. Distinct
- * tokens per stream variant mean `dependsOn: [resumableStream]` is never
- * satisfied by a host that lists only `stream()`.
- */
-export function assertPluginDependencies(capabilities: readonly AnyCapability[]): void {
-  const present = new Set<string>();
-  for (const cap of capabilities) {
-    if (cap.__capabilityKind) present.add(cap.__capabilityKind);
-  }
-
-  for (const cap of capabilities) {
-    const pluginCap = cap as Partial<PluginCapability>;
-    if (!pluginCap.__pluginId || !pluginCap.__pluginRequiredKinds) continue;
-    for (const kind of pluginCap.__pluginRequiredKinds) {
-      if (present.has(kind)) continue;
-      const name = capabilityDisplayName(kind);
-      throw new Error(
-        `[wskit] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
-          `list. Add ${name} to define({ capabilities: [...] }) — a plugin declares prerequisites ` +
-          'instead of owning host engines.',
-      );
-    }
-  }
 }
 
 /**
@@ -278,7 +286,7 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
  * handler as `ctx.plugin('<id>')`.
  *
  * The behavior is authored as a real, independently-bootable handler with
- * `define({ scoped: true })`, so a plugin is tested like a tiny app.
+ * `define({ scope: 'plugin' })`, so a plugin is tested like a tiny app.
  *
  * @example
  * ```ts
@@ -287,18 +295,21 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
  * import * as v from 'valibot';
  *
  * const h = define({
- *   scoped: true,
+ *   scope: 'plugin',
  *   capabilities: [emits({ 'user-online': t<{ id: string }>() })],
  * });
  * const heartbeat = h.on('heartbeat', {
  *   input: v.object({}),
- *   run(ctx) { ctx.send('user-online', { id: ctx.id }); },
+ *   run(ctx) { ctx.send('user-online', { id: ctx.connection.id }); },
  * });
  *
- * export const Presence = plugin('acme:presence', {
- *   handler: h.assemble(heartbeat),
- *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.id }); } }),
+ * // The api is authored on the scoped assemble, next to its handlers.
+ * const presence = h.assemble({
+ *   handlers: [heartbeat],
+ *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.connection.id }); } }),
  * });
+ *
+ * export const Presence = plugin('acme:presence', { handler: presence });
  *
  * // register it like any other capability — the factory is invoked
  * define({ capabilities: [Presence()] });
@@ -321,7 +332,7 @@ export function plugin<
   }
   if (!manifest.handler.__scoped) {
     throw new Error(
-      `[wskit] plugin('${id}') handler must be built with define({ scoped: true }). ` +
+      `[wskit] plugin('${id}') handler must be built with define({ scope: 'plugin' }). ` +
         'Author the plugin as a scoped handler, then pass its assemble() result here.',
     );
   }
@@ -335,7 +346,9 @@ export function plugin<
     observesHostTraffic,
   );
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
-  if (manifest.api) primitives.push(pluginApiPrimitive(id, manifest.api));
+  const apiFactory = (manifest.handler as { __apiFactory?: (ctx: unknown) => unknown })
+    .__apiFactory;
+  if (apiFactory) primitives.push(pluginApiPrimitive(id, apiFactory));
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(
     primitives,
@@ -349,7 +362,7 @@ export function plugin<
   writable.__pluginId = id;
   writable.__pluginDependsOn = manifest.dependsOn ?? [];
   // Host requirements = explicit dependsOn + what the plugin's own capabilities
-  // imply (e.g. a durable stream needs persistence, recorded at assemble).
+  // imply, recorded at assemble.
   const explicitKinds = (manifest.dependsOn ?? [])
     .map((factory) => factory.__capabilityKind)
     .filter((kind): kind is string => typeof kind === 'string');
@@ -384,32 +397,4 @@ export function observeHost<TCap extends { readonly __pluginId: string }>(
   return granted as unknown as Omit<TCap, '__requiresHostGrant'> & {
     readonly __hostObservationGranted: true;
   };
-}
-
-/**
- * Backstop the compile gate at `assemble()`: a plugin that opted into host
- * observation but was listed without `observeHost(...)` throws a clear build
- * error. Covers the dynamic case where `observesHostTraffic` is a non-literal
- * boolean (the type widens, so the brand never fires). When a grant is present,
- * warn once that the plugin can see the app's frames.
- */
-export function assertHostObservationGranted(
-  capabilities: readonly AnyCapability[],
-  logger: Pick<Console, 'warn'> = console,
-): void {
-  for (const cap of capabilities) {
-    const pluginCap = cap as Partial<PluginCapability>;
-    if (!pluginCap.__pluginId || !pluginCap.__observesHostTraffic) continue;
-    if (!pluginCap.__hostObservationGranted) {
-      throw new Error(
-        `[wskit] plugin('${pluginCap.__pluginId}') observes host traffic but was listed without ` +
-          'observeHost(...). Wrap it as observeHost(' +
-          `${pluginCap.__pluginId}()) in define({ capabilities: [...] }) to grant the privilege.`,
-      );
-    }
-    logger.warn(
-      `[wskit] plugin "${pluginCap.__pluginId}" is granted host-traffic observation ` +
-        "(its intercept/outgoing see the app's frames)",
-    );
-  }
 }

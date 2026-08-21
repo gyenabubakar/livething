@@ -1,8 +1,8 @@
-import { client, connect, serverRequest } from '@wskit/client';
+import { client, connect, serverRequests } from '@wskit/client';
 import type { ServerRequestClient } from '@wskit/tests-e2e-handlers/server-request';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's serverRequest() against the real `server-request`
+// Drives @wskit/client's serverRequests() against the real `server-request`
 // handler, typed by the same contract the server implements
 // (ServerRequestClient = InferClient<handler>). The server asks the client a
 // declared server→client request; the client answers with onRequest(), and the
@@ -21,7 +21,7 @@ export function setup(): void {
     <span data-testid="error-outcome"></span>
   `);
 
-  const socket = client<ServerRequestClient>()(connect(wsUrl('server-request')), serverRequest());
+  const socket = client<ServerRequestClient>()(connect(wsUrl('server-request')), serverRequests());
 
   // How the next incoming server→client request should be answered. Swapped by
   // the answer-* buttons before a trigger so each case is deterministic.

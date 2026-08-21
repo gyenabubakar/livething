@@ -5,7 +5,7 @@ describe('ChannelDynamicClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ChannelDynamicClient['incoming']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ChannelDynamicClient['requests']>().not.toBeAny();
+    expectTypeOf<ChannelDynamicClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['channels']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['errors']>().not.toBeAny();
@@ -132,8 +132,8 @@ describe('ChannelDynamicClient — channels', () => {
 });
 
 describe('ChannelDynamicClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ChannelDynamicClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ChannelDynamicClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

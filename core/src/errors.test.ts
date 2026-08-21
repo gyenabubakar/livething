@@ -3,6 +3,7 @@
 import {
   Block,
   CloseCodes,
+  CrossInstanceRef,
   error,
   NudgeOverflow,
   RateLimited,
@@ -78,6 +79,19 @@ void _notFoundErr;
 
 const _matchesFn: (err: unknown) => err is WSKitError<'not-found', void> = NotFound.matches;
 void _matchesFn;
+
+const crossInstanceErr = CrossInstanceRef({
+  operation: 'ctx.channel.request({ to })',
+  targetInstance: 'other',
+  engineInstance: 'local',
+});
+const _crossInstanceCode: 'cross-instance-ref' = crossInstanceErr.code;
+const _crossInstanceDetail: {
+  operation: string;
+  targetInstance?: string;
+  engineInstance?: string;
+} = crossInstanceErr.detail;
+void [_crossInstanceCode, _crossInstanceDetail];
 
 // ===========================================================================
 // 4. error() — schema overload

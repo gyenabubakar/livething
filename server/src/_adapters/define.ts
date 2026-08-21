@@ -1,6 +1,7 @@
 import * as EngineModule from '~/_engine/engine.ts';
 import type * as AdapterTypes from '~/_adapters/types.ts';
-import type { ServerDefinition } from '~/server-definition.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**
@@ -12,13 +13,16 @@ import type { AdapterConfig } from './types.ts';
  * call it to get an engine instance to attach to.
  */
 export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
-  return function server(handler: ServerDefinition, options: TOptions): TService {
+  return function server<TApi>(
+    handler: ServerDefinition<readonly Primitive[], ServerContract, unknown, TApi>,
+    options: TOptions,
+  ): TService {
     function createEngine(
       runtimeOptions: Omit<
         AdapterTypes.EngineOptions,
         'adapterId' | 'hibernation' | 'asyncContextFactory'
       >,
-    ) {
+    ): EngineModule.Engine<TApi> {
       return new EngineModule.Engine(handler, {
         adapterId: config.id,
         hibernation: config.hibernation,

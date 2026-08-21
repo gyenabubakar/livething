@@ -244,6 +244,7 @@ describe('hibernation-wake resume', () => {
       payload: { lastKnownSeq: 5 },
       __wskit: { streamId: sid },
     });
+    socket.disconnect();
   });
 });
 
@@ -283,7 +284,7 @@ describe('__error__ with correlationId passthrough', () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
-    socket.onError(() => {});
+    socket.onServerError(() => {});
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found' },
@@ -343,6 +344,7 @@ describe('resumeStream default lastKnownSeq from state', () => {
       payload: {},
       __wskit: { streamId: 'feed-fresh' },
     });
+    socket.disconnect();
   });
 
   it('uses the state-derived seq when reconnect-resume omits an explicit lastKnownSeq', async () => {
@@ -599,6 +601,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       ws.open();
       await start(socket, ws, { streamKind: 'persistent' });
       expect(warnedAboutKeepalive(warn)).toBe(true);
+      socket.disconnect();
     } finally {
       warn.mockRestore();
     }
@@ -614,6 +617,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       ws.open();
       await start(socket, ws, { streamKind: 'persistent' });
       expect(warnedAboutKeepalive(warn)).toBe(false);
+      socket.disconnect();
     } finally {
       warn.mockRestore();
     }
@@ -629,6 +633,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       ws.open();
       await start(socket, ws, { streamKind: 'ephemeral' });
       expect(warnedAboutKeepalive(warn)).toBe(false);
+      socket.disconnect();
     } finally {
       warn.mockRestore();
     }

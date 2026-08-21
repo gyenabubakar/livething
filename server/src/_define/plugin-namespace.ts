@@ -9,6 +9,7 @@ import {
 import { serverRequestKey } from '~/request/outgoing-runtime.ts';
 import type { ErrorDefWithFactory } from '@wskit/core';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ResolvedServerRequest } from '~/request/capability.ts';
@@ -48,6 +49,8 @@ const LIFECYCLE_KINDS: Record<string, PluginLifecycleKind> = {
   onShutdown: 'shutdown',
   onError: 'error',
   onValidationError: 'validationError',
+  onPing: 'ping',
+  onPong: 'pong',
 };
 
 type PluginLifecycleKind =
@@ -56,7 +59,9 @@ type PluginLifecycleKind =
   | 'disconnect'
   | 'shutdown'
   | 'error'
-  | 'validationError';
+  | 'validationError'
+  | 'ping'
+  | 'pong';
 
 /** A plugin's id paired with the short error codes it declared. */
 interface PluginScope {
@@ -364,13 +369,13 @@ function namespaceChannel(
 ): Primitive {
   const { id } = scope;
   const channel = primitive as unknown as {
-    pattern: string | { key: string; pattern: string };
+    pattern: string | ScopeDeclaration<string>;
     primitives: readonly Primitive[];
     __identity: readonly unknown[];
   };
   const [key] = primitive.__identity;
 
-  let pattern: string | { key: string; pattern: string };
+  let pattern: string | ScopeDeclaration<string>;
   let identityTail: string;
   if (typeof channel.pattern === 'string') {
     pattern = pluginWireName(id, channel.pattern);

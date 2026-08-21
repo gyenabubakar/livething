@@ -33,7 +33,7 @@ const base = define({
   ],
 });
 
-base.error((ctx, error, evt) => {
+base.onError((ctx, error, evt) => {
   if (DeferExhausted.matches(error)) {
     ctx.send('defer-exhausted-result', {
       event: evt ?? 'unknown',
@@ -42,7 +42,7 @@ base.error((ctx, error, evt) => {
   }
 });
 
-base.validationError((ctx, evt) => {
+base.onValidationError((ctx, evt) => {
   ctx.send('validation-error-fired', { event: evt });
 });
 
@@ -69,7 +69,7 @@ const handleBlockTest = base.on('block-test', {
 const handleDeferTest = base.on('defer-test', {
   input: v.object({}),
   async run(ctx) {
-    const key = `defer:${ctx.id}`;
+    const key = `defer:${ctx.connection.id}`;
     const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
     await ctx.kv.set(key, attempts + 1);
     if (attempts < 1) throw Defer(50);
@@ -120,15 +120,17 @@ const handleChatAlwaysDefer = chat.on('chat-always-defer', {
   },
 });
 
-export const errorsControlFlowHandler = base.assemble(
-  handleDoEcho,
-  handleBlockTest,
-  handleDeferTest,
-  handleAlwaysDefer,
-  handleManualValidation,
-  handleForceDisconnect,
-  handleStartDeferStream,
-  handleChatAlwaysDefer,
-);
+export const errorsControlFlowHandler = base.assemble({
+  handlers: [
+    handleDoEcho,
+    handleBlockTest,
+    handleDeferTest,
+    handleAlwaysDefer,
+    handleManualValidation,
+    handleForceDisconnect,
+    handleStartDeferStream,
+    handleChatAlwaysDefer,
+  ],
+});
 
 export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;

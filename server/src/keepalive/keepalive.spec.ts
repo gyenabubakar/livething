@@ -1,9 +1,61 @@
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/keepalive.ts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
 const OPTS = { pingIntervalMs: 15_000, idleTimeoutMs: 30_000 };
+
+/**
+ * A stand-in for the engine that records everything `keepalive()` registers, so
+ * a test can fire each hook and watch what the capability does with it.
+ */
+function createFakeEngine(options: { hibernating?: boolean } = {}) {
+  const connectHandlers: Array<(ctx: unknown) => void | Promise<void>> = [];
+  const disconnectHandlers: Array<(ctx: unknown) => void | Promise<void>> = [];
+  const cleanupHandlers: Array<(connectionId: string) => void> = [];
+  const activityHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
+  const pongHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
+  const pingHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
+  const contextExtenders: Array<(baseCtx: unknown) => Record<string, unknown>> = [];
+  const installed = new Set<symbol>();
+
+  type CtxHandler = (ctx: unknown) => void | Promise<void>;
+  type IdHandler = (connectionId: string) => void | Promise<void>;
+  type ContextExtender = (baseCtx: unknown) => Record<string, unknown>;
+
+  const engine = {
+    installOnce(key: symbol, install: () => void) {
+      if (installed.has(key)) return;
+      installed.add(key);
+      install();
+    },
+    onConnect: (handler: CtxHandler) => void connectHandlers.push(handler),
+    onDisconnect: (handler: CtxHandler) => void disconnectHandlers.push(handler),
+    onConnectionCleanup: (handler: (id: string) => void) => void cleanupHandlers.push(handler),
+    onConnectionActivity: (handler: IdHandler) => void activityHandlers.push(handler),
+    onPing: (handler: IdHandler) => void pingHandlers.push(handler),
+    onPong: (handler: IdHandler) => void pongHandlers.push(handler),
+    extendContext: (factory: ContextExtender) => void contextExtenders.push(factory),
+    getHibernationEnabled: () => options.hibernating ?? false,
+    sendPing: vi.fn(),
+    setConnectionLatency: vi.fn(),
+    refreshConnectionIdleTimeout: vi.fn(),
+  } as unknown as EngineAccess;
+
+  return {
+    engine,
+    connectHandlers,
+    disconnectHandlers,
+    cleanupHandlers,
+    activityHandlers,
+    pingHandlers,
+    pongHandlers,
+    contextExtenders,
+    sendPing: engine.sendPing as ReturnType<typeof vi.fn>,
+    setConnectionLatency: engine.setConnectionLatency as ReturnType<typeof vi.fn>,
+    refreshConnectionIdleTimeout: engine.refreshConnectionIdleTimeout as ReturnType<typeof vi.fn>,
+  };
+}
 
 describe('keepalive', () => {
   it('produces correct tag, kind, and option fields', () => {
@@ -24,137 +76,149 @@ describe('keepalive', () => {
     expect(keepalive(OPTS).__requires).toEqual({});
   });
 
-  it('registers hooks, sets the ping interval, and refreshes with idleTimeoutMs', () => {
-    const connectHandlers: Array<NonNullable<Parameters<EngineAccess['onConnect']>[0]>> = [];
-    const activityHandlers: Array<
-      NonNullable<Parameters<EngineAccess['onConnectionActivity']>[0]>
-    > = [];
-    const refreshed: Array<{ connectionId: string; timeoutMs: number }> = [];
-    let pingIntervalMs: number | undefined;
-    const installs = new Set<symbol>();
+  describe('hook registration', () => {
+    it('registers exactly the hooks it needs, and never a ping hook', () => {
+      const fake = createFakeEngine();
 
-    const engine = {
-      installOnce(key, install) {
-        if (installs.has(key)) return;
-        installs.add(key);
-        install();
-      },
-      onConnect(handler) {
-        connectHandlers.push(handler);
-      },
-      onConnectionActivity(handler) {
-        activityHandlers.push(handler);
-      },
-      setKeepalivePingInterval(intervalMs: number) {
-        pingIntervalMs = intervalMs;
-      },
-      refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number) {
-        refreshed.push({ connectionId, timeoutMs });
-      },
-      extendContext() {},
-      getHibernationEnabled() {
-        return false;
-      },
-    } as Pick<
-      EngineAccess,
-      | 'installOnce'
-      | 'onConnect'
-      | 'onConnectionActivity'
-      | 'refreshConnectionIdleTimeout'
-      | 'setKeepalivePingInterval'
-      | 'extendContext'
-      | 'getHibernationEnabled'
-    > as EngineAccess;
+      keepalive(OPTS).__setup?.(fake.engine);
 
-    keepalive(OPTS).__setup?.(engine);
+      expect(fake.connectHandlers).toHaveLength(1);
+      expect(fake.cleanupHandlers).toHaveLength(1);
+      expect(fake.activityHandlers).toHaveLength(1);
+      expect(fake.pongHandlers).toHaveLength(1);
+      expect(fake.contextExtenders).toHaveLength(1);
 
-    expect(pingIntervalMs).toBe(15_000);
-    expect(connectHandlers).toHaveLength(1);
-    expect(activityHandlers).toHaveLength(1);
+      // Answering a client's ping is the engine's job, not this capability's.
+      expect(fake.pingHandlers).toHaveLength(0);
+    });
 
-    void connectHandlers[0]!({ id: 'conn-1' });
-    void activityHandlers[0]!('conn-1');
+    it('releases the ping timer from cleanup, which a throwing disconnect hook cannot skip', () => {
+      const fake = createFakeEngine();
 
-    expect(refreshed).toEqual([
-      { connectionId: 'conn-1', timeoutMs: 30_000 },
-      { connectionId: 'conn-1', timeoutMs: 30_000 },
-    ]);
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      // Teardown must not sit on `onDisconnect`: a user hook that throws there
+      // aborts the remaining disconnect hooks and would strand the ping timer.
+      expect(fake.disconnectHandlers).toHaveLength(0);
+    });
+
+    it('opens the idle window on connect and on every inbound frame', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      void fake.activityHandlers[0]!('conn-1');
+
+      expect(fake.refreshConnectionIdleTimeout.mock.calls).toEqual([
+        ['conn-1', 30_000],
+        ['conn-1', 30_000],
+      ]);
+    });
+
+    it('ignores a connect context with no id', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: '' } });
+
+      expect(fake.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
+    });
+
+    it('ignores a cleanup for a connection it never watched', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      expect(() => fake.cleanupHandlers[0]!('never-seen')).not.toThrow();
+    });
   });
 
-  it('skips refreshConnectionIdleTimeout when ctx.id is falsy (empty string)', () => {
-    const connectHandlers: Array<NonNullable<Parameters<EngineAccess['onConnect']>[0]>> = [];
-    const refreshed: Array<string> = [];
-    const installs = new Set<symbol>();
+  describe('the ping loop', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000_000);
+    });
 
-    const engine = {
-      installOnce(key, install) {
-        if (installs.has(key)) return;
-        installs.add(key);
-        install();
-      },
-      onConnect(handler) {
-        connectHandlers.push(handler);
-      },
-      onConnectionActivity() {},
-      setKeepalivePingInterval() {},
-      refreshConnectionIdleTimeout(connectionId: string) {
-        refreshed.push(connectionId);
-      },
-      extendContext() {},
-      getHibernationEnabled() {
-        return false;
-      },
-    } as Pick<
-      EngineAccess,
-      | 'installOnce'
-      | 'onConnect'
-      | 'onConnectionActivity'
-      | 'refreshConnectionIdleTimeout'
-      | 'setKeepalivePingInterval'
-      | 'extendContext'
-      | 'getHibernationEnabled'
-    > as EngineAccess;
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-    keepalive(OPTS).__setup?.(engine);
-    void connectHandlers[0]!({ id: '' });
+    it('pings a connected socket on the configured interval', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
 
-    expect(refreshed).toHaveLength(0);
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      vi.advanceTimersByTime(OPTS.pingIntervalMs);
+
+      expect(fake.sendPing).toHaveBeenCalledWith('conn-1');
+    });
+
+    it('records the round-trip when the pong hook fires', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      vi.advanceTimersByTime(OPTS.pingIntervalMs);
+      vi.setSystemTime(Date.now() + 80);
+      void fake.pongHandlers[0]!('conn-1');
+
+      expect(fake.setConnectionLatency).toHaveBeenCalledWith('conn-1', 80, 'excellent');
+    });
+
+    it('stops pinging once the connection is cleaned up', () => {
+      const fake = createFakeEngine();
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      fake.cleanupHandlers[0]!('conn-1');
+      vi.advanceTimersByTime(OPTS.pingIntervalMs * 5);
+
+      expect(fake.sendPing).not.toHaveBeenCalled();
+    });
+
+    it('never pings and never arms the idle timer under hibernation', () => {
+      const fake = createFakeEngine({ hibernating: true });
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      void fake.activityHandlers[0]!('conn-1');
+      vi.advanceTimersByTime(OPTS.pingIntervalMs * 5);
+
+      // A quiet-but-alive client under hibernation must never be closed: no
+      // pending idle timer, and none held open by a `setTimeout` the instance
+      // would have to stay resident just to keep counting down.
+      expect(fake.sendPing).not.toHaveBeenCalled();
+      expect(fake.refreshConnectionIdleTimeout).not.toHaveBeenCalled();
+    });
+
+    it('still opens and refreshes the idle window without hibernation', () => {
+      const fake = createFakeEngine({ hibernating: false });
+      keepalive(OPTS).__setup?.(fake.engine);
+
+      void fake.connectHandlers[0]!({ connection: { id: 'conn-1' } });
+      void fake.activityHandlers[0]!('conn-1');
+
+      expect(fake.refreshConnectionIdleTimeout.mock.calls).toEqual([
+        ['conn-1', 30_000],
+        ['conn-1', 30_000],
+      ]);
+    });
   });
 
   it('installs a live ctx.latency / ctx.quality surface gated on hibernation', () => {
-    const extenders: Array<(baseCtx: unknown) => Record<string, unknown>> = [];
     let hibernating = false;
-    const engine = {
-      installOnce(_key, install) {
-        install();
-      },
-      onConnect() {},
-      onConnectionActivity() {},
-      setKeepalivePingInterval() {},
-      refreshConnectionIdleTimeout() {},
-      extendContext(factory) {
-        extenders.push(factory);
-      },
-      getHibernationEnabled() {
-        return hibernating;
-      },
-    } as Pick<
-      EngineAccess,
-      | 'installOnce'
-      | 'onConnect'
-      | 'onConnectionActivity'
-      | 'refreshConnectionIdleTimeout'
-      | 'setKeepalivePingInterval'
-      | 'extendContext'
-      | 'getHibernationEnabled'
-    > as EngineAccess;
+    const fake = createFakeEngine();
+    (fake.engine as { getHibernationEnabled: () => boolean }).getHibernationEnabled = () =>
+      hibernating;
 
-    keepalive(OPTS).__setup?.(engine);
-    expect(extenders).toHaveLength(1);
+    keepalive(OPTS).__setup?.(fake.engine);
+    expect(fake.contextExtenders).toHaveLength(1);
 
     const connection = { latency: null as number | null, quality: 'good' };
     const baseCtx = { [ENGINE_INTERNAL_CONNECTION]: connection } as Record<PropertyKey, unknown>;
-    Object.defineProperties(baseCtx, Object.getOwnPropertyDescriptors(extenders[0]!(baseCtx)));
+    Object.defineProperties(
+      baseCtx,
+      Object.getOwnPropertyDescriptors(fake.contextExtenders[0]!(baseCtx)),
+    );
 
     expect(baseCtx.latency).toBeNull();
     expect(baseCtx.quality).toBeNull();

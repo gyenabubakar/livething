@@ -1,5 +1,6 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
-import { APP_HOOK_OWNER, broadcastToChannel } from '~/outgoing/runtime.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
+import { broadcastToChannel } from '~/outgoing/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { broadcastToChannel as BroadcastToChannel } from '~/outgoing/runtime.ts';
@@ -9,7 +10,7 @@ type ChannelRuntimeArg = Parameters<typeof BroadcastToChannel>[0];
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -17,7 +18,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },

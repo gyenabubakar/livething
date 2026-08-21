@@ -1,24 +1,29 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type {
+  AdminContext,
   ChannelHandle,
   ConnectionInfo,
   ConnectionRef,
   KVProvider,
   Logger,
   SQLProvider,
+  UserInfo,
+  UserRef,
 } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { KeepaliveCtx } from '~/keepalive/ctx.ts';
+import type { LastSeenCtx } from '~/last-seen/ctx.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type { TagGroupHandle, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.ts';
 
 /**
- * A handle to one specific connection, returned by `ctx.connection(ref)`. Its
+ * A handle to one specific connection, returned by `ctx.connections.get(ref)`. Its
  * `send` is typed to the server's `emits(...)` events, so a typo or wrong
  * payload is a compile error.
  *
- * The handle is the seam for addressing one socket. It carries `send` always;
+ * The handle is the seam for addressing one socket. It carries `send` and
+ * `close` always;
  * the `requests()` capability adds the `request` arm (see `ConnectionRequestHandle`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`.
@@ -29,6 +34,9 @@ export interface ConnectionHandle<TSlots> {
    * is no longer live on this instance.
    */
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
+
+  /** Close this connection only. No-op when the connection is no longer live. */
+  close(code?: number, reason?: string): void;
 }
 
 /**
@@ -81,7 +89,7 @@ export interface BroadcastRequestArm<SR> {
 }
 
 /**
- * The `request` arm a `requests()` server adds to a `ctx.connection(ref)`
+ * The `request` arm a `requests()` server adds to a `ctx.connections.get(ref)`
  * handle. The server asks one specific connection a declared server→client
  * request and awaits its typed answer.
  */
@@ -100,7 +108,7 @@ export interface ConnectionRequestHandle<TSlots> extends ConnectionHandle<TSlots
 }
 
 /**
- * The `ctx.request` / `ctx.connection(ref).request` surface — owned by the
+ * The `ctx.request` / `ctx.connections.get(ref).request` surface — owned by the
  * `requests()` capability. Server→client targeted requests: ask one connection
  * and await its typed answer.
  */
@@ -124,20 +132,82 @@ export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
 }
 
 /**
- * The `ctx.connection(ref)` accessor, always present. The handle it returns
- * carries `request(...)` only when the `requests()` capability is listed —
- * driven by `TCaps` so the arm is a compile error otherwise.
+ * The handle `ctx.connections.get(ref)` returns. It always carries the typed
+ * `send`; with `requests()` listed it also carries the typed `request(...)`,
+ * gated on `TCaps` so the arm is a compile error otherwise.
  */
-export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapability[]> {
-  /**
-   * Address one specific connection by ref. The handle always carries `send`;
-   * with `requests()` listed it also carries `request(...)`.
-   */
-  connection(
-    ref: ConnectionRef,
-  ): 'requests' extends BrandsOf<TCaps>
-    ? ConnectionRequestHandle<TSlots>
-    : ConnectionHandle<TSlots>;
+type ConnectionGetHandle<TSlots, TCaps extends readonly AnyCapability[]> =
+  'requests' extends BrandsOf<TCaps> ? ConnectionRequestHandle<TSlots> : ConnectionHandle<TSlots>;
+
+/**
+ * `ctx.connections`, always present. Reach one specific socket by ref with
+ * `get(ref)`, or snapshot every live connection on this instance with `all()`.
+ */
+export interface ConnectionsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  connections: {
+    /**
+     * Address one specific connection by ref. The handle always carries `send`;
+     * with `requests()` listed it also carries `request(...)`.
+     */
+    get(ref: ConnectionRef): ConnectionGetHandle<TSlots, TCaps>;
+    /** Snapshot of every connection currently open on this server instance. */
+    all(): ConnectionInfo<TMeta>[];
+  };
+}
+
+/**
+ * The `request` arm a `requests()` server adds to a `UserHandle`. Asks every
+ * live socket the user holds and settles on the first valid answer, reporting
+ * which connection gave it via `from`.
+ */
+export interface UserRequestArm<TSlots> {
+  request<E extends keyof ServerRequests<TSlots> & string>(
+    event: E,
+    payload: ServerRequests<TSlots>[E] extends { payload: infer P } ? P : never,
+    options?: { timeout?: number },
+  ): Promise<BroadcastAnswer<ServerRequests<TSlots>[E] extends { response: infer R } ? R : never>>;
+}
+
+/**
+ * A handle to one user — every live socket the user currently holds. `send` fans
+ * the event to all of them and returns how many sockets received it; `setMeta`
+ * fans a metadata patch the same way. Typed to the server's `emits(...)` events.
+ */
+export interface UserHandleBase<TSlots, TMeta> {
+  /** The user id — the value `upgrade(...)` returned, or `''` on an anonymous connection. */
+  readonly id: string;
+  /** Build a `UserRef` for this user — pass it to `kick` and the like. */
+  ref(): UserRef;
+  /** Fan an event to every live socket the user holds. Returns the delivered socket count. */
+  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): number;
+  /** Merge a metadata patch into every one of the user's live connections. */
+  setMeta(patch: Partial<TMeta>): void;
+  /** Snapshot the user's currently-live connections. */
+  connections(): ConnectionInfo<TMeta>[];
+  /** Close every one of the user's live sockets. */
+  close(code?: number, reason?: string): void;
+  /** A point-in-time snapshot of the user, or `null` when they have no live connection. */
+  info(): UserInfo<TMeta> | null;
+}
+
+/** A `UserHandle`, plus the `request` arm when `requests()` is listed. */
+type UserHandleCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = UserHandleBase<
+  TSlots,
+  TMeta
+> &
+  ('requests' extends BrandsOf<TCaps> ? UserRequestArm<TSlots> : {});
+
+/**
+ * `ctx.user` (the current connection's user) and `ctx.users` (reach any user by
+ * id), always present. A user is one or more connections sharing the id
+ * `upgrade(...)` returned. An anonymous connection has no user identity —
+ * `ctx.user` is still there but reaches nobody.
+ */
+export interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+  /** The user behind the current connection. */
+  user: UserHandleCtx<TSlots, TMeta, TCaps>;
+  /** Reach any user by id. */
+  users: { get(id: string): UserHandleCtx<TSlots, TMeta, TCaps> };
 }
 
 /**
@@ -153,14 +223,16 @@ export interface ConnectionAddressing<TSlots, TCaps extends readonly AnyCapabili
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  */
 export type CoreCtx<TSlots, TEnv, TMeta> = {
-  /** Unique id of this connection. Stable for the lifetime of the socket. */
-  readonly id: string;
-  /** The identity string returned from `upgrade(...)`. Stable until disconnect. */
-  readonly identity: string;
-  /** A reference handle to this connection — pass it to `kick`, `subscribe`, and the like. */
-  readonly self: ConnectionRef;
+  /**
+   * A `ConnectionRef` for the current connection — the self socket address. Read
+   * `ctx.connection.id` for the connection id and `ctx.connection.userId` for the
+   * user id; pass the ref itself to `kick`, `subscribe`, and the like.
+   */
+  readonly connection: ConnectionRef;
   /** The metadata returned from `upgrade(...)`, typed from its return value. */
   readonly meta: TMeta;
+  /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
+  setMeta(patch: Partial<TMeta>): void;
   /** The platform env bindings (for example Cloudflare Workers `Env`). */
   readonly env: TEnv;
   /** The raw platform handle (for example a Durable Object state). Untyped by default. */
@@ -178,8 +250,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
 
   /** Close this connection. */
   close(code?: number, reason?: string): void;
-  /** Snapshot of every connection currently open on this server instance. */
-  getConnections(): ConnectionInfo<TMeta>[];
 
   /** Adapter-provided SQL surface. Throws if the adapter has no storage. */
   readonly sql: SQLProvider;
@@ -189,9 +259,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   readonly log: Logger;
   /** Keep a promise running past the end of the handler (for example Cloudflare `waitUntil`). */
   waitUntil(promise: Promise<unknown>): void;
-  /** Set the next alarm on the adapter's timer surface (unix ms). */
-  setAlarm(time: number): void;
-
   /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with
@@ -208,12 +275,12 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): boolean;
   /**
    * Send an event to every other connection on this server. The calling
-   * connection is excluded by default; pass `excludeSelf: false` to include it.
+   * connection is excluded by default; pass `includeSelf: true` to include it.
    */
   broadcast<E extends keyof Outgoing<TSlots> & string>(
     event: E,
     payload: Outgoing<TSlots>[E],
-    options?: { excludeSelf?: boolean },
+    options?: { includeSelf?: boolean },
   ): void;
 };
 
@@ -376,10 +443,20 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
  * cannot see a channel's own request types — those exist only on the active
  * `ctx.channel` handle inside that channel's handler.
  */
-type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = ChannelHandle<
-  Record<string, unknown>,
-  TMeta
-> &
+type ChannelHandleForContext<
+  TOutgoing extends Record<string, unknown>,
+  TMeta,
+  TGate extends boolean,
+> = TGate extends true
+  ? Omit<ChannelHandle<TOutgoing, TMeta>, 'inbox' | 'readReceipts'>
+  : ChannelHandle<TOutgoing, TMeta>;
+
+type ChannelsGetHandle<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean,
+> = ChannelHandleForContext<Record<string, unknown>, TMeta, TGate> &
   ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
 
 /**
@@ -388,16 +465,26 @@ type ChannelsGetHandle<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = 
  * when `requests()` is listed. The channel handle has no current connection, so
  * only the broadcast verb is added (not the targeted `request`).
  */
-type TypedChannelsGetHandle<R, TMeta, TCaps extends readonly AnyCapability[]> =
+type TypedChannelsGetHandle<
+  R,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean,
+> =
   R extends ChannelRef<infer TOutgoing extends Record<string, unknown>, infer TServerRequests>
-    ? ChannelHandle<TOutgoing, TMeta> &
+    ? ChannelHandleForContext<TOutgoing, TMeta, TGate> &
         ('requests' extends BrandsOf<TCaps>
           ? BroadcastRequestArm<BroadcastServerRequests<{ serverRequests: TServerRequests }>>
           : {})
     : never;
 
 /** The `ctx.channels` surface — owned by the `channels()` capability. */
-export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
+export interface ChannelsCtx<
+  TSlots,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TGate extends boolean = false,
+> {
   /**
    * Look up a channel to send into it, read its members, or ask its members a
    * broadcast request — from any handler.
@@ -408,9 +495,9 @@ export interface ChannelsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability
    * for the loose escape hatch when the name is only known at runtime.
    */
   readonly channels: {
-    get<R extends ChannelRef>(ref: R): TypedChannelsGetHandle<R, TMeta, TCaps>;
-    get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
-    get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps>;
+    get<R extends ChannelRef>(ref: R): TypedChannelsGetHandle<R, TMeta, TCaps, TGate>;
+    get(name: string): ChannelsGetHandle<TSlots, TMeta, TCaps, TGate>;
+    get(family: string, name: string): ChannelsGetHandle<TSlots, TMeta, TCaps, TGate>;
   };
 }
 
@@ -420,16 +507,13 @@ type PluginApiOf<TSlice> = TSlice extends { __api: infer TApi } ? TApi : unknown
 /** The `ctx.plugin(id)` surface — owned by `plugin(...)` capabilities. */
 export interface PluginCtx<TPlugins> {
   /**
-   * Reach a registered plugin's per-connection API by its id. The id is typed to
-   * the plugins actually listed, and the result is that plugin's `api` type. Pass
-   * an explicit type argument to override, or `registrationId` to select an
-   * instance when the same plugin is registered more than once.
+   * Reach a registered plugin's API by its id. The id is typed to the plugins
+   * actually listed, and the result is that plugin's `api` type — pass an explicit
+   * type argument to override. A plugin id is unique (one plugin per id), so the
+   * lookup is unambiguous; the API is built once per context and reused.
    */
-  plugin<TId extends keyof TPlugins & string>(
-    id: TId,
-    registrationId?: string,
-  ): PluginApiOf<TPlugins[TId]>;
-  plugin<TApi = unknown>(id: string, registrationId?: string): TApi;
+  plugin<TId extends keyof TPlugins & string>(id: TId): PluginApiOf<TPlugins[TId]>;
+  plugin<TApi = unknown>(id: string): TApi;
 }
 
 /** True when `T` is a non-empty record (the slot is actually declared). */
@@ -448,7 +532,9 @@ export type CtxExtensionsOf<
   TSlots,
   TMeta,
   TCaps extends readonly AnyCapability[],
+  TGate extends boolean = false,
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
+  ('last-seen' extends FeaturesOf<TCaps> ? LastSeenCtx : {}) &
   ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
   ('replay' extends FeaturesOf<TCaps>
     ? SendReplayCtx<TSlots>
@@ -456,7 +542,7 @@ export type CtxExtensionsOf<
       ? SendReplayCtx<TSlots>
       : {}) &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
-  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TSlots, TMeta, TCaps> : {}) &
+  ('channels' extends BrandsOf<TCaps> ? ChannelsCtx<TSlots, TMeta, TCaps, TGate> : {}) &
   (HasKeys<EphemeralTags<TSlots>> extends true
     ? TagsCtx<TSlots, TMeta, TCaps>
     : HasKeys<PersistentTags<TSlots>> extends true
@@ -482,10 +568,40 @@ export type AppCtx<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
+  TGate extends boolean = false,
 > = CoreCtx<TSlots, TEnv, TMeta> &
-  ConnectionAddressing<TSlots, TCaps> &
+  ConnectionsCtx<TSlots, TMeta, TCaps> &
+  UsersCtx<TSlots, TMeta, TCaps> &
   FrameMatchCtx<TSlots> &
-  CtxExtensionsOf<TSlots, TMeta, TCaps>;
+  CtxExtensionsOf<TSlots, TMeta, TCaps, TGate>;
+
+/**
+ * The `ctx` the `api` factory on `assemble({ handlers, api })` receives — the
+ * connectionless admin surface, gated the same way {@link AppCtx} is.
+ *
+ * `schedule`/`cancelScheduled` and `channels` are owned by the `scheduled()`
+ * and `channels()` capabilities, so they appear only when that capability is
+ * listed. Without it the underlying engine service is absent and the operation
+ * would quietly do nothing, so reading it is a compile error instead.
+ *
+ * `purgeUser` is deliberately not gated: it belongs to the admin surface
+ * itself and no-ops when there is nothing durable to clean up.
+ *
+ * @template TSlots The merged contract slots — drives the typed `broadcast`.
+ * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
+ * @template TCaps  The capabilities listed, gating the capability-owned fields.
+ */
+export type AdminCtx<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[] = readonly [],
+> = Omit<AdminContext<TEnv, TMeta, unknown, TSlots>, 'schedule' | 'cancelScheduled' | 'channels'> &
+  ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
+  ('channels' extends BrandsOf<TCaps>
+    ? Pick<AdminContext<TEnv, TMeta, unknown, TSlots>, 'channels'>
+    : {});
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
@@ -494,7 +610,7 @@ type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;
 type Incoming<TSlots> = SlotOr<TSlots, 'incoming'>;
 
 /** The request events (event → { payload, response }), read off the merged contract slots. */
-type Requests<TSlots> = SlotOr<TSlots, 'requests'>;
+type Requests<TSlots> = SlotOr<TSlots, 'clientRequests'>;
 
 /** The channel families (family → channel slice), read off the merged contract slots. */
 type Channels<TSlots> = SlotOr<TSlots, 'channels'>;

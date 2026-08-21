@@ -1,6 +1,8 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
+  DurableStreamRequiresUser,
   InternalError,
   RateLimited,
   RejoinRejected,
@@ -18,6 +20,7 @@ import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -39,34 +42,34 @@ export class EngineCore {
   readonly primitives: readonly Primitive[];
   readonly compiled: EngineCompileTypes.CompiledServer;
 
+  /**
+   * The app's top-level `api` factory, authored on `assemble({ handlers, api })`.
+   * Reached connectionlessly through `Engine.admin()`. Undefined when no `api`
+   * was declared.
+   */
+  readonly adminApiFactory?: (ctx: unknown) => unknown;
+
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
-  storage?: PublicApi.StorageProvider;
+  storage: PublicApi.StorageProvider;
   env: Record<string, unknown>;
-  timers?: PublicApi.TimerProvider;
+  timers: PublicApi.TimerProvider;
   platform: unknown;
   waitUntilImpl: (promise: Promise<unknown>) => void;
   logger: PublicApi.Logger;
 
   /**
-   * Engine id for multi-instance setups. `undefined` means single-instance —
-   * every local ref carries `undefined` and the broker is skipped. Adapters
-   * with a broker call `setInstanceId(...)` so refs carry a real id.
+   * Engine id for multi-instance setups. Adapters that expose more than one
+   * addressable engine set this before accepting connections so refs cannot
+   * be mistaken for refs from another engine. `undefined` is reserved for
+   * adapters that truly have one addressable engine.
    */
   engineInstanceId: string | undefined;
 
   hibernationEnabled = false;
   replayEnabled = false;
   sequencePersistent = false;
-  /** Set by `persistence: true`. Turns on durable tables and membership writes. */
-  persistenceEnabled = false;
   incomingDedupCap = 0;
-  /**
-   * Ping interval (ms) for the per-connection keepalive ping, set by
-   * `keepalive()` to the configured `pingIntervalMs`. `undefined` means no
-   * keepalive was configured — the ping falls back to its built-in default.
-   */
-  keepalivePingIntervalMs: number | undefined = undefined;
 
   /**
    * Runtime dispatch slots filled by feature capabilities during `__setup`. The
@@ -79,14 +82,29 @@ export class EngineCore {
   durableStream?: FeatureSlots.DurableStreamService;
   requestDispatch?: FeatureSlots.RequestDispatch;
   buildTagsApi?: FeatureSlots.BuildTagsApi;
-  persistenceService?: FeatureSlots.PersistenceService;
+  channelMembershipService?: FeatureSlots.ChannelMembershipService;
+  tagPersistenceService?: FeatureSlots.TagPersistenceService;
   scheduledService?: FeatureSlots.ScheduledService;
   runIntercepts?: FeatureSlots.RunIntercepts;
-  frameMatch?: FeatureSlots.FrameMatch;
   channelService?: FeatureSlots.ChannelService;
   channelContext?: FeatureSlots.ChannelContext;
+  inboxService?: FeatureSlots.InboxService;
+  lastSeenService?: FeatureSlots.LastSeenService;
 
-  initialized = false;
+  /**
+   * Handle-augmenters registered by capabilities that own a per-channel surface
+   * reachable from any channel handle (inbox, read receipts). `buildChannelHandle`
+   * runs them so `channels()` never value-imports those capabilities.
+   */
+  readonly channelHandleAugmenters: FeatureSlots.ChannelHandleAugmenter[] = [];
+
+  /**
+   * The one `initialize()` run, in flight or settled. Held rather than a
+   * boolean flag so concurrent callers join the same run instead of each
+   * starting their own — a boolean set after the first await lies for as long
+   * as init takes.
+   */
+  initPromise: Promise<void> | null = null;
   /**
    * True after a cold-boot schema run (first wake with no prior schema). The
    * first `autoRejoinIdentity` call clears it so subsequent connections query
@@ -94,8 +112,38 @@ export class EngineCore {
    */
   freshBoot = false;
 
-  /** Per-channel `persistent` overrides. Explicit `false` opts out. */
-  readonly channelPersistenceOverrides = new Map<string, boolean>();
+  /** Per-channel `membership` overrides. Explicit `'ephemeral'` opts out. */
+  readonly channelDurabilityOverrides = new Map<string, boolean>();
+
+  /**
+   * Resolved inbox settings per channel key, populated by the `inbox()`
+   * capability during setup. A channel key present here has inbox enabled.
+   */
+  readonly inboxChannels = new Map<string, FeatureSlots.ResolvedInboxOptions>();
+
+  /** Channel keys that opted into read receipts via `readReceipts()`. */
+  readonly readReceiptsChannels = new Set<string>();
+
+  /**
+   * In-memory mirror of each member's receipt cursors, keyed by channel and
+   * identity. Cursors advance monotonically during a live instance and are
+   * cleared when their durable rows are purged, so an ack can skip the read
+   * before its write without surviving a user purge. A hibernation wake starts
+   * empty and re-seeds from storage on first touch.
+   */
+  readonly inboxReceiptCursors = new Map<
+    string,
+    { receivedThrough: number; readThrough: number }
+  >();
+
+  /**
+   * In-memory count of each member's inbox rows, keyed by channel and identity.
+   * Seeded from storage on first touch and bumped as fan-out writes rows, so the
+   * per-member retention prune runs only when the row cap could be exceeded. It
+   * is invalidated when rows are acknowledged, backfilled, or cleared, and an
+   * undercount only keeps a few rows past the cap until the next prune.
+   */
+  readonly inboxMemberCounts = new Map<string, number>();
 
   /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {
@@ -126,6 +174,8 @@ export class EngineCore {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
+    CrossInstanceRef.code,
+    DurableStreamRequiresUser.code,
     RateLimited.code,
     RejoinRejected.code,
     RequestNoCorrelation.code,
@@ -137,6 +187,9 @@ export class EngineCore {
   ]);
 
   readonly connections = new Map<string, RuntimeConnection>();
+  // User-key → members index (fan-out for `ctx.user`/`ctx.users`, and total-user
+  // lookups), maintained on accept, close, and hibernation wake.
+  readonly usersByKey = new Map<string, Set<RuntimeConnection>>();
   // Channel-key → members index, so broadcasts skip a full connections scan.
   readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
   // Tag-key → members index, so tag fan-out skips a full connections scan.
@@ -152,9 +205,17 @@ export class EngineCore {
   // per changed row instead of rewriting the whole table on each persist.
   readonly scheduledRunsPersisted = new Map<string, string>();
   readonly scheduledDlqPersisted = new Map<string, string>();
+  /** Framework-owned alarm sources. The adapter exposes one durable alarm. */
+  readonly alarmSources = new Map<symbol, () => number | null>();
   readonly installedFeatures = new Set<symbol>();
 
-  alarmHandle: unknown = null;
+  /**
+   * Every persisted connection row, read in one query for the duration of the
+   * boot restore pass. Unset at every other moment, when a wake reads its own
+   * row live.
+   */
+  preloadedConnectionRows: Map<string, ConnectionStore.StoredConnectionRow> | undefined;
+
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
   /**
@@ -164,6 +225,12 @@ export class EngineCore {
   asyncContext: EngineAsyncContext;
 
   constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+    if (options.storage === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
+    }
+    if (options.timers === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
+    }
     if (options.env === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide env.`);
     }
@@ -184,6 +251,7 @@ export class EngineCore {
 
     this.options = options;
     this.primitives = handler.primitives;
+    this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
     this.storage = options.storage;
     this.env = options.env;
@@ -192,28 +260,21 @@ export class EngineCore {
     this.waitUntilImpl = options.waitUntil;
     this.logger = options.logger;
     this.asyncContext = createAsyncContext(options.asyncContextFactory);
+    this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
+  }
+
+  /**
+   * Answer a client's `ping` with a `pong`. Registered as the engine's own
+   * first ping hook, ahead of anything a capability or the app adds, because a
+   * client measuring the server expects a reply from every server — sending
+   * pings is what `keepalive()` owns, answering them is not.
+   */
+  private replyPong(connectionId: string): void {
+    this.connections.get(connectionId)?.descriptor.send('pong');
   }
 
   setInstanceId(id: string): void {
     this.engineInstanceId = id;
-  }
-
-  storageOrUndefined(): PublicApi.StorageProvider | undefined {
-    return this.storage;
-  }
-
-  requireStorage(): PublicApi.StorageProvider {
-    if (!this.storage) {
-      throw new Error(`[wskit] storage not provided by adapter "${this.options.adapterId}".`);
-    }
-    return this.storage;
-  }
-
-  requireTimers(): PublicApi.TimerProvider {
-    if (!this.timers) {
-      throw new Error(`[wskit] timers not provided by adapter "${this.options.adapterId}".`);
-    }
-    return this.timers;
   }
 
   generateId(prefix = 'id'): string {
@@ -225,17 +286,12 @@ export class EngineCore {
     return this.hibernationEnabled;
   }
 
-  usesPersistence(): boolean {
-    return this.persistenceEnabled;
-  }
-
   usesTags(): boolean {
     return this.tagGroupsRegistered.ephemeral || this.tagGroupsRegistered.persistent;
   }
 
-  isChannelPersistent(channelKey: string): boolean {
-    if (!this.persistenceEnabled) return false;
-    return this.channelPersistenceOverrides.get(channelKey) !== false;
+  isChannelDurable(channelKey: string): boolean {
+    return this.channelDurabilityOverrides.get(channelKey) !== false;
   }
 
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {
@@ -253,16 +309,15 @@ export class EngineCore {
 
   /**
    * Does a `(channelName, channelFamily)` pair from a durable row still match a
-   * persistent channel? Used by boot reconcile to find orphan rows from
-   * removed or `persistent: false` channels.
+   * durable channel? Used by boot reconcile to find orphan rows from
+   * removed or `membership: 'ephemeral'` channels.
    */
-  isDurableMembershipPairPersistent(channelName: string, channelFamily: string | null): boolean {
-    if (!this.persistenceEnabled) return false;
+  isDurableMembershipPairDurable(channelName: string, channelFamily: string | null): boolean {
     if (channelFamily === null) {
       const channel = this.compiled.channels.get(channelName);
-      return channel ? this.isChannelPersistent(channel.key) : false;
+      return channel ? this.isChannelDurable(channel.key) : false;
     }
     const family = this.compiled.channelFamilies.get(channelFamily);
-    return family ? this.isChannelPersistent(family.key) : false;
+    return family ? this.isChannelDurable(family.key) : false;
   }
 }

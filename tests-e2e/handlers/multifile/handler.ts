@@ -8,10 +8,10 @@ import type { InferClient } from '@wskit/server';
 import { handleSendRoomMessage } from './rooms.ts';
 import { base } from './setup.ts';
 
-base.connect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
 });
 
-export const multifileHandler = base.assemble(handleSendRoomMessage);
+export const multifileHandler = base.assemble({ handlers: [handleSendRoomMessage] });
 
 export type MultifileClient = InferClient<typeof multifileHandler>;

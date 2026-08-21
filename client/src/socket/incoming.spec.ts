@@ -9,6 +9,7 @@ import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
 
 interface C extends SocketContract {
+  errors: { known: number };
   incoming: {
     anything: unknown;
     '42': unknown;
@@ -91,7 +92,7 @@ describe('incoming pipeline — binary frame', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('rethrows an unclaimed __error__ out-of-band when no onError listener is attached', () => {
+  it('rethrows an unclaimed __error__ out-of-band when no onServerError listener is attached', () => {
     const scheduled: Array<() => void> = [];
     const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
       scheduled.push(cb);
@@ -101,6 +102,41 @@ describe('incoming pipeline — binary frame', () => {
       ws.emit({ event: '__error__', payload: { code: 'server-boom' } });
       expect(scheduled).toHaveLength(1);
       expect(scheduled[0]).toThrow();
+    } finally {
+      queue.mockRestore();
+    }
+  });
+
+  it('routes an unclaimed server error to onServerError, not onError', () => {
+    const serverErrors: unknown[] = [];
+    const localErrors: unknown[] = [];
+    const { socket, ws } = connected();
+    socket.onServerError((error) => serverErrors.push(error));
+    socket.onError((error) => localErrors.push(error));
+
+    ws.emit({ event: '__error__', payload: { code: 'server-boom', detail: { retry: true } } });
+
+    expect(serverErrors).toHaveLength(1);
+    expect(serverErrors[0]).toMatchObject({ code: 'server-boom', detail: { retry: true } });
+    expect(localErrors).toHaveLength(0);
+  });
+
+  it('filters code-specific onServerError listeners and globally surfaces an unmatched error', () => {
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
+    try {
+      const seen = vi.fn();
+      const { socket, ws } = connected();
+      socket.onServerError('known', seen);
+
+      ws.emit({ event: '__error__', payload: { code: 'other' } });
+      expect(seen).not.toHaveBeenCalled();
+      expect(scheduled).toHaveLength(1);
+
+      ws.emit({ event: '__error__', payload: { code: 'known', detail: 1 } });
+      expect(seen).toHaveBeenCalledWith(expect.objectContaining({ code: 'known', detail: 1 }));
     } finally {
       queue.mockRestore();
     }

@@ -2,6 +2,8 @@
 import type {
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
+  DurableStreamRequiresUser,
   ErrorDef,
   InternalError,
   NudgeOverflow,
@@ -77,6 +79,8 @@ type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
+  | typeof CrossInstanceRef
+  | typeof DurableStreamRequiresUser
   | typeof RejoinRejected
   | typeof InternalError
   | typeof RateLimited
@@ -146,12 +150,14 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ep
 type ClientFamily<TFamily> = {
   incoming: Slot<TFamily, 'outgoing'>;
   outgoing: Slot<TFamily, 'incoming'>;
-  requests: Slot<TFamily, 'requests'>;
+  clientRequests: Slot<TFamily, 'clientRequests'>;
   serverRequests: Slot<TFamily, 'serverRequests'>;
   streams: ClientStreams<TFamily>;
 } & ('subscribePayload' extends keyof TFamily
   ? { subscribePayload: TFamily['subscribePayload'] }
-  : {});
+  : {}) &
+  (TFamily extends { inbox: true } ? { inbox: true } : {}) &
+  (TFamily extends { readReceipts: true } ? { readReceipts: true } : {});
 
 /**
  * Like `ClientFamilyMap`, but channel-aware: each channel family is stamped with
@@ -178,23 +184,34 @@ type PrefixKeys<TId extends string, TMap> = {
 };
 
 /**
- * One plugin turned into the client's perspective, with every name carrying the
- * `__<id>::` wire prefix. The plugin's scoped contract is stored in server
- * perspective under `__contract`; each surface is flipped the same way the
- * top-level client view flips it (server `outgoing` → client `incoming`, server
- * `incoming` → client `outgoing`) and its keys are prefixed. Each field holds
- * only the plugin's prefixed entries so it can be merged into the matching
- * top-level client map. A channel is addressed by its prefixed family name; the
- * channel's inner events stay scoped to that channel and are not prefixed.
+ * One plugin's scoped contract flipped into the client's perspective, with plain
+ * names (no `__<id>::` prefix). The plugin's contract is stored in server
+ * perspective under `__contract`; each surface is flipped the way the top-level
+ * client view flips it (server `outgoing` → client `incoming`, server `incoming`
+ * → client `outgoing`). This is the shape a client plugin declares as its own
+ * contract, so a plugin author reads it with `InferPluginClient`.
+ */
+export type ClientPluginContract<TContract> = {
+  incoming: Slot<TContract, 'outgoing'>;
+  outgoing: Slot<TContract, 'incoming'>;
+  clientRequests: Slot<TContract, 'clientRequests'>;
+  serverRequests: Slot<TContract, 'serverRequests'>;
+  streams: ClientStreams<TContract>;
+  channels: ClientChannelMap<Slot<TContract, 'channels'>>;
+  errors: Slot<TContract, 'errors'>;
+};
+
+/**
+ * The same flip as {@link ClientPluginContract}, but with every name carrying the
+ * `__<id>::` wire prefix so it can be merged into the top-level client maps. A
+ * channel is addressed by its prefixed family name; the channel's inner events
+ * stay scoped to that channel and are not prefixed.
  */
 type ClientPluginProjection<TId extends string, TContract> = {
-  incoming: PrefixKeys<TId, Slot<TContract, 'outgoing'>>;
-  outgoing: PrefixKeys<TId, Slot<TContract, 'incoming'>>;
-  requests: PrefixKeys<TId, Slot<TContract, 'requests'>>;
-  serverRequests: PrefixKeys<TId, Slot<TContract, 'serverRequests'>>;
-  streams: PrefixKeys<TId, ClientStreams<TContract>>;
-  channels: PrefixKeys<TId, ClientChannelMap<Slot<TContract, 'channels'>>>;
-  errors: PrefixKeys<TId, Slot<TContract, 'errors'>>;
+  [TSection in keyof ClientPluginContract<TContract>]: PrefixKeys<
+    TId,
+    ClientPluginContract<TContract>[TSection]
+  >;
 };
 
 /**
@@ -217,7 +234,7 @@ type ClientPluginsFragment<TPlugins> = UnionToIntersection<
 type EmptyPluginsFragment = {
   incoming: {};
   outgoing: {};
-  requests: {};
+  clientRequests: {};
   serverRequests: {};
   streams: {};
   channels: {};
@@ -261,7 +278,7 @@ type PluginsFragmentOf<TContract> =
  *     ctx.send('chat-message', input);
  *   },
  * });
- * export const myServer = base.assemble(handleSend);
+ * export const myServer = base.assemble({ handlers: [handleSend] });
  *
  * export type MyClient = InferClient<typeof myServer>;
  *
@@ -295,7 +312,7 @@ type InferClientFor<TContract, TPlugins> = SimplifyDeep<{
   /** Events the client sends — server `base.on(...)` plus plugin handlers under `__id::name`. */
   outgoing: Slot<TContract, 'incoming'> & PluginMapOf<TPlugins, 'outgoing'>;
   /** Request/response pairs the client can invoke, plus plugin requests under `__id::name`. */
-  requests: Slot<TContract, 'requests'> & PluginMapOf<TPlugins, 'requests'>;
+  clientRequests: Slot<TContract, 'clientRequests'> & PluginMapOf<TPlugins, 'clientRequests'>;
   /** Server→client request/response pairs the client answers, plus plugin ones under `__id::name`. */
   serverRequests: Slot<TContract, 'serverRequests'> & PluginMapOf<TPlugins, 'serverRequests'>;
   /**

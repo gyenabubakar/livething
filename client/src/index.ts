@@ -27,8 +27,17 @@ export type { InterceptFn } from '~/primitives/intercept.ts';
 export { debug } from '~/primitives/debug.ts';
 export { platform } from '~/primitives/platform.ts';
 export type { PlatformApi, PlatformOptions } from '~/primitives/platform.ts';
-export { plugin } from '~/plugins/index.ts';
-export type { PluginDef, PluginHooks, PluginFactory } from '~/plugins/index.ts';
+export { plugin, observeHost } from '~/plugins/index.ts';
+export type {
+  PluginDef,
+  PluginInstance,
+  PluginFactory,
+  PrimitiveFactory,
+  PluginSocket,
+  PluginBase,
+  PluginSlice,
+  TopLevelContract,
+} from '~/plugins/index.ts';
 
 export { channels } from '~/primitives/channels/index.ts';
 export type {
@@ -39,20 +48,32 @@ export type {
   FamilyHandle,
   SubscribeSource,
 } from '~/primitives/channels/index.ts';
-export { requestResponse } from '~/primitives/request-response/index.ts';
-export type { RequestResponseOptions } from '~/primitives/request-response/index.ts';
-export { serverRequest } from '~/primitives/server-request/index.ts';
-export type { ServerRequestOptions } from '~/primitives/server-request/index.ts';
+export { clientRequests } from '~/primitives/client-requests/index.ts';
+export type { ClientRequestsOptions } from '~/primitives/client-requests/index.ts';
+export { serverRequests } from '~/primitives/server-requests/index.ts';
+export type { ServerRequestsOptions } from '~/primitives/server-requests/index.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
+export { gaps } from '~/primitives/gaps.ts';
+export type { GapsApi, GapsChannelTypeFn, GapsPrimitive, GapsTypeFn } from '~/primitives/gaps.ts';
+export { inbox, readReceipts } from '~/primitives/inbox/index.ts';
+export type {
+  ChannelInboxApi,
+  ChannelReadReceiptsApi,
+  CursorList,
+  InboxOptions,
+  ReceiptQueryOptions,
+  ReadReceiptsOptions,
+} from '~/primitives/inbox/index.ts';
 export { stream } from '~/primitives/stream/index.ts';
 export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@wskit/core';
+export type { WireMessage, WSKitEnvelope } from '@wskit/core';
 
 export type { ReadableStore } from '~/internal/store.ts';
-export type { Socket, SocketConnection } from '~/socket/api.ts';
+export type { Socket, SocketConnection, ContractError } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
 export type { Messaging, SendOptions } from '~/messaging.ts';
 export type {
@@ -67,7 +88,8 @@ export type {
   OutgoingOf,
   ChannelsOf,
   StreamsOf,
-  RequestsOf,
+  ClientRequestsOf,
+  ServerRequestsOf,
   ErrorsOf,
   Requires,
   Simplify,
@@ -78,6 +100,8 @@ export type {
   StreamHandle,
   StreamHandlers,
   NudgesOf,
+  GapInfo,
+  PersistentStreamKeys,
 } from '~/types.ts';
 
 export type {

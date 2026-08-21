@@ -1,5 +1,6 @@
 import { WSKitConfigError } from '@wskit/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { signalBus } from '~/internal/signals.ts';
 import { createStore } from '~/internal/store.ts';
 import type { ClientEnvironment } from '~/environment.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -48,6 +49,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
   return {
     _tag: 'platform',
     setup(helpers) {
+      const signals = signalBus(helpers);
       const onlineStore = createStore<boolean>(true, (error) => helpers.log.report(error));
 
       // You asked for background disconnect but the environment can't see
@@ -84,7 +86,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
             environment.onNetworkChange((online) => {
               helpers.log.info(`network ${online ? 'online' : 'offline'}`);
               onlineStore.set(online);
-              helpers.emitSignal('online', online);
+              signals.emit('online', online);
             }),
           );
         }
@@ -101,7 +103,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
 
       function onVisibility(visible: boolean): void {
         helpers.log.info(`visibility ${visible ? 'visible' : 'hidden'}`);
-        helpers.emitSignal('visibility', visible);
+        signals.emit('visibility', visible);
         clearHiddenTimer();
 
         if (visible) {

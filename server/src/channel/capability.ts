@@ -11,18 +11,29 @@ import {
   onUnsubscribe as onUnsubscribeFactory,
   revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
+import { membershipMarker } from '~/channel/marker.ts';
 import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
-import { persistentMarker } from '~/persistence/channel-marker.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
+
+/**
+ * The seam every channel-only capability (`inbox()`, `readReceipts()`, and any
+ * future one) attaches onto itself so `ChannelBuilder` can pull its primitive
+ * out of the channel's own `capabilities` list, and read its declared identity,
+ * without importing that capability's engine or knowing its name. @internal
+ */
+interface ChannelOnlyBuilder {
+  readonly __capabilityKind?: string;
+  __buildChannelPrimitive?: () => Primitive;
+}
 
 /** The capability name a channel stream of each kind needs listed. */
 const CHANNEL_STREAM_CAPABILITY = {
@@ -96,6 +107,8 @@ export class ChannelBuilder {
   private readonly children: Primitive[] = [];
   private readonly once = new Set<string>();
   private readonly deps: ChannelDeps;
+  /** Capability kinds declared by this channel's own `capabilities` list. */
+  private readonly capabilityKinds = new Set<string>();
 
   constructor(pattern: unknown, config: any, deps: ChannelDeps) {
     this.deps = deps;
@@ -125,7 +138,9 @@ export class ChannelBuilder {
       }
       register(this.__key, serverRequests);
     }
-    if (cfg.persistent !== undefined) this.children.push(persistentMarker(cfg.persistent));
+    if (cfg.membership !== undefined) {
+      this.children.push(membershipMarker(cfg.membership === 'persistent'));
+    }
     if (cfg.replay !== undefined) {
       const build = deps.buildBuiltinReplay;
       if (!build) {
@@ -135,6 +150,10 @@ export class ChannelBuilder {
         );
       }
       this.children.push(build(cfg.replay));
+    }
+    for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
+      if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
+      if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
     }
     if (cfg.check) {
       this.children.push(
@@ -239,7 +258,10 @@ export class ChannelBuilder {
 
   /** Build the channel primitive from everything registered so far. @internal */
   __build(): Primitive {
-    return channelFactory(this.pattern as any, ...(this.children as any[]));
+    const primitive = channelFactory(this.pattern as any, ...(this.children as any[]));
+    (primitive as { __capabilityKinds?: ReadonlySet<string> }).__capabilityKinds =
+      this.capabilityKinds;
+    return primitive;
   }
 
   /** Borrow a stream capability's builder, adapting the generator to the channel ctx. */
@@ -318,9 +340,9 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
 /**
  * Enable channels — subscription scopes with their own events, gates, and
  * lifecycle. Listing this grants `base.channel(...)` and the `ctx.channels`
- * accessor. Persistent membership additionally needs the `persistence()`
- * capability; channel streams need the matching stream capability, and a custom
- * channel replay needs `replay.custom()`.
+ * accessor. Channel membership is durable by default (set `membership:
+ * 'ephemeral'` on a channel to opt out); channel streams need the matching stream
+ * capability, and a custom channel replay needs `replay.custom()`.
  *
  * @example
  * ```ts
@@ -333,7 +355,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  * const lobby = base.channel('lobby', { outgoing: { emits: { joined: t<{ id: string }>() } } });
  * export const handleChat = lobby.on('chat', {
  *   input: v.object({ text: v.string() }),
- *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.id }); },
+ *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },
  * });
  * ```
  */

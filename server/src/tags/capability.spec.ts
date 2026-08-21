@@ -1,7 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { tags } from './capability.ts';
@@ -33,7 +32,7 @@ describe('tags() capability', () => {
         ]),
       ],
     });
-    const handler = base.assemble();
+    const handler = base.assemble({ handlers: [] });
     const primitive = tagGroupsPrimitive(handler.primitives, 'ephemeral');
     expect(primitive.groups.map((g) => g.name)).toEqual(['role', 'color']);
     expect(primitive.groups.find((g) => g.name === 'role')?.schema).toBeUndefined();
@@ -45,18 +44,15 @@ describe('tags() capability', () => {
       env: t<Env>(),
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
-    expect(() => compileHandlerDefinition(base.assemble())).not.toThrow();
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
   });
 
   it('emits no ephemeral primitive when only persistent groups are declared', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [
-        tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
-        persistence(),
-      ],
+      capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
-    const { primitives } = base.assemble();
+    const { primitives } = base.assemble({ handlers: [] });
     expect(primitives.some((p) => p.__wskit === 'tag-groups')).toBe(true);
     expect(() => tagGroupsPrimitive(primitives, 'ephemeral')).toThrow(/no ephemeral/);
     expect(tagGroupsPrimitive(primitives, 'persistent').groups.map((g) => g.name)).toEqual([
@@ -68,12 +64,12 @@ describe('tags() capability', () => {
     const base = define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'alice', tags: { ephemeral: { role: 'admin' } } };
+        return { userId: 'alice', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     const upgradePrimitive = base
-      .assemble()
+      .assemble({ handlers: [] })
       .primitives.find((p) => p.__wskit === 'onUpgrade') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
@@ -87,12 +83,12 @@ describe('tags() capability', () => {
     const base = define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'alice' };
+        return { userId: 'alice' };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     const upgradePrimitive = base
-      .assemble()
+      .assemble({ handlers: [] })
       .primitives.find((p) => p.__wskit === 'onUpgrade') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
@@ -100,23 +96,12 @@ describe('tags() capability', () => {
     expect(result.tags).toBeUndefined();
   });
 
-  it('throws when persistent groups are declared without the persistence() capability', () => {
+  it('allows persistent groups', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
-    expect(() => base.assemble()).toThrow(/persistence\(\) capability is required by tag-groups/);
-  });
-
-  it('allows persistent groups when persistence() is also listed', () => {
-    const base = define({
-      env: t<Env>(),
-      capabilities: [
-        tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
-        persistence(),
-      ],
-    });
-    expect(() => base.assemble()).not.toThrow();
+    expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('throws when the same group name is declared twice in one kind', () => {

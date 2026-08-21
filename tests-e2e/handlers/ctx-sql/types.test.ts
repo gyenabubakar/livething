@@ -5,7 +5,7 @@ describe('CtxSqlClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<CtxSqlClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['outgoing']>().not.toBeAny();
-    expectTypeOf<CtxSqlClient['requests']>().not.toBeAny();
+    expectTypeOf<CtxSqlClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['streams']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['channels']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['errors']>().not.toBeAny();
@@ -84,8 +84,8 @@ describe('CtxSqlClient — outgoing (server incoming)', () => {
 });
 
 describe('CtxSqlClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof CtxSqlClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof CtxSqlClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

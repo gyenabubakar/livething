@@ -15,9 +15,9 @@ export interface UpgradeResult {
    * user id, session id, device id, whatever your app treats as "the same
    * client across reconnects". WSKit does not interpret it; it stores it on
    * the connection and uses it as a row key for any per-user durable state.
-   * Surfaced as `ctx.identity` in every handler context.
+   * Surfaced as `ctx.user.id` in every handler context.
    */
-  readonly identity: string;
+  readonly userId: string;
   /**
    * Arbitrary key/value data attached to every connection established from this
    * upgrade. Accessible as `ctx.meta` in all handler contexts.
@@ -33,20 +33,26 @@ export interface UpgradeResult {
   readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
-/** Handler type for `base.init(...)`. */
+/** Handler type for `base.onInit(...)`. */
 export type InitHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.connect(...)`. */
+/** Handler type for `base.onConnect(...)`. */
 export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.disconnect(...)`. */
+/** Handler type for `base.onDisconnect(...)`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/** Handler type for `base.shutdown(...)`. */
+/** Handler type for `base.onPing(...)`. */
+export type PingHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
+/** Handler type for `base.onPong(...)`. */
+export type PongHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
+/** Handler type for `base.onShutdown(...)`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler type for `base.error(...)`. The `event` argument is
+ * Handler type for `base.onError(...)`. The `event` argument is
  * the incoming event name that caused the error, when known.
  */
 export type ErrorHandler<TCtx = any> = (
@@ -77,7 +83,7 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/** Handler type for `base.validationError(...)`. */
+/** Handler type for `base.onValidationError(...)`. */
 export type ValidationErrorHandler<TCtx = any> = (
   ctx: TCtx,
   event: string,
@@ -97,6 +103,16 @@ export interface ConnectPrimitive<TCtx = any> extends Primitive<'onConnect'> {
 /** The TypeScript type returned by `onDisconnect()`. */
 export interface DisconnectPrimitive<TCtx = any> extends Primitive<'onDisconnect'> {
   readonly handler: DisconnectHandler<TCtx>;
+}
+
+/** The TypeScript type returned by `onPing()`. */
+export interface PingPrimitive<TCtx = any> extends Primitive<'onPing'> {
+  readonly handler: PingHandler<TCtx>;
+}
+
+/** The TypeScript type returned by `onPong()`. */
+export interface PongPrimitive<TCtx = any> extends Primitive<'onPong'> {
+  readonly handler: PongHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onShutdown()`. */
@@ -122,6 +138,8 @@ export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValid
 const ON_INIT_KEY = Symbol('onInit');
 const ON_CONNECT_KEY = Symbol('onConnect');
 const ON_DISCONNECT_KEY = Symbol('onDisconnect');
+const ON_PING_KEY = Symbol('onPing');
+const ON_PONG_KEY = Symbol('onPong');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
@@ -146,7 +164,25 @@ function makeLifecycle<TTag extends string>(
 }
 
 /**
- * Creates an `onInit` lifecycle primitive. Prefer `base.init(...)`
+ * Adapt an app handler that expects a `ctx` to the connection-id hook the
+ * engine registers for heartbeat frames. A connection that closed between the
+ * frame arriving and the hook running no longer has a context, so it is
+ * skipped rather than handed a stale one.
+ *
+ * @internal
+ */
+function intoContextHandler(
+  engine: EngineAccess,
+  handler: (ctx: any) => void | Promise<void>,
+): (connectionId: string) => Promise<void> {
+  return async (connectionId) => {
+    const ctx = engine.getConnectionContext(connectionId);
+    if (ctx !== undefined) await handler(ctx);
+  };
+}
+
+/**
+ * Creates an `onInit` lifecycle primitive. Prefer `base.onInit(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onInit = Object.assign(
@@ -157,7 +193,7 @@ export const onInit = Object.assign(
 );
 
 /**
- * Creates an `onConnect` lifecycle primitive. Prefer `base.connect(...)`
+ * Creates an `onConnect` lifecycle primitive. Prefer `base.onConnect(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onConnect = Object.assign(
@@ -168,7 +204,7 @@ export const onConnect = Object.assign(
 );
 
 /**
- * Creates an `onDisconnect` lifecycle primitive. Prefer `base.disconnect(...)`
+ * Creates an `onDisconnect` lifecycle primitive. Prefer `base.onDisconnect(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onDisconnect = Object.assign(
@@ -179,7 +215,34 @@ export const onDisconnect = Object.assign(
 );
 
 /**
- * Creates an `onShutdown` lifecycle primitive. Prefer `base.shutdown(...)`
+ * Creates an `onPing` lifecycle primitive. Prefer `base.onPing(...)`
+ * — this factory is used internally by `assemble(...)`.
+ *
+ * The engine has already answered the client with `pong` by the time this runs.
+ */
+export const onPing = Object.assign(
+  makeLifecycle('onPing', ON_PING_KEY, (engine, handler) =>
+    engine.onAppPing(intoContextHandler(engine, handler)),
+  ) as <TCtx>(handler: PingHandler<TCtx>) => PingPrimitive<TCtx>,
+  { __key: ON_PING_KEY },
+);
+
+/**
+ * Creates an `onPong` lifecycle primitive. Prefer `base.onPong(...)`
+ * — this factory is used internally by `assemble(...)`.
+ *
+ * When `keepalive()` is listed it has already recorded the round-trip by the
+ * time this runs, so `ctx.latency` reflects the pong that triggered it.
+ */
+export const onPong = Object.assign(
+  makeLifecycle('onPong', ON_PONG_KEY, (engine, handler) =>
+    engine.onAppPong(intoContextHandler(engine, handler)),
+  ) as <TCtx>(handler: PongHandler<TCtx>) => PongPrimitive<TCtx>,
+  { __key: ON_PONG_KEY },
+);
+
+/**
+ * Creates an `onShutdown` lifecycle primitive. Prefer `base.onShutdown(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onShutdown = Object.assign(
@@ -190,7 +253,7 @@ export const onShutdown = Object.assign(
 );
 
 /**
- * Creates an `onError` lifecycle primitive. Prefer `base.error(...)`
+ * Creates an `onError` lifecycle primitive. Prefer `base.onError(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onError = Object.assign(
@@ -212,7 +275,7 @@ export const onUpgrade = Object.assign(
 );
 
 /**
- * Creates an `onValidationError` lifecycle primitive. Prefer `base.validationError(...)`
+ * Creates an `onValidationError` lifecycle primitive. Prefer `base.onValidationError(...)`
  * — this factory is used internally by `assemble(...)`.
  */
 export const onValidationError = Object.assign(

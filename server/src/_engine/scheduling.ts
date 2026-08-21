@@ -1,3 +1,4 @@
+import { registerAlarmSource, rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
 import * as ScheduledContext from '~/scheduled/context.ts';
 import * as Scheduled from '~/scheduled/runtime.ts';
 import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
@@ -13,7 +14,7 @@ function buildAccess(
   createTaskContext: () => unknown,
 ): ScheduledPrimitiveTypes.ScheduledRuntimeAccess {
   return {
-    requireStorage: () => core.requireStorage(),
+    getStorage: () => core.storage,
     getTimers: () => core.timers,
     generateId: (prefix) => core.generateId(prefix),
     getScheduledRuns: () => core.scheduledRuns,
@@ -36,6 +37,14 @@ function buildAccess(
 export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () => unknown): void {
   if (core.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
   core.installedFeatures.add(SCHEDULED_RUNTIME_KEY);
+
+  registerAlarmSource(core, SCHEDULED_RUNTIME_KEY, () => {
+    let next: number | null = null;
+    for (const run of core.scheduledRuns.values()) {
+      if (next === null || run.time < next) next = run.time;
+    }
+    return next;
+  });
 
   core.hooks.bootSchema.push(() =>
     Scheduled.ensureScheduledSchema(buildAccess(core, createTaskContext)),
@@ -88,19 +97,7 @@ export function cancelScheduled(
  * is already initialized, so the init gate in `handleAlarm` isn't needed.
  */
 export function rescheduleAlarm(core: EngineCore): void {
-  Scheduled.rescheduleScheduledAlarm({
-    getTimers: () => core.timers,
-    getScheduledRuns: () => core.scheduledRuns,
-    getAlarmHandle: () => core.alarmHandle,
-    setAlarmHandle: (handle) => {
-      core.alarmHandle = handle;
-    },
-    onAlarm: async () => {
-      for (const hook of core.hooks.alarm) {
-        await hook();
-      }
-    },
-  });
+  rescheduleEngineAlarm(core);
 }
 
 /** Build a fresh scheduled task context from the engine's common messaging deps. */
@@ -108,7 +105,12 @@ function taskContextFactory(
   core: EngineCore,
   commonDeps: EngineContextTypes.ContextCommonDeps,
 ): () => unknown {
-  return () => ScheduledContext.createTaskContext({ connections: core.connections, ...commonDeps });
+  return () =>
+    ScheduledContext.createTaskContext({
+      connections: core.connections,
+      usersByKey: core.usersByKey,
+      ...commonDeps,
+    });
 }
 
 /**

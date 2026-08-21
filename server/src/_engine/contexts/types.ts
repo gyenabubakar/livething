@@ -20,25 +20,18 @@ export interface EngineChannelMeta {
    * active.
    */
   channelFamily?: string | null;
+
+  /**
+   * Set on the ctx built for `check`/`commit`/`revalidate`. Those three are
+   * written inside the same `base.channel(...)` config object as
+   * `capabilities`, so TypeScript cannot yet resolve what that list adds to
+   * `ctx.channel` — it has not finished reading the object it is still
+   * type-checking. Channel-only context extenders, handle augmenters (inbox,
+   * read receipts), and channel request wiring read this flag to skip
+   * attaching their members, matching that gap at runtime too.
+   */
+  isSubscribeGate?: boolean;
 }
-
-/**
- * Symbol key used to attach channel metadata (channel name) to a handler context.
- *
- * @internal
- */
-export const ENGINE_CHANNEL_META = Symbol('wskit-engine-scope-meta');
-
-/**
- * Symbol key under which engine internals stash the runtime connection on a
- * handler context. Engine-installed protocol handlers read this to perform
- * connection-state checks (membership, etc.). Product handlers cannot see
- * this field — symbol keys do not appear in the public ctx type, in
- * `Object.keys`, or in `JSON.stringify`.
- *
- * @internal
- */
-export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
 
 /**
  * Shared capabilities needed to build init, task, shutdown, and connection
@@ -55,20 +48,23 @@ export interface ContextCommonDeps {
 
   /**
    * The engine's instance id, or `undefined` when running single-instance.
-   * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.self`.
+   * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.connection`.
    */
   instanceId: string | undefined;
 
-  requireStorage(): PublicApi.StorageProvider;
+  getStorage(): PublicApi.StorageProvider;
 
-  getTimers(): PublicApi.TimerProvider | undefined;
+  /** The engine's shared `sql` / `kv` view, built once and reused by every context. */
+  getStorageView(): { sql: PublicApi.SQLProvider; kv: PublicApi.KVProvider };
+
+  getTimers(): PublicApi.TimerProvider;
 
   scheduleTask(taskId: string, time: number, data: unknown): void;
 
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
 
   broadcastToConnections(
-    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
 
@@ -79,23 +75,25 @@ export interface ContextCommonDeps {
 
   broadcastToChannel(opts: OutgoingRuntime.BroadcastToChannelOptions): void;
 
+  /**
+   * Deliver a channel-scoped frame to the members a `to` recipient addresses,
+   * returning the number of sockets reached. Backs `ctx.channel.send(..., { to })`
+   * and the equivalent on any `ChannelHandle`.
+   */
+  sendToChannelRecipient(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    to: ChannelRuntime.ChannelRecipient;
+    event: string;
+    payload: unknown;
+  }): number;
+
   getChannelMembers(
     channelName: string,
     channelFamily: string | null,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
   kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
-
-  /**
-   * Remove every live connection of the given identity from one channel
-   * AND drop the durable membership row. True-leave semantics —
-   * `onUnsubscribe` fires, `__memberLeave__`/`__memberOffline__` broadcast.
-   */
-  removeChannelMember(
-    channelName: string,
-    channelFamily: string | null,
-    identity: string,
-  ): Promise<void>;
 
   /**
    * Server-initiated channel subscribe. Invoked from `channelHandle.subscribe(ref)`.
@@ -126,6 +124,7 @@ export interface ContextCommonDeps {
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
+    opts?: { lastSeen?: number | null },
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
@@ -134,12 +133,6 @@ export interface ContextCommonDeps {
    * config. When `false`, `ctx.tags` is omitted from every connection context.
    */
   usesTags: boolean;
-
-  /**
-   * Whether the contract enabled persistence via `persistence: true`.
-   * Persistent tag writes are no-ops when this is `false`.
-   */
-  persistenceEnabled: boolean;
 
   /**
    * Check whether a given `(kind, group)` is declared on this engine. The tag
@@ -158,17 +151,18 @@ export interface ContextCommonDeps {
   buildTagsApi?: FeatureSlots.BuildTagsApi;
 
   /**
-   * Frame matchers behind `ctx.matches` / `ctx.unsafeCast`, registered by the
-   * `intercepts()` capability. Absent otherwise; the ctx methods then throw.
-   */
-  frameMatch?: FeatureSlots.FrameMatch;
-
-  /**
    * Builders for the `ctx.channels` / `ctx.channel` surface, registered by the
    * `channels()` capability. Absent otherwise, so the channel-context module
    * stays out of a handler that lists no channels.
    */
   channelContext?: FeatureSlots.ChannelContext;
+
+  /**
+   * Augmenters that graft extra members onto every channel handle, registered by
+   * capabilities that own a per-channel surface (inbox, read receipts). Empty
+   * when none are listed, so `buildChannelHandle` stays inbox-agnostic.
+   */
+  channelHandleAugmenters?: readonly FeatureSlots.ChannelHandleAugmenter[];
 }
 
 /**
@@ -177,6 +171,8 @@ export interface ContextCommonDeps {
 export interface BuildConnectionContextDeps extends ContextCommonDeps {
   compiled: EngineCompileTypes.CompiledServer;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  /** User-key → members index backing `ctx.user` / `ctx.users` fan-out. */
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 }
 
@@ -185,17 +181,6 @@ export interface BuildConnectionContextDeps extends ContextCommonDeps {
  */
 export interface CreateTaskContextDeps extends ContextCommonDeps {
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  /** User-key → members index, backing the connectionless `ctx.users` surface. */
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 }
-
-export type {
-  BroadcastOptions,
-  ConnectionContext,
-  ConnectionInfo,
-  InitContext,
-  ShutdownContext,
-  TaskContext,
-} from '~/context.ts';
-
-export type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
-
-export type { RuntimeConnection } from '~/_engine/runtime/types.ts';

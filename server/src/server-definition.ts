@@ -17,7 +17,7 @@ import type { Primitive } from '~/primitive.ts';
  * | --------------------------- | -------------------- | ------------------------- |
  * | `emits({ 'msg': … })`       | `incoming`           | events the client receives|
  * | `base.on('msg', …)`         | `outgoing`           | events the client sends   |
- * | `base.request('r', …)`      | `requests`           | req/response pairs        |
+ * | `base.request('r', …)`      | `clientRequests`     | req/response pairs        |
  * | `base.stream('s', …)`       | `streams`            | server-sent streams       |
  * | `base.resumableStream('s', …)` | `streams`         | server-sent streams       |
  * | `base.recordedStream('s', …)`  | `streams`         | server-sent streams       |
@@ -37,7 +37,7 @@ import type { Primitive } from '~/primitive.ts';
  *   capabilities: [emits({ message: Message })],
  * });
  * const handleSend = base.on('send', { input: Send, run() {} });
- * const chat = base.assemble(handleSend);
+ * const chat = base.assemble({ handlers: [handleSend] });
  *
  * type ChatClient = InferClient<typeof chat>;
  * // ChatClient.incoming.message   ← server-sent events
@@ -52,7 +52,7 @@ export interface ServerContract {
   readonly outgoing: Record<string, any>;
 
   /** Request/response pairs the client can invoke (declared with `base.request(...)`). */
-  readonly requests: Record<string, any>;
+  readonly clientRequests: Record<string, any>;
 
   /**
    * Server→client request/response pairs the client answers (declared with
@@ -105,25 +105,42 @@ export interface ServerContract {
  *
  * @template TPrimitives - The frozen tuple of all registered primitives.
  * @template TContract - The client contract carried along with the built server.
+ * @template TScopedCtx - The `ctx` type a scoped handler's own handlers receive.
+ * @template TApi - The return type of the handler's `api` factory (the per-connection
+ *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
  */
 export interface ServerDefinition<
   TPrimitives extends readonly Primitive[] = readonly Primitive[],
   TContract extends ServerContract = ServerContract,
   TScopedCtx = unknown,
+  TApi = unknown,
 > {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
   /**
    * Type-only field — never set at runtime.
    *
-   * A scoped handler (`define({ scoped: true })`) brands its assembled
+   * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
    * surface. Absent (`unknown`) on app servers.
    */
   readonly __scopedCtx?: TScopedCtx;
+  /**
+   * Type-only field — never set at runtime.
+   *
+   * A handler assembled with an `api` factory brands its definition with that
+   * factory's return type. `plugin(...)` reads this to type `ctx.plugin(id)`.
+   * Absent (`unknown`) when no `api` was given.
+   */
+  readonly __api?: TApi;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
+  /** The per-user connection cap from `define({ users: {...} })`, enforced on accept. */
+  readonly __usersPolicy?: {
+    readonly maxConnections?: number;
+    readonly onExceed: 'replace' | 'reject';
+  };
   /**
    * Type-only field — never set at runtime.
    *
@@ -133,3 +150,32 @@ export interface ServerDefinition<
    */
   readonly __contract?: TContract;
 }
+
+/**
+ * The `api` type a handler was assembled with, or `unknown` when it had none.
+ *
+ * Adapters read this off the handler they are given so the service they return
+ * carries the app's own admin methods — `server(handler)` on Cloudflare uses it
+ * to type what `stub.admin()` resolves to.
+ */
+export type ApiOf<TDefinition> =
+  TDefinition extends ServerDefinition<any, any, any, infer TApi> ? TApi : unknown;
+
+/**
+ * The per-connection metadata type a handler's `upgrade(...)` returns, read off
+ * the ctx the definition is branded with.
+ *
+ * Adapters that carry connection snapshots across a serializing boundary need
+ * the concrete type: a `Record<string, unknown>` fallback is not something
+ * Cloudflare's RPC types accept as sendable. A handler with no `upgrade` hook
+ * has no metadata type to read, so it lands on the empty fallback rather than
+ * `unknown` — which would fail the same sendability check.
+ */
+export type MetaOf<TDefinition> =
+  TDefinition extends ServerDefinition<any, any, infer TCtx, any>
+    ? TCtx extends { meta: infer TMeta }
+      ? unknown extends TMeta
+        ? Record<string, never>
+        : TMeta
+      : Record<string, never>
+    : Record<string, never>;

@@ -9,8 +9,6 @@ import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-export { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
-
 /**
  * Minimal dependency bag for outgoing message helpers.
  */
@@ -189,13 +187,14 @@ export function sendThroughPipeline(
 ): boolean {
   const { routing, event } = opts;
   const isRequestResponse = !!routing?.correlationId;
-  const payload = opts.payload === undefined && isRequestResponse ? {} : opts.payload;
+  // A handler that never calls ctx.respond() answers void. Hooks still see the
+  // frame — they see every server→client frame — but an empty payload is left
+  // off the wire entirely so the caller resolves with nothing rather than `{}`.
+  const isVoidResponse = opts.payload === undefined && isRequestResponse;
+  const payload = isVoidResponse ? {} : opts.payload;
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, {
-    event,
-    payload,
-  });
+  const message = runOutgoingHooks(runtime.outgoingHooks, { event, payload });
 
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
@@ -209,7 +208,12 @@ export function sendThroughPipeline(
   applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;
-  const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
+  // A hook may answer a void acknowledgement with real data; only a still-empty
+  // one is left off the wire.
+  const payloadJson =
+    isVoidResponse && Object.keys(finalPayload).length === 0
+      ? undefined
+      : serializePayloadOrThrow(message.event, finalPayload);
 
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
@@ -224,7 +228,9 @@ export function sendThroughPipeline(
   }
 
   connection.descriptor.send(
-    `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
+    payloadJson === undefined
+      ? `{"event":${JSON.stringify(message.event)},"__wskit":${JSON.stringify(wskit)}}`
+      : `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
   );
 
   invokeAfterSendHooks(runtime, wireMessage);
@@ -247,8 +253,9 @@ interface PreparedBroadcast {
 
   /**
    * The whole frame string when it is identical for every recipient — set
-   * when nothing stamps a per-connection `__wskit` value. Built once here so
-   * `sendPrepared` skips the per-recipient stamp + serialize.
+   * whenever no `beforeSend` hook can rewrite `__wskit` per connection. The
+   * sequence/dedup stampers already ran once into `baseWSKit`, so every
+   * recipient shares these bytes and `sendPrepared` skips re-serializing.
    */
   sharedFrame?: string;
 }
@@ -297,16 +304,12 @@ function prepareBroadcast(
   const finalPayload = message.payload as Record<string, unknown>;
   const eventJson = JSON.stringify(message.event);
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
-  const baseWSKit = buildWSKit(routing);
-  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
-  // The frame is identical for every recipient unless something stamps a
-  // per-connection `__wskit` value. Stampers are skipped for protocol events,
-  // so those always qualify; user events qualify only with no stampers. A
-  // beforeSend hook can rewrite `__wskit` per recipient, so it disqualifies.
-  const sharedWSKit =
-    !hasBeforeSend &&
-    (Protocol.isProtocolEventName(message.event) || runtime.wskitStampHooks.length === 0);
+  // Stamp once for the whole broadcast: all recipients share one seq/messageId, so replay stores one row, not one per member.
+  const baseWSKit = buildWSKit(routing) as Record<string, unknown>;
+  applyWSKitStampers(runtime.wskitStampHooks, message.event, baseWSKit);
+
+  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
   return {
     event: message.event,
@@ -315,9 +318,9 @@ function prepareBroadcast(
     finalPayload,
     baseWSKit,
     needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
-    sharedFrame: sharedWSKit
-      ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`
-      : undefined,
+    sharedFrame: hasBeforeSend
+      ? undefined
+      : `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`,
   };
 }
 
@@ -350,10 +353,7 @@ function sendPrepared(
   }
 
   const wskit = { ...prepared.baseWSKit };
-  applyWSKitStampers(runtime.wskitStampHooks, prepared.event, wskit);
 
-  // The wire message only feeds before/after-send hooks — skip the
-  // per-recipient allocation when no such hooks are registered.
   let wireMessage: EngineRuntimeTypes.WireOutgoingMessage | undefined;
   if (prepared.needsWireMessage) {
     wireMessage = {
@@ -405,38 +405,44 @@ export function broadcastToConnections(
     | 'waitUntil'
     | 'wskitStampHooks'
   >,
-  connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+  connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
   opts: BroadcastToConnectionsOptions,
 ): void {
   const { event, payload, options, excludeConnectionId } = opts;
-  if (connections.length === 0) return;
 
-  let prepared: PreparedBroadcast;
-  try {
-    prepared = prepareBroadcast(runtime, {
-      routing: {
-        channel: options?.channel,
-        channelFamily: options?.channelFamily,
-      },
-      event,
-      payload,
-    });
-  } catch (error) {
-    // A payload or declaration error fails the same way for every peer — log once.
-    runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
-      event,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
+  // Prepared on the first eligible peer, so a broadcast that reaches nobody
+  // never pays to serialize, and the caller can hand over a live view of the
+  // connections rather than a copy of it.
+  let prepared: PreparedBroadcast | undefined;
 
   for (const connection of connections) {
     if (
       excludeConnectionId &&
-      (options?.excludeSelf ?? true) &&
+      !(options?.includeSelf ?? false) &&
       connection.id === excludeConnectionId
     )
       continue;
+
+    if (!prepared) {
+      try {
+        prepared = prepareBroadcast(runtime, {
+          routing: {
+            channel: options?.channel,
+            channelFamily: options?.channelFamily,
+          },
+          event,
+          payload,
+        });
+      } catch (error) {
+        // A payload or declaration error fails the same way for every peer — log once.
+        runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+
     // One bad peer must not stop the rest of the broadcast — log and continue.
     try {
       sendPrepared(runtime, connection, prepared);
@@ -464,7 +470,8 @@ export interface BroadcastToChannelOptions {
 
   channelFamily: string | null;
 
-  excludeSelf?: boolean;
+  /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
+  includeSelf?: boolean;
 }
 
 export function broadcastToChannel(
@@ -479,14 +486,32 @@ export function broadcastToChannel(
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'
-    >,
+    > & {
+      /**
+       * Write a durable inbox copy for every member of the channel, keyed on the
+       * `seq`/`messageId` this broadcast already stamped so a member's live frame
+       * and its inbox row share one identity. Runs once, before the recipient
+       * loop. A no-op for a non-inbox channel. Set only when `inbox()` is listed.
+       */
+      inboxFanOut?: (opts: {
+        channelName: string;
+        channelFamily: string | null;
+        event: string;
+        payload: Record<string, unknown>;
+        seq: number;
+        messageId: string;
+        /**
+         * Skip writing an inbox row for this user. Set only when the broadcast
+         * excludes their one and only connection in this channel — otherwise
+         * they would never receive (and so never acknowledge) the live frame,
+         * and the stored row would look like an unread message forever.
+         */
+        excludeUserId?: string;
+      }) => void;
+    },
   opts: BroadcastToChannelOptions,
 ): void {
-  const { channelName, event, payload, excludeConnectionId, channelFamily, excludeSelf } = opts;
-  const members = runtime.channelMembers.get(
-    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
-  );
-  if (!members || members.size === 0) return;
+  const { channelName, event, payload, excludeConnectionId, channelFamily, includeSelf } = opts;
 
   let prepared: PreparedBroadcast;
   try {
@@ -506,8 +531,43 @@ export function broadcastToChannel(
     return;
   }
 
+  const members = runtime.channelMembers.get(
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
+  );
+
+  const { seq, messageId } = prepared.baseWSKit;
+  if (
+    runtime.inboxFanOut &&
+    !Protocol.isProtocolEventName(prepared.event) &&
+    typeof seq === 'number' &&
+    typeof messageId === 'string'
+  ) {
+    try {
+      runtime.inboxFanOut({
+        channelName,
+        channelFamily,
+        event: prepared.event,
+        payload: prepared.finalPayload,
+        seq,
+        messageId,
+        excludeUserId: includeSelf
+          ? undefined
+          : soleExcludedMemberUserId(members, excludeConnectionId),
+      });
+    } catch (error) {
+      runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
+        channel: channelName,
+        channelFamily,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (!members || members.size === 0) return;
+
   for (const connection of members) {
-    if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
+    if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
       continue;
     // One bad peer must not stop the rest of the fanout — log and continue.
     try {
@@ -522,4 +582,33 @@ export function broadcastToChannel(
       });
     }
   }
+}
+
+/**
+ * The excluded connection's user id, but only when that connection is the
+ * user's only membership in `members` — a second tab still in the channel
+ * will receive the live frame and must still get its inbox row, since it will
+ * ack it. Returns `undefined` when there is nothing to exclude.
+ */
+function soleExcludedMemberUserId(
+  members: Set<EngineRuntimeTypes.RuntimeConnection> | undefined,
+  excludeConnectionId: string | undefined,
+): string | undefined {
+  if (!excludeConnectionId || !members) return undefined;
+
+  let excludedUserId: string | undefined;
+  for (const connection of members) {
+    if (connection.id === excludeConnectionId && connection.userId) {
+      excludedUserId = connection.userId;
+      break;
+    }
+  }
+  if (!excludedUserId) return undefined;
+
+  for (const connection of members) {
+    if (connection.id !== excludeConnectionId && connection.userId === excludedUserId) {
+      return undefined;
+    }
+  }
+  return excludedUserId;
 }

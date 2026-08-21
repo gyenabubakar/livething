@@ -17,21 +17,23 @@ import {
   handleTokens,
 } from './group.ts';
 
-export const groupFullSurfaceHandler = base.assemble(
-  handleChat,
-  handleBang,
-  handleBadPayload,
-  handleCheckInit,
-  handleCheckDisconnectLog,
-  handleCheckScheduled,
-  handleStartTick,
-  handleEmitReplayMarker,
-  handleLookup,
-  handleFeed,
-  handlePaginate,
-  handleTokens,
-  handleTick,
-  handleRoomSendMsg,
-);
+export const groupFullSurfaceHandler = base.assemble({
+  handlers: [
+    handleChat,
+    handleBang,
+    handleBadPayload,
+    handleCheckInit,
+    handleCheckDisconnectLog,
+    handleCheckScheduled,
+    handleStartTick,
+    handleEmitReplayMarker,
+    handleLookup,
+    handleFeed,
+    handlePaginate,
+    handleTokens,
+    handleTick,
+    handleRoomSendMsg,
+  ],
+});
 
 export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceHandler>;

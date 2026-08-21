@@ -68,8 +68,6 @@ interface ResumableStreamConfig<
  * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
  * a resume so a paused durable stream stays paused after reconnect.
  *
- * Requires the `persistence()` capability. Build throws otherwise.
- *
  * Pass a `cursor` validator to pin the cursor type and have the framework
  * runtime-check every cursor it restores from storage. A stored cursor that
  * fails the validator surfaces on the wire as
@@ -78,7 +76,6 @@ interface ResumableStreamConfig<
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
- * import { persistence } from '@wskit/server/persistence';
  * import { resumableStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
@@ -88,7 +85,7 @@ interface ResumableStreamConfig<
  *
  * const base = define({
  *   env: t<Env>(),
- *   capabilities: [persistence(), resumableStream()],
+ *   capabilities: [resumableStream()],
  * });
  *
  * const handlePaginate = base.resumableStream('paginate', {

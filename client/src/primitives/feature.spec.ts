@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 interface C {
   incoming: { msg: { text: string }; trade: { id: string } };
   outgoing: { chat: { text: string } };
-  requests: {
+  clientRequests: {
     'get-balance': { payload: { user: string }; response: { balance: number } };
   };
 }

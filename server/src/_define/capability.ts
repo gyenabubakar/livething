@@ -115,9 +115,9 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
 
 /**
  * A capability the **host** owns and a plugin can never list — the global
- * engines (`dedup`, `sequence`, `keepalive`, `persistence`, `rateLimit`,
- * `replay`). It carries a `__hostOnly` marker so `define({ scoped: true })`
- * rejects it at compile time; a plugin declares a prerequisite on it instead.
+ * engines (`dedup`, `sequence`, `keepalive`, `rateLimit`, `replay`). It
+ * carries a `__hostOnly` marker so `define({ scope: 'plugin' })` rejects it
+ * at compile time; a plugin declares a prerequisite on it instead.
  */
 export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
   TSlots,
@@ -135,6 +135,35 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
 }
 
 /**
+ * A capability that only makes sense inside a channel's own `capabilities`
+ * list — `inbox()` and `readReceipts()`. It carries a `__channelOnly` marker so
+ * `define({ capabilities })` and `define({ scope: 'plugin', capabilities })`
+ * reject it at compile time; a channel declares it as a prerequisite the same
+ * way a plugin declares a host-owned one.
+ */
+export type ChannelOnlyCapability<
+  TSlots = {},
+  TFeature extends string = never,
+  TBrand extends string = never,
+> = Capability<TSlots, TFeature, TBrand> & { readonly __channelOnly: true };
+
+/** Build a channel-only capability — like `capability()`, but marked `__channelOnly`. */
+export function channelOnlyCapability<
+  TSlots = {},
+  TFeature extends string = never,
+  TBrand extends string = never,
+>(
+  primitives: readonly Primitive[],
+  features: readonly TFeature[] = [],
+): ChannelOnlyCapability<TSlots, TFeature, TBrand> {
+  return capability<TSlots, TFeature, TBrand, { readonly __channelOnly: true }>(
+    primitives,
+    features,
+    { __channelOnly: true },
+  );
+}
+
+/**
  * Stamp a capability instance with its identity token, mirroring the token its
  * factory carries (see {@link withCapabilityKind}). Returns the same instance so
  * factories can `return stampKind(cap, '<kind>')`.
@@ -149,8 +178,8 @@ export function stampKind<TCap extends AnyCapability>(cap: TCap, kind: string): 
 /**
  * Build a plain host capability factory in one call.
  *
- * Most host engines (`dedup`, `keepalive`, `persistence`, `sequence`) do nothing
- * but wrap a single runtime primitive, flag one feature, and stamp their kind.
+ * Most host engines (`dedup`, `keepalive`, `sequence`) do nothing but wrap a
+ * single runtime primitive, flag one feature, and stamp their kind.
  * This collapses that shared boilerplate: the `kind` doubles as the feature flag
  * and the identity token, and `build` turns the factory's arguments into the one
  * primitive the capability contributes. Engines with a build seam or extra
@@ -176,14 +205,38 @@ export function defineHostCapability<TKind extends string, TArgs extends readonl
  */
 export type AnyCapability = Capability<any, string, string>;
 
-/** The union of builder-method brands granted across a list of capabilities. @internal */
-export type BrandsOf<TCaps extends readonly AnyCapability[]> = NonNullable<
-  TCaps[number]['__brand']
->;
+/**
+ * The union of builder-method brands granted across a list of capabilities.
+ * When a `capabilities` array is annotated with a widened type (e.g.
+ * `AnyCapability[]`), the brand union collapses to the full `string` type,
+ * which would make every `'x' extends BrandsOf<TCaps>` gate pass at once.
+ * Collapsing that case to `never` instead closes every gate together. @internal
+ */
+export type BrandsOf<TCaps extends readonly AnyCapability[]> =
+  string extends NonNullable<TCaps[number]['__brand']>
+    ? never
+    : NonNullable<TCaps[number]['__brand']>;
 
-/** The union of feature flags turned on across a list of capabilities. @internal */
+/**
+ * True when a brand union has widened all the way to the full `string` type —
+ * e.g. a `capabilities` array annotated with a literal `string` brand instead
+ * of staying inferred as a literal union. Used where a brand reaches a type
+ * directly (not through `BrandsOf`), so it still needs an explicit widened
+ * check. @internal
+ */
+export type BrandIsWidened<TBrand extends string> = string extends TBrand ? true : false;
+
+/**
+ * The union of feature flags turned on across a list of capabilities. When a
+ * `capabilities` array is annotated with a widened type (e.g.
+ * `AnyCapability[]`), the feature union collapses to the full `string` type,
+ * which would make every `'x' extends FeaturesOf<TCaps>` gate pass at once —
+ * for example `ctx.latency` typing as available with no capability listed.
+ * Collapsing that case to `never` instead closes every gate together, the
+ * same treatment {@link BrandsOf} already gets. @internal
+ */
 export type FeaturesOf<TCaps extends readonly AnyCapability[]> =
-  TCaps[number]['__features'][number];
+  string extends TCaps[number]['__features'][number] ? never : TCaps[number]['__features'][number];
 
 /** Collapse a union of slot records into one merged record. @internal */
 export type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (

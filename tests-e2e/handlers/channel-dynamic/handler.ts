@@ -22,7 +22,7 @@ const base = define({
   ],
 });
 
-base.error((ctx, _error, eventName) => {
+base.onError((ctx, _error, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string; family?: string | null } };
   ctx.send('scoped-error-observed', {
     channel: c.channel?.name ?? '<top-level>',
@@ -31,7 +31,7 @@ base.error((ctx, _error, eventName) => {
   });
 });
 
-base.validationError((ctx, eventName) => {
+base.onValidationError((ctx, eventName) => {
   const c = ctx as unknown as { channel?: { name?: string } };
   ctx.send('validation-observed', {
     channel: c.channel?.name ?? '<top-level>',
@@ -49,11 +49,14 @@ const handleTopOnlyAction = base.on('top-only-action', {
 const handleTriggerServerSubscribeDynamic = base.on('trigger-server-subscribe-dynamic', {
   input: TriggerServerSubscribeDynamicPayload,
   async run(ctx, payload) {
-    await ctx.channels.get('room', payload.name).subscribe(ctx.self);
+    await ctx.channels.get('room', payload.name).subscribe(ctx.connection);
   },
 });
 
 const room = base.channel(['room', 'room:{id}'], {
+  // Ephemeral: the leave test drops a connection and expects the
+  // onUnsubscribe system broadcast, which needs a true leave on disconnect.
+  membership: 'ephemeral',
   outgoing: {
     emits: {
       'room-message': t<{ channel: string; text: string; from: string; kind: string }>(),
@@ -139,14 +142,16 @@ const protoProbe = base.channel(['proto-probe', 'proto:{id}'], {
   },
 });
 
-export const channelDynamicHandler = base.assemble(
-  handleTopOnlyAction,
-  handleTriggerServerSubscribeDynamic,
-  handleSendMessage,
-  handleEchoName,
-  handleTriggerManualValidation,
-  handleTriggerScopedError,
-  protoProbe,
-);
+export const channelDynamicHandler = base.assemble({
+  handlers: [
+    handleTopOnlyAction,
+    handleTriggerServerSubscribeDynamic,
+    handleSendMessage,
+    handleEchoName,
+    handleTriggerManualValidation,
+    handleTriggerScopedError,
+    protoProbe,
+  ],
+});
 
 export type ChannelDynamicClient = InferClient<typeof channelDynamicHandler>;

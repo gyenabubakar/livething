@@ -2,7 +2,7 @@
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { assertValidWSKitIdentifier } from './identifier.ts';
-import { assertSyncResult } from './sync-guard.ts';
+import { assertSynchronousResult } from './sync-guard.ts';
 
 // ---------------------------------------------------------------------------
 // Close codes
@@ -218,6 +218,7 @@ const RESERVED_ERROR_CODES = new Set([
   'validation-failed',
   'channel-not-found',
   'channel-not-subscribed',
+  'cross-instance-ref',
   'unsupported-protocol',
   'rejoin-rejected',
   'internal-error',
@@ -227,6 +228,7 @@ const RESERVED_ERROR_CODES = new Set([
   'stream-aborted',
   'nudge-overflow',
   'stream-id-collision',
+  'durable-stream-requires-user',
   'rate-limited',
   'stream-already-active',
 ]);
@@ -265,7 +267,11 @@ function buildErrorFactory(
   const validate: ValidateFn<any> | undefined = !schema
     ? undefined
     : (value: unknown) => {
-        const result = assertSyncResult(schema['~standard'].validate(value), `error("${code}")`);
+        const result = assertSynchronousResult(
+          schema['~standard'].validate(value),
+          `error("${code}")`,
+          'validator',
+        );
         if (result.issues) {
           throw new Error(
             `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,
@@ -397,6 +403,20 @@ export const UnsupportedProtocol = /* @__PURE__ */ buildErrorFactory(
 export const ChannelNotSubscribed = /* @__PURE__ */ buildErrorFactory('channel-not-subscribed');
 
 /**
+ * Thrown by a server-side ref-addressed operation when the target belongs to
+ * another engine instance. Cross-instance routing needs a broker; until one
+ * is configured, the operation is rejected before any frame is sent.
+ */
+export const CrossInstanceRef = /* @__PURE__ */ buildErrorFactory(
+  'cross-instance-ref',
+  v.object({
+    operation: v.string(),
+    targetInstance: v.optional(v.string()),
+    engineInstance: v.optional(v.string()),
+  }),
+);
+
+/**
  * Sent to the client when the server rejects a persistent channel's auto-rejoin
  * on reconnect — the channel's `revalidate` hook threw. The durable membership
  * is dropped and this error is delivered scoped to the channel, so the client
@@ -430,18 +450,22 @@ export const RejoinRejected = /* @__PURE__ */ buildErrorFactory(
 export const InternalError = /* @__PURE__ */ buildErrorFactory('internal-error');
 
 /**
- * Sent to the client when a `request(...)` handler returned without calling
- * `ctx.respond(...)`. The client's pending request promise rejects with this
- * code instead of hanging until its own timeout. The server-side cause is
- * almost always a missing `ctx.respond` on some code path inside the handler.
+ * Rejects a **server→client** request when the client produced no reply — it has
+ * no handler registered for that request, or its handler settled without
+ * answering. The client sends this code back so the server's `ctx.request(...)`
+ * promise rejects fast instead of waiting out its timeout.
+ *
+ * A **client→server** request that answers nothing is not this error — it
+ * resolves as a void acknowledgement. Throw to reject one of those.
  *
  * @example
  * ```ts
+ * // server side, asking a connection a question
  * try {
- *   await client.request('whoami', {});
+ *   await ctx.request('confirm', { action: 'delete' });
  * } catch (err) {
  *   if (RequestNoResponse.matches(err)) {
- *     // server handler exited without ctx.respond — surface to logs / retry
+ *     // the client had no handler, or gave no answer
  *   }
  * }
  * ```
@@ -505,8 +529,9 @@ export const RequestInvalidResponse = /* @__PURE__ */ buildErrorFactory(
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
  * - `'not-found'` — a `__resumeStream__` request named a stream id the server doesn't recognise.
  * - `'hibernation-wake'` — a non-durable stream was lost because the server
- *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
- *   hibernation). The wire-level connection is still alive; only the
+ *   dropped in-memory state on a runtime with hibernation (e.g. a Cloudflare
+ *   Durable Object waking from hibernation). Runtimes without hibernation never
+ *   emit this reason. The wire-level connection is still alive; only the
  *   in-flight stream is gone.
  * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
@@ -601,6 +626,29 @@ export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
  * ```
  */
 export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-collision');
+
+/**
+ * Sent to the client when an anonymous connection (one whose `upgrade` returned
+ * no `userId`) tries to start a durable, resumable, or recorded stream. Those
+ * streams key their stored state by the user id so a later reconnect can resume
+ * them — an anonymous connection has no stable id to resume against, so the
+ * server refuses rather than write state that can never be reached again. Give
+ * the connection a `userId` in `upgrade`, or use a plain (non-durable) stream.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await socket.stream('start-tokens', { prompt });
+ * } catch (err) {
+ *   if (DurableStreamRequiresUser.matches(err)) {
+ *     // sign the user in (assign a userId) before starting a resumable stream
+ *   }
+ * }
+ * ```
+ */
+export const DurableStreamRequiresUser = /* @__PURE__ */ buildErrorFactory(
+  'durable-stream-requires-user',
+);
 
 /**
  * Sent to the client when an incoming frame is rejected because the connection

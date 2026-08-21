@@ -210,6 +210,30 @@ function diffAgainstSnapshot<T>(
 }
 
 /**
+ * Run ids currently claimed off the queue by an in-progress alarm fire, per
+ * durable object. While a run's id is in this set, a persist must not delete
+ * its durable row even though the id is (temporarily) absent from the live
+ * `scheduledRuns` map — see `persistSchedulerState`.
+ *
+ * Keyed on the live `scheduledRuns` map rather than the `ScheduledRuntimeAccess`
+ * wrapper: `buildAccess` constructs a fresh wrapper object on every call (the
+ * alarm hook, `scheduleTask`, `cancelScheduled` each build their own), but
+ * `getScheduledRuns()` always returns the same `Map` instance for a given
+ * durable object, so it is the stable identity to key on.
+ */
+const claimedRunIds = new WeakMap<Map<string, ScheduledRun>, Set<string>>();
+
+function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
+  const scheduledRuns = runtime.getScheduledRuns();
+  let claimed = claimedRunIds.get(scheduledRuns);
+  if (!claimed) {
+    claimed = new Set();
+    claimedRunIds.set(scheduledRuns, claimed);
+  }
+  return claimed;
+}
+
+/**
  * Persist scheduler state by writing only the rows that actually changed
  * since the previous persist. The snapshot maps mirror the durable table
  * contents — they are updated in lock-step with successful SQL writes so the
@@ -219,15 +243,28 @@ function diffAgainstSnapshot<T>(
  * (the run id stays the same; only `time` and `attempts` change), instead of
  * the previous `DELETE *` + reinsert-all pattern that wrote one row per
  * queued task on every fire.
+ *
+ * Delivery is at-least-once: `handleScheduledAlarm` claims due runs off the
+ * live map before invoking their handlers, so a crash mid-handler still finds
+ * the run in storage and re-fires it on restart. A handler that calls
+ * `ctx.schedule`/`ctx.cancelScheduled` triggers this same function again
+ * before the alarm's own run finishes — that write must not also delete the
+ * still-claimed run's durable row, or a crash right after it would lose the
+ * run for good. Deletes for a claimed id are skipped here; the alarm clears
+ * the claim once its handler settles, so its own closing persist deletes the
+ * row normally.
  */
 function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
-  const storage = runtime.requireStorage();
+  const storage = runtime.getStorage();
   const runs = runtime.getScheduledRuns();
   const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
   const dlqSnapshot = runtime.getScheduledDlqPersisted();
+  const claimed = getClaimedRunIds(runtime);
 
-  const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns);
+  const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns).filter(
+    (op) => op.kind !== 'delete' || !claimed.has(op.id),
+  );
   const dlqOps = diffAgainstSnapshot(deadLetters, dlqSnapshot, serializeDlqColumns);
 
   if (runOps.length === 0 && dlqOps.length === 0) {
@@ -391,11 +428,10 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
 
 /**
  * Create the scheduler tables. Idempotent. The engine routes this through
- * `onBootSchema` so warm boots skip it when the schema marker row says
- * storage is current.
+ * `onBootSchema` so the tables are ensured on every boot.
  */
 export function ensureScheduledSchema(runtime: ScheduledRuntimeAccess): void {
-  runtime.requireStorage().sql.exec(SCHEDULED_SCHEMA_SQL);
+  runtime.getStorage().sql.exec(SCHEDULED_SCHEMA_SQL);
 }
 
 /**
@@ -404,7 +440,7 @@ export function ensureScheduledSchema(runtime: ScheduledRuntimeAccess): void {
  * `ensureScheduledSchema` on cold boot, or from a previous boot on wake).
  */
 export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void {
-  const storage = runtime.requireStorage();
+  const storage = runtime.getStorage();
   const scheduledRuns = runtime.getScheduledRuns();
   const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
@@ -524,17 +560,23 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     queuedAfter: scheduledRuns.size - due.length,
   });
 
+  const claimed = getClaimedRunIds(runtime);
   for (const run of due) {
     scheduledRuns.delete(run.id);
+    claimed.add(run.id);
   }
 
-  // The pre-run persist used to live here as an at-most-once safety net: it
-  // wrote the "claimed" state before executing tasks so a crash mid-execution
-  // could not re-fire them on the next wake. It has been removed in favour of
-  // at-least-once delivery — the single persist at the end captures both the
-  // claim and the post-run state in one transaction. A DO crash between claim
-  // and persist leaves the run row in storage, and the next wake re-fires it.
-  // Match Cloudflare Queues semantics; handlers must be idempotent.
+  // Delivery is at-least-once: the single persist at the end of this function
+  // captures both the claim and the post-run state in one transaction. A DO
+  // crash between claim and persist leaves the run row in storage, and the
+  // next wake re-fires it. Matches Cloudflare Queues semantics; handlers must
+  // be idempotent.
+  //
+  // A handler can call `ctx.schedule`/`ctx.cancelScheduled` on itself, which
+  // persists immediately. `claimed` (above) keeps that write from deleting
+  // this run's still-durable row while the handler is running — cleared just
+  // before the persist below, so a genuinely finished run is deleted here as
+  // normal.
 
   const results = await Promise.allSettled(
     due.map(async (run) => {
@@ -619,6 +661,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     }
   }
 
+  claimed.clear();
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 }
@@ -718,62 +761,4 @@ export function cancelScheduledRuns(
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
   return { taskExists, removed };
-}
-
-/**
- * Ask the adapter alarm API to wake the engine when the next queued task is due.
- *
- * If the adapter supports a native alarm API, that is used. Otherwise this
- * falls back to an in-memory timeout driven by the ambient runtime.
- */
-export function rescheduleScheduledAlarm(
-  runtime: Pick<ScheduledRuntimeAccess, 'getScheduledRuns' | 'getTimers'> & {
-    getAlarmHandle(): unknown | null;
-    setAlarmHandle(handle: unknown | null): void;
-    onAlarm(): Promise<void>;
-  },
-): void {
-  const timers = runtime.getTimers();
-  const nextRun = [...runtime.getScheduledRuns().values()].sort((a, b) => a.time - b.time)[0];
-
-  if (!nextRun) {
-    if (runtime.getAlarmHandle() !== null) {
-      clearTimeout(runtime.getAlarmHandle() as ReturnType<typeof setTimeout>);
-      runtime.setAlarmHandle(null);
-    }
-    // Native durable alarms (e.g. Cloudflare DOs) survive past the queue
-    // emptying. Cancel them too so the platform doesn't wake the DO at an
-    // old alarm time to find nothing to run. Adapters without durable
-    // alarms omit deleteAlarm and the call no-ops.
-    if (timers?.deleteAlarm) {
-      void timers.deleteAlarm();
-    }
-    return;
-  }
-
-  if (timers?.setAlarm) {
-    void timers.setAlarm(nextRun.time);
-    return;
-  }
-
-  if (runtime.getAlarmHandle() !== null) {
-    clearTimeout(runtime.getAlarmHandle() as ReturnType<typeof setTimeout>);
-  }
-
-  // setTimeout uses a 32-bit signed millisecond delay across Node, Deno, and
-  // Bun. Delays above 2_147_483_647 ms (~24.8 days) silently clamp to 1 ms
-  // and fire immediately, which would loop on a far-future scheduled run.
-  // Cap each setTimeout chunk to the platform max; on fire, re-enter and
-  // schedule the remaining time. The remaining-time check happens inside
-  // onAlarm — far-future runs whose time hasn't arrived yet reschedule
-  // themselves, runs whose time has arrived run.
-  const SET_TIMEOUT_MAX_DELAY = 2_147_483_647;
-  const remaining = Math.max(0, nextRun.time - Date.now());
-  const chunk = Math.min(remaining, SET_TIMEOUT_MAX_DELAY);
-
-  runtime.setAlarmHandle(
-    setTimeout(() => {
-      void runtime.onAlarm();
-    }, chunk),
-  );
 }

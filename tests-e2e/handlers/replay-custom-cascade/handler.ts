@@ -1,7 +1,6 @@
 import { define, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
-import { persistence } from '@wskit/server/persistence';
 import { replay } from '@wskit/server/replay';
 import { sequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
@@ -14,10 +13,10 @@ const SendNote = v.object({ text: v.string() });
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [dedup(), sequence({ persist: true }), persistence(), channels(), replay.custom()],
+  capabilities: [dedup(), sequence({ persist: true }), channels(), replay.custom()],
 });
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(`
     CREATE TABLE IF NOT EXISTS _cascade_replay (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +105,8 @@ const handleRoomSendNote = room.on('send-note', {
   },
 });
 
-export const replayCustomCascadeHandler = base.assemble(handleLobbySendNote, handleRoomSendNote);
+export const replayCustomCascadeHandler = base.assemble({
+  handlers: [handleLobbySendNote, handleRoomSendNote],
+});
 
 export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeHandler>;

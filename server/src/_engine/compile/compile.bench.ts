@@ -14,7 +14,6 @@ import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { replay } from '~/replay/capability.ts';
 import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
@@ -36,18 +35,14 @@ const tinyBase = define({
   env: t<Record<string, unknown>>(),
   capabilities: [emits({ notify: EmptyOut })],
 });
-const tinyHandler = tinyBase.assemble(tinyBase.on('noop', { input: Empty, run() {} }));
+const tinyHandler = tinyBase.assemble({
+  handlers: [tinyBase.on('noop', { input: Empty, run() {} })],
+});
 
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
-  capabilities: [
-    persistence(),
-    requests(),
-    stream(),
-    channels(),
-    emits({ notify: EmptyOut, joined: EmptyOut }),
-  ],
+  capabilities: [requests(), stream(), channels(), emits({ notify: EmptyOut, joined: EmptyOut })],
 });
 const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
 lobby.on('say', { input: Text, run() {} });
@@ -55,26 +50,28 @@ const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
   outgoing: { emits: { posted: TextOut } },
 });
 rooms.on('post', { input: Text, run() {} });
-const mediumHandler = mediumBase.assemble(
-  mediumBase.on('join', { input: Empty, run() {} }),
-  mediumBase.on('leave', { input: Empty, run() {} }),
-  mediumBase.on('noop', { input: Empty, run() {} }),
-  mediumBase.request('whoami', {
-    input: Empty,
-    run(ctx) {
-      return { id: ctx.identity };
-    },
-  }),
-  mediumBase.stream('tail', {
-    input: Empty,
-    chunk: NumChunk,
-    async *run() {
-      yield { n: 1 };
-    },
-  }),
-  lobby,
-  rooms,
-);
+const mediumHandler = mediumBase.assemble({
+  handlers: [
+    mediumBase.on('join', { input: Empty, run() {} }),
+    mediumBase.on('leave', { input: Empty, run() {} }),
+    mediumBase.on('noop', { input: Empty, run() {} }),
+    mediumBase.request('whoami', {
+      input: Empty,
+      run(ctx) {
+        return { id: ctx.user.id };
+      },
+    }),
+    mediumBase.stream('tail', {
+      input: Empty,
+      chunk: NumChunk,
+      async *run() {
+        yield { n: 1 };
+      },
+    }),
+    lobby,
+    rooms,
+  ],
+});
 
 function channelEmits(prefix: string) {
   return {
@@ -87,7 +84,6 @@ const heavyBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
-    persistence(),
     dedup(),
     sequence({ persist: true }),
     replay.history(),
@@ -157,7 +153,7 @@ for (const n of [1, 2, 3, 4, 5]) {
   ch.on(`r${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
-const heavyHandler = heavyBase.assemble(...heavyHandlers);
+const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('compileHandlerDefinition', () => {
   bench('tiny  (1 incoming, 1 outgoing)', () => {

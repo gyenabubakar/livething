@@ -1,0 +1,135 @@
+/**
+ * Compile-time fixtures for a widened `capabilities` array — one typed
+ * `AnyCapability[]` (or the config field's own bare type) rather than staying
+ * inferred as a literal-brand tuple. `BrandsOf` collapses that widened union
+ * to `never`, so every gate keyed off it closes at once instead of opening
+ * for every brand simultaneously.
+ */
+import { t } from '~/_api/index.ts';
+import { define } from '~/_define/define.ts';
+import { channels } from '~/channel/capability.ts';
+import { keepalive } from '~/keepalive/capability.ts';
+import { lastSeen } from '~/last-seen/capability.ts';
+import { rateLimit } from '~/rate-limit/capability.ts';
+import { replay } from '~/replay/capability.ts';
+import { requests } from '~/request/capability.ts';
+import { scheduled } from '~/scheduled/capability.ts';
+import * as v from 'valibot';
+import { expectTypeOf } from 'vitest';
+import type { AnyCapability } from '~/_define/capability.ts';
+
+// ---------------------------------------------------------------------------
+// Negative — a widened host `capabilities` array grants nothing.
+// ---------------------------------------------------------------------------
+
+declare const widenedCaps: AnyCapability[];
+const base = define({ env: t<Record<string, never>>(), capabilities: widenedCaps });
+
+// channels() cannot be confirmed listed either, once the array has widened —
+// every gate closes together, so `base.channel` itself is gone, not just its
+// rateLimit field.
+// @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
+base.channel('room', { rateLimit: { enabled: true, max: 5 } });
+
+// @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
+base.channel('room2', {
+  outgoing: {
+    requests: { ask: { out: t<{}>(), in: v.object({}) } },
+  },
+});
+
+base.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    // @ts-expect-error — channels() is not confirmed listed, so ctx.channels is absent.
+    ctx.channels;
+    // @ts-expect-error — scheduled() is not confirmed listed, so ctx.schedule is absent.
+    ctx.schedule;
+    // @ts-expect-error — keepalive() is not confirmed listed, so ctx.latency is absent.
+    // `FeaturesOf` must collapse the same way `BrandsOf` does, or this widened
+    // array types every feature flag as turned on, and ctx.latency would pass.
+    ctx.latency;
+    // @ts-expect-error — lastSeen() is not confirmed listed, so ctx.lastSeen is absent.
+    ctx.lastSeen;
+    // @ts-expect-error — no replay capability is confirmed listed, so ctx.sendReplay is absent.
+    ctx.sendReplay;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Regression — an inline, literal-brand `capabilities` array still grants
+// exactly what it lists.
+// ---------------------------------------------------------------------------
+
+const rateLimitBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [channels(), rateLimit({ max: 5 })],
+});
+rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
+
+const requestsBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [channels(), requests()],
+});
+requestsBase.channel('room2', {
+  outgoing: {
+    requests: { ask: { out: t<{}>(), in: v.object({}) } },
+  },
+});
+
+const channelsBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [channels()],
+});
+channelsBase.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    expectTypeOf(ctx.channels).not.toBeUndefined();
+  },
+});
+
+const scheduledBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [scheduled({ task: null })],
+});
+scheduledBase.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    expectTypeOf(ctx.schedule).not.toBeUndefined();
+  },
+});
+
+const keepaliveBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
+});
+keepaliveBase.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    expectTypeOf(ctx.latency).toEqualTypeOf<number | null>();
+  },
+});
+
+const lastSeenBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [lastSeen()],
+});
+lastSeenBase.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    expectTypeOf(ctx.lastSeen).not.toBeUndefined();
+  },
+});
+
+const replayBase = define({
+  env: t<Record<string, never>>(),
+  capabilities: [replay.history()],
+});
+replayBase.on('ping', {
+  input: v.object({}),
+  run(ctx) {
+    expectTypeOf(ctx.sendReplay).toBeFunction();
+  },
+});
+
+export type {};

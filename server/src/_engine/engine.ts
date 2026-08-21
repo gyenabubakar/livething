@@ -1,42 +1,51 @@
-import { CloseCodes } from '@wskit/core';
-import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import { CloseCodes, WSKitConfigError } from '@wskit/core';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
-import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
+import {
+  withInvocationScope,
+  withInvocationScopeSync,
+} from '~/_engine/runtime/invocation-scope.ts';
+import * as EnginePurgeUser from '~/_engine/runtime/purge-user.ts';
+import { createAdminContext, RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
+import { createShutdownContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type { Primitive } from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
 type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
 type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
 
-export type {
-  AdapterConfig,
-  ConnectionDescriptor,
-  ConnectionHandle,
-  EngineOptions,
-  UpgradeDecision,
-} from '~/_adapters/types.ts';
-
 /**
  * Runs one compiled server definition. Adapters call methods on this class;
  * state lives on {@link EngineCore} and behaviour in `_engine/runtime/*` and
  * `_engine/registry/*`.
+ *
+ * @template TApi The `api` factory's return type, carried from the handler so
+ *   {@link Engine.admin} stays typed all the way out to the adapter.
  */
-export class Engine {
+export class Engine<TApi = unknown> {
   /** State container. Exposed for internal plugins that need direct field access. @internal */
   readonly core: EngineCore;
 
-  constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+  constructor(
+    handler: DefineServer.ServerDefinition<
+      readonly Primitive[],
+      DefineServer.ServerContract,
+      unknown,
+      TApi
+    >,
+    options: EngineAdapterTypes.EngineOptions,
+  ) {
     this.core = new EngineCore(handler, options);
   }
 
-  /** Set the engine instance id. Only adapters running with a broker call this. */
+  /** Set the stable platform instance id before accepting connections. */
   setInstanceId(id: string): void {
     this.core.setInstanceId(id);
   }
@@ -54,6 +63,11 @@ export class Engine {
   /** One-time startup: validate capabilities, install plugins, run boot + init hooks. */
   async initialize(): Promise<void> {
     await Initialize.initialize(this.core, EngineDeps.engineAccessDeps(this.core));
+    // An `api` factory's method names are only knowable by running it, so a bad
+    // name cannot be caught while assembling. Building the surface once here
+    // moves the failure to boot instead of the first `admin()` call, which on a
+    // cron or webhook route might be days later.
+    if (this.core.adminApiFactory) this.admin();
   }
 
   /** Accept a new websocket and return the callbacks the adapter uses to drive it. */
@@ -132,15 +146,6 @@ export class Engine {
           reason: 'Server shutting down',
         }),
 
-      alarmState: {
-        get current() {
-          return core.alarmHandle;
-        },
-        set current(value: unknown | null) {
-          core.alarmHandle = value;
-        },
-      },
-
       logger: core.logger,
     });
   }
@@ -159,6 +164,30 @@ export class Engine {
    */
   reconcileConnections(surviving: ReadonlySet<string>): void {
     EngineHibernation.reconcileConnections(this.core, surviving);
+  }
+
+  /**
+   * Restore every socket the platform still holds after a hibernation eviction.
+   * Each runs the same per-socket wake the lazy path uses, rebuilding its
+   * identity, tags, and ephemeral channel membership at boot so a live broadcast
+   * reaches even members whose own socket has not woken. Rows for absent ids are
+   * pruned. The Promise rejects if any wake fails; adapters must await it before
+   * handling platform events. A no-op without hibernation.
+   */
+  async restoreHibernatedConnections(sockets: Iterable<unknown>): Promise<void> {
+    if (!this.usesHibernation()) return;
+    const runtime = EngineDeps.connectionRuntime(this.core);
+    const restored = new Set<string>();
+    EngineHibernation.withPreloadedConnectionRows(this.core, () => {
+      for (const wsKey of sockets) {
+        withInvocationScopeSync(this.core, () => {
+          EngineConnectionRuntime.wakeHibernatedConnection(runtime, wsKey);
+        });
+        const id = this.core.wsToConnectionId.get(wsKey);
+        if (id) restored.add(id);
+      }
+    });
+    EngineHibernation.reconcileConnections(this.core, restored);
   }
 
   /** Build the helper bag passed to every `onUpgrade` hook. @internal */
@@ -197,9 +226,164 @@ export class Engine {
 
   /** @internal */
   private createShutdownContext() {
-    return EngineContexts.createShutdownContext({
+    return createShutdownContext({
       connections: this.core.connections,
+      usersByKey: this.core.usersByKey,
       ...EngineDeps.commonDeps(this.core),
     });
   }
+
+  /**
+   * The connectionless admin surface, reached from outside the socket layer (an
+   * HTTP route, an auth webhook, a cron job). Returns the full admin context
+   * merged with the app's own `api` (authored on `assemble({ handlers, api })`).
+   * Built-in members win on a name clash — a dev api method cannot shadow
+   * `broadcast`, `purgeUser`, and the rest.
+   *
+   * Adapters decide what of this reaches the outside world. An in-process
+   * adapter hands it back whole; the Cloudflare adapter projects it onto an
+   * `RpcTarget`, because only prototype methods survive a Worker→DO call.
+   */
+  admin(): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> &
+    TApi {
+    const core = this.core;
+    const ctx = createAdminContext({
+      connections: core.connections,
+      usersByKey: core.usersByKey,
+      ...EngineDeps.commonDeps(core),
+      purgeUser: (userId, options) => EnginePurgeUser.purgeUser(core, userId, options),
+    });
+    const devApi = core.adminApiFactory ? core.adminApiFactory(ctx) : {};
+    // Copy descriptors rather than spreading: `connectionCount` is a getter and
+    // must stay live, and the built-ins have to land after the dev api to win.
+    const surface = flattenApi(devApi);
+    Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
+    return surface as PublicApi.AdminContext<
+      Record<string, unknown>,
+      Record<string, unknown>,
+      unknown
+    > &
+      TApi;
+  }
+}
+
+/**
+ * Reject an `api` method whose name JavaScript has already claimed. Enforced in
+ * the engine rather than in each adapter, so the rule holds wherever the admin
+ * surface is exposed from.
+ *
+ * Checked as each name is read off the factory's result, before the
+ * already-seen guard: `'__proto__' in flat` holds on any plain object, so
+ * without this a method by that name would be dropped without a word.
+ */
+function assertNotReservedApiName(key: string): void {
+  if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
+  let reason: string;
+  if (key === 'then') {
+    reason =
+      `'then' makes any object a thenable, so \`await service.admin()\` calls it ` +
+      `instead of resolving. The await never settles.`;
+  } else if (key === 'constructor') {
+    reason =
+      `'constructor' is JavaScript's prototype marker. An app member by this name ` +
+      `cannot be exposed on the admin surface.`;
+  } else {
+    reason =
+      `'${key}' is already inherited by the plain object the admin surface is ` +
+      `built on. A method by this name cannot be placed on the surface — the ` +
+      `inherited one is already there — and would go missing without explanation.`;
+  }
+  throw new WSKitConfigError(
+    `[wskit] assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
+  );
+}
+
+/**
+ * A class or ordinary function puts this non-enumerable, configurable,
+ * writable data property on its prototype. It is not an app API member, so do
+ * not reject it while walking a class instance's prototype chain. The check
+ * deliberately reads the constructor's `prototype` descriptor instead of the
+ * property itself: an app can return a function or proxy with a getter there,
+ * and reserved-name validation must not execute app code.
+ */
+function isAutomaticConstructorMarker(
+  api: object,
+  level: object,
+  descriptor: PropertyDescriptor,
+): boolean {
+  if (
+    level === api ||
+    descriptor.get !== undefined ||
+    descriptor.set !== undefined ||
+    descriptor.writable !== true ||
+    descriptor.enumerable !== false ||
+    descriptor.configurable !== true ||
+    typeof descriptor.value !== 'function'
+  ) {
+    return false;
+  }
+
+  try {
+    // A normal function prototype is an ordinary object whose prototype is
+    // Object.prototype. A null-prototype object with a hand-installed function
+    // is app data, not the marker created by that function. A class extending
+    // null is the one legitimate exception; its source still identifies it as
+    // a class without reading any app property.
+    if (
+      Object.getPrototypeOf(level) === null &&
+      !Function.prototype.toString.call(descriptor.value).startsWith('class')
+    ) {
+      return false;
+    }
+    const prototype = Object.getOwnPropertyDescriptor(descriptor.value, 'prototype');
+    return (
+      prototype?.get === undefined &&
+      prototype?.set === undefined &&
+      prototype?.value === level &&
+      prototype.enumerable === false &&
+      prototype.configurable === false &&
+      (prototype.writable === true || prototype.writable === false)
+    );
+  } catch {
+    // A revoked proxy or a hostile descriptor trap is still an app-owned
+    // constructor. Let the reserved-name guard report it as configuration.
+    return false;
+  }
+}
+
+function flattenApi(api: unknown): Record<string, unknown> {
+  const flat: Record<string, unknown> = {};
+  if (!api || typeof api !== 'object') return flat;
+
+  const seen = new Set<object>();
+  for (
+    let level: object | null = api;
+    level && level !== Object.prototype;
+    level = Object.getPrototypeOf(level) as object | null
+  ) {
+    if (seen.has(level)) break;
+    seen.add(level);
+
+    for (const key of Object.getOwnPropertyNames(level)) {
+      const descriptor = Object.getOwnPropertyDescriptor(level, key);
+      // Every class prototype has an own constructor marker. It is an
+      // implementation detail, but an app-owned constructor is a real API name
+      // and must go through the same reserved-name guard as other built-ins.
+      if (
+        key === 'constructor' &&
+        descriptor &&
+        isAutomaticConstructorMarker(api, level, descriptor)
+      ) {
+        continue;
+      }
+      // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
+      // object, so a method by that name would be skipped silently instead of
+      // reported.
+      assertNotReservedApiName(key);
+      if (Object.hasOwn(flat, key)) continue;
+      const value = (api as Record<string, unknown>)[key];
+      flat[key] = typeof value === 'function' ? value.bind(api) : value;
+    }
+  }
+  return flat;
 }

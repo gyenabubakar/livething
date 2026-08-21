@@ -1,7 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { CloseCodes } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
-import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
+import { sendGap, sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import * as InboxRuntime from '~/inbox/runtime.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -28,6 +30,12 @@ export interface EngineAccessDeps {
    * prepared once for many peers).
    */
   buildCurrentContext(): unknown;
+  /**
+   * Build the context object for one connection by id, or `undefined` when no
+   * such connection is live. Unlike `buildCurrentContext`, this does not need a
+   * dispatch to be running — a ping arrives outside one.
+   */
+  buildContextForConnection(connectionId: string): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
   sendServerRequest(
     connectionId: string,
@@ -39,6 +47,15 @@ export interface EngineAccessDeps {
       channelFamily?: string | null;
     },
   ): boolean;
+  /** Broadcast one already-built protocol frame to every live member of a channel. */
+  broadcastToChannel(opts: {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+  }): void;
+  /** Count the live members currently in a channel. */
+  channelMemberCount(channelName: string, channelFamily: string | null): number;
 }
 
 /**
@@ -54,6 +71,8 @@ export function createEngineAccess(
 ): EngineAccessModule.EngineAccess {
   let onUpgradeCalled = false;
   return {
+    storage: core.storage,
+    timers: core.timers,
     installOnce: (key, install) => {
       if (core.installedFeatures.has(key)) return;
       core.installedFeatures.add(key);
@@ -64,6 +83,9 @@ export function createEngineAccess(
     },
     onBootSchema: (handler) => {
       core.hooks.bootSchema.push(handler);
+    },
+    onPurgeUser: (handler) => {
+      core.hooks.purgeUser.push(handler);
     },
     onIncoming: (handler) => {
       core.hooks.incoming.push(handler);
@@ -81,7 +103,7 @@ export function createEngineAccess(
       // per-dispatch locals.
       core.hooks.outgoing.push({
         handler: (frame) => handler(deps.buildCurrentContext(), frame),
-        owner: owner ?? OutgoingRuntime.APP_HOOK_OWNER,
+        owner: owner ?? APP_HOOK_OWNER,
       });
     },
     onWSKitStamp: (handler) => {
@@ -95,6 +117,9 @@ export function createEngineAccess(
     },
     onConnectionActivity: (handler) => {
       core.hooks.activity.push(handler);
+    },
+    onMessageActivity: (handler) => {
+      core.hooks.messageActivity.push(handler);
     },
     onInit: (handler) => {
       core.hooks.init.push(handler);
@@ -139,6 +164,9 @@ export function createEngineAccess(
     onAlarm: (handler) => {
       core.hooks.alarm.push(handler);
     },
+    registerAlarmSource: (key, source) => {
+      core.alarmSources.set(key, source);
+    },
     onCheck: (handler, validator) => {
       pushChannelHook(core.hooks.check, scope?.channelKey, {
         hook: { handler, validator },
@@ -182,8 +210,6 @@ export function createEngineAccess(
     extendContext: (factory) => {
       core.hooks.contextExtenders.push(factory);
     },
-    requireStorage: () => core.requireStorage(),
-    requireTimers: () => core.requireTimers(),
     getInvocationScope: () => getInvocationScope(core.asyncContext),
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;
@@ -195,11 +221,14 @@ export function createEngineAccess(
     setSequencePersistent: (enabled) => {
       core.sequencePersistent = enabled;
     },
-    setPersistenceEnabled: (enabled) => {
-      core.persistenceEnabled = enabled;
+    setChannelDurable: (channelKey, durable) => {
+      core.channelDurabilityOverrides.set(channelKey, durable);
     },
-    setChannelPersistent: (channelKey, enabled) => {
-      core.channelPersistenceOverrides.set(channelKey, enabled);
+    registerInboxChannel: (channelKey, options) => {
+      core.inboxChannels.set(channelKey, options);
+    },
+    registerReadReceiptsChannel: (channelKey) => {
+      core.readReceiptsChannels.add(channelKey);
     },
     registerPluginApi: (id, factory) => {
       if (core.pluginApiFactories.has(id)) {
@@ -219,12 +248,6 @@ export function createEngineAccess(
     },
     registerTagGroups: (kind, groups) => {
       core.tagGroupsRegistered[kind] = true;
-      if (kind === 'persistent' && !core.persistenceEnabled) {
-        const sample = groups[0]?.name;
-        throw new Error(
-          `[wskit] persistent tag group '${sample}' requires persistence. Set 'persistence: true' in your contract, or move '${sample}' to the 'ephemeral' kind.`,
-        );
-      }
       for (const group of groups) {
         if (core.declaredTagGroups[kind].has(group.name)) {
           throw new Error(
@@ -235,8 +258,8 @@ export function createEngineAccess(
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
     },
-    isDurableMembershipPairPersistent: (channelName, channelFamily) =>
-      core.isDurableMembershipPairPersistent(channelName, channelFamily),
+    isDurableMembershipPairDurable: (channelName, channelFamily) =>
+      core.isDurableMembershipPairDurable(channelName, channelFamily),
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;
@@ -251,10 +274,42 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
 
-      KeepalivePrimitive.refreshIdleTimeout(connection, timeoutMs);
+      if (connection.keepaliveTimer !== undefined) {
+        clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
+      }
+      connection.keepaliveTimer = setTimeout(() => {
+        connection.descriptor.close(CloseCodes.IDLE, 'Keepalive timeout');
+      }, timeoutMs);
     },
-    setKeepalivePingInterval: (intervalMs) => {
-      core.keepalivePingIntervalMs = intervalMs;
+    sendPing: (connectionId) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return false;
+
+      connection.descriptor.send('ping');
+      return true;
+    },
+    setConnectionLatency: (connectionId, latency, quality) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+
+      connection.latency = latency;
+      connection.quality = quality;
+    },
+    getConnectionContext: (connectionId) => deps.buildContextForConnection(connectionId),
+    onPing: (handler) => {
+      core.hooks.ping.push(handler);
+    },
+    onPong: (handler) => {
+      core.hooks.pong.push(handler);
+    },
+    onAppPing: (handler) => {
+      core.hooks.appPing.push(handler);
+    },
+    onAppPong: (handler) => {
+      core.hooks.appPong.push(handler);
+    },
+    onConnectionCleanup: (handler) => {
+      core.hooks.connectionCleanup.push(handler);
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
@@ -267,6 +322,11 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
       sendReplay(core, connection, options);
+    },
+    sendGap: (connectionId, options) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+      sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);
@@ -288,6 +348,15 @@ export function createEngineAccess(
         wskit: {},
       });
     },
+    sendProtocolFrame: (connectionId, options) => {
+      const connection = core.connections.get(connectionId);
+      if (!connection) return;
+      sendProtocolMessage(core, connection, {
+        event: options.event,
+        payload: options.payload as Record<string, unknown>,
+        wskit: options.wskit ?? {},
+      });
+    },
     setStreamTrigger: (trigger) => {
       core.streamTrigger = trigger;
     },
@@ -304,15 +373,17 @@ export function createEngineAccess(
     setBuildTagsApi: (build) => {
       core.buildTagsApi = build;
     },
-    setPersistenceService: (service) => {
-      core.persistenceService = service;
+    setChannelMembershipService: (service) => {
+      core.channelMembershipService = service;
+    },
+    setTagPersistenceService: (service) => {
+      core.tagPersistenceService = service;
     },
     setScheduledService: (service) => {
       core.scheduledService = service;
     },
-    setInterceptRuntime: (runIntercepts, frameMatch) => {
+    setInterceptRuntime: (runIntercepts) => {
       core.runIntercepts = runIntercepts;
-      core.frameMatch = frameMatch;
     },
     setChannelService: (service) => {
       core.channelService = service;
@@ -320,6 +391,40 @@ export function createEngineAccess(
     setChannelContext: (context) => {
       core.channelContext = context;
     },
+    setInboxService: (service) => {
+      core.inboxService = service;
+    },
+    setLastSeenService: (service) => {
+      core.lastSeenService = service;
+    },
+    getLastSeenService: () => core.lastSeenService,
+    addChannelHandleAugmenter: (augmenter) => {
+      core.channelHandleAugmenters.push(augmenter);
+    },
+    isUserOnline: (userId) => {
+      if (!userId) return false;
+      const members = core.usersByKey.get(userId);
+      return members !== undefined && members.size > 0;
+    },
+    getConnectionIdentity: (connectionId) => core.connections.get(connectionId)?.userId,
+    broadcastToChannel: (opts) => deps.broadcastToChannel(opts),
+    channelMemberCount: (channelName, channelFamily) =>
+      deps.channelMemberCount(channelName, channelFamily),
+    getInboxChannel: (channelKey) => core.inboxChannels.get(channelKey),
+    getInboxChannelScopes: () => ({
+      staticNames: [...core.inboxChannels.keys()].filter((key) => core.compiled.channels.has(key)),
+      familyKeys: [...core.inboxChannels.keys()].filter((key) =>
+        core.compiled.channelFamilies.has(key),
+      ),
+    }),
+    invalidateInboxMemberCount: (channelName, channelFamily, userId) => {
+      core.inboxMemberCounts.delete(
+        InboxRuntime.memberCountKey(channelName, channelFamily, userId),
+      );
+    },
+
+    receiptCursorCache: () => core.inboxReceiptCursors,
+    hasReadReceiptsChannel: (channelKey) => core.readReceiptsChannels.has(channelKey),
   };
 }
 

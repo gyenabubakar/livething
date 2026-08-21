@@ -5,7 +5,7 @@ describe('CtxKvClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<CtxKvClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxKvClient['outgoing']>().not.toBeAny();
-    expectTypeOf<CtxKvClient['requests']>().not.toBeAny();
+    expectTypeOf<CtxKvClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxKvClient['streams']>().not.toBeAny();
     expectTypeOf<CtxKvClient['channels']>().not.toBeAny();
     expectTypeOf<CtxKvClient['errors']>().not.toBeAny();
@@ -57,8 +57,8 @@ describe('CtxKvClient — outgoing (server incoming)', () => {
 });
 
 describe('CtxKvClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof CtxKvClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof CtxKvClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

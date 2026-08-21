@@ -38,7 +38,7 @@ const base = define({
   ],
 });
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,15 +134,17 @@ const handleBroadcastToRoom = room.on('broadcast-to-room', {
   },
 });
 
-export const hibernationHandler = base.assemble(
-  handleSaveNote,
-  handleGetNotes,
-  handleTagSelf,
-  handleSendToTag,
-  handleGetRoomMembers,
-  handleProbeConn,
-  handleSlowStream,
-  handleBroadcastToRoom,
-);
+export const hibernationHandler = base.assemble({
+  handlers: [
+    handleSaveNote,
+    handleGetNotes,
+    handleTagSelf,
+    handleSendToTag,
+    handleGetRoomMembers,
+    handleProbeConn,
+    handleSlowStream,
+    handleBroadcastToRoom,
+  ],
+});
 
 export type HibernationClient = InferClient<typeof hibernationHandler>;

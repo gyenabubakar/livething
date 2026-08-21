@@ -1,6 +1,5 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { persistence } from '@wskit/server/persistence';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -21,7 +20,6 @@ const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
-    persistence(),
     channels(),
     tags((ephemeral, persistent) => [
       ephemeral('user', t<string>()),
@@ -113,7 +111,9 @@ const handleKickByTag = base.on('kick-by-tag', {
   async run(ctx, payload) {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), payload.reason);
+      .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), {
+        reason: payload.reason,
+      });
   },
 });
 
@@ -135,15 +135,17 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const typedTagsHandler = base.assemble(
-  handleAddTag,
-  handleRemoveTag,
-  handleListMyTags,
-  handleFanOutToTag,
-  handleCountByTag,
-  handleGroupStats,
-  handleKickByTag,
-  handleSendInRoom,
-);
+export const typedTagsHandler = base.assemble({
+  handlers: [
+    handleAddTag,
+    handleRemoveTag,
+    handleListMyTags,
+    handleFanOutToTag,
+    handleCountByTag,
+    handleGroupStats,
+    handleKickByTag,
+    handleSendInRoom,
+  ],
+});
 
 export type TypedTagsClient = InferClient<typeof typedTagsHandler>;

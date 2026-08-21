@@ -12,7 +12,7 @@ import type { TagsRuntime } from '~/tags/runtime.ts';
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -20,7 +20,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -43,8 +43,7 @@ function createRuntime(
       sent.push(connection.id);
     },
     persistAttachment: () => {},
-    persistenceEnabled: false,
-    requireStorage: () => {
+    getStorage: () => {
       throw new Error('unused');
     },
   } as unknown as TagsRuntime;
@@ -226,8 +225,7 @@ function createPersistentRuntime(
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
-    persistenceEnabled: true,
-    requireStorage: () => ({ sql: { exec } }),
+    getStorage: () => ({ sql: { exec } }),
   } as unknown as TagsRuntime;
 }
 
@@ -287,8 +285,7 @@ function runtimeWithSchema(schema: unknown): TagsRuntime {
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
-    persistenceEnabled: false,
-    requireStorage: () => ({ sql: { exec: () => {} } }),
+    getStorage: () => ({ sql: { exec: () => {} } }),
   } as unknown as TagsRuntime;
 }
 

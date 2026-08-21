@@ -5,7 +5,7 @@ describe('ProtocolPingsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ProtocolPingsClient['incoming']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ProtocolPingsClient['requests']>().not.toBeAny();
+    expectTypeOf<ProtocolPingsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['streams']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['channels']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['errors']>().not.toBeAny();
@@ -21,8 +21,8 @@ describe('ProtocolPingsClient — all slots are empty (no definitions)', () => {
     expectTypeOf<keyof ProtocolPingsClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof ProtocolPingsClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

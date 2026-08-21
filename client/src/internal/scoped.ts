@@ -6,7 +6,7 @@ export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
 
 /**
  * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).
- * `on` and `send` are always present; augmenters (requestResponse, stream)
+ * `on` and `send` are always present; augmenters (clientRequests, stream)
  * add extra methods via the index signature. The typed view exposed to developers
  * is `ScopedMessaging` — this is the loose internal object the library builds
  * and extends at runtime.
@@ -23,11 +23,25 @@ export interface ScopeInfo {
   markers(): ScopeMarkers;
 
   /**
+   * Rewrite an event, request, or channel name for the wire. A plugin uses it to
+   * add its `__<id>::` prefix; a plain app channel omits it (it scopes by markers,
+   * so the name stays bare), while a plugin-owned channel carries it so its child
+   * events are namespaced too. Every augmenter runs a name through {@link scopedName}
+   * so all scopes are handled the same way.
+   */
+  prefixName?(name: string): string;
+
+  /**
    * Throw if the scope isn't ready to send yet — a channel uses this to block
    * sends before it's subscribed. Send methods (send, request, stream)
    * call this; listen-only ones (on, onStream) don't. Omitting it means "always ready."
    */
   assertReady?(): void;
+}
+
+/** Apply a scope's name rewrite, or leave the name as-is when it has none. */
+export function scopedName(scope: ScopeInfo, name: string): string {
+  return scope.prefixName ? scope.prefixName(name) : name;
 }
 
 /** Adds methods to a freshly built scoped messaging. */

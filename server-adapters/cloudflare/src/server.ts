@@ -1,36 +1,74 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
-import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
+import type {
+  ApiOf,
+  ConnectionHandle,
+  Engine,
+  EngineOptions,
+  Logger,
+  MetaOf,
+  ServerDefinition,
+} from '@wskit/server/adapters';
+import { buildAdmin } from './admin.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
+import type { WSKitAdmin } from './admin.ts';
 
 /**
  * The instance shape of a `server()`-produced Durable Object.
  *
  * In addition to the standard Durable Object lifecycle methods, the instance
- * exposes `shutdown()` as an RPC method. Call `stub.shutdown()` from your
- * Worker to trigger every `onShutdown` hook and close every open WebSocket
- * connection gracefully — use it before a deploy or maintenance window.
+ * exposes two RPC methods. `stub.shutdown()` triggers every `onShutdown` hook
+ * and closes every open WebSocket gracefully — use it before a deploy or
+ * maintenance window. `stub.admin()` returns the connectionless admin surface,
+ * so `const admin = await stub.admin(); await admin.purgeUser(userId)` reaches
+ * into the running server from a webhook or cron with no socket of its own.
  */
-export interface WSKitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
+export interface WSKitDurableObjectInstance<
+  Env = unknown,
+  TApi = unknown,
+  TMeta = Record<string, never>,
+> extends DurableObject<Env> {
+  /** Gracefully drain the Durable Object: run `onShutdown`, close every socket. */
   shutdown(): Promise<void>;
+  /**
+   * The connectionless admin surface — `const admin = await stub.admin();
+   * await admin.purgeUser(id)`, plus whatever the handler's own `api` factory
+   * returned.
+   */
+  admin(): Promise<WSKitAdmin<TMeta> & TApi>;
 }
 
 /**
  * The Durable Object class type that `server()` returns. Use this as the type
  * for your exported Durable Object class.
+ *
+ * @template TApi  The handler's `api` type, so `stub.admin()` resolves to the
+ *   built-in operations **and** the app's own admin methods.
+ * @template TMeta The handler's connection metadata, carried so the connection
+ *   snapshots the admin surface returns keep their real `meta` type.
  */
-export type CloudflareDurableObjectClass<Env = unknown> = new (
-  ctx: DurableObjectState,
-  env: Env,
-) => WSKitDurableObjectInstance<Env>;
+export type CloudflareDurableObjectClass<
+  Env = unknown,
+  TApi = unknown,
+  TMeta = Record<string, never>,
+> = new (ctx: DurableObjectState, env: Env) => WSKitDurableObjectInstance<Env, TApi, TMeta>;
+
+/** What the shared adapter factory passes to `createEngine` inside `setup`. */
+type EngineRuntimeOptions = Omit<
+  EngineOptions,
+  'adapterId' | 'hibernation' | 'asyncContextFactory'
+>;
 
 function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
+const buildServe = adapter<
+  undefined,
+  CloudflareDurableObjectClass<unknown, unknown, Record<string, unknown>>
+>({
   id: 'cloudflare',
   hibernation: {
     persist(wsKey, snapshot) {
@@ -42,9 +80,9 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
   },
   asyncContextFactory: createAsyncContext,
 
-  setup(createEngine) {
+  setup<TApi>(createEngine: (options: EngineRuntimeOptions) => Engine<TApi>) {
     return class WSKitDurableObject<Env = unknown> extends DurableObject<Env> {
-      private readonly engine: Engine;
+      private readonly engine: Engine<TApi>;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
       private readonly ready: Promise<void>;
 
@@ -73,28 +111,26 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
             ctx.waitUntil?.(promise);
           },
         });
+        // Durable Object refs can be passed through application code and must
+        // carry the stable DO id so a ref from another DO cannot match a local
+        // connection with the same generated id.
+        this.engine.setInstanceId(ctx.id.toString());
 
-        this.ready = ctx.blockConcurrencyWhile(async () => {
+        const ready = ctx.blockConcurrencyWhile(async () => {
           await this.engine.initialize();
-          // With hibernation on, Cloudflare may hand back sockets that survived
-          // eviction; collect their ids so the engine keeps those rows and drops
-          // orphans. Hibernation off: the empty set is a no-op.
-          const surviving = new Set<string>();
+          // Restore every surviving socket's membership eagerly so a broadcast reaches members that have not sent since the wake.
           if (this.engine.usesHibernation()) {
+            await this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
             this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-
-            for (const ws of this.ctx.getWebSockets()) {
-              const attachment = (ws as WebSocket).deserializeAttachment() as {
-                id?: string;
-              } | null;
-              if (attachment && typeof attachment.id === 'string') {
-                surviving.add(attachment.id);
-              }
-            }
+          } else {
+            this.engine.reconcileConnections(new Set());
           }
-
-          this.engine.reconcileConnections(surviving);
         });
+        // Keep the boot failure available to every later lifecycle method,
+        // while marking the constructor-owned Promise as observed when no
+        // event ever arrives to await it.
+        void ready.catch(() => {});
+        this.ready = ready;
       }
 
       private handleRejectedUpgrade(
@@ -126,7 +162,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           bufferedAmount: () => 0,
           // Cloudflare does not expose outbound buffer fullness, so drain() is a no-op.
           backpressureSupported: false,
-          identity: result.identity ?? '',
+          userId: result.userId ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
         };
@@ -271,6 +307,28 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         }
         await this.engine.handleShutdown();
       }
+
+      /**
+       * The connectionless admin surface — reach it from your Worker as
+       * `stub.admin()` and call an operation on the result, e.g.
+       * `const admin = await stub.admin(); await admin.purgeUser(userId)` from
+       * an auth webhook.
+       *
+       * Hibernated sockets are woken first (as in `shutdown()`) so an operation
+       * like `purgeUser` or `broadcast` reaches every connection, not just
+       * the ones already live on this instance.
+       */
+      // The engine erases the app's meta type at runtime; `server()` casts the
+      // finished class back to the handler's own `TMeta`.
+      async admin(): Promise<WSKitAdmin<Record<string, unknown>> & TApi> {
+        await this.ready;
+        if (this.engine.usesHibernation()) {
+          for (const ws of this.ctx.getWebSockets()) {
+            this.engine.handleHibernationWake(ws);
+          }
+        }
+        return buildAdmin(this.engine.admin(), this.ctx.id.toString());
+      }
     };
   },
 });
@@ -288,8 +346,17 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * expected).
  *
  * The returned value is a class, not an instance. Export it from your worker
- * module like `export const Room = server(handler);` — Cloudflare instantiates
- * it per Durable Object id.
+ * module with a **class declaration** — Cloudflare instantiates it per Durable
+ * Object id:
+ *
+ * ```ts
+ * export class Room extends server(handler) {}
+ * ```
+ *
+ * Use a class declaration rather than `export const Room = server(handler)`.
+ * `wrangler types` writes `DurableObjectNamespace<import("./worker").Room>`,
+ * which needs a **type** of that name; a `const` exports only a value, so the
+ * binding falls back to `any` and every `stub.…()` call goes unchecked.
  *
  * **WSKit requires `compatibility_date` `2026-04-07` or later** in
  * `wrangler.jsonc`. On that date the Workers runtime completes a
@@ -304,7 +371,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * import { server } from '@wskit/server-cloudflare';
  * import { handler } from './handler';
  *
- * export const GameRoom = server(handler);
+ * export class GameRoom extends server(handler) {}
  *
  * export default {
  *   async fetch(request, env) {
@@ -314,6 +381,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * };
  * ```
  */
-export function server(handler: ServerDefinition): CloudflareDurableObjectClass {
-  return buildServe(handler, undefined);
+export function server<THandler extends ServerDefinition>(
+  handler: THandler,
+): CloudflareDurableObjectClass<unknown, ApiOf<THandler>, MetaOf<THandler>> {
+  return buildServe(handler, undefined) as unknown as CloudflareDurableObjectClass<
+    unknown,
+    ApiOf<THandler>,
+    MetaOf<THandler>
+  >;
 }

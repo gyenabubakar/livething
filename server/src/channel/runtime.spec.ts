@@ -17,10 +17,10 @@ import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { BroadcastToChannelOptions, LeaveChannelOptions } from '~/channel/runtime.ts';
 import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
-function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
+function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}, userId: string = id) {
   return {
     id,
-    identity: id,
+    userId,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -28,7 +28,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta,
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -91,7 +91,7 @@ function createRuntime(
       toConnectionInfo(connection: ReturnType<typeof createConnection>) {
         return {
           id: connection.id,
-          identity: connection.identity,
+          userId: connection.userId,
           meta: connection.meta,
           tags: [],
           channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
@@ -102,7 +102,7 @@ function createRuntime(
             __wskit: 'connection-ref' as const,
             id: connection.id,
             instance: undefined,
-            identity: connection.identity,
+            userId: connection.userId,
           }),
         };
       },
@@ -138,7 +138,7 @@ function createRuntime(
       },
       async handleValidationError() {},
       async handleRuntimeError() {},
-      isChannelPersistent: () => false,
+      isChannelDurable: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
       hasDurableMembership: () => true,
@@ -147,17 +147,13 @@ function createRuntime(
 }
 
 describe('createChannelMembershipKey', () => {
-  it('produces distinct keys for previously colliding (family, name) pairs', () => {
-    // Family 'rooms' + name 'private::lobby' would have collided with family
-    // 'rooms::private' + name 'lobby' under the old `${scope}::${name}` join.
+  it('produces distinct keys for pairs that would collide under a naive join', () => {
+    // Family 'rooms' + name 'private::lobby' must stay distinct from family
+    // 'rooms::private' + name 'lobby', even though a plain `${scope}::${name}`
+    // join would produce the same string for both.
     const a = createChannelMembershipKey('private::lobby', 'rooms');
     const b = createChannelMembershipKey('lobby', 'rooms::private');
     expect(a).not.toBe(b);
-  });
-
-  it('uses JSON-encoded tuples as the key format', () => {
-    expect(createChannelMembershipKey('lobby', null)).toBe(JSON.stringify([null, 'lobby']));
-    expect(createChannelMembershipKey('lobby', 'rooms')).toBe(JSON.stringify(['rooms', 'lobby']));
   });
 });
 
@@ -196,7 +192,7 @@ describe('channel runtime', () => {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'client',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       },
       {
@@ -377,7 +373,7 @@ describe('channel runtime', () => {
     });
   });
 
-  it('keeps the legacy channel-not-subscribed error for a no-id leave of a non-member', async () => {
+  it('returns the channel-not-subscribed error for a no-id leave of a non-member', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -417,6 +413,109 @@ describe('channel runtime', () => {
     );
 
     expect(protocol.some((p) => p.event === '__unsubscribeOk__')).toBe(false);
+  });
+
+  it('two connections of the same user, same channel: one leaving keeps the durable row and inbox alive for the other', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const tabA = createConnection('conn_1', {}, 'alice');
+    const tabB = createConnection('conn_2', {}, 'alice');
+    addChannelMembership(channelMembers, tabA, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+    addChannelMembership(channelMembers, tabB, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(tabA.id, tabA);
+    connections.set(tabB.id, tabB);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    // Tab A leaves. Tab B is still in the channel under the same user id, so
+    // the durable membership row and the inbox must survive.
+    await leaveChannel(runtime, tabA, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).not.toHaveBeenCalled();
+    expect(clearInbox).not.toHaveBeenCalled();
+    const key = createChannelMembershipKey('room:general', 'rooms');
+    expect(channelMembers.get(key)?.has(tabB)).toBe(true);
+
+    // Tab B leaves next — no connection for 'alice' remains in this channel,
+    // so now the durable row and inbox are dropped.
+    await leaveChannel(runtime, tabB, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+    expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+  });
+
+  it('a single connection leaving a durable channel still drops the durable row and inbox immediately, as before', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', {}, 'alice');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    await leaveChannel(runtime, connection, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+    expect(clearInbox).toHaveBeenCalledWith('alice', 'room:general', 'rooms');
+  });
+
+  it('an anonymous connection leaving a durable channel behaves sensibly (no user id to share, cleans up exactly as before)', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', {}, '');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    const { runtime, connections } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    runtime.isChannelDurable = () => true;
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    runtime.deleteDurableMembership = deleteDurableMembership;
+    (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
+    const channel = runtime.compiled.channelFamilies.get('rooms')!;
+
+    await leaveChannel(runtime, connection, {
+      channel,
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+    });
+
+    expect(deleteDurableMembership).toHaveBeenCalledWith('', 'room:general', 'rooms');
+    // No user id means no inbox to clear — clearInbox is guarded separately.
+    expect(clearInbox).not.toHaveBeenCalled();
   });
 
   it('keeps same-name memberships isolated across channel families', async () => {
@@ -610,7 +709,7 @@ describe('channel runtime', () => {
       subscribeConnection(
         {
           ...runtime,
-          isChannelPersistent: () => true,
+          isChannelDurable: () => true,
           persistMembership: () => {
             throw new Error('storage down');
           },
@@ -623,49 +722,27 @@ describe('channel runtime', () => {
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
-  it('async commit handler is detected at runtime and throws', async () => {
+  it('native-Promise commit throws a synchronous-commit WSKitConfigError before membership is written', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
 
-    await expect(
-      subscribeConnection(
-        {
-          ...runtime,
-          commitHooks: new Map([
-            [
-              'rooms',
-              [{ handler: (async () => {}) as unknown as (ctx: unknown, r: unknown) => void }],
-            ],
-          ]),
-        },
-        connection,
-        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
-      ),
-    ).rejects.toThrow(/commit\(\) must be synchronous/);
-  });
+    const rejection = subscribeConnection(
+      {
+        ...runtime,
+        commitHooks: new Map([
+          [
+            'rooms',
+            [{ handler: (async () => {}) as unknown as (ctx: unknown, r: unknown) => void }],
+          ],
+        ]),
+      },
+      connection,
+      { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
+    );
 
-  it('native-Promise commit throws WSKitConfigError before membership is written', async () => {
-    const connection = createConnection('conn_1');
-    const { runtime, connections } = createRuntime();
-    connections.set(connection.id, connection);
-
-    await expect(
-      subscribeConnection(
-        {
-          ...runtime,
-          commitHooks: new Map([
-            [
-              'rooms',
-              [{ handler: (() => Promise.resolve()) as (ctx: unknown, r: unknown) => void }],
-            ],
-          ]),
-        },
-        connection,
-        { channelName: 'room:general', channelFamily: 'rooms', data: undefined },
-      ),
-    ).rejects.toBeInstanceOf(WSKitConfigError);
-
+    await expect(rejection).rejects.toBeInstanceOf(WSKitConfigError);
+    await expect(rejection).rejects.toThrow(/commit\(\) must be synchronous/);
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
@@ -968,6 +1045,54 @@ describe('channel runtime', () => {
   });
 });
 
+describe('__subscribeOk__ inbox flag', () => {
+  function subscribeOkFrame(protocol: { event: string; wskit: Record<string, unknown> }[]) {
+    return protocol.find((frame) => frame.event === '__subscribeOk__');
+  }
+
+  it('stamps inbox:true on the client-subscribe confirmation for an inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, isInboxChannel: () => true }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+  });
+
+  it('stamps inbox:true on the server-rejoin confirmation for an inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer({ ...runtime, isInboxChannel: () => true }, target, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      payload: {},
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).toMatchObject({ inbox: true });
+  });
+
+  it('omits the inbox flag for a non-inbox channel', async () => {
+    const { runtime, connections, protocol } = createRuntime();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    connections.set(connection.id, connection);
+
+    await subscribeConnection({ ...runtime, isInboxChannel: () => false }, connection, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      data: undefined,
+    });
+
+    expect(subscribeOkFrame(protocol)?.wskit).not.toHaveProperty('inbox');
+  });
+});
+
 describe('subscribeConnectionAsServer', () => {
   it('runs the gate, commits, and sends _subscribeOk with source server', async () => {
     const { protocol, broadcasts, connections, runtime } = createRuntime();
@@ -992,7 +1117,7 @@ describe('subscribeConnectionAsServer', () => {
           channel: 'room:general',
           channelFamily: 'rooms',
           source: 'server',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       },
       {
@@ -1028,7 +1153,7 @@ describe('subscribeConnectionAsServer', () => {
     // Persistent channel, but the saved membership is already gone — rejoin must not resurrect it.
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => false,
     };
 
@@ -1050,7 +1175,7 @@ describe('subscribeConnectionAsServer', () => {
     const target = createConnection('target', { userId: 't' });
     connections.set(target.id, target);
 
-    const persistentRuntime = { ...runtime, isChannelPersistent: () => true };
+    const persistentRuntime = { ...runtime, isChannelDurable: () => true };
 
     await subscribeConnectionAsServer(persistentRuntime, target, {
       channelName: 'room:general',
@@ -1063,7 +1188,7 @@ describe('subscribeConnectionAsServer', () => {
       channel: 'room:general',
       channelFamily: 'rooms',
       source: 'server',
-      channelPersistent: true,
+      channelMembership: 'persistent',
     });
   });
 
@@ -1076,7 +1201,7 @@ describe('subscribeConnectionAsServer', () => {
     const revalidateHook = vi.fn();
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
       revalidateHooks: new Map([['rooms', [revalidateHook]]]),
@@ -1105,7 +1230,7 @@ describe('subscribeConnectionAsServer', () => {
     const onSubscribeHook = vi.fn();
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
       subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
@@ -1129,7 +1254,7 @@ describe('subscribeConnectionAsServer', () => {
 
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       revalidateHooks: new Map([
         [
@@ -1169,7 +1294,7 @@ describe('subscribeConnectionAsServer', () => {
 
     const rejoinRuntime = {
       ...runtime,
-      isChannelPersistent: () => true,
+      isChannelDurable: () => true,
       hasDurableMembership: () => true,
       revalidateHooks: new Map([
         [
@@ -1323,7 +1448,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: {},
-        wskit: { channel: 'lobby', source: 'server', channelPersistent: false },
+        wskit: { channel: 'lobby', source: 'server', channelMembership: 'ephemeral' },
       },
       {
         connectionId: 'target',
@@ -1486,9 +1611,9 @@ describe('channel runtime bug tests', () => {
     const persistentRuntime = {
       ...runtime,
       // Simulate the channel definition being gone (hot-reload / upgrade).
-      // isChannelPersistent is not called when channel is undefined, but we still
+      // isChannelDurable is not called when channel is undefined, but we still
       // pass it to indicate intent. The fallback path in leaveChannel uses '' as key.
-      isChannelPersistent: (key: string) => key === '' || key === 'rooms',
+      isChannelDurable: (key: string) => key === '' || key === 'rooms',
     };
 
     await leaveChannel(persistentRuntime as never, connection, {

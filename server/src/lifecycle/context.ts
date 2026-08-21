@@ -1,5 +1,6 @@
-import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
+import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as PublicApi from '~/context.ts';
 
 /**
  * Build the context passed to the `onInit` lifecycle hook.
@@ -7,10 +8,10 @@ import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 export function createInitContext(
   deps: Pick<
     EngineContextTypes.CreateTaskContextDeps,
-    'env' | 'logger' | 'platform' | 'requireStorage'
+    'env' | 'logger' | 'platform' | 'getStorageView'
   >,
-): EngineContextTypes.InitContext<Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+): PublicApi.InitContext<Record<string, unknown>, unknown> {
+  const { sql, kv } = deps.getStorageView();
   return {
     sql,
     kv,
@@ -25,8 +26,8 @@ export function createInitContext(
  */
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
-): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+): PublicApi.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+  const { sql, kv } = deps.getStorageView();
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
@@ -52,10 +53,11 @@ export function createShutdownContext(
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled,
-    connectionCount: deps.connections.size,
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
+    get connectionCount() {
+      return deps.connections.size;
     },
+    connections: buildConnectionsManager(deps),
+    users: buildUsersManager(deps),
     env: deps.env,
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,

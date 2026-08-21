@@ -16,7 +16,7 @@ const base = define({
   ],
 });
 
-base.validationError((ctx, evt) => {
+base.onValidationError((ctx, evt) => {
   ctx.send('validation-error-fired', { event: evt });
 });
 
@@ -60,12 +60,14 @@ const handleTriggerSendBadPayload = base.on('trigger-send-bad-payload', {
   },
 });
 
-export const incomingHandler = base.assemble(
-  handleEchoPing,
-  handleAsyncPing,
-  handleEchoAnything,
-  handleTriggerSendUndeclared,
-  handleTriggerSendBadPayload,
-);
+export const incomingHandler = base.assemble({
+  handlers: [
+    handleEchoPing,
+    handleAsyncPing,
+    handleEchoAnything,
+    handleTriggerSendUndeclared,
+    handleTriggerSendBadPayload,
+  ],
+});
 
 export type IncomingClient = InferClient<typeof incomingHandler>;

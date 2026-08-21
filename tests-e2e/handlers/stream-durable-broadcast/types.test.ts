@@ -5,7 +5,7 @@ describe('StreamDurableBroadcastClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<StreamDurableBroadcastClient['incoming']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['outgoing']>().not.toBeAny();
-    expectTypeOf<StreamDurableBroadcastClient['requests']>().not.toBeAny();
+    expectTypeOf<StreamDurableBroadcastClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['channels']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['errors']>().not.toBeAny();
@@ -113,8 +113,8 @@ describe('StreamDurableBroadcastClient — empty slots', () => {
     expectTypeOf<keyof StreamDurableBroadcastClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof StreamDurableBroadcastClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['clientRequests']>().toBeNever();
   });
 
   it('top-level streams is empty', () => {

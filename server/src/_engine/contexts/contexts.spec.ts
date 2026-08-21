@@ -1,19 +1,30 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  buildConnectionContext,
-  createInitContext,
-  createShutdownContext,
-  persistAttachment,
-} from '~/_engine/contexts/contexts.ts';
+import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { ensureConnectionSchema, readConnectionRow } from '~/_engine/runtime/connection-store.ts';
+import { acceptConnection, handleConnectionClose } from '~/_engine/runtime/connection.ts';
+import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
+import { createTestSql } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
+import { CrossInstanceRef } from '~/errors/errors.ts';
+import { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 import { createTaskContext } from '~/scheduled/context.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { EngineCore } from '~/_engine/core.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type {
+  AdminContext,
+  ConnectionContext,
+  InitContext,
+  ShutdownContext,
+  TaskContext,
+} from '~/context.ts';
 
-function createConnection(id: string): RuntimeConnection {
+function createConnection(id: string, userId: string = id): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -21,7 +32,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -42,13 +53,15 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
   return {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
+    usersByKey: new Map<string, Set<RuntimeConnection>>(),
     tagMembers: new Map<string, Set<RuntimeConnection>>(),
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     waitUntilImpl: vi.fn(),
-    requireStorage: () => baseStorage(),
-    getTimers: () => undefined,
+    getStorage: () => baseStorage(),
+    getStorageView: () => baseStorage(),
+    getTimers: () => createTestTimers(),
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -67,7 +80,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     persistAttachment: vi.fn(),
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
-      identity: c.identity,
+      userId: c.userId,
       meta: c.meta,
       tags: [],
       channels: [...c.channelMemberships.values()].map((m) => m.channelName),
@@ -78,7 +91,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         __wskit: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
-        identity: c.identity,
+        userId: c.userId,
       }),
     }),
     attachPluginApis: vi.fn(),
@@ -88,10 +101,199 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 }
 
 function localRef(id: string) {
-  return { __wskit: 'connection-ref' as const, id, instance: undefined, identity: id };
+  return { __wskit: 'connection-ref' as const, id, instance: undefined, userId: id };
 }
 
-describe('ctx.connection(ref).send', () => {
+describe('ctx.user / ctx.users — anonymous connections', () => {
+  // `usersByKey` is built by the real runtime (`_engine/runtime/connection.ts`),
+  // which never indexes an anonymous connection (empty `userId`) under any
+  // key. These tests pass an empty `usersByKey` to match that real behaviour,
+  // rather than reimplementing the indexing logic here.
+
+  it("ctx.user.id for an anonymous connection matches its honest ConnectionInfo.userId ('')", () => {
+    const anon = createConnection('conn_1', '');
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+    const info = deps.toConnectionInfo(anon);
+
+    expect(info.userId).toBe('');
+    expect((ctx as any).user.id).toBe(info.userId);
+  });
+
+  it('ctx.user for an anonymous connection addresses no live connection, not even itself', () => {
+    const anon = createConnection('conn_1', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+
+    expect((ctx as any).user.send('ping', {})).toBe(0);
+    expect((ctx as any).user.connections()).toEqual([]);
+    expect((ctx as any).user.info()).toBeNull();
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('ctx.users.get(c.userId) reaches nobody for an anonymous connection, closing the fan-out gap', () => {
+    const anon = createConnection('conn_1', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[anon.id, anon]]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, anon);
+    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).send(...)`.
+    const info = ctx.connections.all()[0]!;
+    const delivered = (ctx as any).users.get(info.userId).send('ping', {});
+
+    expect(delivered).toBe(0);
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('two independent anonymous connections never reach each other through ctx.user or ctx.users', () => {
+    const anonA = createConnection('conn_a', '');
+    const anonB = createConnection('conn_b', '');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([
+        [anonA.id, anonA],
+        [anonB.id, anonB],
+      ]),
+      usersByKey: new Map(),
+      sendThroughPipeline,
+    });
+
+    const ctxA = buildConnectionContext(deps, anonA);
+    expect((ctxA as any).user.send('ping', {})).toBe(0);
+    expect((ctxA as any).users.get('').send('ping', {})).toBe(0);
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
+  });
+
+  it('an identified connection is reachable via ctx.user and ctx.users exactly as before', () => {
+    const alice1 = createConnection('conn_1', 'alice');
+    const sendThroughPipeline = vi.fn(() => true);
+    const deps = baseDeps({
+      connections: new Map([[alice1.id, alice1]]),
+      usersByKey: new Map([['alice', new Set([alice1])]]),
+      sendThroughPipeline,
+    });
+
+    const ctx = buildConnectionContext(deps, alice1);
+
+    expect((ctx as any).user.id).toBe('alice');
+    expect((ctx as any).user.send('ping', {})).toBe(1);
+    expect((ctx as any).users.get('alice').send('ping', {})).toBe(1);
+    expect(sendThroughPipeline).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('usersByKey fan-out index — anonymous connections', () => {
+  // Exercises the real `acceptConnection` / `handleConnectionClose` from
+  // `_engine/runtime/connection.ts`, which build the `usersByKey` index that
+  // `ctx.user` / `ctx.users` reads.
+
+  let idCounter: number;
+  function makeConnectionRuntime(
+    usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
+  ) {
+    idCounter = 0;
+    return {
+      compiled: {} as any,
+      connections: new Map<string, EngineRuntimeTypes.RuntimeConnection>(),
+      usersByKey,
+      channelMembers: new Map(),
+      tagMembers: new Map(),
+      wsToConnectionId: new Map(),
+      generateId: (prefix?: string) => `${prefix ?? 'id'}_${++idCounter}`,
+      persistAttachment: vi.fn(),
+      buildConnectionContext: vi.fn(() => ({})),
+      runConnectionLifecycle: vi.fn(async () => {}),
+      processTextMessage: vi.fn(async () => {}),
+      handleConnectionClose: vi.fn(async () => {}),
+      handleRuntimeError: vi.fn(async () => {}),
+      cancelActiveStreamsForConnection: vi.fn(async () => {}),
+      leaveChannel: vi.fn(async () => {}),
+    } as any;
+  }
+
+  function descriptor(userId: string) {
+    return {
+      send: vi.fn(),
+      close: vi.fn(),
+      bufferedAmount: () => 0,
+      userId,
+    };
+  }
+
+  it('never indexes an anonymous connection under any key', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor(''));
+
+    expect(usersByKey.size).toBe(0);
+  });
+
+  it('two anonymous connections never share a usersByKey entry', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws-1'), descriptor(''));
+    acceptConnection(runtime, Symbol('ws-2'), descriptor(''));
+
+    expect(usersByKey.size).toBe(0);
+    expect(runtime.connections.size).toBe(2);
+  });
+
+  it('an identified connection still indexes under its real user id', () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor('alice'));
+
+    expect([...usersByKey.keys()]).toEqual(['alice']);
+    expect(usersByKey.get('alice')!.size).toBe(1);
+  });
+
+  it('closing an anonymous connection is a no-op on usersByKey', async () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor(''));
+    const connection = [...runtime.connections.values()][0]!;
+    await connection.lifecycleReady;
+
+    await expect(
+      handleConnectionClose(runtime, { connection, code: 1000, reason: 'bye' }),
+    ).resolves.not.toThrow();
+
+    expect(usersByKey.size).toBe(0);
+  });
+
+  it('closing an identified connection removes it from usersByKey', async () => {
+    const usersByKey = new Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>();
+    const runtime = makeConnectionRuntime(usersByKey);
+
+    acceptConnection(runtime, Symbol('ws'), descriptor('alice'));
+    const connection = [...runtime.connections.values()][0]!;
+    await connection.lifecycleReady;
+
+    await handleConnectionClose(runtime, { connection, code: 1000, reason: 'bye' });
+
+    expect(usersByKey.has('alice')).toBe(false);
+  });
+});
+
+describe('ctx.connections.get(ref).send', () => {
   it('returns false and logs when the target id is not in the connection map', () => {
     const connection = createConnection('conn_1');
     const deps = baseDeps({
@@ -99,12 +301,12 @@ describe('ctx.connection(ref).send', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    const result = ctx.connection(localRef('nonexistent-id')).send('evt', {});
+    const result = ctx.connections.get(localRef('nonexistent-id')).send('evt', {});
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connection(ref).send target not found',
+      '[wskit] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'nonexistent-id',
         event: 'evt',
@@ -112,13 +314,13 @@ describe('ctx.connection(ref).send', () => {
     );
   });
 
-  it('task context connection(ref).send returns false for unknown ids', () => {
+  it('task context connections.get(ref).send returns false for unknown ids', () => {
     const deps = baseDeps();
     const task = createTaskContext(deps);
 
-    expect(task.connection(localRef('missing')).send('evt', {})).toBe(false);
+    expect(task.connections.get(localRef('missing')).send('evt', {})).toBe(false);
     expect(deps.logger.error).toHaveBeenCalledWith(
-      '[wskit] ctx.connection(ref).send target not found',
+      '[wskit] ctx.connections.get(ref).send target not found',
       {
         connectionId: 'missing',
         event: 'evt',
@@ -137,7 +339,7 @@ describe('ctx.connection(ref).send', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    expect(ctx.connection(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
+    expect(ctx.connections.get(localRef('peer')).send('evt', { text: 'hi' })).toBe(true);
     expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, {
       routing: undefined,
       event: 'evt',
@@ -157,12 +359,19 @@ describe('ctx.connection(ref).send', () => {
       __wskit: 'connection-ref' as const,
       id: 'peer',
       instance: 'engine-b',
-      identity: 'peer',
+      userId: 'peer',
     };
-    expect(() => ctx.connection(foreign).send('evt', {})).toThrow(
-      '[wskit] ctx.connection(ref).send targets instance "engine-b" but this engine is "engine-a" — ' +
-        'cross-instance routing requires a broker, which is not configured yet.',
-    );
+    try {
+      ctx.connections.get(foreign).send('evt', {});
+      throw new Error('expected a cross-instance ref error');
+    } catch (error) {
+      expect(CrossInstanceRef.matches(error)).toBe(true);
+      expect((error as ReturnType<typeof CrossInstanceRef>).detail).toEqual({
+        operation: 'ctx.connections.get(ref).send',
+        targetInstance: 'engine-b',
+        engineInstance: 'engine-a',
+      });
+    }
   });
 });
 
@@ -201,35 +410,30 @@ describe('ctx.cancelScheduled', () => {
   });
 });
 
-describe('ctx.setAlarm', () => {
-  it('calls the timer provider setAlarm with the given timestamp', () => {
-    const setAlarm = vi.fn(async () => {});
+describe('connection context alarms', () => {
+  it('does not expose the adapter alarm writer to product handlers', () => {
     const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      getTimers: () => ({
-        setAlarm,
-      }),
-    });
+    const deps = baseDeps({ connections: new Map([[connection.id, connection]]) });
 
     const ctx = buildConnectionContext(deps, connection);
-    ctx.setAlarm(1_700_000_000_000);
 
-    expect(setAlarm).toHaveBeenCalledWith(1_700_000_000_000);
-  });
+    expect('setAlarm' in ctx).toBe(false);
+    expect((ctx as Record<string, unknown>).setAlarm).toBeUndefined();
 
-  it('is a no-op when the timer provider does not implement setAlarm', () => {
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-    });
+    type HasAlarmWriter<T> = 'setAlarm' extends keyof T ? true : false;
+    const publicContextsExposeAlarm = [
+      false satisfies HasAlarmWriter<ConnectionContext>,
+      false satisfies HasAlarmWriter<InitContext>,
+      false satisfies HasAlarmWriter<ShutdownContext>,
+      false satisfies HasAlarmWriter<TaskContext>,
+      false satisfies HasAlarmWriter<AdminContext>,
+    ] as const;
 
-    const ctx = buildConnectionContext(deps, connection);
-    expect(() => ctx.setAlarm(1)).not.toThrow();
+    expect(publicContextsExposeAlarm).toEqual([false, false, false, false, false]);
   });
 });
 
-describe('ctx.broadcast excludeSelf', () => {
+describe('ctx.broadcast includeSelf', () => {
   it('skips self by default (no options passed)', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
@@ -245,7 +449,9 @@ describe('ctx.broadcast excludeSelf', () => {
     const ctx = buildConnectionContext(deps, self);
     ctx.broadcast('message', { text: 'hello' });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+    const [conns, opts] = broadcastToConnections.mock.calls[0]!;
+    expect([...(conns as Iterable<unknown>)]).toEqual([self, peer]);
+    expect(opts).toEqual({
       event: 'message',
       payload: { text: 'hello' },
       options: undefined,
@@ -253,7 +459,7 @@ describe('ctx.broadcast excludeSelf', () => {
     });
   });
 
-  it('includes self when excludeSelf is false', () => {
+  it('includes self when includeSelf is true', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const broadcastToConnections = vi.fn();
@@ -266,12 +472,14 @@ describe('ctx.broadcast excludeSelf', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    ctx.broadcast('message', { text: 'hello' }, { excludeSelf: false });
+    ctx.broadcast('message', { text: 'hello' }, { includeSelf: true });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+    const [conns, opts] = broadcastToConnections.mock.calls[0]!;
+    expect([...(conns as Iterable<unknown>)]).toEqual([self, peer]);
+    expect(opts).toEqual({
       event: 'message',
       payload: { text: 'hello' },
-      options: { excludeSelf: false },
+      options: { includeSelf: true },
       excludeConnectionId: 'self',
     });
   });
@@ -335,7 +543,7 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
-      identity: 'c2',
+      userId: 'c2',
       meta: {},
       tags: [],
       channels: [],
@@ -346,7 +554,7 @@ describe('ctx.channels.get(name).members()', () => {
         __wskit: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
-        identity: 'c2',
+        userId: 'c2',
       }),
     };
     const deps = baseDeps({
@@ -376,7 +584,7 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
-      identity: 'c2',
+      userId: 'c2',
       meta: {},
       tags: [],
       channels: [],
@@ -387,7 +595,7 @@ describe('ctx.channels.get(name).members()', () => {
         __wskit: 'connection-ref' as const,
         id: 'c2',
         instance: undefined,
-        identity: 'c2',
+        userId: 'c2',
       }),
     };
     const resolveChannel = vi.fn((target: any) =>
@@ -458,12 +666,13 @@ describe('ctx.channels.get(name).members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    await (ctx as any).channels.get('room').kick('banned', 'spam');
+    await (ctx as any).channels.get('room').kick('banned', { reason: 'spam', revoke: true });
 
     expect(kickChannelMembers).toHaveBeenCalledWith({
       channelName: 'room',
       target: 'banned',
       reason: 'spam',
+      revoke: true,
       channelFamily: undefined,
     });
   });
@@ -502,8 +711,23 @@ describe('ctx.log', () => {
 });
 
 describe('persistAttachment', () => {
-  it('routes the connection snapshot through the adapter hibernation API', () => {
+  function fakeCore(overrides: Partial<EngineCore> = {}): EngineCore {
+    const sql = createTestSql();
+    ensureConnectionSchema(sql);
+    return {
+      hibernationEnabled: true,
+      storage: { sql },
+      asyncContext: undefined,
+      options: {},
+      ...overrides,
+    } as unknown as EngineCore;
+  }
+
+  it('writes the full connection row to storage and calls the adapter cheap persist hook', () => {
     const persist = vi.fn();
+    const core = fakeCore({
+      options: { hibernation: { persist, restore: () => undefined } } as never,
+    });
     const connection = createConnection('c1');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
@@ -514,41 +738,52 @@ describe('persistAttachment', () => {
     });
     connection.activeStreamIds = new Set(['stream_1']);
 
-    persistAttachment(connection, { persist, restore: () => undefined });
+    persistAttachment(core, connection);
 
     expect(persist).toHaveBeenCalledTimes(1);
-    expect(persist).toHaveBeenCalledWith(connection.wsKey, {
-      id: 'c1',
+    expect(persist).toHaveBeenCalledWith(connection.wsKey, { id: 'c1' });
+
+    const row = readConnectionRow(core.storage.sql, 'c1');
+    expect(row).toEqual({
+      connection_id: 'c1',
+      user_id: 'c1',
       meta: { username: 'user1' },
-      tags: [{ group: 'role', key: 'vip' }],
-      channelMemberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
-      activeStreamIds: ['stream_1'],
+      ephemeral_tags: [{ group: 'role', key: 'vip' }],
+      ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
+      active_stream_ids: ['stream_1'],
     });
   });
 
-  it('no-ops when the adapter does not provide a hibernation API', () => {
+  it('still writes the row when the adapter does not provide a hibernation API', () => {
+    const core = fakeCore();
     const connection = createConnection('c2');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
 
-    expect(() => persistAttachment(connection, undefined)).not.toThrow();
+    expect(() => persistAttachment(core, connection)).not.toThrow();
+    expect(readConnectionRow(core.storage.sql, 'c2')).not.toBeNull();
+  });
+
+  it('no-ops when hibernation is not enabled', () => {
+    const core = fakeCore({ hibernationEnabled: false });
+    const connection = createConnection('c3');
+    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+
+    persistAttachment(core, connection);
+
+    expect(readConnectionRow(core.storage.sql, 'c3')).toBeNull();
   });
 });
 
-describe('lazy storage in init/shutdown/task contexts', () => {
-  function makeFailingRequireStorage() {
-    return () => {
-      throw new Error('[wskit] storage not provided');
-    };
-  }
-
-  function makeShutdownDeps(requireStorage: () => any) {
+describe('storage view in init/shutdown/task contexts', () => {
+  function makeShutdownDeps(getStorage: () => any) {
     return {
       env: {},
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
       waitUntilImpl: vi.fn(),
-      requireStorage,
-      getTimers: () => undefined,
+      getStorage,
+      getStorageView: getStorage,
+      getTimers: () => createTestTimers(),
       scheduleTask: vi.fn(),
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
       broadcastToConnections: vi.fn(),
@@ -566,33 +801,33 @@ describe('lazy storage in init/shutdown/task contexts', () => {
     } as any;
   }
 
-  it('createInitContext does not call requireStorage eagerly', () => {
-    expect(() => createInitContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
-  });
-
-  it('createShutdownContext does not call requireStorage eagerly', () => {
-    expect(() =>
-      createShutdownContext(makeShutdownDeps(makeFailingRequireStorage())),
-    ).not.toThrow();
-  });
-
-  it('createTaskContext does not call requireStorage eagerly', () => {
-    expect(() => createTaskContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
-  });
-
-  it('init ctx.sql.exec throws the requireStorage error only when invoked', () => {
-    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
-    expect(() => ctx.sql.exec('SELECT 1')).toThrow('[wskit] storage not provided');
-  });
-
-  it('init ctx.kv.get throws the requireStorage error only when invoked', async () => {
-    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
-    await expect(ctx.kv.get('k')).rejects.toThrow('[wskit] storage not provided');
-  });
-
-  it('lazy view forwards calls to the real provider when storage exists', () => {
+  it('init ctx.sql.exec forwards calls to the real provider', () => {
     const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
     const ctx = createInitContext(
+      makeShutdownDeps(() => ({
+        sql: { exec: realSqlExec, transaction: vi.fn() },
+        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+      })),
+    );
+    ctx.sql.exec('SELECT 1', 1, 2);
+    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
+  });
+
+  it('shutdown ctx.sql.exec forwards calls to the real provider', () => {
+    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
+    const ctx = createShutdownContext(
+      makeShutdownDeps(() => ({
+        sql: { exec: realSqlExec, transaction: vi.fn() },
+        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+      })),
+    );
+    ctx.sql.exec('SELECT 1', 1, 2);
+    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
+  });
+
+  it('task ctx.sql.exec forwards calls to the real provider', () => {
+    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
+    const ctx = createTaskContext(
       makeShutdownDeps(() => ({
         sql: { exec: realSqlExec, transaction: vi.fn() },
         kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },

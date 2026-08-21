@@ -27,7 +27,7 @@ const handleDoBroadcast = base.on('do-broadcast', {
 const handleDoBroadcastExcludeSelf = base.on('do-broadcast-exclude-self', {
   input: v.object({ text: v.string() }),
   run(ctx, input) {
-    ctx.broadcast('message', { text: input.text, from: ctx.meta.username }, { excludeSelf: false });
+    ctx.broadcast('message', { text: input.text, from: ctx.meta.username }, { includeSelf: true });
   },
 });
 
@@ -54,16 +54,13 @@ const handleDoSendToEmpty = base.on('do-send-to-empty', {
 const handleDoSendToConnection = base.on('do-send-to-connection', {
   input: v.object({ connectionId: v.string(), text: v.string() }),
   run(ctx, input) {
-    const ref = {
-      __wskit: 'connection-ref' as const,
-      id: input.connectionId,
-      instance: undefined,
-      identity: input.connectionId,
-    };
-    const delivered = ctx.connection(ref).send('message', {
-      text: input.text,
-      from: ctx.meta.username,
-    });
+    const target = ctx.connections.all().find((info) => info.id === input.connectionId);
+    const delivered = target
+      ? ctx.connections.get(target.ref()).send('message', {
+          text: input.text,
+          from: ctx.meta.username,
+        })
+      : false;
     ctx.send('delivery-status', { delivered });
   },
 });
@@ -71,7 +68,7 @@ const handleDoSendToConnection = base.on('do-send-to-connection', {
 const handleWhoAmI = base.on('who-am-i', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('who-am-i-result', { connectionId: ctx.id });
+    ctx.send('who-am-i-result', { connectionId: ctx.connection.id });
   },
 });
 
@@ -82,14 +79,16 @@ const handleDoServerClose = base.on('do-server-close', {
   },
 });
 
-export const ctxSendHandler = base.assemble(
-  handleDoBroadcast,
-  handleDoBroadcastExcludeSelf,
-  handleDoSendTo,
-  handleDoSendToEmpty,
-  handleDoSendToConnection,
-  handleWhoAmI,
-  handleDoServerClose,
-);
+export const ctxSendHandler = base.assemble({
+  handlers: [
+    handleDoBroadcast,
+    handleDoBroadcastExcludeSelf,
+    handleDoSendTo,
+    handleDoSendToEmpty,
+    handleDoSendToConnection,
+    handleWhoAmI,
+    handleDoServerClose,
+  ],
+});
 
 export type CtxSendClient = InferClient<typeof ctxSendHandler>;

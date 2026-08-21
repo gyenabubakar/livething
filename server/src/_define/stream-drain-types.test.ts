@@ -1,7 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
@@ -33,7 +32,7 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
   it('drain() is present in a resumable stream and highWaterMark is accepted', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [persistence(), resumableStream()],
+      capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
       input: v.object({}),
@@ -50,7 +49,7 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
   it('drain() is present in a recorded stream and highWaterMark is accepted', () => {
     const base = define({
       env: t<Env>(),
-      capabilities: [persistence(), recordedStream()],
+      capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
       input: v.object({}),

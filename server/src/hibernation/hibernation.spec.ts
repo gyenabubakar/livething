@@ -8,14 +8,6 @@ describe('hibernation()', () => {
     expect(primitive.__requires.hibernation).toBe(true);
   });
 
-  it('declares the storage requirement when enabled', () => {
-    // Per-connection state moved to engine SQL — without it, a hibernating
-    // engine has no way to rebuild a connection on wake. The build-time
-    // check at engine.initialize() reads this manifest entry.
-    const primitive = hibernation();
-    expect(primitive.__requires.storage).toBe(true);
-  });
-
   it('accepts false explicitly', () => {
     const primitive = hibernation(false);
     expect(primitive.enabled).toBe(false);
@@ -24,7 +16,6 @@ describe('hibernation()', () => {
   it('does not declare any requirements when disabled', () => {
     const primitive = hibernation(false);
     expect(primitive.__requires.hibernation).toBeUndefined();
-    expect(primitive.__requires.storage).toBeUndefined();
   });
 
   it('registers the hibernation setting during setup', () => {
@@ -53,7 +44,7 @@ describe('hibernation()', () => {
       onBootSchema(handler: () => void) {
         schemaHooks.push(handler);
       },
-      requireStorage: () => ({
+      storage: {
         sql: {
           exec(query: string) {
             execCalls.push(query);
@@ -61,7 +52,7 @@ describe('hibernation()', () => {
           },
           transaction: () => ({}),
         },
-      }),
+      },
     } as never);
 
     expect(schemaHooks).toHaveLength(1);
@@ -71,7 +62,7 @@ describe('hibernation()', () => {
     ).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_identity'),
+        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_user_id'),
       ),
     ).toBe(true);
   });

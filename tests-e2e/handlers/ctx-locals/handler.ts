@@ -70,11 +70,8 @@ const handleRoomLookup = room.request('lookup', {
   },
 });
 
-export const ctxLocalsHandler = base.assemble(
-  handleEcho,
-  handleLookup,
-  handleRoomEcho,
-  handleRoomLookup,
-);
+export const ctxLocalsHandler = base.assemble({
+  handlers: [handleEcho, handleLookup, handleRoomEcho, handleRoomLookup],
+});
 
 export type CtxLocalsClient = InferClient<typeof ctxLocalsHandler>;

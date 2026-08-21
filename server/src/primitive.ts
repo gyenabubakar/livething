@@ -14,18 +14,17 @@ export type PrimitiveKind =
   | 'plugin';
 
 /**
- * Declares which platform capabilities a primitive needs at runtime. When any
- * required capability is not provided by the adapter, the server fails to
- * start with a clear error — before any connection is accepted.
+ * Declares whether a primitive needs hibernation support — a platform
+ * capability not every adapter has. When a primitive sets `hibernation: true`
+ * and the adapter does not support it, the server fails to start with a clear
+ * error — before any connection is accepted.
  *
  * ```ts
- * // A primitive that needs both SQL storage and timers:
- * const requires: RequiresManifest = { storage: true, timers: true };
+ * // A primitive that needs hibernation support:
+ * const requires: RequiresManifest = { hibernation: true };
  * ```
  */
 export interface RequiresManifest {
-  storage?: boolean;
-  timers?: boolean;
   hibernation?: boolean;
 }
 
@@ -40,8 +39,8 @@ export interface ValidationView {
   readonly sequencePersistent: boolean;
   /** The channel key this primitive is scoped to, if any. */
   readonly channelKey?: string;
-  /** Whether the named channel persists its membership. */
-  isChannelPersistent(channelKey: string): boolean;
+  /** Whether the named channel keeps its membership durable. */
+  isChannelDurable(channelKey: string): boolean;
 }
 
 /**
@@ -123,16 +122,16 @@ export interface PrimitiveConfig<
   /**
    * Either a static manifest or a function that computes the manifest from
    * the factory's arguments. Use a function when the requirements depend on
-   * what the developer passes (e.g. a primitive that needs storage only if
-   * persistence is enabled).
+   * what the developer passes (e.g. a primitive that needs storage only for
+   * one of its config variants).
    */
   readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
 
   /**
    * Capability identity tokens this primitive needs co-listed. Either a static
    * list or a function computing it from the factory's arguments (use the
-   * function form when the requirement is conditional, e.g. persistent tag
-   * groups need persistence but ephemeral ones do not).
+   * function form when the requirement is conditional on what the developer
+   * passes).
    */
   readonly requiresCapabilities?: readonly string[] | ((...args: TArgs) => readonly string[]);
 
@@ -191,7 +190,7 @@ export interface PrimitiveFactory<
  *   setup(engine) {
  *     engine.onIncoming((msg) => { ... });
  *     engine.extendContext((ctx) => ({
- *       ping() { engine.rawSend(ctx.id, '__ping__', {}); }
+ *       ping() { engine.rawSend(ctx.connection.id, '__ping__', {}); }
  *     }));
  *   },
  * });

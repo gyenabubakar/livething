@@ -5,7 +5,7 @@ describe('CtxChannelsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<CtxChannelsClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<CtxChannelsClient['requests']>().not.toBeAny();
+    expectTypeOf<CtxChannelsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['streams']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['channels']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['errors']>().not.toBeAny();
@@ -93,8 +93,8 @@ describe('CtxChannelsClient — channels', () => {
 });
 
 describe('CtxChannelsClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof CtxChannelsClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof CtxChannelsClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

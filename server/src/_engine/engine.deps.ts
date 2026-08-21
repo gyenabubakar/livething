@@ -1,11 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import { assertLocalRef } from '~/_engine/runtime/refs.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
@@ -47,9 +51,9 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
   return (depsMemoFor(core).ctxDeps ??= {
     compiled: core.compiled,
     connections: core.connections,
+    usersByKey: core.usersByKey,
     tagMembers: core.tagMembers,
     buildTagsApi: core.buildTagsApi,
-    frameMatch: core.frameMatch,
     channelContext: core.channelContext,
     ...commonDeps(core),
   });
@@ -67,12 +71,14 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 }
 
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
+  let storageView: ReturnType<typeof createLazyStorageView> | undefined;
   return {
     env: core.env,
     logger: core.logger,
     platform: core.platform,
     waitUntilImpl: core.waitUntilImpl,
-    requireStorage: () => core.requireStorage(),
+    getStorage: () => core.storage,
+    getStorageView: () => (storageView ??= createLazyStorageView(core.storage)),
     getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       core.scheduledService?.scheduleTask(core, commonDeps(core), { taskId, time, data }),
@@ -82,21 +88,42 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         taskExists: false,
       },
     broadcastToConnections: (connections, opts) => {
-      EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
+      OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
     sendThroughPipeline: (connection, opts) => {
-      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
+      return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
     broadcastToChannel: (opts) => {
-      EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
+      OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
+    },
+    sendToChannelRecipient: (opts) => {
+      if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
+        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.send({ to })');
+      }
+      const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {
+        channelName: opts.channelName,
+        channelFamily: opts.channelFamily,
+        to: opts.to,
+      });
+      let delivered = 0;
+      for (const target of targets) {
+        const sent = OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), target, {
+          routing: { channel: opts.channelName, channelFamily: opts.channelFamily },
+          event: opts.event,
+          payload: opts.payload,
+        });
+        if (sent) delivered += 1;
+      }
+      return delivered;
     },
     getChannelMembers: (channelName, channelFamily) =>
       core.channelService?.getChannelMembers(core, channelName, channelFamily) ?? [],
-    kickChannelMembers: (opts) =>
-      core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve(),
-    removeChannelMember: (channelName, channelFamily, identity) =>
-      core.channelService?.removeChannelMember(core, { channelName, channelFamily, identity }) ??
-      Promise.resolve(),
+    kickChannelMembers: (opts) => {
+      if (opts.target.__wskit === 'user-ref') {
+        assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
+      }
+      return core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve();
+    },
     subscribeConnectionAsServer: (ref, opts) =>
       core.channelService?.subscribeFromServer(core, ref, opts) ?? Promise.resolve(),
     resolveChannel: (target) => {
@@ -121,14 +148,20 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       sendProtocolMessage(core, connection, opts);
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
-    toConnectionInfo: (connection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
+    toConnectionInfo: (connection, opts) =>
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
+        hibernationEnabled: core.hibernationEnabled,
+        lastSeenAt: core.lastSeenService
+          ? (identity) => core.lastSeenService!.at(identity)
+          : undefined,
+        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
+      }),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),
-    persistenceEnabled: core.persistenceEnabled,
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
     getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
+    channelHandleAugmenters: core.channelHandleAugmenters,
   };
 }
 
@@ -148,6 +181,13 @@ function buildOutgoingRuntime(core: EngineCore) {
     logger: core.logger,
     generateId: (prefix?: string) => core.generateId(prefix),
     activityHooks: core.hooks.activity,
+    messageActivityHooks: core.hooks.messageActivity,
+    pingHooks: core.hooks.ping,
+    pongHooks: core.hooks.pong,
+    pluginPingHooks: core.hooks.pluginLifecycle.ping,
+    pluginPongHooks: core.hooks.pluginLifecycle.pong,
+    appPingHooks: core.hooks.appPing,
+    appPongHooks: core.hooks.appPong,
   };
 }
 
@@ -162,12 +202,28 @@ function buildMemberRuntime(core: EngineCore) {
     asyncContext: core.asyncContext,
     connections: core.connections,
     channelMembers: core.channelMembers,
-    toConnectionInfo: (connection: RuntimeConnection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
+    toConnectionInfo: (connection: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
+        hibernationEnabled: core.hibernationEnabled,
+        lastSeenAt: core.lastSeenService
+          ? (identity) => core.lastSeenService!.at(identity)
+          : undefined,
+        ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
+      }),
     sendThroughPipeline: (
       connection: RuntimeConnection,
       opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-    ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    ) => OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    inboxFanOut: core.inboxService
+      ? (opts: {
+          channelName: string;
+          channelFamily: string | null;
+          event: string;
+          payload: Record<string, unknown>;
+          seq: number;
+          messageId: string;
+        }) => core.inboxService?.fanOut(core, opts)
+      : undefined,
   };
 }
 
@@ -189,7 +245,7 @@ function buildChannelRuntime(core: EngineCore) {
     sessionEndHooks: core.hooks.sessionEnd,
 
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
-      EngineMessageRuntime.broadcastToChannel(dispatchRuntime(core), opts);
+      OutgoingRuntime.broadcastToChannel(dispatchRuntime(core), opts);
     },
 
     buildConnectionContext: buildCtx,
@@ -222,28 +278,37 @@ function buildChannelRuntime(core: EngineCore) {
         opts,
       ),
 
-    isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
+    isChannelDurable: (channelKey: string) => core.isChannelDurable(channelKey),
 
-    persistMembership: (identity: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.persistMembership(core, { identity, channelName, channelFamily }),
-
-    deleteDurableMembership: (
-      identity: string,
-      channelName: string,
-      channelFamily: string | null,
-    ) =>
-      core.persistenceService?.deleteDurableMembership(core, {
-        identity,
+    persistMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.persistMembership(core, {
+        userId,
         channelName,
         channelFamily,
       }),
 
-    hasDurableMembership: (identity: string, channelName: string, channelFamily: string | null) =>
-      core.persistenceService?.hasDurableMembership(core, {
-        identity,
+    deleteDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.deleteDurableMembership(core, {
+        userId,
+        channelName,
+        channelFamily,
+      }),
+
+    hasDurableMembership: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.channelMembershipService?.hasDurableMembership(core, {
+        userId,
         channelName,
         channelFamily,
       }) ?? false,
+
+    clearInbox: (userId: string, channelName: string, channelFamily: string | null) =>
+      core.inboxService?.clearChannel(core, { userId, channelName, channelFamily }),
+
+    isInboxChannel: (channelName: string, channelFamily: string | null) =>
+      core.inboxChannels.has(channelFamily ?? channelName),
+
+    isReadReceiptsChannel: (channelName: string, channelFamily: string | null) =>
+      core.readReceiptsChannels.has(channelFamily ?? channelName),
 
     logger: core.logger,
   };
@@ -261,7 +326,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     logger: core.logger,
     activeStreams: core.activeStreams,
-    sql: core.storageOrUndefined()?.sql,
+    sql: core.storage.sql,
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     answerFrameHooks: core.hooks.answerFrame,
@@ -313,14 +378,14 @@ function buildDispatchRuntime(core: EngineCore) {
       ),
 
     broadcastToConnections: (
-      connections: readonly RuntimeConnection[],
+      connections: Iterable<RuntimeConnection>,
       opts: {
         event: string;
         payload: unknown;
         options?: BroadcastOptions;
         excludeConnectionId?: string;
       },
-    ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
+    ) => OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
       core.channelService?.handleSubscribe(core, connection, frame) ?? Promise.resolve(),
@@ -357,13 +422,30 @@ export function connectionRuntime(core: EngineCore) {
   return (depsMemoFor(core).connection ??= buildConnectionRuntime(core));
 }
 
+/**
+ * Put a connection's persistent tags back into the live index. Reached
+ * through the engine's `tagPersistenceService` slot, set by the `tags()`
+ * capability — a handler that never lists `tags()` leaves the slot unset and
+ * this is a no-op. Called on fresh connect and on hibernation wake.
+ */
+function reloadPersistentTags(core: EngineCore, connection: RuntimeConnection): void {
+  core.tagPersistenceService?.restorePersistentTags({
+    sql: core.storage.sql,
+    tagMembers: core.tagMembers,
+    connection,
+    isGroupDeclared: (group: string) => core.isTagGroupDeclared('persistent', group),
+    getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
+    logger: core.logger,
+  });
+}
+
 function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
-    keepalivePingIntervalMs: core.keepalivePingIntervalMs,
     connections: core.connections,
+    usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
     wsToConnectionId: core.wsToConnectionId,
@@ -382,19 +464,8 @@ function buildConnectionRuntime(core: EngineCore) {
       EngineHibernation.deleteConnectionState(core, connectionId),
 
     // Hibernation snapshots only carry ephemeral tags, so the wake path reloads
-    // persistent tags by identity. Wired only when persistence is on.
-    ...(core.persistenceEnabled
-      ? {
-          reloadPersistentTags: (connection: RuntimeConnection) =>
-            core.persistenceService?.restorePersistentTags({
-              sql: core.requireStorage().sql,
-              tagMembers: core.tagMembers,
-              connection,
-              getSchema: (group: string) => core.getTagGroupSchema('persistent', group),
-              logger: core.logger,
-            }),
-        }
-      : {}),
+    // persistent tags by user id.
+    reloadPersistentTags: (connection: RuntimeConnection) => reloadPersistentTags(core, connection),
 
     buildConnectionContext: buildCtx,
 
@@ -414,32 +485,34 @@ function buildConnectionRuntime(core: EngineCore) {
         connection,
         { error, event },
       ),
-    // Only wire auto-rejoin when persistence is on. Otherwise the connect path
-    // adds a microtask and shifts `runConnectionLifecycle('connect')` timing.
-    ...(core.persistenceEnabled
-      ? {
-          autoRejoinIdentity: (connection: RuntimeConnection) => {
-            if (core.freshBoot) {
-              core.freshBoot = false;
-              return Promise.resolve();
-            }
-            return (
-              core.persistenceService?.autoRejoinIdentity(
-                core,
-                (ref: PublicApi.ConnectionRef, opts: unknown) =>
-                  core.channelService?.subscribeFromServer(
-                    core,
-                    ref,
-                    opts as Parameters<
-                      NonNullable<EngineCore['channelService']>['subscribeFromServer']
-                    >[2],
-                  ) ?? Promise.resolve(),
-                connection,
-              ) ?? Promise.resolve()
-            );
-          },
-        }
-      : {}),
+    autoRejoinIdentity: (connection: RuntimeConnection) => {
+      if (core.freshBoot) {
+        core.freshBoot = false;
+        return Promise.resolve();
+      }
+      // Restore persistent tags before channel auto-rejoin so its check/revalidate
+      // hooks can read them via `ctx.tags.persistent(...)`. Independent of
+      // `channelMembershipService` — a handler with `tags()` and no `channels()`
+      // still gets its tags back.
+      reloadPersistentTags(core, connection);
+      const rejoined =
+        core.channelMembershipService?.autoRejoinIdentity(
+          core,
+          (ref: PublicApi.ConnectionRef, opts: unknown) =>
+            core.channelService?.subscribeFromServer(
+              core,
+              ref,
+              opts as Parameters<
+                NonNullable<EngineCore['channelService']>['subscribeFromServer']
+              >[2],
+            ) ?? Promise.resolve(),
+          connection,
+        ) ?? Promise.resolve();
+      // Drain the reconnecting member's owed inbox rows after the rejoin
+      // loop has restored its channel memberships.
+      if (!core.inboxService) return rejoined;
+      return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
+    },
   };
 }
 
@@ -455,16 +528,20 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
         removed: 0,
         taskExists: false,
       },
-    rescheduleAlarm: () => core.scheduledService?.rescheduleAlarm(core),
+    rescheduleAlarm: () => rescheduleEngineAlarm(core),
     buildCurrentContext: () => {
       const activeId = core.asyncContext.getStore()?.connectionId;
       const connection = activeId ? core.connections.get(activeId) : undefined;
       return connection ? buildCtx(connection) : undefined;
     },
+    buildContextForConnection: (connectionId) => {
+      const connection = core.connections.get(connectionId);
+      return connection ? buildCtx(connection) : undefined;
+    },
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
-      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
+      return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,
           // The server originated this request, so the client can fast-fail with
@@ -477,6 +554,19 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
         payload: opts.payload,
       });
     },
+    broadcastToChannel: (opts) => {
+      OutgoingRuntime.broadcastToChannel(memberRuntime(core), {
+        channelName: opts.channelName,
+        channelFamily: opts.channelFamily,
+        event: opts.event,
+        payload: opts.payload,
+        excludeConnectionId: undefined,
+      });
+    },
+    channelMemberCount: (channelName, channelFamily) =>
+      core.channelMembers.get(
+        ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
+      )?.size ?? 0,
   };
 }
 
@@ -508,6 +598,7 @@ export function handleConnectionClose(
     {
       compiled: core.compiled,
       connections: core.connections,
+      usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
       cancelActiveStreamsForConnection: (connectionId) =>
@@ -519,6 +610,7 @@ export function handleConnectionClose(
       runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
       leaveChannel: (connection, opts) =>
         core.channelService?.leaveChannel(core, connection, opts) ?? Promise.resolve(),
+      connectionCleanupHooks: core.hooks.connectionCleanup,
       logger: core.logger,
     },
     opts,

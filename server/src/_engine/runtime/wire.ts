@@ -50,6 +50,36 @@ export function sendProtocolMessage(
   connection.descriptor.send(wire);
 }
 
+export interface SendGapOptions {
+  channelName: string | null;
+
+  channelFamily: string | null;
+
+  missedThrough: number;
+}
+
+/**
+ * Send a `__gap__` frame to one connection. Signals that replay evicted
+ * messages the reconnecting client had not yet seen — everything up to and
+ * including `missedThrough` for this scope is gone from the store.
+ */
+export function sendGap(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  options: SendGapOptions,
+): void {
+  const { channelName, channelFamily, missedThrough } = options;
+  const wskit: Record<string, unknown> = {};
+  if (channelName !== null) wskit.channel = channelName;
+  if (channelFamily !== null) wskit.channelFamily = channelFamily;
+
+  sendProtocolMessage(core, connection, {
+    event: '__gap__',
+    payload: { missedThrough },
+    wskit,
+  });
+}
+
 export interface SendReplayOptions {
   channelName: string | null;
 

@@ -4,14 +4,71 @@ import { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
+import type { TopLevelContract } from '~/plugins/contract.ts';
 import type {
   ApplyPrimitives,
   Primitive,
   ValidatePrimitives,
+  WithChannelPrimitiveSurface,
   WithMissingPrimitiveStubs,
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { SocketContract } from '~/types.ts';
+
+/**
+ * Assert a stripped contract still satisfies `SocketContract`. For a concrete
+ * contract this is identity (no widening), so `on`/`send` stay strict; it only
+ * exists to satisfy `Socket`'s constraint for a still-generic contract.
+ */
+type AsSocketContract<T> = T extends SocketContract ? T : SocketContract;
+
+/**
+ * The plugin ids claimed by the registered primitives — a plugin carries its id
+ * as a literal on `_plugin`. A non-plugin primitive contributes `never`, so this
+ * is the union of just the claimed namespaces.
+ */
+type ClaimedIds<TPrimitives extends readonly unknown[]> = {
+  [I in keyof TPrimitives]: TPrimitives[I] extends {
+    readonly _plugin: { readonly id: infer TId extends string };
+  }
+    ? TId
+    : never;
+}[number];
+
+/**
+ * Reject a plugin that declared `observesHostTraffic: true` but wasn't wrapped in
+ * `observeHost(...)`: its `__requiresHostGrant` brand is a string, not assignable
+ * to the `never` this demands, so the bare argument is a type error.
+ * `observeHost(...)` strips the brand. Every other primitive has no such brand and
+ * passes untouched.
+ */
+type GrantGate<TPrimitives extends readonly unknown[]> = {
+  [I in keyof TPrimitives]: { readonly __requiresHostGrant?: never };
+};
+
+type AppSocketFor<
+  C,
+  TPrimitives extends readonly Primitive<any, any>[],
+> = WithMissingPrimitiveStubs<
+  WithChannelPrimitiveSurface<
+    Socket<AsSocketContract<C>> & ApplyPrimitives<TPrimitives, C>,
+    C,
+    TPrimitives
+  >,
+  C,
+  TPrimitives
+>;
+
+/**
+ * The app socket type, built over the contract with every *claimed* plugin name
+ * removed (see {@link TopLevelContract}). A claimed name is reachable only through
+ * its plugin's API; an unclaimed prefix stays on the top-level socket. The strip
+ * is applied once here so the inner helpers don't recompute it.
+ */
+export type AppSocket<
+  TContract extends SocketContract,
+  TPrimitives extends readonly Primitive<any, any>[],
+> = AppSocketFor<TopLevelContract<TContract, ClaimedIds<TPrimitives>>, TPrimitives>;
 
 /**
  * Build a typed socket. You call it in two steps: first pick the contract, then
@@ -34,20 +91,14 @@ import type { SocketContract } from '~/types.ts';
 export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
-    ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): WithMissingPrimitiveStubs<
-    Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
-    TContract,
-    TPrimitives
-  > {
+    ...primitives: [...TPrimitives] &
+      ValidatePrimitives<TContract, TPrimitives> &
+      GrantGate<TPrimitives>
+  ): AppSocket<TContract, TPrimitives> {
     return buildSocket(
       connectDescriptor,
       primitives as readonly Primitive[],
-    ) as unknown as WithMissingPrimitiveStubs<
-      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>,
-      TContract,
-      TPrimitives
-    >;
+    ) as unknown as AppSocket<TContract, TPrimitives>;
   };
 }
 
@@ -63,7 +114,8 @@ function buildSocket(
   ];
 
   assertNoDuplicateTags(primitiveSpecs);
-  assertUniquePluginIdentity(pluginSpecs);
+  assertUniquePluginIds(pluginSpecs);
+  assertHostObservationGranted(pluginSpecs);
   assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
 
   // Primitives run first, in dependency order; plugins run after, in
@@ -109,43 +161,20 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
 }
 
 /**
- * Plugins are de-duplicated by `key` plus optional `registrationId`, not by
- * their human-readable `id`. Registering the same plugin twice (or two instances
- * with the same `registrationId`) throws. Two different plugins that share an
- * `id` only warn, since the `id` is just a log label.
+ * A plugin's `id` is the namespace it owns on the wire, so no two plugins on one
+ * socket may share it. Registering the same plugin (or any two plugins with the
+ * same id) twice throws.
  */
-function assertUniquePluginIdentity(pluginSpecs: readonly Primitive[]): void {
-  const registrationsByKey = new Map<symbol, Set<string | undefined>>();
-  const keysById = new Map<string, Set<symbol>>();
-
+function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
+  const seen = new Set<string>();
   for (const spec of pluginSpecs) {
-    const { key, id, registrationId } = spec._plugin!;
-
-    let registrations = registrationsByKey.get(key);
-    if (!registrations) {
-      registrations = new Set();
-      registrationsByKey.set(key, registrations);
-    }
-    if (registrations.has(registrationId)) {
+    const { id } = spec._plugin!;
+    if (seen.has(id)) {
       throw new WSKitConfigError(
-        registrationId === undefined
-          ? `[wskit] plugin '${id}' is registered more than once. Add a registrationId to allow multiple instances.`
-          : `[wskit] plugin '${id}' is registered twice with the same registrationId '${registrationId}'.`,
+        `[wskit] plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
-    registrations.add(registrationId);
-
-    let keys = keysById.get(id);
-    if (!keys) {
-      keys = new Set();
-      keysById.set(id, keys);
-    }
-    keys.add(key);
-    if (keys.size === 2) {
-      console.warn(
-        `[wskit] two different plugins share the id '${id}'. Ids show up in logs — consider a unique colon-form id.`,
-      );
-    }
+    seen.add(id);
   }
 }
 
@@ -159,6 +188,33 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
         );
       }
     }
+  }
+}
+
+/**
+ * Backstop the compile gate: a plugin that opted into host observation but was
+ * registered without `observeHost(...)` throws a clear build error. Covers the
+ * case where `observesHostTraffic` is a non-literal boolean (the type widens, so
+ * the brand never fires). When a grant is present, warn once that the plugin can
+ * see the app's frames.
+ */
+function assertHostObservationGranted(pluginSpecs: readonly Primitive[]): void {
+  for (const spec of pluginSpecs) {
+    const grant = spec as Primitive & {
+      __observesHostTraffic?: boolean;
+      __hostObservationGranted?: boolean;
+    };
+    if (!grant.__observesHostTraffic) continue;
+    const { id } = spec._plugin!;
+    if (!grant.__hostObservationGranted) {
+      throw new WSKitConfigError(
+        `[wskit] plugin '${id}' observes host traffic but was registered without observeHost(...). ` +
+          `Wrap it as observeHost(${id}()) in client() to grant the privilege.`,
+      );
+    }
+    console.warn(
+      `[wskit] plugin "${id}" is granted host-traffic observation (its onIncoming/onOutgoing see the app's frames)`,
+    );
   }
 }
 

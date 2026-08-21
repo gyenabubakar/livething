@@ -53,6 +53,8 @@ const handleRemoveFiveTags = base.on('remove-five-tags', {
   },
 });
 
-export const multiStateHandler = base.assemble(handleAddFiveTags, handleRemoveFiveTags);
+export const multiStateHandler = base.assemble({
+  handlers: [handleAddFiveTags, handleRemoveFiveTags],
+});
 
 export type MultiStateClient = InferClient<typeof multiStateHandler>;

@@ -26,7 +26,7 @@ const base = define({
   ],
 });
 
-base.disconnect((ctx) => {
+base.onDisconnect((ctx) => {
   if (ctx.meta.username === 'throwing-user') {
     throw new Error('intentional onDisconnect throw');
   }
@@ -45,7 +45,7 @@ const handleKickByTag = base.on('kick-by-tag', {
   async run(ctx, payload) {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), { reason: payload.reason });
     ctx.send('kick-ack', { tag: payload.tag });
   },
 });
@@ -53,11 +53,15 @@ const handleKickByTag = base.on('kick-by-tag', {
 const handleTriggerServerSubscribe = base.on('trigger-server-subscribe', {
   input: v.object({}),
   async run(ctx) {
-    await ctx.channels.get('room2').subscribe(ctx.self);
+    await ctx.channels.get('room2').subscribe(ctx.connection);
   },
 });
 
 const room = base.channel('room', {
+  // Ephemeral: these tests assert that a dropped connection is a true leave
+  // (onUnsubscribe fires, __memberLeave__ broadcasts), which only holds when
+  // membership does not survive a reconnect.
+  membership: 'ephemeral',
   outgoing: {
     emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },
@@ -128,6 +132,10 @@ const handleRoomStream = room.stream('start-channel-stream', {
 });
 
 const room2 = base.channel('room2', {
+  // Ephemeral for the same reason as `room` — the multi-channel throw tests
+  // drop a connection that is a member of both and expect a true leave on
+  // this channel too.
+  membership: 'ephemeral',
   outgoing: {
     emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
   },
@@ -144,14 +152,16 @@ const handleRoom2SendMessage = room2.on('send-message', {
   },
 });
 
-export const channelStaticHandler = base.assemble(
-  handleTagSelf,
-  handleKickByTag,
-  handleTriggerServerSubscribe,
-  handleRoomSendMessage,
-  handleRoomBadBroadcast,
-  handleRoomStream,
-  handleRoom2SendMessage,
-);
+export const channelStaticHandler = base.assemble({
+  handlers: [
+    handleTagSelf,
+    handleKickByTag,
+    handleTriggerServerSubscribe,
+    handleRoomSendMessage,
+    handleRoomBadBroadcast,
+    handleRoomStream,
+    handleRoom2SendMessage,
+  ],
+});
 
 export type ChannelStaticClient = InferClient<typeof channelStaticHandler>;

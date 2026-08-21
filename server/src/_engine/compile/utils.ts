@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertSyncResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, ValidationFailed, WSKitConfigError } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -32,11 +32,11 @@ export function collectUnique<T>(
 /**
  * Insert into a compile-time map and throw if the key already exists. Each
  * primitive kind (incoming, outgoing, request, stream variants, scheduled,
- * channel) owns its own slot on `CompiledServer`, and a duplicate
- * declaration in the same slot was previously silent — the second declaration
- * just overwrote the first. With this helper, a duplicate fails build with a
- * clear `WSKitConfigError` so the engine refuses to construct and the server
- * doesn't start with a half-broken contract.
+ * channel) owns its own slot on `CompiledServer`, and without this check a
+ * duplicate declaration in the same slot would silently overwrite the first.
+ * With this helper, a duplicate fails build with a clear `WSKitConfigError`
+ * so the engine refuses to construct and the server doesn't start with a
+ * half-broken contract.
  */
 export function setUniqueOrThrow<V>(
   map: Map<string, V>,
@@ -85,8 +85,6 @@ export function mergeRequires(
   target: PrimitiveCore.RequiresManifest,
   source: PrimitiveCore.RequiresManifest,
 ): void {
-  if (source.storage) target.storage = true;
-  if (source.timers) target.timers = true;
   if (source.hibernation) target.hibernation = true;
 }
 
@@ -107,7 +105,11 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
   if (!validator) return value;
 
   if (isStandardSchema(validator)) {
-    const result = assertSyncResult(validator['~standard'].validate(value), event);
+    const result = assertSynchronousResult(
+      validator['~standard'].validate(value),
+      event,
+      'validator',
+    );
 
     if (result && typeof result === 'object' && 'issues' in result) {
       const rawIssues = (result as { issues: Array<{ message: string; path?: unknown[] }> }).issues;

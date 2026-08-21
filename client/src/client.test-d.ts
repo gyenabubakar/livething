@@ -5,17 +5,26 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
-import { serverRequest } from '~/primitives/server-request/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
+import { dedup } from '~/primitives/dedup.ts';
+import { gaps } from '~/primitives/gaps.ts';
+import { inbox } from '~/primitives/inbox/inbox.ts';
+import { readReceipts } from '~/primitives/inbox/read-receipts.ts';
+import { replay } from '~/primitives/replay.ts';
+import { serverRequests } from '~/primitives/server-requests/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
+// BUG 2 regression: `GapInfo` must be importable from the package root, not
+// only from `~/types.ts` — a consumer annotating an `onGap` handler needs it
+// from the same place as every other public type.
+import type { GapInfo as GapInfoFromIndex, GapsTypeFn as GapsTypeFnFromIndex } from '~/index.ts';
 import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
-import type { StreamHandle } from '~/types.ts';
+import type { GapInfo, StreamHandle } from '~/types.ts';
 
 interface Full {
   incoming: { 'server-push': { value: number } };
   outgoing: { 'client-send': { text: string } };
-  requests: { 'do-request': { payload: { id: string }; response: { ok: boolean } } };
+  clientRequests: { 'do-request': { payload: { id: string }; response: { ok: boolean } } };
   serverRequests: {
     'ask-permission': { payload: { action: string }; response: { allowed: boolean } };
   };
@@ -34,7 +43,7 @@ interface Full {
     room: {
       incoming: { 'ch-push': { value: number } };
       outgoing: { 'ch-send': { text: string } };
-      requests: { 'ch-request': { payload: { id: string }; response: { ok: boolean } } };
+      clientRequests: { 'ch-request': { payload: { id: string }; response: { ok: boolean } } };
       serverRequests: {
         'ch-ask': { payload: { who: string }; response: { ok: boolean } };
       };
@@ -48,9 +57,10 @@ interface Full {
 const socket = client<Full>()(
   connect('wss://example.com'),
   channels(),
-  requestResponse(),
-  serverRequest(),
+  clientRequests(),
+  serverRequests(),
   stream(),
+  gaps(),
 );
 
 socket.on('server-push', (data) => {
@@ -135,15 +145,24 @@ room.subscribe();
 // @ts-expect-error — 'nope' is not a channel
 socket.channel('nope');
 
+room.onGap((info) => {
+  expectTypeOf(info).toEqualTypeOf<GapInfo>();
+});
+socket.onGap((info) => {
+  expectTypeOf(info).toEqualTypeOf<GapInfo>();
+});
+expectTypeOf<GapInfoFromIndex>().toEqualTypeOf<GapInfo>();
+expectTypeOf<GapsTypeFnFromIndex>().toHaveProperty('_api');
+
 expectTypeOf(socket.state.get()).toBeString();
 expectTypeOf(socket.connect()).toEqualTypeOf<void>();
 
 const bare = client<Full>()(connect('wss://example.com'));
 // @ts-expect-error — socket.channel needs the channels() primitive
 bare.channel('room');
-// @ts-expect-error — socket.request needs the requestResponse() primitive
+// @ts-expect-error — socket.request needs the clientRequests() primitive
 bare.request('do-request', { id: '1' });
-// @ts-expect-error — socket.onRequest needs the serverRequest() primitive
+// @ts-expect-error — socket.onRequest needs the serverRequests() primitive
 bare.onRequest('ask-permission', () => ({ allowed: true }));
 // @ts-expect-error — socket.onStream needs the stream() primitive
 bare.onStream('plain-stream', { onChunk: () => {} });
@@ -160,9 +179,11 @@ const onlyRoom = channelsOnly.channel('room');
 expectTypeOf(onlyRoom.subscribe({ token: 't' })).resolves.toEqualTypeOf<void>();
 onlyRoom.on('ch-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
 onlyRoom.onSubscribed(() => {});
-// @ts-expect-error — channel.request needs the requestResponse() primitive
+// @ts-expect-error — channel.onGap needs the gaps() primitive
+onlyRoom.onGap(() => {});
+// @ts-expect-error — channel.request needs the clientRequests() primitive
 onlyRoom.request('ch-request', { id: '1' });
-// @ts-expect-error — channel.onRequest needs the serverRequest() primitive
+// @ts-expect-error — channel.onRequest needs the serverRequests() primitive
 onlyRoom.onRequest('ch-ask', () => ({ ok: true }));
 // @ts-expect-error — channel.onStream needs the stream() primitive
 onlyRoom.onStream('ch-stream', { onChunk: () => {} });
@@ -171,7 +192,11 @@ onlyRoom.stream('ch-stream', {});
 // @ts-expect-error — channel.resumeStream needs the stream() primitive
 onlyRoom.resumeStream('ch-stream', 'id');
 
-const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), requestResponse());
+const replayOnly = client<Full>()(connect('wss://example.com'), replay());
+// @ts-expect-error — replay() tracks cursors; gaps() owns the listener API
+replayOnly.onGap(() => {});
+
+const channelsAndReq = client<Full>()(connect('wss://example.com'), channels(), clientRequests());
 expectTypeOf(
   channelsAndReq.channel('room').request('ch-request', { id: '1' }),
 ).resolves.toEqualTypeOf<{ ok: boolean }>();
@@ -181,8 +206,8 @@ channelsAndReq.channel('room').onStream('ch-stream', { onChunk: () => {} });
 const everything = client<Full>()(
   connect('wss://example.com'),
   channels(),
-  requestResponse(),
-  serverRequest(),
+  clientRequests(),
+  serverRequests(),
   stream(),
 );
 everything.channel('room').request('ch-request', { id: '1' });
@@ -218,3 +243,102 @@ function needsChannels(): Primitive<EmptyTypeFn, { channels: Record<string, any>
 }
 // @ts-expect-error — ReceiveOnly has no `channels`
 client<ReceiveOnly>()(connect('wss://example.com'), needsChannels());
+
+interface Receipts {
+  channels: {
+    room: {
+      incoming: { msg: { text: string } };
+      inbox: true;
+      readReceipts: true;
+    };
+    plain: {
+      incoming: { msg: { text: string } };
+    };
+  };
+}
+
+const noReceiptPrimitives = client<Receipts>()(connect('wss://example.com'), dedup(), channels());
+const noReceiptRoom = noReceiptPrimitives.channel('room');
+// @ts-expect-error — receivers needs the inbox() primitive
+noReceiptRoom.receivers;
+// @ts-expect-error — onReceived needs the inbox() primitive
+noReceiptRoom.onReceived;
+// @ts-expect-error — receiversOf needs the inbox() primitive
+noReceiptRoom.receiversOf;
+// @ts-expect-error — readers needs the readReceipts() primitive
+noReceiptRoom.readers;
+// @ts-expect-error — markAsRead needs the readReceipts() primitive
+noReceiptRoom.markAsRead;
+
+const withReceiptPrimitives = client<Receipts>()(
+  connect('wss://example.com'),
+  dedup(),
+  channels(),
+  inbox(),
+  readReceipts(),
+);
+const receiptRoom = withReceiptPrimitives.channel('room');
+expectTypeOf(receiptRoom.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+receiptRoom.onReceived((identity, receivedThrough) => {
+  expectTypeOf(identity).toBeString();
+  expectTypeOf(receivedThrough).toBeNumber();
+});
+expectTypeOf(receiptRoom.receiversOf(3)).resolves.toEqualTypeOf<string[]>();
+expectTypeOf(receiptRoom.readers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+receiptRoom.onRead((identity, readThrough) => {
+  expectTypeOf(identity).toBeString();
+  expectTypeOf(readThrough).toBeNumber();
+});
+expectTypeOf(receiptRoom.readersOf(3)).resolves.toEqualTypeOf<string[]>();
+expectTypeOf(receiptRoom.markAsRead()).toEqualTypeOf<void>();
+
+const plainRoom = withReceiptPrimitives.channel('plain');
+// @ts-expect-error — 'plain' channel has no inbox flag, so receivers is absent
+plainRoom.receivers;
+// @ts-expect-error — 'plain' channel has no readReceipts flag, so markAsRead is absent
+plainRoom.markAsRead;
+
+// BUG 3 regression: a channel that carries BOTH an installed channel primitive's
+// surface (inbox) AND a section whose primitive is missing (clientRequests).
+// Forgetting clientRequests() must still produce a clear stub error on
+// `request`, but it must NOT also erase `receivers` — inbox() is installed and
+// works fine at runtime, so the type must keep saying so.
+interface MixedChannel {
+  channels: {
+    room: {
+      incoming: { msg: { text: string } };
+      inbox: true;
+      clientRequests: { 'do-thing': { payload: { id: string }; response: { ok: boolean } } };
+    };
+  };
+}
+
+const mixed = client<MixedChannel>()(connect('wss://example.com'), channels(), inbox());
+const mixedRoom = mixed.channel('room');
+expectTypeOf(mixedRoom.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+mixedRoom.onReceived((identity, receivedThrough) => {
+  expectTypeOf(identity).toBeString();
+  expectTypeOf(receivedThrough).toBeNumber();
+});
+// @ts-expect-error — channel.request still needs the clientRequests() primitive
+mixedRoom.request('do-thing', { id: '1' });
+
+interface MixedFamily {
+  channels: {
+    rooms: {
+      addressing: 'dynamic';
+      incoming: { msg: { text: string } };
+      inbox: true;
+      clientRequests: { 'do-thing': { payload: { id: string }; response: { ok: boolean } } };
+    };
+  };
+}
+const mixedFamily = client<MixedFamily>()(connect('wss://example.com'), channels(), inbox());
+const mixedFamilyMember = mixedFamily.channel('rooms', 'general');
+expectTypeOf(mixedFamilyMember.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();
+// @ts-expect-error — a family member's channel.request still needs clientRequests()
+mixedFamilyMember.request('do-thing', { id: '1' });
+const mixedFamilyHandle = mixedFamily.channel.family('rooms');
+expectTypeOf(mixedFamilyHandle('general').receivers.get()).toEqualTypeOf<
+  ReadonlyMap<string, number>
+>();

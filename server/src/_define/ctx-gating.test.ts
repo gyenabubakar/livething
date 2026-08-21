@@ -38,7 +38,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         ctx.request;
         // @ts-expect-error ctx.broadcastRequest needs the requests() capability
         ctx.broadcastRequest;
-        expectTypeOf(ctx.id).toEqualTypeOf<string>();
+        expectTypeOf(ctx.connection.id).toEqualTypeOf<string>();
       },
     });
   });
@@ -65,7 +65,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         // @ts-expect-error wrong payload shape for 'ask-permission'
         ctx.request('ask-permission', { action: 1 });
 
-        const handle = ctx.connection(ctx.self);
+        const handle = ctx.connections.get(ctx.connection);
         expectTypeOf(handle.request).toBeFunction();
         expectTypeOf(handle.request('ask-permission', { action: 'x' })).resolves.toEqualTypeOf<{
           allowed: boolean;
@@ -140,8 +140,8 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
     base.on('x', {
       run(ctx) {
-        expectTypeOf(ctx.connection).toBeFunction();
-        const handle = ctx.connection(ctx.self);
+        expectTypeOf(ctx.connections.get).toBeFunction();
+        const handle = ctx.connections.get(ctx.connection);
         expectTypeOf(handle.send).toBeFunction();
         handle.send('ping', { n: 1 });
         // @ts-expect-error 'nope' is not a declared outgoing event
@@ -152,11 +152,12 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('exposes ctx.connection on a bare server with no capabilities', () => {
+  it('exposes ctx.connections.get on a bare server with no capabilities', () => {
     const base = define({ env: t<Env>() });
     base.on('x', {
       run(ctx) {
-        expectTypeOf(ctx.connection).toBeFunction();
+        expectTypeOf(ctx.connections.get).toBeFunction();
+        expectTypeOf(ctx.connection).toEqualTypeOf<ConnectionRef>();
       },
     });
   });

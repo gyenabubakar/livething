@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- the type-level machinery needs `any` to stay generic */
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
-import type { StubbedChannelMethod } from '~/primitives/channels/types.ts';
+import type { AugmentedChannelMethod, StubbedChannelMethod } from '~/primitives/channels/types.ts';
 import type { Simplify } from '~/types.ts';
 
 /**
@@ -25,6 +25,27 @@ export interface EmptyTypeFn extends TypeFn {
 }
 
 /**
+ * A type function that contributes to a CHANNEL HANDLE rather than the socket.
+ * Its `_contract` slot is filled with a single channel's contract, and `_api` is
+ * the surface the primitive adds to that channel's handle. Because it only runs
+ * for primitives the developer actually registered, a channel handle gains this
+ * surface only when both the primitive is installed and the channel's contract
+ * opts in — the primitive itself gates on the contract flag inside `_api`.
+ */
+export interface ChannelTypeFn {
+  readonly _contract: unknown;
+  readonly _api: unknown;
+}
+
+/** A channel type function that adds nothing — the default for most primitives. */
+export interface NoChannelTypeFn extends ChannelTypeFn {
+  readonly _api: {};
+}
+
+/** Run a channel type function: set `_contract` to `C` and read back `_api`. */
+export type ApplyChannel<F extends ChannelTypeFn, C> = (F & { readonly _contract: C })['_api'];
+
+/**
  * Run a type function: set `_contract` to `Contract` and read back `_api`.
  */
 export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contract })['_api'];
@@ -36,18 +57,20 @@ export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contr
  * type-only fields (no runtime value); `applyConfig` and `setup` are what
  * actually run.
  */
-export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
+export interface Primitive<
+  F extends TypeFn = EmptyTypeFn,
+  TRequires = {},
+  FChannel extends ChannelTypeFn = NoChannelTypeFn,
+> {
   /** Names the primitive (e.g. `'connect'`, `'channels'`). Used to catch duplicates. */
   readonly _tag: string;
   /**
    * Set by `plugin()` — marks this as a plugin, not a built-in primitive.
-   * Plugins are tracked by `key` + `registrationId` and always run after all
-   * primitives.
+   * Plugins are tracked by their `id` (which is also the namespace they own) and
+   * always run after all primitives.
    */
   readonly _plugin?: {
-    readonly key: symbol;
     readonly id: string;
-    readonly registrationId?: string;
   };
   /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
@@ -58,6 +81,8 @@ export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   readonly optionalAfter?: readonly string[];
   /** Type-only: the API this primitive adds to the socket. */
   readonly _typeFn?: F;
+  /** Type-only: the surface this primitive adds to each channel handle. */
+  readonly _channelTypeFn?: FChannel;
   /** Type-only: what the contract must contain for this primitive to be valid. */
   readonly _requires?: TRequires;
   /** Copy this primitive's settings into the shared config the kernel reads. */
@@ -78,6 +103,22 @@ export type ApplyPrimitives<
   ...infer Rest extends Primitive<any, any>[],
 ]
   ? Apply<NonNullable<Head['_typeFn']>, TContract> & ApplyPrimitives<Rest, TContract>
+  : {};
+
+/**
+ * Run each installed primitive's channel type function against a single channel's
+ * contract and merge the results. Only primitives the developer registered appear
+ * in `TPrimitives`, so a channel handle gains a primitive's surface only when that
+ * primitive is installed — the missing-primitive gate for channel-handle methods.
+ */
+export type ApplyChannelPrimitives<
+  TPrimitives extends readonly Primitive<any, any, any>[],
+  C,
+> = TPrimitives extends readonly [
+  infer Head extends Primitive<any, any, any>,
+  ...infer Rest extends Primitive<any, any, any>[],
+]
+  ? ApplyChannel<NonNullable<Head['_channelTypeFn']>, C> & ApplyChannelPrimitives<Rest, C>
   : {};
 
 /**
@@ -137,7 +178,7 @@ type SectionDeclared<TContract, Section extends string> = Section extends keyof 
 type AnyScopedSectionDeclared<TContract> =
   SectionDeclared<TContract, 'channels'> extends true
     ? true
-    : SectionDeclared<TContract, 'requests'> extends true
+    : SectionDeclared<TContract, 'clientRequests'> extends true
       ? true
       : SectionDeclared<TContract, 'serverRequests'> extends true
         ? true
@@ -147,7 +188,7 @@ type AnyScopedSectionDeclared<TContract> =
 
 /**
  * True when at least one channel family in the contract declares the given
- * section (`requests` / `serverRequests` / `streams`). A channel-handle method
+ * section (`clientRequests` / `serverRequests` / `streams`). A channel-handle method
  * is only worth stubbing when some channel actually uses it.
  */
 type AnyChannelSectionDeclared<TContract, Section extends string> = TContract extends {
@@ -170,19 +211,19 @@ type AnyChannelSectionDeclared<TContract, Section extends string> = TContract ex
  */
 type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
   TContract,
-  'requests'
+  'clientRequests'
 > extends true
   ? 'request' extends keyof Api
     ? {}
     : {
-        request: NeedsPrimitive<'[wskit] channel.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+        request: NeedsPrimitive<'[wskit] channel.request needs the clientRequests() primitive — add clientRequests() to client()'>;
       }
   : {}) &
   (AnyChannelSectionDeclared<TContract, 'serverRequests'> extends true
     ? 'onRequest' extends keyof Api
       ? {}
       : {
-          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
+          onRequest: NeedsPrimitive<'[wskit] channel.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
         }
     : {}) &
   (AnyChannelSectionDeclared<TContract, 'streams'> extends true
@@ -199,16 +240,16 @@ type ChannelHandleStubs<TContract, Api> = (AnyChannelSectionDeclared<
  * When channels are installed but a channel-scoped primitive isn't, REPLACE the
  * `channel` accessor with one whose every handle (direct, family member, or via
  * `scope(...)`) carries the missing-primitive stub on the affected method. So
- * `channel('x').request(...)` stops compiling with a clear "add requestResponse()"
+ * `channel('x').request(...)` stops compiling with a clear "add clientRequests()"
  * message — the top-level guard, mirrored one level down. Returns `{}` (no
  * override) when every channel-scoped primitive in use is installed.
  */
-type ChannelAccessorStub<TContract, Api> =
+type ChannelAccessorStub<TContract, Api, TPrimitives extends readonly Primitive<any, any, any>[]> =
   ChannelHandleStubs<TContract, Api> extends infer Stubs
     ? {} extends Stubs
       ? {}
       : TContract extends { channels: infer C extends Record<string, any> }
-        ? { channel: StubbedChannelMethod<C, Stubs> }
+        ? { channel: StubbedChannelMethod<C, Stubs, TPrimitives> }
         : {}
     : {};
 
@@ -225,23 +266,23 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
     : ApplyPrimitives<TPrimitives, TContract> extends infer Api
       ? (SectionDeclared<TContract, 'channels'> extends true
           ? 'channel' extends keyof Api
-            ? ChannelAccessorStub<TContract, Api>
+            ? ChannelAccessorStub<TContract, Api, TPrimitives>
             : {
                 channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
           : {}) &
-          (SectionDeclared<TContract, 'requests'> extends true
+          (SectionDeclared<TContract, 'clientRequests'> extends true
             ? 'request' extends keyof Api
               ? {}
               : {
-                  request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+                  request: NeedsPrimitive<'[wskit] socket.request needs the clientRequests() primitive — add clientRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'serverRequests'> extends true
             ? 'onRequest' extends keyof Api
               ? {}
               : {
-                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequest() primitive — add serverRequest() to client()'>;
+                  onRequest: NeedsPrimitive<'[wskit] socket.onRequest needs the serverRequests() primitive — add serverRequests() to client()'>;
                 }
             : {}) &
           (SectionDeclared<TContract, 'streams'> extends true
@@ -269,3 +310,21 @@ export type WithMissingPrimitiveStubs<
   MissingPrimitiveStubs<TContract, TPrimitives> extends infer Stubs
     ? Simplify<Omit<Api, keyof Stubs> & Stubs>
     : Api;
+
+/**
+ * Rewrite the socket's `channel` accessor so every handle it hands back carries
+ * the channel-handle surface each installed primitive contributes (e.g. `inbox()`
+ * adds `receivers`/`onReceived`/`receiversOf`). The accessor is only rewritten
+ * when the contract declares channels and `channels()` is installed — otherwise
+ * `channel` is either absent or already replaced by a missing-primitive stub, and
+ * this leaves it untouched.
+ */
+export type WithChannelPrimitiveSurface<
+  Api,
+  TContract,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> = TContract extends { channels: infer C extends Record<string, any> }
+  ? 'channel' extends keyof Api
+    ? Simplify<Omit<Api, 'channel'> & { channel: AugmentedChannelMethod<C, TPrimitives> }>
+    : Api
+  : Api;

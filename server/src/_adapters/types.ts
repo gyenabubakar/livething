@@ -31,11 +31,12 @@ export interface ConnectionDescriptor {
   backpressureSupported?: boolean;
 
   /**
-   * Stable string identifying the user-equivalent entity for this socket.
-   * Forwarded from the `onUpgrade` result. Required because the descriptor is
-   * only built for an accepted upgrade — by that point identity is known.
+   * The user this socket belongs to, forwarded from the `onUpgrade` result.
+   * Required because the descriptor is only built for an accepted upgrade — by
+   * then the answer is known. An empty string means the upgrade returned no
+   * user id, so the connection is anonymous.
    */
-  identity: string;
+  userId: string;
 
   meta?: Record<string, unknown>;
 
@@ -68,11 +69,11 @@ export interface UpgradeDecision {
   reason?: string;
 
   /**
-   * Stable string identifying the user-equivalent entity behind this socket.
-   * Set when `reject` is falsy — every accepted upgrade carries it. Omitted
-   * on reject decisions because there is no connection to attach it to.
+   * The user this socket belongs to. Set when `reject` is falsy — every
+   * accepted upgrade carries it. Omitted on reject decisions, where there is no
+   * connection to attach it to.
    */
-  identity?: string;
+  userId?: string;
 
   meta?: Record<string, unknown>;
 
@@ -84,6 +85,9 @@ export interface UpgradeDecision {
  * per-socket state across hibernation cycles. The engine writes a snapshot to
  * `persist(wsKey, snapshot)` whenever connection state changes; on wake,
  * `restore(wsKey)` returns the most recent snapshot the platform held onto.
+ * Both callbacks must finish synchronously. The engine rejects a Promise or
+ * thenable from either callback because a hibernation wake cannot safely defer
+ * its attachment or index updates.
  *
  * Adapters that support hibernation declare this object on their
  * `adapter` config; adapters that don't omit it. The presence of
@@ -120,8 +124,8 @@ export interface EngineOptions {
    */
   hibernation?: HibernationApi;
 
-  /** Adapter-provided storage surface. Omit when the runtime has no durable storage. */
-  storage?: StorageProvider;
+  /** Adapter-provided SQL and key-value storage surface. Every adapter provides this. */
+  storage: StorageProvider;
 
   /** Env bindings exposed to every runtime context. */
   env: Record<string, unknown>;
@@ -129,8 +133,8 @@ export interface EngineOptions {
   /** Adapter-specific platform object exposed as `ctx.platform`. */
   platform: unknown;
 
-  /** Timer implementation for in-memory timers and durable alarms. Omit when the runtime has no timer support. */
-  timers?: TimerProvider;
+  /** Adapter-provided durable alarm implementation. Every adapter provides this. */
+  timers: TimerProvider;
 
   /** Factory for the async-context implementation used by this runtime. */
   asyncContextFactory: AsyncContextFactory;
@@ -142,8 +146,14 @@ export interface EngineOptions {
   logger: Logger;
 }
 
-/** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
-export type Engine = EngineClass;
+/**
+ * The runtime engine created by the adapter from a compiled server definition.
+ * Handles connections, message routing, and lifecycle. `TApi` carries the
+ * handler's `api` type through to {@link EngineClass.admin}. An adapter with
+ * multiple addressable instances should call `setInstanceId(...)` before
+ * accepting connections so refs cannot be confused across instances.
+ */
+export type Engine<TApi = unknown> = EngineClass<TApi>;
 
 /**
  * The configuration object returned by `adapter`.
@@ -169,10 +179,18 @@ export interface AdapterConfig<TOptions, TService> {
    */
   asyncContextFactory: AsyncContextFactory;
 
-  setup(
+  /**
+   * Wire the platform's WebSocket lifecycle to an engine instance.
+   *
+   * `TApi` is the handler's `api` type, so `engine.admin()` is already typed
+   * here. TypeScript cannot make `TService` itself depend on `TApi`, so an
+   * adapter whose service should carry the app's admin methods exports a thin
+   * generic `server(handler)` of its own on top of this.
+   */
+  setup<TApi>(
     createEngine: (
       runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>,
-    ) => Engine,
+    ) => Engine<TApi>,
     options: TOptions,
   ): TService;
 }

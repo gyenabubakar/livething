@@ -1,5 +1,6 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { createStore } from '~/internal/store.ts';
+import { channelEventPrefix } from '~/primitives/channels/messaging.ts';
 import type { WSKitError } from '@wskit/core';
 import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
@@ -133,7 +134,16 @@ export class ChannelState {
     readonly familyKey: string | undefined,
     /** Debug-gated logger, used to report a throwing event handler. */
     private readonly log: PrimitiveLogger,
-  ) {}
+  ) {
+    this.eventPrefix = channelEventPrefix(name, familyKey);
+  }
+
+  /**
+   * The `__<id>::` prefix this channel's child events carry, or `''`. Fixed for
+   * the channel's lifetime, so it is resolved once here rather than on every
+   * frame the channel routes.
+   */
+  readonly eventPrefix: string;
 
   onSubscribed = this.subscribed.add;
   onUnsubscribed = this.unsubscribed.add;
@@ -263,15 +273,17 @@ export class ChannelState {
    * match the outstanding leave (a stale one from an earlier connection) is
    * ignored.
    */
-  confirmLeave(unsubscribeId: string): void {
+  confirmLeave(unsubscribeId: string): { rejoinPending: boolean } | null {
     const leave = this.pendingLeave;
-    if (!leave || leave.unsubscribeId !== unsubscribeId) return;
+    if (!leave || leave.unsubscribeId !== unsubscribeId) return null;
     this.pendingLeave = null;
     this.pendingLeavePromise = null;
     leave.resolve();
     const deferred = this.deferredSubscribe;
     this.deferredSubscribe = null;
+    const rejoinPending = deferred !== null;
     deferred?.();
+    return { rejoinPending };
   }
 
   /**

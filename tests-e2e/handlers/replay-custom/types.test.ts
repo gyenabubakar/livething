@@ -5,7 +5,7 @@ describe('ReplayCustomClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplayCustomClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplayCustomClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplayCustomClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['errors']>().not.toBeAny();

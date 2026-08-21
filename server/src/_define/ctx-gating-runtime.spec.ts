@@ -3,9 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { persistence } from '~/persistence/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import * as v from 'valibot';
@@ -63,7 +62,7 @@ function probeServer(base: any, ...extra: unknown[]): ProbeServer {
       slot.fn?.(ctx);
     },
   });
-  return { def: base.assemble(probe, ...extra) as ServerDefinition, slot };
+  return { def: base.assemble({ handlers: [probe, ...extra] }) as ServerDefinition, slot };
 }
 
 /** Boot the engine, open one connection, route a `probe` frame, return its ctx. */
@@ -74,7 +73,7 @@ async function captureCtx(server: ProbeServer): Promise<any> {
     send() {},
     close() {},
     bufferedAmount: () => 0,
-    identity: 'user-1',
+    userId: 'user-1',
   } as any);
   let captured: any;
   server.slot.fn = (ctx: any) => {
@@ -93,6 +92,25 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     expect('latency' in ctx).toBe(false);
     expect('quality' in ctx).toBe(false);
     expect('plugin' in ctx).toBe(false);
+    // matches / unsafeCast are core, not gated — they ride on every ctx.
+    expect('matches' in ctx).toBe(true);
+    expect('unsafeCast' in ctx).toBe(true);
+  });
+
+  it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
+    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+
+    const frame = {
+      event: 'probe',
+      payload: {},
+      kind: 'incoming' as const,
+      routing: {},
+      owner: { kind: 'app' as const },
+    };
+
+    expect(() => ctx.matches('probe', frame)).not.toThrow();
+    expect(ctx.matches('probe', frame)).toBe(true);
+    expect(ctx.unsafeCast('probe', frame)).toBe(frame);
   });
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
@@ -127,11 +145,10 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('listing a plugin adds ctx.plugin; it resolves the api and throws for unknown ids', async () => {
-    const ph = define({ scoped: true, capabilities: [] });
+    const ph = define({ scope: 'plugin', capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
-      handler: ph.assemble(beat),
-      api: () => ({ tag: 'presence-api' }),
+      handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
     });
 
     const base = define({ env: t<{}>(), capabilities: [Presence()] });
@@ -146,7 +163,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   it('a stream-sweep-only server (recordedStream, no scheduled()) has no ctx.schedule', async () => {
     const base = define({
       env: t<{}>(),
-      capabilities: [persistence(), recordedStream()],
+      capabilities: [recordedStream()],
     });
     const ctx = await captureCtx(probeServer(base));
     expect('schedule' in ctx).toBe(false);

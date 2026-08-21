@@ -1,6 +1,5 @@
 import { define, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { persistence } from '@wskit/server/persistence';
 import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -14,7 +13,7 @@ const AttemptChunk = t<{ attempt: number }>();
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [persistence(), channels(), recordedStream(), resumableStream()],
+  capabilities: [channels(), recordedStream(), resumableStream()],
 });
 
 const rooms = base.channel('rooms', {});
@@ -81,11 +80,8 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
   },
 });
 
-export const streamDurableBroadcastHandler = base.assemble(
-  handleFeed,
-  handlePaginate,
-  handleAttemptBroadcast,
-  handleFeedNudged,
-);
+export const streamDurableBroadcastHandler = base.assemble({
+  handlers: [handleFeed, handlePaginate, handleAttemptBroadcast, handleFeedNudged],
+});
 
 export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastHandler>;

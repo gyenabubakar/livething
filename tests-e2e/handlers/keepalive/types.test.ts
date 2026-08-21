@@ -5,7 +5,7 @@ describe('KeepaliveClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<KeepaliveClient['incoming']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['outgoing']>().not.toBeAny();
-    expectTypeOf<KeepaliveClient['requests']>().not.toBeAny();
+    expectTypeOf<KeepaliveClient['clientRequests']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['streams']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['channels']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['errors']>().not.toBeAny();
@@ -21,8 +21,8 @@ describe('KeepaliveClient — all slots are empty (no definitions)', () => {
     expectTypeOf<keyof KeepaliveClient['outgoing']>().toBeNever();
   });
 
-  it('requests is empty', () => {
-    expectTypeOf<keyof KeepaliveClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof KeepaliveClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

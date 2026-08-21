@@ -18,7 +18,7 @@ const room = base.channel(['rooms', 'rooms:{id}'], {
 });
 const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
 
-const handler = base.assemble(handleChat, handleSay);
+const handler = base.assemble({ handlers: [handleChat, handleSay] });
 type C = InferClient<typeof handler>;
 
 describe('channel typing', () => {

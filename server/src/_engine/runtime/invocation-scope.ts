@@ -1,3 +1,4 @@
+import { assertSynchronousResult } from '@wskit/core';
 import { getInvocationScope, withAsyncInvocationScope } from '~/_engine/async-context.ts';
 import { flushDirtyAttachment } from '~/_engine/runtime/hibernation.ts';
 import type { InvocationScopeState } from '~/_engine/async-context.ts';
@@ -51,18 +52,47 @@ export async function withInvocationScope<T>(
   try {
     return await withAsyncInvocationScope(core.asyncContext, scope, fn);
   } finally {
-    for (const connection of scope.dirtyConnections) {
-      flushDirtyAttachment(core, connection);
-    }
+    flushInvocationScope(core, scope);
+  }
+}
 
-    if (scope.pendingSnapshotFlushes.size > 0) {
-      const sql = core.storageOrUndefined()?.sql;
+/**
+ * Run a synchronous engine callback with the same batching guarantees as
+ * `withInvocationScope`. Hibernation wake is deliberately synchronous: the
+ * adapter snapshot, SQL row, and in-memory indexes are all read or updated
+ * synchronously, so making this path async would only defer its flush.
+ */
+export function withInvocationScopeSync<T>(core: EngineCore, fn: () => T): T {
+  const existing = getInvocationScope(core.asyncContext);
+  if (existing) {
+    return assertSynchronousResult(fn(), 'withInvocationScopeSync callback');
+  }
 
-      if (sql) {
-        for (const entry of scope.pendingSnapshotFlushes.values()) {
-          entry.flush(sql);
-        }
-      }
+  const scope: InvocationScopeState = {
+    dirtyConnections: new Set(),
+    pendingSnapshotFlushes: new Map(),
+  };
+
+  try {
+    return assertSynchronousResult(
+      withAsyncInvocationScope(core.asyncContext, scope, fn),
+      'withInvocationScopeSync callback',
+    );
+  } finally {
+    flushInvocationScope(core, scope);
+  }
+}
+
+function flushInvocationScope(core: EngineCore, scope: InvocationScopeState): void {
+  for (const connection of scope.dirtyConnections) {
+    flushDirtyAttachment(core, connection);
+  }
+
+  if (scope.pendingSnapshotFlushes.size > 0) {
+    const sql = core.storage.sql;
+
+    for (const entry of scope.pendingSnapshotFlushes.values()) {
+      entry.flush(sql);
     }
   }
 }

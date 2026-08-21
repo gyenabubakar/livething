@@ -33,6 +33,6 @@ const handleGetQuality = base.on('get-quality', {
   },
 });
 
-export const ctxQualityHandler = base.assemble(handleGetQuality);
+export const ctxQualityHandler = base.assemble({ handlers: [handleGetQuality] });
 
 export type CtxQualityClient = InferClient<typeof ctxQualityHandler>;

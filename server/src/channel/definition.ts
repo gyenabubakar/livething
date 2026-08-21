@@ -17,7 +17,7 @@ export interface ChannelDef<
 > {
   readonly _: 'channel';
   readonly pattern: TPattern;
-  readonly persistent?: boolean;
+  readonly membership?: 'persistent' | 'ephemeral';
   readonly replay?: unknown;
   readonly rateLimit?: RateLimitConfig;
   readonly definitions: TDefinitions;
@@ -26,7 +26,7 @@ export interface ChannelDef<
 }
 
 interface ChannelConfig<TDefinitions extends readonly Definition[]> {
-  persistent?: boolean;
+  membership?: 'persistent' | 'ephemeral';
   replay?: unknown;
   rateLimit?: RateLimitConfig;
   definitions: TDefinitions;
@@ -91,7 +91,7 @@ export function channel(
   return {
     _: 'channel',
     pattern,
-    persistent: config.persistent,
+    membership: config.membership,
     replay: config.replay,
     rateLimit: config.rateLimit,
     definitions: config.definitions,

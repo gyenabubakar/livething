@@ -27,14 +27,14 @@ const base = define({
   ],
 });
 
-base.connect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('connected', { username: ctx.meta.username });
   ctx.send('upgrade-meta', { username: ctx.meta.username });
   ctx.send('connect-count', { count: 2 });
   ctx.send('async-hook-complete', { complete: true });
 });
 
-base.disconnect((ctx) => {
+base.onDisconnect((ctx) => {
   ctx.broadcast('disconnected', { username: ctx.meta.username });
   // Fan out the close metadata too. Peers receive the leaver's
   // closeCode + closeReason so the e2e can assert each kind of
@@ -46,15 +46,15 @@ base.disconnect((ctx) => {
   });
 });
 
-base.shutdown((ctx) => {
+base.onShutdown((ctx) => {
   ctx.broadcast('disconnected', { username: 'server-shutdown' });
 });
 
-base.error((ctx, err) => {
+base.onError((ctx, err) => {
   ctx.send('error-fired', { message: err instanceof Error ? err.message : String(err) });
 });
 
-base.validationError((ctx, eventName) => {
+base.onValidationError((ctx, eventName) => {
   ctx.send('validation-error-fired', { event: eventName });
 });
 
@@ -72,6 +72,8 @@ const handleTriggerError = base.on('trigger-error', {
   },
 });
 
-export const lifecycleHooksHandler = base.assemble(handleBadEvent, handleTriggerError);
+export const lifecycleHooksHandler = base.assemble({
+  handlers: [handleBadEvent, handleTriggerError],
+});
 
 export type LifecycleHooksClient = InferClient<typeof lifecycleHooksHandler>;

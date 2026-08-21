@@ -25,7 +25,7 @@ describe('requests() capability — client to server', () => {
         return { now: 'noon' };
       },
     });
-    const handler = base.assemble(handleGetTime);
+    const handler = base.assemble({ handlers: [handleGetTime] });
     const compiled = compileHandlerDefinition(handler);
     expect(compiled.requests.has('get-time')).toBe(true);
 
@@ -40,7 +40,7 @@ describe('requests() capability — client to server', () => {
       run() {},
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleNoReply).primitives).handler(
+    await requestPrimitive(base.assemble({ handlers: [handleNoReply] }).primitives).handler(
       { respond } as never,
       {},
     );
@@ -55,11 +55,14 @@ describe('requests() capability — client to server', () => {
       },
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleCount).primitives).handler({ respond } as never, {});
+    await requestPrimitive(base.assemble({ handlers: [handleCount] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
     expect(respond).toHaveBeenCalledWith(0);
   });
 
-  it('responds with an explicit null (a nullable response, not "no answer")', async () => {
+  it('treats an explicit null as a void ack, not a response value', async () => {
     const base = define({ env: t<Env>(), capabilities: [requests()] });
     const handleFind = base.request('find', {
       run() {
@@ -67,8 +70,13 @@ describe('requests() capability — client to server', () => {
       },
     });
     const respond = vi.fn();
-    await requestPrimitive(base.assemble(handleFind).primitives).handler({ respond } as never, {});
-    expect(respond).toHaveBeenCalledWith(null);
+    await requestPrimitive(base.assemble({ handlers: [handleFind] }).primitives).handler(
+      { respond } as never,
+      {},
+    );
+    // `null` is nullish, so the builder leaves it unanswered — the runtime sends
+    // the empty correlated frame the client resolves with no value.
+    expect(respond).not.toHaveBeenCalled();
   });
 
   it('throws when base.request is used without the requests() capability', () => {

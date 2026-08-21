@@ -7,6 +7,8 @@ export {
   ValidationFailed,
   ChannelNotFound,
   ChannelNotSubscribed,
+  CrossInstanceRef,
+  DurableStreamRequiresUser,
   InternalError,
   NudgeOverflow,
   RateLimited,
@@ -29,7 +31,7 @@ export {
   WSKitConfigError,
   isWSKitConfigError,
   rethrowIfConfigError,
-  assertSyncResult,
+  assertSynchronousResult,
 } from './sync-guard.ts';
 export {
   isValidWSKitIdentifier,
@@ -37,3 +39,4 @@ export {
   WIRE_LIMITS,
   exceedsWireLimit,
 } from './identifier.ts';
+export type { WireMessage, WSKitEnvelope } from './wire.ts';

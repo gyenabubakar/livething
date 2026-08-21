@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { collectUnique } from '~/_engine/compile/utils.ts';
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import { adaptChannelContext } from '~/channel/ctx-adapter.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
@@ -12,6 +13,8 @@ import {
   onDisconnect,
   onError,
   onInit,
+  onPing,
+  onPong,
   onShutdown,
   onUpgrade,
   onValidationError,
@@ -20,12 +23,16 @@ import type { TypeMarker } from '~/_api/definitions.ts';
 import type { ChannelBuilder, ChannelHandlerValue } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 import type {
+  ChannelInbox,
+  ChannelReadReceipts,
+  ChannelRecipient,
   ConnectionInfo,
   ConnectionRef,
   InitContext,
   ShutdownContext,
   TagRef,
   TaskContext,
+  UserRef,
 } from '~/context.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
@@ -41,8 +48,17 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Validator } from '~/types.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
-import { assertHostObservationGranted, assertPluginDependencies } from './plugin.ts';
+// Keep every value import off `./plugin.ts` — it is a package entry, so a
+// bundler keeps it whole and one binding drags the plugin runtime into apps
+// that list no plugins. Type imports are free.
+import {
+  assertHostObservationGranted,
+  assertNoChannelOnlyCapabilities,
+  assertPluginDependencies,
+  assertUniquePluginIds,
+} from './plugin-checks.ts';
 import type {
+  AdminCtx,
   AppCtx,
   BroadcastRequestArm,
   BroadcastServerRequests,
@@ -51,7 +67,9 @@ import type {
 } from './app-ctx.ts';
 import type {
   AnyCapability,
+  BrandIsWidened,
   BrandsOf,
+  ChannelOnlyCapability,
   Contribution,
   MergeSlots,
   SlotOr,
@@ -61,8 +79,8 @@ import type { BuildContract, InferInput } from './contract.ts';
 import type { GrantableCapability } from './plugin.ts';
 
 /**
- * What an `upgrade(...)` function returns to accept a connection. Return an
- * `identity` (the stable per-user key) and optional `meta`. Throw
+ * What an `upgrade(...)` function returns to accept a connection. Return a
+ * `userId` (the stable per-user key) and optional `meta`. Throw
  * `RejectUpgrade(code, reason)` to refuse the handshake.
  *
  * `tags.ephemeral` seeds initial ephemeral tags before any handler runs — the
@@ -71,8 +89,13 @@ import type { GrantableCapability } from './plugin.ts';
  * `ctx.tags.persistent(group).add(key)`.
  */
 export interface UpgradeReturn<TMeta, TEphemeralGroups extends string = string> {
-  /** Stable key for the user behind this socket — used as the row key for durable state. */
-  readonly identity: string;
+  /**
+   * Stable key for the user behind this socket — used as the row key for durable
+   * state. Omit it (or return `undefined`) to accept the connection as
+   * **anonymous**: no user identity at all, with no cross-reconnect
+   * recognition and no durable state.
+   */
+  readonly userId?: string;
   /** Per-connection metadata, surfaced as `ctx.meta` in every handler. */
   readonly meta?: TMeta;
   /** Initial ephemeral tags to attach: `{ ephemeral: { group: key } }`. */
@@ -99,47 +122,74 @@ type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
 export interface DefineConfig<
   TEnv = unknown,
   TMeta = unknown,
-  TCaps extends readonly AnyCapability[] = readonly AnyCapability[],
+  // Defaults to no capabilities, not to every capability. `define(...)` infers
+  // the real list from the config it is given; the default only applies when
+  // this type is written out by hand, and a list of `AnyCapability` there would
+  // widen every capability brand to `string` — making the ctx gating pass for
+  // capabilities the server never listed.
+  TCaps extends readonly AnyCapability[] = readonly [],
 > {
   /** The platform env bindings type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;
-  /** Auth gate. Return `{ identity, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
+  /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: { readonly enabled: boolean };
+  /**
+   * Cap how many live connections one user may hold at once. `onExceed` decides
+   * what a would-be breaching connection does: `reject` refuses the newcomer
+   * (closed with `CAPACITY`), `replace` evicts the user's oldest connection(s)
+   * to make room (each closed with `DUPLICATE`). Omit for unlimited; when set it
+   * must be a positive whole number. Anonymous connections (no `userId`) have no
+   * user identity to count against and are never capped.
+   */
+  readonly users?: { readonly maxConnections?: number; readonly onExceed: 'replace' | 'reject' };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
   readonly capabilities?: TCaps;
-  /** Always absent on an app server — set only by a plugin's scoped handler (`scoped: true`). */
-  readonly scoped?: false;
+  /**
+   * Always absent on an app server. A scoped builder sets it instead — today
+   * only `'plugin'`.
+   */
+  readonly scope?: undefined;
 }
 
 /**
  * A capability a plugin is allowed to list — every capability except a
  * host-owned one. Host-owned engines (`dedup`/`sequence`/`keepalive`/
- * `persistence`/`rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one
- * inside `define({ scoped: true })` is a compile error. A plugin declares a
+ * `rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one inside
+ * `define({ scope: 'plugin' })` is a compile error. A plugin declares a
  * prerequisite on them instead.
  */
 export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
 
 /**
- * The configuration for a **plugin's** scoped handler (`scoped: true`). Authored
- * with the same builders as an app, but it declares only its own namespaced
- * slice and inherits the host's env, transport, and global singletons — so it
- * has no `env` field and cannot own host-level capabilities (see `plugin(...)`).
+ * A capability accepted at the host or plugin top level — every capability
+ * except a channel-only one. Channel-only capabilities (`inbox()`,
+ * `readReceipts()`) carry a `__channelOnly` marker, so listing one in
+ * `define({ capabilities })` or `define({ scope: 'plugin', capabilities })` is
+ * a compile error — they only belong inside a channel's own `capabilities`.
+ */
+export type TopLevelCapability = AnyCapability & { __channelOnly?: never };
+
+/**
+ * The configuration for a **plugin's** scoped handler (`scope: 'plugin'`).
+ * Authored with the same builders as an app, but it declares only its own
+ * namespaced slice and inherits the host's env, transport, and global
+ * singletons — so it has no `env` field and cannot own host-level capabilities
+ * (see `plugin(...)`).
  */
 export interface ScopedDefineConfig<
   TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
 > {
   /** Marks this as a plugin's scoped handler. */
-  readonly scoped: true;
+  readonly scope: 'plugin';
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
    * onion: it sees only the raw request, not the app's identity. Return
    * `meta` (shallow-merged, app wins on key conflict) and/or `tags`
    * (concatenated); throw `RejectUpgrade(...)` to veto the handshake. A plugin
-   * may own `identity` — but only one upgrade hook (the app's or one plugin's)
+   * may own `userId` — but only one upgrade hook (the app's or one plugin's)
    * may return it, or the build/runtime errors.
    */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
@@ -188,7 +238,7 @@ export type RequestHandlerValue<TEvent extends string, TPayload, TResponse> = Re
   TPayload,
   TResponse
 > &
-  Contribution<{ requests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
+  Contribution<{ clientRequests: Record<TEvent, { payload: TPayload; response: TResponse }> }>;
 
 /** Configuration object for `base.request(...)`. */
 export type RequestConfig<
@@ -506,12 +556,9 @@ type EmitPayloadOf<T> =
 type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
 
 /** The `out` (server→client payload) type one channel request declaration carries. */
-type ServerRequestPayloadOf<TDeclaration> =
-  TDeclaration extends TypeMarker<infer U>
-    ? U
-    : TDeclaration extends { out: TypeMarker<infer U> }
-      ? U
-      : unknown;
+type ServerRequestPayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> }
+  ? U
+  : unknown;
 
 /** The `in` (client→server answer) type one channel request declaration carries; `void` for an acknowledgement. */
 type ServerRequestResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> }
@@ -537,28 +584,40 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   readonly family: string | null;
   /** The `{name}` captures from a dynamic pattern. */
   readonly params: TParams;
-  /** Send a channel event to the calling connection. */
-  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
+  /**
+   * Send a channel event. Targets the calling connection by default; pass
+   * `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef` (all
+   * that user's member sockets), or a `TagRef`/`TagGroupHandle` (members that
+   * also hold the tag). Returns the number of sockets delivered to.
+   */
+  send<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    options?: { to?: ChannelRecipient },
+  ): number;
   /** Broadcast a channel event to its members. */
   broadcast<E extends keyof TOutgoing & string>(
     event: E,
     payload: TOutgoing[E],
-    options?: { excludeSelf?: boolean },
+    options?: { includeSelf?: boolean },
   ): void;
   /** Snapshot of the channel's members. */
   members(): ConnectionInfo<TMeta>[];
   /** Server-side subscribe a connection to this channel. */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
-  /** Remove a connection (or everyone holding a tag) from this channel. */
-  kick(target: ConnectionRef | TagRef, reason: string): Promise<void>;
-  /** Remove a durable membership by identity. */
-  removeMember(identity: string): Promise<void>;
+  /**
+   * Remove a user (or everyone holding a tag) from this channel. Pass
+   * `revoke: true` to also drop the durable membership row so the user does
+   * not auto-rejoin on reconnect.
+   */
+  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
   /**
    * Inject a synthetic replay frame for one of this channel's outgoing events.
    * Used from a channel custom-replay handler; `wire` carries the seq/messageId
-   * the client uses to dedup.
+   * the client uses to dedup. It is absent when replay is not active for this
+   * channel.
    */
-  sendReplay<E extends keyof TOutgoing & string>(
+  sendReplay?<E extends keyof TOutgoing & string>(
     event: E,
     payload: TOutgoing[E],
     wire: ReplayWire,
@@ -584,45 +643,89 @@ type ChannelBroadcastRequests<TServerRequests> = BroadcastServerRequests<{
  */
 type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> =
   'requests' extends BrandsOf<TCaps>
-    ? {
-        /**
-         * Ask the calling connection a server→client request this channel
-         * declared and resolve its typed answer.
-         */
-        request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
-          event: E,
-          payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
-            ? P
-            : never,
-          options?: { timeout?: number },
-        ): Promise<
-          ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
-        >;
-      } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
+    ? [keyof TServerRequests] extends [never]
+      ? {}
+      : {
+          /**
+           * Ask a server→client request this channel declared and resolve its
+           * typed answer. Targets the calling connection by default; pass `{ to }`
+           * to ask a specific member instead — a `ConnectionRef`, or a
+           * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
+           * answer from a matching member wins.
+           */
+          request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
+            event: E,
+            payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
+              ? P
+              : never,
+            options?: { timeout?: number; to?: ChannelRecipient },
+          ): Promise<
+            ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
+          >;
+        } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
     : {};
 
-/** The `ctx` a channel message handler receives — adds the typed `ctx.channel`. */
+/**
+ * The `inbox`/`readReceipts` arms added to `ctx.channel` when this channel's OWN
+ * `capabilities` list (not the host's) carries the matching brand — `inbox()`
+ * lands `ctx.channel.inbox`, `readReceipts()` lands `ctx.channel.readReceipts`.
+ * Both are always-present, non-null members here (unlike the nullable
+ * `handle.inbox()` / `handle.readReceipts()` methods on a `ctx.channels.get(...)`
+ * handle, which may name any channel).
+ *
+ * `TChannelBrand` widened all the way to `string` (a capabilities array typed
+ * with the bare `string` brand rather than a literal union) means every brand
+ * check below would pass at once, so that case grants nothing instead.
+ */
+type ChannelCapabilityArm<
+  TChannelBrand extends string,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+> =
+  BrandIsWidened<TChannelBrand> extends true
+    ? {}
+    : ('inbox' extends TChannelBrand ? { readonly inbox: ChannelInbox<TOutgoing> } : {}) &
+        ('readReceipts' extends TChannelBrand
+          ? { readonly readReceipts: ChannelReadReceipts }
+          : {});
+
+/**
+ * The `ctx` a channel message handler receives — adds the typed `ctx.channel`.
+ * Channel replay, when active, is scoped to that handle rather than the root.
+ */
 export type ChannelCtx<
   TSlots,
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
+  TChannelBrand extends string = never,
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'sendReplay'> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
-    ChannelRequestArm<TServerRequests, TCaps>;
+    ChannelRequestArm<TServerRequests, TCaps> &
+    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
-/** The looser `ctx` a channel gate/lifecycle hook receives (sends accept any channel event). */
+/**
+ * The looser `ctx` a channel gate/lifecycle hook receives (sends accept any
+ * channel event). Replay is exposed, when active, on `ctx.channel.sendReplay`;
+ * channel contexts do not expose the root `ctx.sendReplay` method.
+ */
 export type ChannelGateCtx<
   TSlots,
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
-> = AppCtx<TSlots, TEnv, TMeta, TCaps> & {
-  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta>;
+  TChannelBrand extends string = never,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+  /** `true` for check/commit/revalidate, whose ctx omits channel-only handles. */
+  TIsSubscribeGate extends boolean = false,
+  TServerRequests = {},
+> = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
+  readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
+    ChannelRequestArm<TServerRequests, TCaps> &
+    ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
 /**
@@ -660,13 +763,14 @@ export type ChannelConfig<
   TCaps extends readonly AnyCapability[] = readonly [],
   TSubscribe extends Validator | undefined = Validator | undefined,
   TCheckResult = unknown,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
 > = {
   /** Server→client events and requests this channel declares. */
   readonly outgoing?: {
     readonly emits?: Record<string, TypeMarker<any>>;
     /**
-     * Server→client requests this channel asks its members. Same `{ out, in }` /
-     * bare-marker shape as the top-level `requests({...})`. Declaring these needs
+     * Server→client requests this channel asks its members. Same `{ out, in? }`
+     * shape as the top-level `requests({...})`. Declaring these needs
      * the `requests()` capability listed; the channel overloads gate it at
      * compile time and the runtime throws as a backstop.
      */
@@ -674,25 +778,58 @@ export type ChannelConfig<
   };
   /** Schema validating the payload a client sends on subscribe. */
   readonly subscribe?: TSubscribe;
-  /** Async gate before the subscriber is counted. Return a value forwarded to `commit`; throw to reject. */
+  /**
+   * Async gate before the subscriber is counted. Return a value forwarded to
+   * `commit`; throw to reject. Written inside this same config object, before
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
+   */
   check?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
     input: InferInput<TSubscribe>,
   ) => TCheckResult | Promise<TCheckResult>;
-  /** Sync gate after the subscriber is counted (members include the joiner). Throw to reject. */
+  /**
+   * Sync gate after the subscriber is counted (members include the joiner).
+   * Throw to reject. Written inside this same config object, before
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
+   */
   commit?: (
-    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
     checkResult: Awaited<TCheckResult>,
   ) => void;
-  /** Re-authorize on auto-rejoin after reconnect (persistent memberships). Throw to drop. */
-  revalidate?: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>;
-  /** Keep membership durable (default true when persistence() is listed); set false to opt out. */
-  readonly persistent?: boolean;
+  /**
+   * Re-authorize on auto-rejoin after reconnect (persistent memberships).
+   * Throw to drop. Written inside this same config object, before
+   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
+   * `ctx.channel.request` / `broadcastRequest` are not available here — read
+   * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
+   * instead.
+   */
+  revalidate?: (
+    ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps, never, TOutgoing, true>,
+  ) => void | Promise<void>;
+  /** Whether membership survives a reconnect (default `'persistent'`). */
+  readonly membership?: 'persistent' | 'ephemeral';
   /**
    * Per-channel built-in replay opt-in/out, cascading from `define`. `true` is
    * shorthand for history mode with defaults; `false` opts this channel out.
    */
   readonly replay?: boolean;
+  /**
+   * This channel's own channel-only capabilities — `inbox()` for guaranteed
+   * per-member delivery, `readReceipts()` (needs `inbox()` on the same
+   * channel) for the read cursor. Unlike the host's `capabilities`, this list
+   * is scoped to the one channel.
+   */
+  readonly capabilities?: readonly ChannelOnlyCapability<{}, never, string>[];
 } & ChannelRateLimitField<TCaps>;
 
 /**
@@ -704,10 +841,28 @@ export type ChannelConfig<
 export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
   Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
 
+/**
+ * The client-visible capability flags a channel's own `capabilities` list
+ * turns on. Merged into the channel's contract slice so `InferClient` gates
+ * `receiversOf` to inbox channels and `markAsRead`/`readersOf` to channels
+ * with `readReceipts`. `TBrand` is the union of brands carried by the
+ * channel's `capabilities` array (see `BrandsOf`) — `inbox()`/`readReceipts()`
+ * each stamp their own brand, so their presence in that list lands the flag.
+ */
+type ChannelCapabilityFlags<TBrand extends string> = ('inbox' extends TBrand
+  ? { inbox: true }
+  : {}) &
+  ('readReceipts' extends TBrand ? { readReceipts: true } : {});
+
+/** Intersect a channel's capability flags onto its contract slice. */
+type ChannelFlagsContribution<TKey extends string, TBrand extends string> = Contribution<{
+  channels: { [K in TKey]: ChannelCapabilityFlags<TBrand> };
+}>;
+
 /** The channel's own contract slice — declared from its config and pattern. */
 type ChannelOwnSlice<
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TServerRequests = {},
@@ -724,12 +879,13 @@ type ChannelStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -739,7 +895,16 @@ type ChannelStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
@@ -752,12 +917,13 @@ type ChannelRecordedStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -769,7 +935,16 @@ type ChannelRecordedStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase & NudgesHandle<TNudges>;
     },
     input: InferInput<TInput extends Validator | undefined ? TInput : undefined>,
@@ -782,13 +957,14 @@ type ChannelResumableStreamConfig<
   TEnv,
   TMeta,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TInput,
   TChunk,
   TCursor,
   TNudges,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = DurableStreamOptions & {
   readonly input?: TInput;
   readonly chunk?: TypeMarker<TChunk>;
@@ -800,7 +976,16 @@ type ChannelResumableStreamConfig<
   /** Outbound backpressure limit in bytes used by `ctx.stream.drain()` (default 256 KB). */
   readonly highWaterMark?: number;
   run(
-    ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests> & {
+    ctx: ChannelCtx<
+      TSlots,
+      TEnv,
+      TMeta,
+      TParams,
+      TOutgoing,
+      TCaps,
+      TServerRequests,
+      TChannelBrand
+    > & {
       stream: StreamHandleBase &
         NudgesHandle<TNudges> & {
           /** The cursor recorded on the last run, or `null` on the first run. */
@@ -828,11 +1013,12 @@ interface ChannelStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a plain stream scoped to this channel. */
   stream<
@@ -852,7 +1038,8 @@ interface ChannelStreamMethod<
       TChunk,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -872,11 +1059,12 @@ interface ChannelResumableStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a resumable stream scoped to this channel. */
   resumableStream<
@@ -898,7 +1086,8 @@ interface ChannelResumableStreamMethod<
       TCursor,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -923,11 +1112,12 @@ interface ChannelRecordedStreamMethod<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a recorded stream scoped to this channel. */
   recordedStream<
@@ -947,7 +1137,8 @@ interface ChannelRecordedStreamMethod<
       TChunk,
       TNudges,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >,
   ): ChannelHandlerContribution<
     TKey,
@@ -971,12 +1162,13 @@ export type ChannelStreamMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TBrand extends string,
   TCaps extends readonly AnyCapability[],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = ('stream' extends TBrand
   ? ChannelStreamMethod<
       TSlots,
@@ -988,7 +1180,8 @@ export type ChannelStreamMethods<
       TAddressing,
       TSubscribe,
       TCaps,
-      TServerRequests
+      TServerRequests,
+      TChannelBrand
     >
   : {}) &
   ('resumableStream' extends TBrand
@@ -1002,7 +1195,8 @@ export type ChannelStreamMethods<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {}) &
   ('recordedStream' extends TBrand
@@ -1016,7 +1210,8 @@ export type ChannelStreamMethods<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {});
 
@@ -1026,11 +1221,12 @@ export type ChannelObject<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = ChannelObjectCore<
   TSlots,
   TEnv,
@@ -1041,7 +1237,8 @@ export type ChannelObject<
   TAddressing,
   TSubscribe,
   TCaps,
-  TServerRequests
+  TServerRequests,
+  TChannelBrand
 > &
   ChannelStreamMethods<
     TSlots,
@@ -1054,7 +1251,8 @@ export type ChannelObject<
     TSubscribe,
     BrandsOf<TCaps>,
     TCaps,
-    TServerRequests
+    TServerRequests,
+    TChannelBrand
   > &
   ChannelRefForm<TParams, TOutgoing, TAddressing, TServerRequests>;
 
@@ -1086,11 +1284,12 @@ export type ChannelObjectCore<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > = Omit<
   ChannelBuilder,
   | 'on'
@@ -1120,7 +1319,8 @@ export type ChannelObjectCore<
     TAddressing,
     TSubscribe,
     TCaps,
-    TServerRequests
+    TServerRequests,
+    TChannelBrand
   > &
   ('requests' extends BrandsOf<TCaps>
     ? ChannelRequestMethods<
@@ -1133,10 +1333,13 @@ export type ChannelObjectCore<
         TAddressing,
         TSubscribe,
         TCaps,
-        TServerRequests
+        TServerRequests,
+        TChannelBrand
       >
     : {}) &
-  ('intercepts' extends BrandsOf<TCaps> ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps> : {});
+  ('intercepts' extends BrandsOf<TCaps>
+    ? ChannelInterceptMethods<TSlots, TEnv, TMeta, TCaps, TChannelBrand, TOutgoing, TServerRequests>
+    : {});
 
 /** The `on` / lifecycle methods every channel object carries. */
 export interface ChannelCoreMethods<
@@ -1145,11 +1348,12 @@ export interface ChannelCoreMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a client→server event handler scoped to this channel. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
@@ -1157,7 +1361,16 @@ export interface ChannelCoreMethods<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests>,
+        ctx: ChannelCtx<
+          TSlots,
+          TEnv,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand
+        >,
         input: InferInput<TInput>,
       ): void | Promise<void>;
     } & RateLimitField<TCaps>,
@@ -1169,15 +1382,48 @@ export interface ChannelCoreMethods<
 
   /** Runs after a client subscribes to this channel. */
   subscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
+    ) => void | Promise<void>,
   ): void;
-  /** Runs on a true leave (explicit unsubscribe / removeMember), not a plain disconnect. */
+  /** Runs on a true leave (explicit unsubscribe / kick), not a plain disconnect. */
   unsubscribe(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
+    ) => void | Promise<void>,
   ): void;
   /** Runs on every session end, including a plain disconnect. */
   sessionEnd(
-    handler: (ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>,
+    handler: (
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
+    ) => void | Promise<void>,
   ): void;
   /** Register a custom replay strategy scoped to this channel. */
   replay(hooks: CustomReplayHooks): void;
@@ -1190,11 +1436,12 @@ export interface ChannelRequestMethods<
   TMeta,
   TKey extends string,
   TParams,
-  TOutgoing,
+  TOutgoing extends Record<string, unknown>,
   TAddressing extends string,
   TSubscribe,
   TCaps extends readonly AnyCapability[] = readonly [],
   TServerRequests = {},
+  TChannelBrand extends string = never,
 > {
   /** Register a client→server request handler scoped to this channel. */
   request<
@@ -1206,14 +1453,25 @@ export interface ChannelRequestMethods<
     config: {
       input?: TInput;
       run(
-        ctx: ChannelCtx<TSlots, TEnv, TMeta, TParams, TOutgoing, TCaps, TServerRequests>,
+        ctx: ChannelCtx<
+          TSlots,
+          TEnv,
+          TMeta,
+          TParams,
+          TOutgoing,
+          TCaps,
+          TServerRequests,
+          TChannelBrand
+        >,
         input: InferInput<TInput>,
       ): TResponse | Promise<TResponse>;
     } & RateLimitField<TCaps>,
   ): ChannelHandlerContribution<
     TKey,
     ChannelOwnSlice<TParams, TOutgoing, TAddressing, TSubscribe, TServerRequests>,
-    { requests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }> }
+    {
+      clientRequests: Record<TEvent, { payload: InferInput<TInput>; response: Awaited<TResponse> }>;
+    }
   >;
 }
 
@@ -1223,15 +1481,48 @@ export interface ChannelInterceptMethods<
   TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[],
+  TChannelBrand extends string = never,
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+  TServerRequests = {},
 > {
   /** Inspect every incoming frame in this channel before routing. One per channel. */
   intercept(
     handler: (
-      ctx: ChannelGateCtx<TSlots, TEnv, TMeta, TCaps>,
+      ctx: ChannelGateCtx<
+        TSlots,
+        TEnv,
+        TMeta,
+        TCaps,
+        TChannelBrand,
+        TOutgoing,
+        false,
+        TServerRequests
+      >,
       frame: InterceptFrame,
     ) => unknown | void,
   ): void;
 }
+
+/**
+ * Validates a channel's own `capabilities` array: `readReceipts()` needs
+ * `inbox()` listed on the SAME channel. An invalid combination collapses the
+ * accepted element type to `never`, so `readReceipts()` without `inbox()` in
+ * the same array is a compile error at the call site.
+ *
+ * A `T` whose brand has widened to `string` (rather than a literal union)
+ * can't be checked for that rule at all — 'readReceipts' extends BrandsOf<T>`
+ * would pass regardless of what's actually listed — so it is rejected the
+ * same way: the accepted element brand collapses to `never`, and the widened
+ * array fails to satisfy it at the call site.
+ */
+type ValidChannelCapabilities<T extends readonly ChannelOnlyCapability<{}, never, string>[]> =
+  BrandIsWidened<NonNullable<T[number]['__brand']>> extends true
+    ? readonly ChannelOnlyCapability<{}, never, never>[]
+    : 'readReceipts' extends BrandsOf<T>
+      ? 'inbox' extends BrandsOf<T>
+        ? T
+        : readonly ChannelOnlyCapability<{}, never, Exclude<BrandsOf<T>, 'readReceipts'>>[]
+      : T;
 
 /** Builder method granted by the `channels()` capability. */
 export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
@@ -1242,13 +1533,23 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
+    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     name: TName,
-    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+    config?: ChannelConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TCaps,
+      TSubscribe,
+      TCheckResult,
+      EmitMap<TEmits>
+    > & {
       readonly outgoing?: {
         readonly emits?: TEmits;
         readonly requests?: TRequests;
       };
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
     },
   ): ChannelObject<
     TSlots,
@@ -1260,8 +1561,10 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     'static',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>
-  >;
+    ServerRequestMap<TRequests>,
+    BrandsOf<TCapabilities>
+  > &
+    ChannelFlagsContribution<TName, BrandsOf<TCapabilities>>;
   /** Declare a dynamic channel family from `[familyKey, pattern]`. */
   channel<
     TFamily extends string,
@@ -1270,13 +1573,23 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
+    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
   >(
     pattern: readonly [TFamily, TPattern],
-    config?: ChannelConfig<TSlots, TEnv, TMeta, TCaps, TSubscribe, TCheckResult> & {
+    config?: ChannelConfig<
+      TSlots,
+      TEnv,
+      TMeta,
+      TCaps,
+      TSubscribe,
+      TCheckResult,
+      EmitMap<TEmits>
+    > & {
       readonly outgoing?: {
         readonly emits?: TEmits;
         readonly requests?: TRequests;
       };
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
     },
   ): ChannelObject<
     TSlots,
@@ -1288,8 +1601,10 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     'dynamic',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>
-  >;
+    ServerRequestMap<TRequests>,
+    BrandsOf<TCapabilities>
+  > &
+    ChannelFlagsContribution<TFamily, BrandsOf<TCapabilities>>;
 }
 
 /** Builder method granted by the `replay.custom()` capability. */
@@ -1340,12 +1655,13 @@ export interface InterceptMethods<TSlots, TEnv, TMeta, TCaps extends readonly An
  * (`on`, the lifecycle hooks, `intercept`, `assemble`) plus any methods the
  * listed capabilities grant through their brands.
  */
-export type Base<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> = CoreBase<
+export type Base<
   TSlots,
   TEnv,
   TMeta,
-  TCaps
-> &
+  TCaps extends readonly AnyCapability[],
+  TScoped extends boolean = false,
+> = CoreBase<TSlots, TEnv, TMeta, TCaps, TScoped> &
   CapabilityMethods<TSlots, TEnv, TMeta, BrandsOf<TCaps>, TCaps>;
 
 /**
@@ -1358,7 +1674,13 @@ export type PluginIdsOf<TSlots> = keyof SlotOr<TSlots, 'plugins'> extends never
   : keyof SlotOr<TSlots, 'plugins'> & string;
 
 /** The methods present on every `base`, whatever capabilities are listed. */
-export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
+export interface CoreBase<
+  TSlots,
+  TEnv,
+  TMeta,
+  TCaps extends readonly AnyCapability[],
+  TScoped extends boolean = false,
+> {
   /**
    * Register a handler for one client→server event. The handler is an
    * exportable value — pass it to `assemble(...)`. Exactly one handler per event
@@ -1370,13 +1692,24 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   ): IncomingHandlerValue<TEvent, InferInput<TSchema>>;
 
   /** Run once at server startup, before any connection. Use it for schema creation or migrations. */
-  init(handler: (ctx: InitContext<TEnv>) => void | Promise<void>): void;
+  onInit(handler: (ctx: InitContext<TEnv>) => void | Promise<void>): void;
   /** Run each time a connection opens, after `upgrade(...)` succeeds. */
-  connect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  onConnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run each time a connection closes, for any reason. `ctx.closeCode` / `ctx.closeReason` are set. */
-  disconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  onDisconnect(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  /**
+   * Run each time a client sends a `ping`. The server has already replied
+   * `pong` by then — this is for observing, not for answering.
+   */
+  onPing(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
+  /**
+   * Run each time a client answers a server `ping` with a `pong`. With
+   * `keepalive()` listed, the round-trip is already recorded, so `ctx.latency`
+   * is fresh here.
+   */
+  onPong(handler: (ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>) => void | Promise<void>): void;
   /** Run on any unhandled error from a handler. `event` is set when the error came from one. */
-  error(
+  onError(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       error: unknown,
@@ -1384,7 +1717,7 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
     ) => void | Promise<void>,
   ): void;
   /** Run when an incoming payload fails its schema validation. */
-  validationError(
+  onValidationError(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       event: string,
@@ -1392,16 +1725,16 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
     ) => void | Promise<void>,
   ): void;
   /** Run once when the server is shutting down. `ctx` is a server-wide context, with no single connection. */
-  shutdown(
+  onShutdown(
     handler: (ctx: ShutdownContext<TEnv, TMeta, unknown, TSlots>) => void | Promise<void>,
   ): void;
 
   /**
    * Inspect every outgoing frame before it is serialized. Return a value to
    * rewrite the payload, or nothing to observe. The event is locked. One
-   * `outgoing` hook per server.
+   * `onOutgoing` hook per server.
    */
-  outgoing(
+  onOutgoing(
     handler: (
       ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
       frame: OutgoingFrame<PluginIdsOf<TSlots>>,
@@ -1409,20 +1742,31 @@ export interface CoreBase<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapabil
   ): void;
 
   /**
-   * Collect every handler into the final server the platform adapter runs.
-   * Pass each `base.on(...)` (and, with their capabilities, `request` / `stream`
-   * / `channel` / `scheduled`) value. The upgrade hook, the lifecycle hooks, the
-   * intercept, and the listed capabilities are folded in automatically.
+   * Collect every handler into the final server the platform adapter runs. Pass
+   * the handlers as `{ handlers: [...] }` — each `base.on(...)` (and, with their
+   * capabilities, `request` / `stream` / `channel` / `scheduled`) value. The
+   * upgrade hook, the lifecycle hooks, the intercept, and the listed capabilities
+   * are folded in automatically.
+   *
+   * A scoped plugin handler (`define({ scope: 'plugin' })`) may also pass `api` —
+   * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
+   * is the plugin's own scoped ctx, the same one its handlers receive.
    *
    * Capabilities belong in `define({ capabilities: [...] })`, not here — passing
    * one is a type error.
    */
-  assemble<const THandlers extends readonly AssembleInput[]>(
-    ...handlers: THandlers
-  ): ServerDefinition<
+  assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
+    readonly handlers: THandlers;
+    readonly api?: (
+      ctx: TScoped extends true
+        ? AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>
+        : AdminCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
+    ) => TApi;
+  }): ServerDefinition<
     readonly Primitive[],
     BuildContract<MergeSlots<TSlots | SlotsOf<THandlers[number]>>>,
-    AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>
+    AppCtx<MergeSlots<TSlots | SlotsOf<THandlers[number]>>, TEnv, TMeta, TCaps>,
+    TApi
   >;
 }
 
@@ -1543,7 +1887,8 @@ function adaptUpgrade(fn: UpgradeFn<any>): UpgradeHandler {
     const result = await fn(request);
     const tags = toEphemeralTagRefs(result.tags?.ephemeral);
     return {
-      identity: result.identity,
+      // An anonymous upgrade omits userId; the engine keys it by connection id.
+      userId: result.userId ?? '',
       meta: result.meta,
       ...(tags.length > 0 ? { tags } : {}),
     };
@@ -1588,7 +1933,7 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
  *   async upgrade(request) {
  *     const username = new URL(request.url).searchParams.get('username');
  *     if (!username) throw RejectUpgrade(4001, 'Missing username');
- *     return { identity: username, meta: { username } };
+ *     return { userId: username, meta: { username } };
  *   },
  *   capabilities: [emits({ welcome: t<{ username: string }>() })],
  * });
@@ -1598,23 +1943,24 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
  *   run(ctx, input) { ctx.send('welcome', { username: input.text }); },
  * });
  *
- * export const handler = base.assemble(handlePing);
+ * export const handler = base.assemble({ handlers: [handlePing] });
  * ```
  */
 export function define<
   TEnv = unknown,
   TMeta = unknown,
-  const TCaps extends readonly GrantableCapability[] = readonly [],
+  const TCaps extends readonly (GrantableCapability & TopLevelCapability)[] = readonly [],
 >(
   config: DefineConfig<TEnv, TMeta, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
 export function define<
   TMeta = unknown,
-  const TCaps extends readonly PluginSafeCapability[] = readonly [],
+  const TCaps extends readonly (PluginSafeCapability & TopLevelCapability)[] = readonly [],
 >(
   config: ScopedDefineConfig<TMeta, TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps>;
-export function define(config: any): Base<any, any, any, any> {
+): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps, true>;
+export function define(config: any): any {
+  const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];
   const seen = new Set<string>();
 
@@ -1742,39 +2088,45 @@ export function define(config: any): Base<any, any, any, any> {
         registerServerRequests,
       });
     },
-    init(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('init', onInit(handler));
+    onInit(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onInit', onInit(handler));
     },
-    connect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('connect', onConnect(handler));
+    onConnect(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onConnect', onConnect(handler));
     },
-    disconnect(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('disconnect', onDisconnect(handler));
+    onDisconnect(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onDisconnect', onDisconnect(handler));
     },
-    error(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
+    onPing(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onPing', onPing(handler));
+    },
+    onPong(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onPong', onPong(handler));
+    },
+    onError(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>) {
       registerOnce(
-        'error',
+        'onError',
         onError((ctx: any, error: unknown, event?: string) =>
           handler(adaptChannelContext(ctx), error, event),
         ),
       );
     },
-    validationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
+    onValidationError(handler: (ctx: any, event: string, error: unknown) => void | Promise<void>) {
       registerOnce(
-        'validationError',
+        'onValidationError',
         onValidationError((ctx: any, event: string, error: unknown) =>
           handler(adaptChannelContext(ctx), event, error),
         ),
       );
     },
-    shutdown(handler: (ctx: any) => void | Promise<void>) {
-      registerOnce('shutdown', onShutdown(handler));
+    onShutdown(handler: (ctx: any) => void | Promise<void>) {
+      registerOnce('onShutdown', onShutdown(handler));
     },
     intercept(handler: (ctx: any, frame: InterceptFrame) => unknown | void) {
       registerOnce('intercept', interceptFactory(handler));
     },
-    outgoing(handler: (ctx: any, frame: OutgoingFrame) => unknown | void) {
-      registerOnce('outgoing', outgoingHookFactory(handler));
+    onOutgoing(handler: (ctx: any, frame: OutgoingFrame) => unknown | void) {
+      registerOnce('onOutgoing', outgoingHookFactory(handler));
     },
     replay(hooks: CustomReplayHooks) {
       let build: ReplayCustomCapability['__buildCustomReplay'] | undefined;
@@ -1795,9 +2147,16 @@ export function define(config: any): Base<any, any, any, any> {
       }
       registerOnce('replay', build(hooks));
     },
-    assemble(...items: readonly Contribution[]) {
+    assemble(assembleConfig: {
+      handlers: readonly Contribution[];
+      api?: (ctx: unknown) => unknown;
+    }) {
+      const items = assembleConfig.handlers;
+      const api = assembleConfig.api;
+      assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertHostObservationGranted(config.capabilities ?? []);
+      assertNoChannelOnlyCapabilities(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
       const scheduledBodies = new Map<
         string,
@@ -1902,7 +2261,7 @@ export function define(config: any): Base<any, any, any, any> {
       const primitives: Primitive[] = [];
       if (config.upgrade) {
         primitives.push(
-          config.scoped
+          scoped
             ? scopedUpgradePrimitive(adaptUpgrade(config.upgrade))
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
@@ -1977,21 +2336,31 @@ export function define(config: any): Base<any, any, any, any> {
         }
       }
 
-      // Enforce every primitive's capability requirements (durable streams and
-      // persistent tags need persistence, etc.) against what is listed. On an
-      // app a missing one throws; on a plugin a host-owned requirement is
-      // returned as a host dependency the host must satisfy.
+      // Enforce every primitive's capability requirements against what is
+      // listed. On an app a missing one throws; on a plugin a host-owned
+      // requirement is returned as a host dependency the host must satisfy.
       const { hostDependencies } = resolveCapabilityRequirements(
         primitives,
         config.capabilities ?? [],
-        { scoped: !!config.scoped },
+        { scoped },
       );
+
+      if (config.users) {
+        assertOptionalPositiveInteger(
+          config.users.maxConnections,
+          'maxConnections',
+          'define({ users })',
+        );
+      }
 
       return Object.freeze({
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
-        ...(config.scoped
+        ...(config.users ? { __usersPolicy: config.users } : {}),
+        // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
+        ...(api ? { __apiFactory: api } : {}),
+        ...(scoped
           ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }
           : {}),
       });

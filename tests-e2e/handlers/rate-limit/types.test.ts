@@ -5,7 +5,7 @@ describe('RateLimitClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<RateLimitClient['incoming']>().not.toBeAny();
     expectTypeOf<RateLimitClient['outgoing']>().not.toBeAny();
-    expectTypeOf<RateLimitClient['requests']>().not.toBeAny();
+    expectTypeOf<RateLimitClient['clientRequests']>().not.toBeAny();
     expectTypeOf<RateLimitClient['streams']>().not.toBeAny();
     expectTypeOf<RateLimitClient['channels']>().not.toBeAny();
     expectTypeOf<RateLimitClient['errors']>().not.toBeAny();
@@ -52,16 +52,16 @@ describe('RateLimitClient — top-level outgoing (server incoming)', () => {
   });
 });
 
-describe('RateLimitClient — top-level requests', () => {
+describe('RateLimitClient — top-level clientRequests', () => {
   it('has echo-req', () => {
-    expectTypeOf<RateLimitClient['requests']>().toHaveProperty('echo-req');
+    expectTypeOf<RateLimitClient['clientRequests']>().toHaveProperty('echo-req');
   });
 
   it('echo-req has correct payload and response', () => {
-    expectTypeOf<RateLimitClient['requests']['echo-req']['payload']>().toEqualTypeOf<{
+    expectTypeOf<RateLimitClient['clientRequests']['echo-req']['payload']>().toEqualTypeOf<{
       text: string;
     }>();
-    expectTypeOf<RateLimitClient['requests']['echo-req']['response']>().toEqualTypeOf<{
+    expectTypeOf<RateLimitClient['clientRequests']['echo-req']['response']>().toEqualTypeOf<{
       text: string;
     }>();
   });

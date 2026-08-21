@@ -18,10 +18,10 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import type * as ChannelRuntime from '~/channel/runtime.ts';
+import type { MembershipKey } from '~/channel/storage.ts';
 import type { ConnectionInfo, ConnectionRef, SQLProvider } from '~/context.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RunInterceptsOptions } from '~/intercept/runtime.ts';
-import type { MembershipKey } from '~/persistence/storage.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
@@ -111,12 +111,12 @@ export type RequestDispatch = (
 ) => Promise<void>;
 
 /**
- * Durable channel-membership and persistent-tag operations. Set by the
- * `persistence()` capability, so a handler without it never pulls the membership
- * storage, rejoin, or tag-storage code. Each op already no-ops when persistence
- * is off, so an unset slot is the same as the disabled path.
+ * Durable channel-membership operations. Set by the `channels()` capability,
+ * so a handler without it never pulls the membership storage or rejoin code.
+ * Each op already no-ops for a channel opted out with `membership: 'ephemeral'`,
+ * so an unset slot is the same as the opted-out path.
  */
-export interface PersistenceService {
+export interface ChannelMembershipService {
   persistMembership(core: any, key: MembershipKey): void;
   deleteDurableMembership(core: any, key: MembershipKey): void;
   hasDurableMembership(core: any, key: MembershipKey): boolean;
@@ -125,6 +125,13 @@ export interface PersistenceService {
     subscribeFromServer: any,
     connection: RuntimeConnection,
   ): Promise<void>;
+}
+
+/**
+ * The persistent-tag restore operation. Set by the `tags()` capability, so a
+ * handler without it never pulls the tag storage or rejoin code.
+ */
+export interface TagPersistenceService {
   restorePersistentTags(opts: any): void;
 }
 
@@ -164,15 +171,6 @@ export type RunIntercepts = (
 ) => Promise<InterceptFrame>;
 
 /**
- * The frame matchers behind `ctx.matches` / `ctx.unsafeCast`. Set by the
- * `intercepts()` capability; the ctx methods throw without it.
- */
-export interface FrameMatch {
-  matches(compiled: any, key: string, frame: InterceptFrame): boolean;
-  unsafeCast(compiled: any, key: string, frame: InterceptFrame): InterceptFrame;
-}
-
-/**
  * The channel subscribe/leave/kick runtime. Set by the `channels()` capability,
  * so a handler without it never pulls the membership-protocol engine, the
  * subscribe/unsubscribe frame handlers, or the member-sync code. Each method
@@ -206,10 +204,6 @@ export interface ChannelService {
     channelFamily: string | null,
   ): ConnectionInfo<Record<string, unknown>>[];
   kickChannelMembers(core: any, opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
-  removeChannelMember(
-    core: any,
-    key: { channelName: string; channelFamily: string | null; identity: string },
-  ): Promise<void>;
   subscribeFromServer(
     core: any,
     ref: ConnectionRef,
@@ -229,6 +223,79 @@ export interface ChannelContext {
   buildChannelFamilyExtra: typeof buildChannelFamilyExtra;
 }
 
+/** Inbox settings resolved for one channel, stored on the engine core. */
+export interface ResolvedInboxOptions {
+  onDelivered: 'delete' | 'retain';
+  retention?: { maxAgeMs?: number; maxMessages?: number };
+  /** Whether the delivered `__received__` tick is pushed live to other members. Off by default. */
+  broadcastReceipts: boolean;
+  /** Member cap for the delivered `__received__` fan-out. Defaults to 256. */
+  maxReceiptAudience: number;
+}
+
+/** Read-receipts settings resolved for one channel, stored on the engine core. */
+export interface ResolvedReadReceiptsOptions {
+  /** Member cap for the read `__read__` fan-out. Defaults to 256. */
+  maxReceiptAudience: number;
+}
+
+/**
+ * The last-seen dispatch surface. Set by the `lastSeen()` capability, so a
+ * handler without it never pulls the last-seen storage. Other capabilities read
+ * it off the engine core through this slot with a type-only import, keeping
+ * `last-seen/` tree-shaken out when unused.
+ */
+export interface LastSeenService {
+  /** The last-seen timestamp (ms) for a user, or `null` when never seen. */
+  at(userId: string): number | null;
+  /** Whether a user has a live connection on this instance right now. */
+  online(userId: string): boolean;
+}
+
+/**
+ * A function that grafts extra members onto a freshly built channel handle. Set
+ * by capabilities that own a per-channel surface reachable from any handle
+ * (inbox, read receipts), so `channels()` never value-imports them. Each runs
+ * against every handle `buildChannelHandle` produces — both `ctx.channel` and
+ * `ctx.channels.get(...)`.
+ */
+export type ChannelHandleAugmenter = (
+  handle: Record<PropertyKey, unknown>,
+  scope: { channelName: string; channelFamily: string | null },
+) => void;
+
+/**
+ * The inbox dispatch surface. Set by the `inbox()` capability, so a handler
+ * without it never pulls the inbox storage, fan-out, or drain code. `fanOut`
+ * runs once per logical channel broadcast (not once per recipient); the other
+ * methods run on reconnect drain and on leave.
+ */
+export interface InboxService {
+  /**
+   * Write a per-member copy for every durable member of the channel, keyed on
+   * the `seq`/`messageId` the broadcast already stamped so each row matches the
+   * live frame the member also receives.
+   */
+  fanOut(
+    core: any,
+    opts: {
+      channelName: string;
+      channelFamily: string | null;
+      event: string;
+      payload: Record<string, unknown>;
+      seq: number;
+      messageId: string;
+    },
+  ): void;
+  /** Re-deliver a user's owed rows after its socket reconnects. */
+  drainOnReconnect(core: any, connection: RuntimeConnection): void;
+  /** Drop a user's rows for a channel it has just left. */
+  clearChannel(
+    core: any,
+    key: { userId: string; channelName: string; channelFamily: string | null },
+  ): void;
+}
+
 /** The bag of optional feature slots the engine core carries. */
 export interface FeatureDispatchSlots {
   streamTrigger?: StreamTrigger;
@@ -238,6 +305,8 @@ export interface FeatureDispatchSlots {
   requestDispatch?: RequestDispatch;
   channelService?: ChannelService;
   channelContext?: ChannelContext;
+  inboxService?: InboxService;
+  lastSeenService?: LastSeenService;
 }
 
 /** Re-exported so the durable dispatch service can satisfy the runtime contract. */

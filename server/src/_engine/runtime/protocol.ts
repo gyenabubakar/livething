@@ -140,6 +140,36 @@ export const MemberSyncRequestFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
+export const ReceivedFrame = v.object({
+  event: v.literal('__received__'),
+  payload: v.strictObject({ receivedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const ReadFrame = v.object({
+  event: v.literal('__read__'),
+  payload: v.strictObject({ readThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+/**
+ * The incoming half of a receipt query. The client asks who has received up to
+ * `seq` on `__receivedQuery__`, or who has read up to `seq` on `__readQuery__`.
+ * Each answer comes back under the same event name, paired only by
+ * `correlationId` (like `__error__`).
+ */
+export const ReceivedQueryFrame = v.object({
+  event: v.literal('__receivedQuery__'),
+  payload: v.strictObject({ seq: NonNegativeSafeInt }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
+export const ReadQueryFrame = v.object({
+  event: v.literal('__readQuery__'),
+  payload: v.strictObject({ seq: NonNegativeSafeInt }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
 /** All frames the client may send into the engine, discriminated on `event`. */
 export const IncomingProtocolFrame = v.variant('event', [
   SubscribeFrame,
@@ -148,6 +178,10 @@ export const IncomingProtocolFrame = v.variant('event', [
   StreamCancelFrame,
   ResumeStreamFrame,
   MemberSyncRequestFrame,
+  ReceivedFrame,
+  ReadFrame,
+  ReceivedQueryFrame,
+  ReadQueryFrame,
 ]);
 
 export const SubscribeOkFrame = v.object({
@@ -155,13 +189,17 @@ export const SubscribeOkFrame = v.object({
   payload: NoPayload,
   // `source` is who initiated the subscribe: 'client' (the client's own
   // subscribe call, so it resolves that pending promise) or 'server' (the server
-  // subscribed it, so there is no client promise to settle). `channelPersistent`
-  // tells the client whether this channel auto-rejoins on reconnect (server
-  // -driven) so it knows not to re-subscribe it itself.
+  // subscribed it, so there is no client promise to settle). `channelMembership`
+  // tells the client whether this channel auto-rejoins on reconnect ('persistent',
+  // server-driven) or not ('ephemeral') so it knows not to re-subscribe it itself.
+  // `inbox` marks a channel whose delivery is inbox-backed, so the client acks
+  // only these with `__received__` and stays quiet on the rest.
   __wskit: v.strictObject({
     ...RequiredChannelScope,
     source: Source,
-    channelPersistent: v.optional(v.boolean()),
+    channelMembership: v.picklist(['persistent', 'ephemeral']),
+    inbox: v.optional(v.boolean()),
+    readReceipts: v.optional(v.boolean()),
   }),
 });
 
@@ -273,6 +311,42 @@ export const MemberSyncFrame = v.object({
   __wskit: v.strictObject({ ...RequiredChannelScope, source: v.optional(Source) }),
 });
 
+export const ReceivedFanoutFrame = v.object({
+  event: v.literal('__received__'),
+  payload: v.strictObject({ userId: v.string(), receivedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+export const ReadFanoutFrame = v.object({
+  event: v.literal('__read__'),
+  payload: v.strictObject({ userId: v.string(), readThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
+/**
+ * The outgoing half of a receipt query. Shares its event name with the incoming
+ * request (`__receivedQuery__` / `__readQuery__`) and echoes its `correlationId`;
+ * the client pairs the two by correlation id alone, exactly as `__error__` does.
+ */
+export const ReceivedQueryResultFrame = v.object({
+  event: v.literal('__receivedQuery__'),
+  payload: v.strictObject({ userIds: v.array(v.string()) }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
+export const ReadQueryResultFrame = v.object({
+  event: v.literal('__readQuery__'),
+  payload: v.strictObject({ userIds: v.array(v.string()) }),
+  __wskit: v.strictObject({ ...RequiredChannelScope, correlationId: WireId }),
+});
+
+export const GapFrame = v.object({
+  event: v.literal('__gap__'),
+  // `missedThrough` is the highest seq the server pruned for this scope; below it, a client missed at least up to it.
+  payload: v.strictObject({ missedThrough: NonNegativeSafeInt }),
+  __wskit: v.strictObject(ReplayScope),
+});
+
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
@@ -287,6 +361,11 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberOnlineFrame,
   MemberOfflineFrame,
   MemberSyncFrame,
+  ReceivedFanoutFrame,
+  ReadFanoutFrame,
+  ReceivedQueryResultFrame,
+  ReadQueryResultFrame,
+  GapFrame,
 ]);
 
 /**
@@ -319,6 +398,106 @@ export const UserEventFrameSchema = v.strictObject({
   __wskit: v.optional(WSKitProtocolSchema),
 });
 
+const WSKIT_KEYS = new Set(Object.keys(WSKitProtocolSchema.entries));
+
+// The `__wskit` fields that are a bounded string, with each field's length cap.
+const WIRE_STRING_FIELDS: ReadonlyArray<[keyof WSKitProtocol, number]> = [
+  ['correlationId', WIRE_LIMITS.wireId],
+  ['channel', WIRE_LIMITS.channel],
+  ['streamId', WIRE_LIMITS.streamId],
+  ['streamNudgeId', WIRE_LIMITS.wireId],
+  ['eventName', WIRE_LIMITS.event],
+  ['messageId', WIRE_LIMITS.wireId],
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function withinWireLimit(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= max;
+}
+
+/**
+ * Validate a user-event frame directly, skipping valibot's per-field walk on the
+ * hot path. Returns the parsed frame, or `null` when the frame deviates in any
+ * way — the caller falls back to `v.parse(UserEventFrameSchema, …)` to raise the
+ * exact ValiError. Mirrors {@link WSKitProtocolSchema} exactly: the same
+ * wire-limit bounds, the `channelFamily` null default, and strict rejection of
+ * unknown keys.
+ */
+function fastParseUserEventFrame(input: unknown): UserEventFrame | null {
+  if (!isRecord(input)) return null;
+  for (const key in input) {
+    if (key !== 'event' && key !== 'payload' && key !== '__wskit') return null;
+  }
+  if (!withinWireLimit(input.event, WIRE_LIMITS.event)) return null;
+
+  if (input.__wskit === undefined) return { event: input.event, payload: input.payload };
+
+  const wskit = fastParseWSKit(input.__wskit);
+  if (wskit === null) return null;
+  return { event: input.event, payload: input.payload, __wskit: wskit };
+}
+
+function fastParseWSKit(input: unknown): WSKitProtocol | null {
+  if (!isRecord(input)) return null;
+  for (const key in input) {
+    if (!WSKIT_KEYS.has(key)) return null;
+  }
+
+  // `channelFamily` is nullish (always present, defaulting to null); the rest are
+  // optional and added only when the frame carries them.
+  const out: WSKitProtocol = { channelFamily: null };
+
+  for (const [key, max] of WIRE_STRING_FIELDS) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (!withinWireLimit(value, max)) return null;
+    (out as Record<string, unknown>)[key] = value;
+  }
+
+  if (input.source !== undefined) {
+    if (input.source !== 'server' && input.source !== 'client') return null;
+    out.source = input.source;
+  }
+  if (input.streamKind !== undefined) {
+    if (input.streamKind !== 'ephemeral' && input.streamKind !== 'persistent') return null;
+    out.streamKind = input.streamKind;
+  }
+  if (input.streamTerminated !== undefined) {
+    if (typeof input.streamTerminated !== 'boolean') return null;
+    out.streamTerminated = input.streamTerminated;
+  }
+  if (input.seq !== undefined) {
+    const seq = input.seq;
+    if (
+      typeof seq !== 'number' ||
+      !Number.isInteger(seq) ||
+      seq < 0 ||
+      seq > Number.MAX_SAFE_INTEGER
+    )
+      return null;
+    out.seq = seq;
+  }
+
+  if (input.channelFamily !== undefined && input.channelFamily !== null) {
+    if (!withinWireLimit(input.channelFamily, WIRE_LIMITS.channelFamily)) return null;
+    out.channelFamily = input.channelFamily;
+  }
+
+  return out;
+}
+
+/**
+ * Parse a user-event frame off the wire. Tries the direct validator first and
+ * falls back to valibot only when a frame is malformed, so an invalid frame
+ * still throws the same detailed `ValiError`.
+ */
+export function parseUserEventFrame(input: unknown): UserEventFrame {
+  return fastParseUserEventFrame(input) ?? v.parse(UserEventFrameSchema, input);
+}
+
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
 export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;
@@ -333,6 +512,10 @@ export type ReplayFrame = v.InferOutput<typeof ReplayFrame>;
 export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 export type MemberSyncRequestFrame = v.InferOutput<typeof MemberSyncRequestFrame>;
+export type ReceivedFrame = v.InferOutput<typeof ReceivedFrame>;
+export type ReadFrame = v.InferOutput<typeof ReadFrame>;
+export type ReceivedQueryFrame = v.InferOutput<typeof ReceivedQueryFrame>;
+export type ReadQueryFrame = v.InferOutput<typeof ReadQueryFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
@@ -346,6 +529,11 @@ export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
 export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
 export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
 export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
+export type ReceivedFanoutFrame = v.InferOutput<typeof ReceivedFanoutFrame>;
+export type ReadFanoutFrame = v.InferOutput<typeof ReadFanoutFrame>;
+export type ReceivedQueryResultFrame = v.InferOutput<typeof ReceivedQueryResultFrame>;
+export type ReadQueryResultFrame = v.InferOutput<typeof ReadQueryResultFrame>;
+export type GapFrame = v.InferOutput<typeof GapFrame>;
 
 /** Names of the protocol events the client may send into the engine. */
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];

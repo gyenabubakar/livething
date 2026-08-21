@@ -22,15 +22,18 @@
 		const sock = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-durable?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+		ws = sock;
 		sock.onopen = () => {
-			ws = sock;
+			if (ws !== sock) return;
 			status = 'connected';
 		};
 		sock.onclose = () => {
+			if (ws !== sock) return;
 			ws = null;
 			status = 'disconnected';
 		};
 		sock.onmessage = (ev) => {
+			if (ws !== sock) return;
 			if (typeof ev.data !== 'string') return;
 			allMsgCount += 1;
 			const data = JSON.parse(ev.data);

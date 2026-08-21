@@ -43,7 +43,7 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
 
 /**
  * True when `name` is a reserved protocol name that can't be a user event:
- * the bare `ping`/`pong` control frames, or anything in the engine's `__x__`
+ * the bare `ping`/`pong` control frames, or anything in the protocol's `__x__`
  * namespace (and an empty/non-string name).
  *
  * Plugin-owned events are namespaced `__<id>::event`. The `__` prefix alone

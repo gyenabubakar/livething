@@ -15,10 +15,8 @@ test.describe('protocol pings', () => {
     await expect(page.getByTestId('last-message')).toHaveText('pong');
   });
 
-  test('JSON {event:ping} is no longer answered — raw text is the only ping form', async ({
-    page,
-  }) => {
-    // The server speaks only raw "ping"/"pong" now (matches the documented wire
+  test('JSON {event:ping} is not answered — raw text is the only ping form', async ({ page }) => {
+    // The server speaks only raw "ping"/"pong" (matches the documented wire
     // format and the Cloudflare hibernation auto-response). A JSON ping is
     // treated like any unknown frame: ignored, no pong.
     await page.getByTestId('json-ping').click();

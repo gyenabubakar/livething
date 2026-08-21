@@ -1,5 +1,7 @@
 import { ChannelNotSubscribed } from '@wskit/core';
 import { Disconnected } from '~/errors.ts';
+import { idGenerator } from '~/internal/id.ts';
+import { namespacePrefixOf } from '~/internal/namespace.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import { familyKeyError, isReservedEventName, wireIdError } from '~/internal/wire-validation.ts';
 import type { PrimitiveHelpers, SendResult } from '~/internal/runtime.ts';
@@ -24,6 +26,17 @@ export interface ChannelContext {
   listFamily(familyKey: string): string[];
 }
 
+/**
+ * The `__<id>::` prefix a plugin-owned channel puts on its child event names. A
+ * plugin owns its channel's events under its namespace, so both directions carry
+ * the prefix: outgoing sends add it, incoming frames strip it. The source is the
+ * family KEY for a dynamic member (whose channel name is a plain instance value),
+ * else the channel name; it is `''` for a non-plugin channel or one with no `::`.
+ */
+export function channelEventPrefix(channelName: string, familyKey: string | undefined): string {
+  return namespacePrefixOf(familyKey ?? channelName);
+}
+
 /** The routing fields (`__wskit`) that identify this channel on outgoing frames. */
 export function channelMarkers(state: ChannelState): ScopeMarkers {
   // Use an explicit absence check, not truthiness: a supplied family key is always
@@ -40,6 +53,10 @@ export function buildChannelMessaging(
   state: ChannelState,
 ): MessagingObject {
   const { helpers } = context;
+
+  // A plugin-owned channel namespaces its child event names on the way out, the
+  // mirror of the incoming strip; a plain app channel gets '' and is unchanged.
+  const eventPrefix = channelEventPrefix(state.name, state.familyKey);
 
   // `markers()` returns the routing fields stamped on every outgoing frame.
   // `assertReady` throws if the channel isn't subscribed yet — all sending methods
@@ -67,12 +84,15 @@ export function buildChannelMessaging(
     },
     send(event, payload, options) {
       assertReady();
-      // A reserved protocol name (ping/pong or the __ namespace) can't be a user
-      // event — the server drops it, so don't put it on the wire.
-      if (isReservedEventName(event)) return false;
+      // Validate the actual wire name. A plugin channel turns `ping` into a
+      // namespaced user event, while a plain channel keeps it as a protocol
+      // frame and must still reject it.
+      if (typeof event !== 'string' || event.length === 0) return false;
+      const wireEvent = eventPrefix + event;
+      if (isReservedEventName(wireEvent)) return false;
       const ttl = options?.ttl ?? context.resolveTtl(event);
       const result = helpers.send(
-        { event, payload, __wskit: markers() },
+        { event: wireEvent, payload, __wskit: markers() },
         ttl !== undefined ? { ttl } : undefined,
       );
       return result === 'sent' || result === 'buffered';
@@ -116,11 +136,7 @@ export function buildChannelMessaging(
       // old payload promise rejecting after a newer subscribe) clobbering the new one.
       function failSubscribe(error: unknown): void {
         if (state.pending !== thisPending) return;
-        thisPending?.reject(error);
-        state.pending = null;
-        state.pendingPromise = null;
-        state.pendingSubscribeFrame = null;
-        state.releaseLazy();
+        state.failPendingSubscribe(error);
       }
 
       function sendSubscribe(resolved: unknown): void {
@@ -196,7 +212,7 @@ export function buildChannelMessaging(
       state.markUnsubscribed();
       if (state.familyKey) context.family(state.familyKey).fireUnsubscribed(state.name);
 
-      const unsubscribeId = helpers.generateId('unsub');
+      const unsubscribeId = idGenerator(helpers)('unsub');
       const promise = state.beginLeave(unsubscribeId);
       const result = helpers.rawSend({
         event: '__unsubscribe__',
@@ -228,7 +244,14 @@ export function buildChannelMessaging(
     onSubscriptionFailed: state.onSubscriptionFailed,
   };
 
-  applyAugmenters(context.socket, messaging, { markers, assertReady });
+  applyAugmenters(context.socket, messaging, {
+    markers,
+    assertReady,
+    // On a plugin channel the request/stream/onStream/resumeStream augmenters
+    // namespace their event names too, symmetric with `send`; a plain app channel
+    // gets no prefixName and leaves names bare.
+    prefixName: eventPrefix ? (name) => eventPrefix + name : undefined,
+  });
   return messaging;
 }
 

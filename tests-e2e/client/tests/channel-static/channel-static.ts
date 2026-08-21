@@ -1,4 +1,4 @@
-import { channels, client, connect, platform, requestResponse, stream } from '@wskit/client';
+import { channels, client, clientRequests, connect, platform, stream } from '@wskit/client';
 import { WebEnvironment } from '@wskit/client/environment';
 import type { ChannelStaticClient } from '@wskit/tests-e2e-handlers/channel-static';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
@@ -40,7 +40,7 @@ export function setup(): void {
 
   const socket = client<ChannelStaticClient>()(
     connect(wsUrl('channel-static')),
-    requestResponse(),
+    clientRequests(),
     channels(),
     stream(),
     platform({

@@ -79,6 +79,17 @@ export interface CompiledChannel {
  * The compile step converts the declarative primitive list into maps and flags
  * so the runtime can answer questions quickly while messages are flowing.
  */
+/**
+ * How the server caps the number of live connections one user may hold at once.
+ * `maxConnections` is the ceiling; `onExceed` decides what happens when a new
+ * connection would breach it — `reject` refuses the newcomer, `replace` evicts
+ * the user's oldest connection(s) to make room. Absent means unlimited.
+ */
+export interface UsersPolicy {
+  maxConnections?: number;
+  onExceed: 'replace' | 'reject';
+}
+
 export interface CompiledServer {
   outgoing: Map<string, AnyOutgoing>;
 
@@ -111,6 +122,9 @@ export interface CompiledServer {
    * outgoing messages too — that's the auto-cascade behavior.
    */
   replayClaimedChannelKeys: Set<string>;
+
+  /** Per-user connection cap from `define({ users: {...} })`, or `undefined` for unlimited. */
+  usersPolicy?: UsersPolicy;
 }
 
 export type { ChannelPrimitive, OutgoingPrimitive, RequestPrimitive };

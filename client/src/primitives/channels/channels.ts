@@ -1,15 +1,18 @@
 import { Disconnected } from '~/errors.ts';
 import { channelKey } from '~/internal/channel-key.ts';
-import { toWSKitError } from '~/internal/error-frame.ts';
+import { toWSKitError, unscopeErrorCode } from '~/internal/error-frame.ts';
+import { getAugmenters, scopedName } from '~/internal/scoped.ts';
 import { isProtocolFrameEvent } from '~/internal/wire-validation.ts';
+import { markRejoinConfirmation } from '~/primitives/channels/leave-confirmation.ts';
 import {
   buildChannelMessaging,
   buildFamilyHandle,
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
 import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
-import type { WireMessage } from '~/internal/runtime.ts';
-import type { MessagingObject } from '~/internal/scoped.ts';
+import type { WSKitError } from '@wskit/core';
+import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type { MessagingObject, ScopeInfo } from '~/internal/scoped.ts';
 import type { ChannelContext, FamilyHandle } from '~/primitives/channels/messaging.ts';
 import type {
   ChannelsOptions,
@@ -25,15 +28,11 @@ const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
  * channel travels as `__<id>::<room>` and its emits as `__<id>::<event>`, but
  * the client contract registers each handler under the bare `<event>` — so an
  * event sharing the channel's `__<id>::` prefix is delivered under its short
- * name. A non-plugin channel (no `__<id>::` prefix) and any event that doesn't
- * carry the channel's own prefix pass through untouched.
+ * name. A non-plugin channel (whose prefix is `''`) and any event that doesn't
+ * carry the prefix pass through untouched.
  */
-function channelEventName(channelName: string, event: string): string {
-  if (!channelName.startsWith('__')) return event;
-  const delimAt = channelName.indexOf('::');
-  if (delimAt < 0) return event;
-  const prefix = channelName.slice(0, delimAt + 2);
-  return event.startsWith(prefix) ? event.slice(prefix.length) : event;
+function channelEventName(prefix: string, event: string): string {
+  return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : event;
 }
 
 /** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
@@ -46,6 +45,30 @@ function readMember(
     connectionId: fields.connectionId,
     meta: fields.meta as Record<string, unknown> | undefined,
   };
+}
+
+/** The host `channel` method: a fixed/dynamic getter plus `.family`. */
+type HostChannel = {
+  (nameOrFamily: string, name?: string): MessagingObject;
+  family(familyKey: string): FamilyHandle;
+};
+
+/**
+ * Wrap the host `channel` method for a plugin scope. A plugin owns its namespace,
+ * so the static channel name and the dynamic family KEY are prefixed with
+ * `__<id>::` on the way to the wire. A family's concrete member name is a runtime
+ * value the server matches against the (un-prefixed) family pattern, so it is left
+ * as the plugin wrote it — which also means the family handle already surfaces
+ * plain member names, with nothing to strip.
+ */
+function scopedChannelMethod(channel: HostChannel, scope: ScopeInfo): HostChannel {
+  function scoped(nameOrFamily: string, name?: string): MessagingObject {
+    return name === undefined
+      ? channel(scopedName(scope, nameOrFamily))
+      : channel(scopedName(scope, nameOrFamily), name);
+  }
+  scoped.family = (familyKey: string): FamilyHandle => channel.family(scopedName(scope, familyKey));
+  return scoped;
 }
 
 /**
@@ -62,7 +85,32 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       const cache = new Map<string, MessagingObject>();
       const families = new Map<string, FamilyState>();
       const familyHandles = new Map<string, FamilyHandle>();
+      const warnedInboxMissing = new Set<string>();
+      const warnedReadReceiptsMissing = new Set<string>();
       let socket: WSKitSocket; // assigned in install, before any handle is built
+
+      function warnMissingReceiptPrimitive(key: string, name: string, wskit?: WSKitEnvelope): void {
+        if (
+          wskit?.inbox === true &&
+          !helpers.hasPrimitive('inbox') &&
+          !warnedInboxMissing.has(key)
+        ) {
+          warnedInboxMissing.add(key);
+          helpers.log.warn(
+            `channel '${name}' is inbox-backed but inbox() is not registered — received receipts will not be tracked. Add inbox() to client().`,
+          );
+        }
+        if (
+          wskit?.readReceipts === true &&
+          !helpers.hasPrimitive('read-receipts') &&
+          !warnedReadReceiptsMissing.has(key)
+        ) {
+          warnedReadReceiptsMissing.add(key);
+          helpers.log.warn(
+            `channel '${name}' has read receipts enabled but readReceipts() is not registered — read receipts will not be tracked. Add readReceipts() to client().`,
+          );
+        }
+      }
 
       function resolveTtl(event: string): number | undefined {
         if (typeof options.ttl === 'number') return options.ttl;
@@ -126,9 +174,6 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           const familyKey = wskit?.channelFamily;
           const state = stateFor(name, familyKey);
-          function notifyFamily(notify: (family: FamilyState) => void): void {
-            if (familyKey) notify(familyFor(familyKey));
-          }
 
           switch (message.event) {
             case '__subscribeOk__': {
@@ -146,17 +191,25 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 return null;
               }
               helpers.log.info(`channel '${name}' subscribed (${source})`);
-              state.persistent = wskit?.channelPersistent === true;
+              warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
+              state.persistent = wskit?.channelMembership === 'persistent';
               state.markSubscribed(source);
-              notifyFamily((family) => family.fireSubscribed(name, source));
-              return null;
+              if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
+              // Forward so inbox() (after channels) can read `__wskit.inbox`; stays channel-scoped.
+              return message;
             }
             case '__unsubscribeOk__': {
-              // Settle the matching leave op. A non-matching id (a stale ack from
-              // an earlier connection) is ignored inside confirmLeave.
+              // Only the active leave owns this confirmation. Consume a stale
+              // ack here before it reaches receipt primitives: their state can
+              // outlive a rejoin, so a receipt primitive must never infer
+              // ownership from the channel's current status.
               const id = wskit?.unsubscribeId;
-              if (typeof id === 'string') state.confirmLeave(id);
-              return null;
+              if (typeof id !== 'string') return null;
+              const confirmation = state.confirmLeave(id);
+              if (!confirmation) return null;
+              // Receipt primitives preserve their scope only when this same ack
+              // also launched a queued rejoin.
+              return confirmation.rejoinPending ? markRejoinConfirmation(message) : message;
             }
             case '__memberSync__':
             case '__memberJoin__':
@@ -207,9 +260,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
               state.fireKicked(typeof reason === 'string' ? reason : '');
               state.markUnsubscribed();
-              notifyFamily((family) => family.fireUnsubscribed(name));
+              if (familyKey) familyFor(familyKey).fireUnsubscribed(name);
 
-              return null;
+              // Forward so inbox() can forget this scope's ack tracking on a kick.
+              return message;
             }
 
             case '__error__': {
@@ -217,7 +271,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               if (wskit?.correlationId !== undefined) return message;
               // A stream error carries a streamId and belongs to the stream primitive.
               if (wskit?.streamId !== undefined) return message;
-              state.fireSubscriptionFailed(toWSKitError(message.payload));
+              // A plugin channel's error arrives namespaced (`__id::code`); strip it
+              // back to the plain code the plugin declared, keyed by the channel's
+              // namespaced name/family — the same source the incoming event strip uses.
+              const error = unscopeErrorCode(
+                familyKey ?? name,
+                toWSKitError(message.payload),
+              ) as WSKitError;
+              state.fireSubscriptionFailed(error);
               return null;
             }
 
@@ -229,11 +290,11 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
 
-              const event = channelEventName(name, message.event);
-              if (helpers.config.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
+              const event = channelEventName(state.eventPrefix, message.event);
+              if (helpers.log.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
 
               state.dispatch(event, message.payload);
-              notifyFamily((family) => family.dispatch(event, message.payload, name));
+              if (familyKey) familyFor(familyKey).dispatch(event, message.payload, name);
 
               return message;
             }
@@ -415,6 +476,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           // @ts-expect-error — install adds channel() to the socket dynamically
           installedSocket.channel = channel;
+
+          // A plugin scope prefixes names, so it can own channels — reach them
+          // under the plugin's namespace. A channel scope has no `prefixName` and
+          // channels don't nest, so it gets no `channel` here.
+          getAugmenters(installedSocket).push((messaging, scope) => {
+            if (!scope.prefixName) return;
+            messaging.channel = scopedChannelMethod(channel, scope);
+          });
         },
       };
     },

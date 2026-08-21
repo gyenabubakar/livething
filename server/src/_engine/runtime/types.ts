@@ -62,15 +62,6 @@ export interface WireOutgoingMessage {
 }
 
 /**
- * Reserved websocket events that can arrive from the client into the engine.
- *
- * These are the protocol-level messages WSKit itself understands before app
- * handlers run. Built-in primitives can hook into these names through
- * `onProtocolMessage(...)`.
- */
-export type { IncomingProtocolEvent } from './protocol.ts';
-
-/**
  * One new-model plugin lifecycle handler, tagged with its plugin id and the
  * global registration index so the engine can order hooks deterministically.
  * The handler already receives a plugin-scoped context (sends are prefixed).
@@ -89,11 +80,13 @@ export interface PluginLifecycleHooks {
   shutdown: PluginLifecycleEntry[];
   error: PluginLifecycleEntry[];
   validationError: PluginLifecycleEntry[];
+  ping: PluginLifecycleEntry[];
+  pong: PluginLifecycleEntry[];
 }
 
 /**
  * One new-model plugin `upgrade` hook. Runs before the app's upgrade in the
- * inbound onion. It may own `identity` — but only one upgrade hook (a
+ * inbound onion. It may own `userId` — but only one upgrade hook (a
  * plugin's or the app's) may, enforced at runtime.
  */
 export interface PluginUpgradeEntry {
@@ -102,8 +95,8 @@ export interface PluginUpgradeEntry {
     request: Request,
     helpers: LifecycleTypes.UpgradeHelpers,
   ) =>
-    | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
-    | Promise<{ identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
+    | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+    | Promise<{ userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
 }
 
 /**
@@ -124,6 +117,46 @@ export interface OutgoingHookEntry {
 export interface RegisteredEngineHooks {
   /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires on every valid event frame the client sends — protocol frames like
+   * `__subscribe__` / `__received__` and app events — but not on transport
+   * keepalive pings. Used by last-seen to stamp real activity, not just the fact
+   * that the connection is still alive.
+   */
+  messageActivity: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires when a client sends a bare `ping` frame. The engine registers the
+   * first handler itself, and that handler replies `pong`, so every server
+   * answers a probing client whether or not `keepalive()` is listed.
+   */
+  ping: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires when a client sends a bare `pong` frame — its reply to a ping the
+   * server sent. `keepalive()` registers a handler here to measure the
+   * round-trip time. The engine records nothing on its own.
+   */
+  pong: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * The app's own `base.onPing` hooks, kept apart from the engine and capability
+   * `ping` hooks so the dispatch can run them last — after `keepalive()` and any
+   * plugin observers, matching the capability → plugin → app order.
+   */
+  appPing: ((connectionId: string) => void | Promise<void>)[];
+
+  /** The app's own `base.onPong` hooks, kept apart for the same ordering reason. */
+  appPong: ((connectionId: string) => void | Promise<void>)[];
+
+  /**
+   * Fires once per closed connection, during the engine's own teardown and
+   * after every `disconnect` hook has had its turn. Unlike `disconnect`, this
+   * always runs — a throwing user hook cannot skip it — so it is where a
+   * capability releases per-connection resources such as timers.
+   */
+  connectionCleanup: ((connectionId: string) => void)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
   incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
@@ -179,10 +212,20 @@ export interface RegisteredEngineHooks {
 
   /**
    * Like `boot`, but for `ensure*Schema` calls that issue `CREATE TABLE IF
-   * NOT EXISTS`. The engine skips these on warm boots when the schema
-   * marker row (`__wskit_meta.schema_version`) says storage is current.
+   * NOT EXISTS`. These hooks run on every boot so a capability added after
+   * storage was initialized still creates its tables on the next wake.
    */
   bootSchema: (() => void | Promise<void>)[];
+
+  /**
+   * Per-user durable cleanup for `admin().purgeUser()`. Registered by a
+   * capability that owns per-user durable rows (channel membership,
+   * persistent tags, ...). Runs before the user's live sockets are closed.
+   * The `core` argument is the live engine core, opaque here. `options` carries
+   * the caller's purge options; a hook that has no use for them takes fewer
+   * parameters and ignores it.
+   */
+  purgeUser: ((core: any, userId: string, options?: any) => void | Promise<void>)[];
 
   /** Runs once during `engine.initialize()` — for framework-level startup. */
   init: ((ctx: any) => void | Promise<void>)[];
@@ -225,9 +268,9 @@ export interface RegisteredEngineHooks {
         request: Request,
         helpers: LifecycleTypes.UpgradeHelpers,
       ) =>
-        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
+        | { userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
         | Promise<{
-            identity?: string;
+            userId?: string;
             meta?: Record<string, unknown>;
             tags?: readonly TagRef[];
           }>)
@@ -249,7 +292,7 @@ export interface RegisteredEngineHooks {
    * New-model plugin `upgrade` hooks, in registration order. Run before the
    * app's builder upgrade hook; meta is shallow-merged (the app wins on key
    * conflict), tags concatenated, and at most one hook (these or the app's) may
-   * return `identity`.
+   * return `userId`.
    */
   pluginUpgrade: PluginUpgradeEntry[];
 
@@ -289,12 +332,13 @@ export interface RuntimeConnection {
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Returned from `onUpgrade` and reused as the row key for any per-user
-   * durable state. Empty string means "no identity supplied" — runtime code
-   * that needs a storage key must use `storageIdentityOf(connection)` to fall
-   * back to the connection's own id so anonymous connections never share a
-   * row with each other.
+   * durable state. Empty string means "no user id supplied" — an anonymous
+   * connection has no user identity at all. Runtime code that needs a storage
+   * key for such a connection must use `connectionStorageKeyOf(connection)`,
+   * which falls back to the connection's own id so two anonymous connections
+   * never share a row.
    */
-  identity: string;
+  userId: string;
 
   /** Opaque key the adapter uses to identify the underlying WebSocket. */
   wsKey: unknown;
@@ -326,7 +370,10 @@ export interface RuntimeConnection {
    */
   channelMemberships: Map<string, { channelName: string; channelFamily: string | null }>;
 
-  /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
+  /**
+   * Most recent round-trip latency in milliseconds, or `null` when nothing has
+   * measured one. Only `keepalive()` measures; without it this stays `null`.
+   */
   latency: number | null;
 
   /** Connection quality tier derived from recent latency samples. */
@@ -335,17 +382,8 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
-  /** Handle for the keepalive idle timer. */
+  /** Handle for the idle timer armed by `refreshConnectionIdleTimeout`. */
   keepaliveTimer?: unknown;
-
-  /** Handle for the next scheduled ping timer. */
-  pingTimer?: unknown;
-
-  /** Timestamp (ms) when the last ping was sent, used to compute latency. */
-  pendingPingSentAt?: number;
-
-  /** Sliding window of recent latency samples for quality calculation. */
-  recentLatencies?: number[];
 
   /**
    * Bounded ring of `messageId` values already seen on this connection, used
@@ -461,6 +499,13 @@ export interface ActiveStream {
   scope?: ResolvedChannel;
 
   /**
+   * In-memory chunk count for a recorded stream with a `maxChunks` cap. Seeded
+   * from storage on the first chunk (so a resume stays correct) and incremented
+   * per append, so the cap check skips a `COUNT(*)` on every chunk.
+   */
+  recordedChunkCount?: number;
+
+  /**
    * Per-stream stop signal. Its `.signal` is exposed as `ctx.stream.signal` so
    * generator code can pass it into slow awaited work (`fetch`, timers, …). The
    * runtime aborts it on client cancel, owning-connection disconnect, and server
@@ -561,22 +606,11 @@ export interface ConnectionMembersRuntime {
 
   toConnectionInfo(
     connection: RuntimeConnection,
+    opts?: { lastSeen?: number | null },
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   sendThroughPipeline(
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
-}
-
-/**
- * Resolve the storage row key for one connection. Returns the connection's
- * identity when it was supplied at upgrade, or its engine-assigned `id` when
- * not. Anonymous connections (no `onUpgrade`, or an upgrade that returned no
- * identity) all default to `identity: ''` at the adapter boundary — using
- * that empty string as a real key would collapse every anonymous user onto
- * one row and let them read each other's private durable streams.
- */
-export function storageIdentityOf(connection: Pick<RuntimeConnection, 'id' | 'identity'>): string {
-  return connection.identity || connection.id;
 }

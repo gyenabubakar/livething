@@ -2,7 +2,6 @@ import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { intercepts } from '@wskit/server/intercepts';
-import { persistence } from '@wskit/server/persistence';
 import { rateLimit } from '@wskit/server/rate-limit';
 import { replay } from '@wskit/server/replay';
 import { requests } from '@wskit/server/requests';
@@ -27,12 +26,11 @@ export const BadPayload = v.object({ ok: v.literal(true) });
 // The v1 `contract('group-full-surface', {...})` collapses into `define()`: the
 // outgoing declarations become the `emits({...})` capability, the request/stream/
 // scheduled/channel primitives become their matching capabilities, and the durable
-// flags (persistence/sequence/dedup) become listed engines. Handlers live in group.ts.
+// flags (sequence/dedup) become listed engines. Handlers live in group.ts.
 export const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
-    persistence(),
     sequence({ persist: true }),
     dedup(),
     rateLimit(),

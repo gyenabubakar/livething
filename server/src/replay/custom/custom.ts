@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import {
   isChannelReplayAuthorized,
   matchesReplayScope,
@@ -288,6 +288,16 @@ function toChannelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage
 }
 
 /**
+ * Resolve the requesting connection's id from a base handler ctx. Reads the
+ * engine's stashed runtime connection — always present on a built ctx — so the
+ * id survives regardless of how the public `ctx.connection` ref is surfaced.
+ */
+function baseConnectionId(baseCtx: Record<PropertyKey, unknown>): string {
+  const runtime = baseCtx[ENGINE_INTERNAL_CONNECTION] as { id?: string } | undefined;
+  return runtime?.id ?? (baseCtx as { connection?: { id?: string } }).connection?.id ?? '';
+}
+
+/**
  * Build the `TopLevelReplayContext` passed to the developer's `onReplay` hook
  * at the top-level connection scope.
  */
@@ -296,8 +306,9 @@ function createTopLevelReplayContext(
   baseCtx: Record<PropertyKey, unknown>,
   request: { channel: string | null; channelFamily: string | null },
 ): TopLevelReplayContext {
+  const connectionId = baseConnectionId(baseCtx);
   return {
-    id: String(baseCtx.id),
+    id: connectionId,
     meta: (baseCtx.meta as Record<string, unknown>) ?? {},
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
@@ -311,7 +322,7 @@ function createTopLevelReplayContext(
         channel: wire.channel,
         channelFamily: wire.channelFamily,
       });
-      engine.sendReplay(String(baseCtx.id), {
+      engine.sendReplay(connectionId, {
         channelName: wire.channel ?? null,
         channelFamily: wire.channelFamily ?? null,
         event,
@@ -337,8 +348,9 @@ function createChannelReplayContext(
   options: CreateChannelReplayContextOptions,
 ): ChannelReplayContext {
   const { channelName, channelFamily } = options;
+  const connectionId = baseConnectionId(baseCtx);
   return {
-    id: String(baseCtx.id),
+    id: connectionId,
     meta: (baseCtx.meta as Record<string, unknown>) ?? {},
     channel: { name: channelName },
     sql: baseCtx.sql as SQLProvider,
@@ -352,7 +364,7 @@ function createChannelReplayContext(
         channel: channelName,
         channelFamily,
       });
-      engine.sendReplay(String(baseCtx.id), {
+      engine.sendReplay(connectionId, {
         channelName,
         channelFamily,
         event,

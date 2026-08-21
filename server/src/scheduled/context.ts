@@ -1,29 +1,25 @@
-import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
-import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
+import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as PublicApi from '~/context.ts';
 
 /**
  * Build the context passed to scheduled tasks and plugin-owned scheduled work.
  */
 export function createTaskContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
-): EngineContextTypes.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
-  const ctx: EngineContextTypes.TaskContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
-  > = {
+): PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+  const { sql, kv } = deps.getStorageView();
+  const ctx: PublicApi.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> = {
     sql,
     kv,
     broadcast: (event, payload) => {
       deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
-    ...buildConnectionHandle(deps),
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
+    connections: buildConnectionsManager(deps),
+    users: buildUsersManager(deps),
+    get connectionCount() {
+      return deps.connections.size;
     },
-    connectionCount: deps.connections.size,
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },

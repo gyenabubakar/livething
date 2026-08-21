@@ -1,17 +1,28 @@
 import { ChannelNotFound } from '@wskit/core';
 import * as ChannelRuntime from '~/channel/runtime.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
 type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
   | 'broadcastToChannel'
+  | 'channelHandleAugmenters'
   | 'getChannelMembers'
   | 'kickChannelMembers'
-  | 'removeChannelMember'
   | 'sendThroughPipeline'
+  | 'sendToChannelRecipient'
   | 'subscribeConnectionAsServer'
 >;
+
+interface ChannelHandleScope {
+  channelName: string;
+  channelFamily: string | null;
+  params?: Record<string, string>;
+  /** Subscribe gate contexts do not expose channel-only capability surfaces. */
+  isSubscribeGate?: boolean;
+}
 
 /**
  * Build a `ChannelHandle` bound to the given resolved channel. Used both by
@@ -20,28 +31,42 @@ type ChannelHandleDeps = Pick<
  * @internal
  */
 export function buildChannelHandle(
-  connection: EngineContextTypes.RuntimeConnection,
-  scope: { channelName: string; channelFamily: string | null; params?: Record<string, string> },
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  scope: ChannelHandleScope,
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
-  return {
+  type RuntimeChannelHandle = Omit<PublicApi.ChannelHandle, 'inbox' | 'readReceipts'> &
+    Partial<Pick<PublicApi.ChannelHandle, 'inbox' | 'readReceipts'>>;
+  const handle: RuntimeChannelHandle = {
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
-    send: (event: string, payload: unknown) =>
-      deps.sendThroughPipeline(connection, {
+    send: (event: string, payload: unknown, options?: { to?: PublicApi.ChannelRecipient }) => {
+      if (options?.to) {
+        return deps.sendToChannelRecipient({
+          channelName: scope.channelName,
+          channelFamily: scope.channelFamily,
+          to: options.to,
+          event,
+          payload,
+        });
+      }
+      return deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
         payload,
-      }),
-    broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
+      })
+        ? 1
+        : 0;
+    },
+    broadcast: (event: string, payload: unknown, options?: { includeSelf?: boolean }) => {
       deps.broadcastToChannel({
         channelName: scope.channelName,
         event,
         payload,
         excludeConnectionId: connection.id,
         channelFamily: scope.channelFamily,
-        excludeSelf: options?.excludeSelf,
+        includeSelf: options?.includeSelf,
       });
     },
     members: () => deps.getChannelMembers(scope.channelName, scope.channelFamily),
@@ -51,16 +76,29 @@ export function buildChannelHandle(
         channelFamily: scope.channelFamily,
         payload,
       }),
-    kick: (target, reason: string) =>
+    kick: (target, opts) =>
       deps.kickChannelMembers({
         channelName: scope.channelName,
         target,
-        reason,
+        reason: opts.reason,
+        revoke: opts.revoke,
         channelFamily: scope.channelFamily,
       }),
-    removeMember: (identity: string) =>
-      deps.removeChannelMember(scope.channelName, scope.channelFamily, identity),
   };
+
+  if (!scope.isSubscribeGate) {
+    handle.inbox = () => null;
+    handle.readReceipts = () => null;
+
+    for (const augment of deps.channelHandleAugmenters ?? []) {
+      augment(handle as unknown as Record<PropertyKey, unknown>, {
+        channelName: scope.channelName,
+        channelFamily: scope.channelFamily,
+      });
+    }
+  }
+
+  return handle as unknown as PublicApi.ChannelHandle;
 }
 
 type ChannelsApiDeps = ChannelHandleDeps &
@@ -86,25 +124,27 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 
 /** Build the `ctx.channels` helper surface — only `get(...)`. */
 export function buildChannelsApi(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   deps: ChannelsApiDeps,
+  options?: { isSubscribeGate?: boolean },
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {
       const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
-      return buildChannelHandle(connection, resolved, deps);
+      return buildChannelHandle(connection, { ...resolved, ...options }, deps);
     },
   };
 }
 
 export function buildChannelFamilyExtra(
-  connection: EngineContextTypes.RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   scope:
     | {
-        channel?: EngineContextTypes.CompiledChannel;
+        channel?: EngineCompileTypes.CompiledChannel;
         channelName?: string;
         channelFamily?: string | null;
+        isSubscribeGate?: boolean;
       }
     | undefined,
   deps: ChannelHandleDeps,
@@ -115,5 +155,11 @@ export function buildChannelFamilyExtra(
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
   const channelFamily = scope.channelFamily ?? null;
   const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
-  return { channel: buildChannelHandle(connection, { channelName, channelFamily, params }, deps) };
+  return {
+    channel: buildChannelHandle(
+      connection,
+      { channelName, channelFamily, params, isSubscribeGate: scope.isSubscribeGate },
+      deps,
+    ),
+  };
 }

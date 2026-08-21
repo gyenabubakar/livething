@@ -87,7 +87,7 @@ test.describe('channel-static', () => {
     page,
   }, testInfo) => {
     // The raw driver sends `__unsubscribe__` with no `unsubscribeId`. A leave with
-    // no id for a non-member keeps the legacy error — only id-bearing leaves (which
+    // no id for a non-member gets this error — only id-bearing leaves (which
     // the reliable client always sends) are idempotently re-acked.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('unsubscribe-room').click();
@@ -636,11 +636,11 @@ test.describe('channel-static', () => {
     );
   });
 
-  test('channelHandle.subscribe(ctx.self) commits the membership and sends _subscribeOk with source server', async ({
+  test('channelHandle.subscribe(ctx.connection) commits the membership and sends _subscribeOk with source server', async ({
     page,
   }, testInfo) => {
     // Pins the server-initiated subscribe path (issue #11). The handler
-    // runs ctx.channels.get('room2').subscribe(ctx.self) in response to a
+    // runs ctx.channels.get('room2').subscribe(ctx.connection) in response to a
     // trigger event from the client. The client receives _subscribeOk for
     // room2 carrying `source: 'server'` — the marker the client SDK uses
     // to tell server-initiated subscribes apart from its own.

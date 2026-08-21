@@ -3,6 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { createTestStorage } from '~/_test/sql.ts';
+import { createTestTimers } from '~/_test/timers.ts';
 import { emits } from '~/emits/emits.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -19,10 +21,10 @@ function buildEngine(handler: ServerDefinition): Engine {
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
-        storage: undefined,
+        storage: createTestStorage(),
         env: {},
         platform: {},
-        timers: undefined as never,
+        timers: createTestTimers(),
         waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
@@ -38,18 +40,20 @@ describe('plugin init — onion order end-to-end', () => {
   it('runs the plugin init before the app init through a real engine boot', async () => {
     const trace: string[] = [];
 
-    const ph = define({ scoped: true, capabilities: [emits({ ready: t<{}>() })] });
-    ph.init(() => {
+    const ph = define({ scope: 'plugin', capabilities: [emits({ ready: t<{}>() })] });
+    ph.onInit(() => {
       trace.push('plugin');
     });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
-    const Plug = plugin('acme:boot', { handler: ph.assemble(beat) });
+    const Plug = plugin('acme:boot', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ env: t<{}>(), capabilities: [Plug()] });
-    base.init(() => {
+    base.onInit(() => {
       trace.push('app');
     });
-    const handler = base.assemble(base.on('noop', { input: v.object({}), run() {} }));
+    const handler = base.assemble({
+      handlers: [base.on('noop', { input: v.object({}), run() {} })],
+    });
 
     const engine = buildEngine(handler);
     await engine.initialize();
@@ -59,17 +63,17 @@ describe('plugin init — onion order end-to-end', () => {
 
   it('boots when the host and a plugin both declare tag groups of the same kind', async () => {
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [tags((ephemeral) => [ephemeral('plugin-role', t<string>())])],
     });
-    const Plug = plugin('acme:tags', { handler: ph.assemble() });
+    const Plug = plugin('acme:tags', { handler: ph.assemble({ handlers: [] }) });
 
     const base = define({
       env: t<{}>(),
       capabilities: [tags((ephemeral) => [ephemeral('host-role', t<string>())]), Plug()],
     });
 
-    const engine = buildEngine(base.assemble());
+    const engine = buildEngine(base.assemble({ handlers: [] }));
     await expect(engine.initialize()).resolves.toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@
 /**
  * Compile-time fixtures for capability-gated ctx surfaces and env/owner threading.
  *
- * Covers: `base.init`/`base.shutdown` see the typed env, and shutdown's
+ * Covers: `base.onInit`/`base.onShutdown` see the typed env, and shutdown's
  * `broadcast` is gated to declared emits (gap 5); `frame.owner.id` is the union
  * of registered plugin ids in `intercept`/`outgoing` (gap 7); and each
  * capability-owned ctx arm exists only when its capability is listed, and is a
@@ -26,18 +26,18 @@ import { expectTypeOf } from 'vitest';
 // ---------------------------------------------------------------------------
 const lifecycleBase = define({
   env: t<{ SECRET: string }>(),
-  upgrade: () => ({ identity: 'u', meta: { who: 'x' } }),
+  upgrade: () => ({ userId: 'u', meta: { who: 'x' } }),
   capabilities: [emits({ bye: t<{ reason: string }>() })],
 });
 
-lifecycleBase.init((ctx) => {
+lifecycleBase.onInit((ctx) => {
   const _secret: string = ctx.env.SECRET;
   void _secret;
   // @ts-expect-error — undeclared env key
   ctx.env.NOPE;
 });
 
-lifecycleBase.shutdown((ctx) => {
+lifecycleBase.onShutdown((ctx) => {
   const _secret: string = ctx.env.SECRET;
   void _secret;
   // @ts-expect-error — undeclared env key
@@ -54,11 +54,15 @@ lifecycleBase.shutdown((ctx) => {
 // ---------------------------------------------------------------------------
 // Gap 7 — `frame.owner.id` typed to the union of registered plugin ids.
 // ---------------------------------------------------------------------------
-const scopedA = define({ scoped: true, capabilities: [emits({ a: t<{}>() })] });
-const PluginA = plugin('acme:a', { handler: scopedA.assemble(scopedA.on('a-in', { run() {} })) });
+const scopedA = define({ scope: 'plugin', capabilities: [emits({ a: t<{}>() })] });
+const PluginA = plugin('acme:a', {
+  handler: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
+});
 
-const scopedC = define({ scoped: true, capabilities: [emits({ c: t<{}>() })] });
-const PluginC = plugin('acme:c', { handler: scopedC.assemble(scopedC.on('c-in', { run() {} })) });
+const scopedC = define({ scope: 'plugin', capabilities: [emits({ c: t<{}>() })] });
+const PluginC = plugin('acme:c', {
+  handler: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
+});
 
 const ownerBase = define({ env: t<{}>(), capabilities: [PluginA(), PluginC(), intercepts()] });
 
@@ -74,7 +78,7 @@ ownerBase.intercept((ctx, frame) => {
   }
 });
 
-ownerBase.outgoing((ctx, frame) => {
+ownerBase.onOutgoing((ctx, frame) => {
   void ctx;
   if (frame.owner.kind === 'plugin') {
     expectTypeOf(frame.owner.id).toEqualTypeOf<'acme:a' | 'acme:c'>();

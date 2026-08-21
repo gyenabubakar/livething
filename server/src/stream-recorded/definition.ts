@@ -58,12 +58,9 @@ interface RecordedStreamConfig<
  * Nudges declared here behave exactly like nudges on a plain `stream(...)`
  * and survive a resume.
  *
- * Requires the `persistence()` capability. Build throws otherwise.
- *
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
- * import { persistence } from '@wskit/server/persistence';
  * import { StreamAborted } from '@wskit/server/errors';
  * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
@@ -72,7 +69,7 @@ interface RecordedStreamConfig<
  *
  * const base = define({
  *   env: t<Env>(),
- *   capabilities: [persistence(), recordedStream()],
+ *   capabilities: [recordedStream()],
  * });
  *
  * const handleCountTokens = base.recordedStream('count-tokens', {

@@ -1,5 +1,45 @@
 import type { SQLProvider } from '~/context.ts';
 
+const CREATE_TAGS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __wskit_tags (
+    user_id    TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    added_at   INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
+    metadata   TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (user_id, group_name, key)
+  )
+`;
+
+const CREATE_TAGS_USER_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_user
+  ON __wskit_tags (user_id)
+`;
+
+const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_group_key
+  ON __wskit_tags (group_name, key)
+`;
+
+// All three DDL statements in one multi-statement string. Cloudflare's SQL
+// `exec` accepts semicolon-separated statements, so this is one round trip
+// instead of three.
+// @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
+const TAGS_SCHEMA_SQL = /* @__PURE__ */ [
+  CREATE_TAGS_TABLE_SQL,
+  CREATE_TAGS_USER_INDEX_SQL,
+  CREATE_TAGS_GROUP_KEY_INDEX_SQL,
+].join(';\n');
+
+/**
+ * Create the durable tags table and its indexes. Idempotent — safe to call
+ * on every engine boot.
+ */
+export function ensureTagsSchema(sql: Pick<SQLProvider, 'exec'>): void {
+  sql.exec(TAGS_SCHEMA_SQL);
+}
+
 /** One durable persistent-tag row, as the engine reads it. */
 export interface DurableTag {
   group: string;
@@ -14,14 +54,14 @@ type RawTagRow = {
 };
 
 export interface InsertTagInput {
-  identity: string;
+  userId: string;
   group: string;
   key: string;
   addedAt?: number;
 }
 
 /**
- * Insert or replace a durable tag row for the given identity. Called when
+ * Insert or replace a durable tag row for the given user. Called when
  * `ctx.tags.persistent(group).add(key)` runs.
  */
 export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput): void {
@@ -29,10 +69,10 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_tags
-        (identity, group_name, key, added_at)
+        (user_id, group_name, key, added_at)
       VALUES (?, ?, ?, ?)
     `,
-    input.identity,
+    input.userId,
     input.group,
     input.key,
     addedAt,
@@ -40,7 +80,7 @@ export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput)
 }
 
 export interface DeleteTagInput {
-  identity: string;
+  userId: string;
   group: string;
   key: string;
 }
@@ -53,30 +93,30 @@ export function deleteTag(sql: Pick<SQLProvider, 'exec'>, input: DeleteTagInput)
   sql.exec(
     `
       DELETE FROM __wskit_tags
-      WHERE identity = ? AND group_name = ? AND key = ?
+      WHERE user_id = ? AND group_name = ? AND key = ?
     `,
-    input.identity,
+    input.userId,
     input.group,
     input.key,
   );
 }
 
 /**
- * Read every durable tag for one identity. Used on accept to restore the
+ * Read every durable tag for one user. Used on accept to restore the
  * persistent tag set onto a fresh socket.
  */
-export function listTagsByIdentity(
+export function listTagsByUser(
   sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
+  userId: string,
 ): readonly DurableTag[] {
   const rows = sql
     .exec<RawTagRow>(
       `
         SELECT group_name, key, added_at
         FROM __wskit_tags
-        WHERE identity = ?
+        WHERE user_id = ?
       `,
-      identity,
+      userId,
     )
     .toArray();
   return rows.map((row) => ({
@@ -103,4 +143,12 @@ export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[
  */
 export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void {
   sql.exec('DELETE FROM __wskit_tags WHERE group_name = ?', group);
+}
+
+/**
+ * Delete every persistent tag row for one user. Used by `purgeUser`.
+ * Safe to call even when no rows exist for the user.
+ */
+export function purgeTagsByUser(sql: Pick<SQLProvider, 'exec'>, userId: string): void {
+  sql.exec('DELETE FROM __wskit_tags WHERE user_id = ?', userId);
 }

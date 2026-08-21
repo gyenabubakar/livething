@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { WSKitError } from '@wskit/core';
 import type { ReadableStore } from '~/internal/store.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
+import type { ApplyChannelPrimitives, Primitive, TypeFn } from '~/primitives/types.ts';
 import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
 /** One member of a channel. `meta` is the connection's metadata set on the server. */
@@ -136,28 +136,89 @@ export interface ChannelMethod<C> {
 /**
  * Like `ChannelMethod`, but every handle it hands back carries `Stubs` — the
  * `NeedsPrimitive` markers for channel-scoped methods whose primitive wasn't
- * installed. Used by the client's missing-primitive guard to push those markers
- * one level down into the channel, so `channel('x').request(...)` stops
- * compiling exactly like the top-level `socket.request(...)` does.
+ * installed — ON TOP OF the channel-handle surface each INSTALLED
+ * channel-scoped primitive contributes (e.g. `inbox()`'s `receivers`). Used by
+ * the client's missing-primitive guard to push those markers one level down
+ * into the channel, so `channel('x').request(...)` stops compiling exactly
+ * like the top-level `socket.request(...)` does, without erasing what an
+ * installed primitive like `inbox()` already added to the handle.
  */
-export interface StubbedChannelMethod<C, Stubs> {
-  <K extends FixedKeys<C> & string>(name: K): StubbedMessaging<C[K], Stubs>;
-  <K extends FamilyKeys<C> & string>(familyKey: K, name: string): StubbedMessaging<C[K], Stubs>;
-  family<K extends FamilyKeys<C> & string>(familyKey: K): StubbedFamilyHandle<C[K], Stubs>;
+export interface StubbedChannelMethod<
+  C,
+  Stubs,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> {
+  <K extends FixedKeys<C> & string>(name: K): StubbedMessaging<C[K], Stubs, TPrimitives>;
+  <K extends FamilyKeys<C> & string>(
+    familyKey: K,
+    name: string,
+  ): StubbedMessaging<C[K], Stubs, TPrimitives>;
+  family<K extends FamilyKeys<C> & string>(
+    familyKey: K,
+  ): StubbedFamilyHandle<C[K], Stubs, TPrimitives>;
 }
 
 /**
- * One channel handle with the missing-primitive `Stubs` applied. The contract
+ * One channel handle with the missing-primitive `Stubs` applied on top of the
+ * surface every installed channel-scoped primitive contributes. The contract
  * always types `request`/`onStream`/etc. on the handle, so the stub must REPLACE
  * (`Omit` then add), not intersect — an intersected callable would still be
- * callable and the guard would do nothing.
+ * callable and the guard would do nothing. Installed primitives' members
+ * (e.g. `receivers` from `inbox()`) are intersected in first, so a missing
+ * `clientRequests()` doesn't also erase methods `inbox()` already installed.
  */
-export type StubbedMessaging<C, Stubs> = Omit<ChannelMessaging<C>, keyof Stubs> & Stubs;
+export type StubbedMessaging<
+  C,
+  Stubs,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> = Omit<ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>, keyof Stubs> & Stubs;
 
 /** A `FamilyHandle` whose member handles carry the channel-scoped stubs. */
-export interface StubbedFamilyHandle<C, Stubs> {
+export interface StubbedFamilyHandle<
+  C,
+  Stubs,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> {
   /** Get the channel handle for one concrete name in this family. */
-  (name: string): StubbedMessaging<C, Stubs>;
+  (name: string): StubbedMessaging<C, Stubs, TPrimitives>;
+  on<E extends keyof IncomingOf<C> & string>(
+    event: E,
+    handler: (data: IncomingOf<C>[E], channelName: string) => void,
+  ): () => void;
+  onSubscribed(callback: (channelName: string, source: SubscribeSource) => void): () => void;
+  onUnsubscribed(callback: (channelName: string) => void): () => void;
+  list(): string[];
+}
+
+/**
+ * Like `ChannelMethod`, but every handle it hands back also carries the
+ * channel-handle surface each installed primitive contributes (via each
+ * primitive's `_channelTypeFn`). Used by the client to graft `inbox()`'s and
+ * `readReceipts()`'s per-channel methods onto handles only when those primitives
+ * are registered, so `channel('room').receivers` compiles only then.
+ */
+export interface AugmentedChannelMethod<
+  C,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> {
+  <K extends FixedKeys<C> & string>(name: K): AugmentedMessaging<C[K], TPrimitives>;
+  <K extends FamilyKeys<C> & string>(
+    familyKey: K,
+    name: string,
+  ): AugmentedMessaging<C[K], TPrimitives>;
+  family<K extends FamilyKeys<C> & string>(familyKey: K): AugmentedFamilyHandle<C[K], TPrimitives>;
+}
+
+/** One channel handle plus every installed primitive's channel-handle surface. */
+export type AugmentedMessaging<
+  C,
+  TPrimitives extends readonly Primitive<any, any, any>[],
+> = ChannelMessaging<C> & ApplyChannelPrimitives<TPrimitives, C>;
+
+/** A `FamilyHandle` whose member handles carry the channel-primitive surface. */
+export interface AugmentedFamilyHandle<C, TPrimitives extends readonly Primitive<any, any, any>[]> {
+  /** Get the channel handle for one concrete name in this family. */
+  (name: string): AugmentedMessaging<C, TPrimitives>;
   on<E extends keyof IncomingOf<C> & string>(
     event: E,
     handler: (data: IncomingOf<C>[E], channelName: string) => void,

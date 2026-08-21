@@ -1,14 +1,10 @@
-import {
-  broadcastToChannel,
-  dispatchIncoming,
-  processTextMessage,
-} from '~/_engine/runtime/messages.ts';
+import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { resolveChannel } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { Defer } from '~/errors/errors.ts';
 import { runIntercepts } from '~/intercept/runtime.ts';
 import { localKey } from '~/local-key/local-key.ts';
-import { sendThroughPipeline } from '~/outgoing/runtime.ts';
+import { broadcastToChannel, sendThroughPipeline } from '~/outgoing/runtime.ts';
 import { handleRequest } from '~/request/runtime.ts';
 import { bufferStreamNudge } from '~/stream/runtime.ts';
 import * as v from 'valibot';
@@ -40,7 +36,7 @@ function requestDispatchForSpec(
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -48,7 +44,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -195,14 +191,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return {
-          setTimeout() {
-            return undefined;
-          },
-          clearTimeout() {},
-        };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -295,9 +283,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -367,9 +352,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -438,9 +420,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -537,9 +516,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -613,9 +589,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -692,9 +665,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -882,9 +852,6 @@ describe('message runtime', () => {
       protocolHandlers: new Map(),
       incomingHooks: [],
       errorHooks: [],
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -957,10 +924,8 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -996,6 +961,77 @@ describe('message runtime', () => {
     expect(routing).toEqual({ channel: 'admin', channelFamily: 'rooms' });
   });
 
+  it('routes an unexpected throw from deep in dispatch to handleRuntimeError instead of letting it escape', async () => {
+    // A throw from an unguarded dispatch step (here the nudge buffer) must not
+    // leak out of processTextMessage as a rejected promise — the adapter drops
+    // that silently, so the client gets no signal and onError never runs. The
+    // outer safety net routes it through handleRuntimeError so onError fires and
+    // the client gets an internal-error frame.
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+    const boom = new Error('unexpected internal failure');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      answerFrameHooks: [],
+      errorHooks: [],
+      activityHooks: [],
+      messageActivityHooks: [],
+      incomingDedupCap: 0,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      streamNudgeBuffer() {
+        throw boom;
+      },
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await expect(
+      processTextMessage(
+        runtime as unknown as Parameters<typeof processTextMessage>[0],
+        connection,
+        JSON.stringify({ event: 'stop', payload: {}, __wskit: { streamId: 's1' } }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, { error, event }] = handleRuntimeError.mock.calls[0] as [
+      unknown,
+      SendRuntimeErrorOptions,
+    ];
+    expect(error).toBe(boom);
+    expect(event).toBe('stop');
+  });
+
   it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
     // A non-string `channel` fails the protocol-frame schema parse, so the
     // frame settles as a ValidationFailed routed through handleRuntimeError
@@ -1028,10 +1064,8 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -1094,10 +1128,8 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      requireTimers() {
-        return { setTimeout: () => undefined, clearTimeout() {} };
-      },
       buildConnectionContext() {
         return { id: connection.id };
       },
@@ -1159,6 +1191,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       buildConnectionContext() {
         return { id: connection.id };
@@ -1221,6 +1254,7 @@ describe('message runtime', () => {
       incomingHooks: [],
       errorHooks: [],
       activityHooks: [],
+      messageActivityHooks: [],
       // no `sql` → storage absent
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       buildConnectionContext() {
@@ -1296,6 +1330,7 @@ function makeNudgeRuntime(
     incomingHooks: [],
     errorHooks: [],
     activityHooks: [],
+    messageActivityHooks: [],
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     incomingDedupCap: 0,
     durableStreamSchemaReady: false,
@@ -1310,9 +1345,6 @@ function makeNudgeRuntime(
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    requireTimers() {
-      return { setTimeout: () => undefined, clearTimeout() {} };
-    },
     waitUntil() {},
     generateId() {
       return 'id_1';
@@ -1572,9 +1604,6 @@ describe('Defer retry hook isolation', () => {
           },
         ],
         errorHooks: [],
-        requireTimers() {
-          return { setTimeout: () => undefined, clearTimeout() {} };
-        },
         buildConnectionContext() {
           return { id: connection.id };
         },
@@ -1674,9 +1703,6 @@ describe('Defer retry hook isolation', () => {
             capturedCtx = ctx;
           },
         ],
-        requireTimers() {
-          return { setTimeout: () => undefined, clearTimeout() {} };
-        },
         buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
           return { id: connection.id, channel: scope?.channelName };
         },

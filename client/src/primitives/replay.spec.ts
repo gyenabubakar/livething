@@ -1,6 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { dedup } from '~/primitives/dedup.ts';
+import { gaps } from '~/primitives/gaps.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -44,7 +45,7 @@ afterEach(() => {
 describe('replay — per-channel scope catch-up', () => {
   describe('channel-scoped seq tracking', () => {
     it('tracks seq under the channel name, not the top-level key', () => {
-      const { ws } = build(dedup(), replay(), reconnection());
+      const { ws } = build(dedup(), gaps(), replay(), reconnection());
 
       ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
 
@@ -193,12 +194,12 @@ describe('replay — per-channel scope catch-up', () => {
   });
 
   describe('unsupported-protocol warning', () => {
-    it('warns every time the server reports replay is unsupported, and still passes the error to onError', () => {
+    it('warns every time the server reports replay is unsupported, and still passes the error to onServerError', () => {
       const { socket, ws } = build(dedup(), replay(), reconnection());
       socket.setDebug(true);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const onError = vi.fn();
-      socket.onError(onError);
+      socket.onServerError(onError);
 
       const errorFrame = {
         event: '__error__',
@@ -224,7 +225,7 @@ describe('replay — per-channel scope catch-up', () => {
       socket.setDebug(true);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      socket.onError(() => {});
+      socket.onServerError(() => {});
       ws.emit({
         event: '__error__',
         payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },
@@ -303,6 +304,33 @@ describe('replay — per-channel scope catch-up', () => {
 
       const frame = second.sentFrames().find((f: { event: string }) => f.event === '__replay__');
       expect(frame).toBeUndefined();
+    });
+  });
+
+  describe('gap cursor recovery', () => {
+    it('advances the replay cursor before gaps() surfaces and consumes the frame', () => {
+      const socket = client<C>()(connect('wss://test'), dedup(), gaps(), replay(), reconnection());
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      const onGap = vi.fn();
+      socket.onGap(onGap);
+
+      ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
+
+      const second = reconnectAfterDrop(ws);
+      second.emit({ event: '__gap__', payload: { missedThrough: 12 }, __wskit: {} });
+
+      expect(onGap).toHaveBeenCalledWith({ missedThrough: 12 });
+
+      const third = reconnectAfterDrop(second);
+      const replayFrames = third.sentFrames().filter((f) => f.event === '__replay__');
+
+      expect(replayFrames).toContainEqual({
+        event: '__replay__',
+        payload: { lastKnownSeq: 12 },
+        __wskit: {},
+      });
     });
   });
 });

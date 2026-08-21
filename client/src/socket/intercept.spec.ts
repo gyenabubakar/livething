@@ -154,19 +154,19 @@ describe('intercept — __error__ frame bypasses intercepts', () => {
   it('does not invoke a registered intercept for an unclaimed __error__ frame', () => {
     const interceptFn = vi.fn();
     const { socket, ws } = build(intercept(interceptFn));
-    socket.onError(() => {});
+    socket.onServerError(() => {});
     ws.emit({ event: '__error__', payload: { code: 'forbidden', detail: {} } });
     expect(interceptFn).not.toHaveBeenCalled();
   });
 
-  it('still fires onError when an intercept is registered and an __error__ frame arrives', () => {
+  it('still fires onServerError when an intercept is registered and an __error__ frame arrives', () => {
     const onErr = vi.fn();
     const { socket, ws } = build(
       intercept(() => {
         /* some intercept */
       }),
     );
-    socket.onError(onErr);
+    socket.onServerError(onErr);
     ws.emit({ event: '__error__', payload: { code: 'not-found', detail: {} } });
     expect(onErr).toHaveBeenCalledTimes(1);
   });

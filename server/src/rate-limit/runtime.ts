@@ -18,8 +18,8 @@
  *
  * - `id` — unique numeric tag used in the bucket key. Two rules can have the
  *   same `windowMs` / `max` but different ids and so different buckets.
- * - `per` — bucket-key extractor. Default is `ctx.id` (connection id), so
- *   different connections never share a bucket.
+ * - `per` — bucket-key extractor. Default is `ctx.connection.id` (connection
+ *   id), so different connections never share a bucket.
  */
 export interface RuleInstance {
   readonly id: number;

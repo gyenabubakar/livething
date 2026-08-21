@@ -5,7 +5,7 @@ describe('TypedTagsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<TypedTagsClient['incoming']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<TypedTagsClient['requests']>().not.toBeAny();
+    expectTypeOf<TypedTagsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['streams']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['channels']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['errors']>().not.toBeAny();
@@ -131,8 +131,8 @@ describe('TypedTagsClient — channels', () => {
 });
 
 describe('TypedTagsClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof TypedTagsClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof TypedTagsClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

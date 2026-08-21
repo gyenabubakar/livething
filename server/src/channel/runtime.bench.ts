@@ -13,7 +13,7 @@ type ChannelRuntimeArg = Parameters<typeof SubscribeConnection>[0];
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -21,7 +21,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: { username: id },
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -65,7 +65,7 @@ function createRuntime(memberCount: number) {
     sessionEndHooks: new Map(),
     toConnectionInfo: (connection: RuntimeConnection) => ({
       id: connection.id,
-      identity: connection.identity,
+      userId: connection.userId,
       meta: connection.meta,
       tags: [],
       channels: [],
@@ -84,7 +84,7 @@ function createRuntime(memberCount: number) {
     wskitStampHooks: [],
     handleValidationError: async () => {},
     handleRuntimeError: async () => {},
-    isChannelPersistent: () => false,
+    isChannelDurable: () => false,
     persistMembership: () => {},
     deleteDurableMembership: () => {},
     hasDurableMembership: () => false,
@@ -112,6 +112,46 @@ for (const memberCount of [100, 500]) {
         channelFamily: null,
       });
       connections.delete(joiner.id);
+    });
+  });
+}
+
+// Membership add/remove is pure index bookkeeping around the membership key, so
+// a churn loop isolates the cost of building that key.
+for (const memberCount of [1000]) {
+  describe(`membership churn · ${memberCount} join/leave cycles`, () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const members: RuntimeConnection[] = [];
+    for (let i = 0; i < memberCount; i++) members.push(createConnection(`k${i}`));
+
+    bench('static channel — add then remove every member', () => {
+      for (const member of members) {
+        addChannelMembership(channelMembers, member, {
+          channelName: 'general',
+          channelFamily: null,
+        });
+      }
+      for (const member of members) {
+        removeChannelMembership(channelMembers, member, {
+          channelName: 'general',
+          channelFamily: null,
+        });
+      }
+    });
+
+    bench('dynamic family — add then remove every member', () => {
+      for (const member of members) {
+        addChannelMembership(channelMembers, member, {
+          channelName: 'room:general',
+          channelFamily: 'rooms',
+        });
+      }
+      for (const member of members) {
+        removeChannelMembership(channelMembers, member, {
+          channelName: 'room:general',
+          channelFamily: 'rooms',
+        });
+      }
     });
   });
 }

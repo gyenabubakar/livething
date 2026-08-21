@@ -1,7 +1,9 @@
 export { ReplayServer } from './replay-history.ts';
+export { ReplayGapServer } from './replay-gap.ts';
 export { ReplayCustomServer } from './replay-custom.ts';
 export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
+export { AdminServer } from './admin.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
@@ -40,6 +42,9 @@ export { CtxQualityServer } from './ctx-quality.ts';
 export { CtxMetaServer } from './ctx-meta.ts';
 export { KeepaliveServer } from './keepalive.ts';
 export { ProtocolPingsServer } from './protocol-pings.ts';
+export { HeartbeatServer } from './heartbeat.ts';
+export { HeartbeatKeepaliveServer } from './heartbeat-keepalive.ts';
+export { HeartbeatHibernationServer } from './heartbeat-hibernation.ts';
 export { MultifileServer } from './multifile.ts';
 export { RateLimitServer } from './rate-limit.ts';
 export { StreamDurableServer } from './stream-durable.ts';
@@ -50,8 +55,127 @@ export { ChannelCheckCommitServer } from './channel-check-commit.ts';
 export { CtxLocalsServer } from './ctx-locals.ts';
 export { MultiStateServer } from './multi-state.ts';
 export { DurableConfigServer } from './durable-config.ts';
+export { InboxServer } from './inbox.ts';
+export { InboxDynamicServer } from './inbox-dynamic.ts';
+export { InboxRetentionServer } from './inbox-retention.ts';
+export { ReceiptsServer } from './receipts.ts';
+export { InboxGapServer } from './inbox-gap.ts';
+export { InboxHandleServer } from './inbox-handle.ts';
+export { LastSeenServer } from './last-seen.ts';
+
+/** Returned when a route names an op that has no case below. */
+const UNKNOWN_OP = Symbol('unknown-op');
+
+interface AdminOpArgs {
+  text: string;
+  userId: string;
+  channel: string;
+  url: URL;
+}
+
+type AdminStub = Awaited<ReturnType<ReturnType<Env['ADMIN_SERVER']['get']>['admin']>>;
+
+/**
+ * Drive one member of the admin ctx through the app's own `api`. Each case
+ * returns something observable so the test asserts on a value, not on silence.
+ */
+async function runAdminOp(
+  admin: AdminStub,
+  op: string,
+  { text, userId, channel, url }: AdminOpArgs,
+): Promise<unknown> {
+  switch (op) {
+    case 'count-now':
+      return admin.countNow();
+    case 'who-is-online':
+      return admin.whoIsOnline();
+    case 'connection-ids-of':
+      return admin.connectionIdsOf(userId);
+    case 'poke-connection':
+      return admin.pokeConnection(url.searchParams.get('connectionId') ?? '', text);
+    case 'close-connection':
+      return admin.closeConnection(
+        url.searchParams.get('connectionId') ?? '',
+        Number(url.searchParams.get('code') ?? '1000'),
+        url.searchParams.get('reason') ?? '',
+      );
+    case 'notify-user':
+      return admin.notifyUser(userId, text);
+    case 'boot-user':
+      return admin.bootUser(userId) ?? null;
+    case 'announce-in':
+      return admin.announceIn(channel, text) ?? null;
+    case 'members-of':
+      return admin.membersOf(channel);
+    case 'kick-from':
+      return (await admin.kickFrom(channel, userId)) ?? null;
+    case 'schedule-announce':
+      return admin.scheduleAnnounce(Number(url.searchParams.get('delayMs') ?? '50'), text) ?? null;
+    case 'cancel-announce':
+      return admin.cancelAnnounce() ?? null;
+    case 'write-note':
+      return admin.writeNote(text) ?? null;
+    case 'read-notes':
+      return admin.readNotes();
+    case 'put-flag':
+      return (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null;
+    case 'get-flag':
+      return admin.getFlag(url.searchParams.get('key') ?? '');
+    case 'env-keys':
+      return admin.envKeys();
+    case 'log-something':
+      return admin.logSomething(text) ?? null;
+    case 'defer-note':
+      return admin.deferNote(text) ?? null;
+    case 'has-platform':
+      return admin.hasPlatform();
+    default:
+      return UNKNOWN_OP;
+  }
+}
+
+/** Drive one built-in flat op the Cloudflare adapter projects onto the stub. */
+async function runAdminBuiltIn(
+  admin: AdminStub,
+  op: string,
+  { text, userId, channel, url }: AdminOpArgs,
+): Promise<unknown> {
+  switch (op) {
+    case 'connection-count':
+      return admin.connectionCount();
+    case 'list-connections':
+      return (await admin.listConnections()).map((info) => ({
+        id: info.id,
+        userId: info.userId,
+        hasRef: 'ref' in info,
+      }));
+    case 'send-to-connection':
+      return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
+    case 'send-to-user':
+      return admin.sendToUser(userId, 'notified', { text });
+    case 'close-user':
+      return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
+    case 'broadcast':
+      return admin.broadcast('announced', { text }) ?? null;
+    case 'channel-broadcast':
+      return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
+    case 'channel-members':
+      return (await admin.channelMembers(channel)).map((info) => info.userId);
+    case 'channel-kick':
+      return (
+        (await admin.channelKick(
+          channel,
+          { __wskit: 'user-ref', id: userId, instance: undefined },
+          { reason: 'admin kick' },
+        )) ?? null
+      );
+    default:
+      return UNKNOWN_OP;
+  }
+}
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
+  '/ws/admin': 'ADMIN_SERVER',
   '/ws/incoming': 'INCOMING_SERVER',
   '/ws/request': 'REQUEST_SERVER',
   '/ws/server-request': 'SERVER_REQUEST_SERVER',
@@ -89,6 +213,9 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-meta': 'CTX_META_SERVER',
   '/ws/keepalive': 'KEEPALIVE_SERVER',
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
+  '/ws/heartbeat': 'HEARTBEAT_SERVER',
+  '/ws/heartbeat-keepalive': 'HEARTBEAT_KEEPALIVE_SERVER',
+  '/ws/heartbeat-hibernation': 'HEARTBEAT_HIBERNATION_SERVER',
   '/ws/multifile': 'MULTIFILE_SERVER',
   '/ws/rate-limit': 'RATE_LIMIT_SERVER',
   '/ws/stream-durable': 'STREAM_DURABLE_SERVER',
@@ -99,6 +226,13 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-locals': 'CTX_LOCALS_SERVER',
   '/ws/multi-state': 'MULTI_STATE_SERVER',
   '/ws/durable-config': 'DURABLE_CONFIG_SERVER',
+  '/ws/inbox': 'INBOX_SERVER',
+  '/ws/inbox-dynamic': 'INBOX_DYNAMIC_SERVER',
+  '/ws/inbox-retention': 'INBOX_RETENTION_SERVER',
+  '/ws/receipts': 'RECEIPTS_SERVER',
+  '/ws/inbox-gap': 'INBOX_GAP_SERVER',
+  '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
+  '/ws/last-seen': 'LAST_SEEN_SERVER',
 };
 
 export default {
@@ -109,6 +243,11 @@ export default {
     if (url.pathname === '/ws/replay') {
       const id = env.REPLAY_SERVER.idFromName(room);
       return env.REPLAY_SERVER.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/ws/replay-gap') {
+      const id = env.REPLAY_GAP_SERVER.idFromName(room);
+      return env.REPLAY_GAP_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/replay-custom') {
@@ -130,6 +269,53 @@ export default {
       const id = env.PLUGINS_SERVER.idFromName(room);
       await env.PLUGINS_SERVER.get(id).shutdown();
       return new Response(null, { status: 204 });
+    }
+
+    // Admin surface over the stub: a built-in op (purgeUser) and a
+    // dev-defined op (announce), both reached through stub.admin().
+    if (url.pathname === '/ws/admin/purge') {
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const userId = url.searchParams.get('userId') ?? '';
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      await admin.purgeUser(userId);
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/admin/announce') {
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const text = url.searchParams.get('text') ?? '';
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      await admin.announce(text);
+      return new Response(null, { status: 204 });
+    }
+
+    // Every member of the admin ctx, driven through the app's own `api` over
+    // the stub. One route per member so a failure names the member that broke.
+    if (url.pathname.startsWith('/ws/admin/api/')) {
+      const op = url.pathname.slice('/ws/admin/api/'.length);
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      const text = url.searchParams.get('text') ?? '';
+      const userId = url.searchParams.get('userId') ?? '';
+      const channel = url.searchParams.get('channel') ?? 'lobby';
+
+      const result = await runAdminOp(admin, op, { text, userId, channel, url });
+      if (result === UNKNOWN_OP) return new Response(`unknown admin op: ${op}`, { status: 404 });
+      return Response.json({ result });
+    }
+
+    // Built-in flat ops on the stub itself, distinct from the app's `api`.
+    if (url.pathname.startsWith('/ws/admin/builtin/')) {
+      const op = url.pathname.slice('/ws/admin/builtin/'.length);
+      const id = env.ADMIN_SERVER.idFromName(room);
+      const admin = await env.ADMIN_SERVER.get(id).admin();
+      const text = url.searchParams.get('text') ?? '';
+      const userId = url.searchParams.get('userId') ?? '';
+      const channel = url.searchParams.get('channel') ?? 'lobby';
+
+      const result = await runAdminBuiltIn(admin, op, { text, userId, channel, url });
+      if (result === UNKNOWN_OP) return new Response(`unknown builtin op: ${op}`, { status: 404 });
+      return Response.json({ result });
     }
 
     if (url.pathname === '/ws/reject-http') {
@@ -174,6 +360,65 @@ export default {
         await env.SCHEDULED_SERVER.get(id).restart();
       } catch {
         /* expected — see above */
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/inbox-retention/restart') {
+      const id = env.INBOX_RETENTION_SERVER.idFromName(room);
+      try {
+        await env.INBOX_RETENTION_SERVER.get(id).restart();
+      } catch {
+        /* expected — see above */
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/receipts/seed-stale') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      await (await env.RECEIPTS_SERVER.get(id).admin()).seedStaleReceipt();
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/receipts/stale-count') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      const count = await (await env.RECEIPTS_SERVER.get(id).admin()).staleReceiptCount();
+      return Response.json({ count });
+    }
+
+    if (url.pathname === '/ws/receipts/drop-inbox') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      await (await env.RECEIPTS_SERVER.get(id).admin()).dropInboxTable();
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/receipts/receivers') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      const users = await (
+        await env.RECEIPTS_SERVER.get(id).admin()
+      ).receiptUsers(
+        url.searchParams.get('channel') ?? 'chat',
+        Number(url.searchParams.get('seq') ?? 0),
+      );
+      return Response.json({ users });
+    }
+
+    if (url.pathname === '/ws/receipts/purge') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      try {
+        await (await env.RECEIPTS_SERVER.get(id).admin()).purgeUser('alice');
+        return new Response(null, { status: 204 });
+      } catch {
+        return new Response(null, { status: 500 });
+      }
+    }
+
+    if (url.pathname === '/ws/receipts/restart') {
+      const id = env.RECEIPTS_SERVER.idFromName(room);
+      try {
+        await env.RECEIPTS_SERVER.get(id).restart();
+      } catch {
+        /* expected — ctx.abort() tears down the instance */
       }
       return new Response(null, { status: 204 });
     }

@@ -32,6 +32,6 @@ const handleDoEcho = base.on('do-echo', {
   },
 });
 
-export const durableConfigHandler = base.assemble(handleTick, handleDoEcho);
+export const durableConfigHandler = base.assemble({ handlers: [handleTick, handleDoEcho] });
 
 export type DurableConfigClient = InferClient<typeof durableConfigHandler>;

@@ -26,13 +26,13 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __wskit: 'hibernation',
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
-    __requires: enabled ? { hibernation: true, storage: true } : {},
+    __requires: enabled ? { hibernation: true } : {},
     enabled,
     __setup(engine) {
       engine.setHibernationEnabled(enabled);
       if (!enabled) return;
       engine.onBootSchema(() => {
-        ensureConnectionSchema(engine.requireStorage().sql);
+        ensureConnectionSchema(engine.storage.sql);
       });
     },
   };

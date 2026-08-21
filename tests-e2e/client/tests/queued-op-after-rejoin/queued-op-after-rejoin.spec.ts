@@ -37,11 +37,13 @@ test.describe('queued op after rejoin (conformance)', () => {
     await expect(alice.page.getByTestId('archive-subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('archive-subscribed')).toHaveText('yes');
 
-    // Alice drops the socket and IMMEDIATELY queues a channel send while
-    // reconnecting. Buffering holds it; on reopen the rejoin runs first, then the
-    // buffered send flushes — so the server accepts it and broadcasts it.
+    // Hold Alice's replacement connection before it opens, then queue a channel
+    // send. Buffering holds it; on reopen the rejoin runs first, then the buffered
+    // send flushes — so the server accepts it and broadcasts it.
     await alice.page.getByTestId('server-drop').click();
+    await expect(alice.page.getByTestId('reconnect-held')).toHaveText('yes');
     await alice.page.getByTestId('queued-send').click();
+    await alice.page.getByTestId('resume-reconnect').click();
 
     await expect(alice.page.getByTestId('status')).toHaveText('open');
 

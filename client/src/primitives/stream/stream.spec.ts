@@ -167,6 +167,8 @@ describe('nudge and cancel', () => {
       __wskit: { streamId: sid, streamNudgeId: frame.__wskit.streamNudgeId },
     });
     await expect(pending).resolves.toBeUndefined();
+    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+    expect(handle.active).toBe(false);
   });
 
   it('rejects the nudge() Promise on a non-terminal error without ending the stream', async () => {
@@ -252,6 +254,7 @@ describe('durable resume', () => {
       payload: { lastKnownSeq: 4 },
       __wskit: { streamId: 'feed-lazy' },
     });
+    socket.disconnect();
   });
 
   it('sends __resumeStream__ with lastKnownSeq after a reconnect', async () => {
@@ -328,11 +331,13 @@ describe('scoped streams', () => {
       __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
-    void room.stream('ask-ai', { prompt: 'hi' });
+    const pending = room.stream('ask-ai', { prompt: 'hi' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('ask-ai');
     expect(frame.__wskit).toMatchObject({ channel: 'r1', channelFamily: 'rooms' });
     expect(typeof frame.__wskit.streamId).toBe('string');
+    socket.disconnect();
+    await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
 
@@ -400,6 +405,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
     ).rejects.toMatchObject({ code: 'validation-failed' });
     expect(ws.sentFrames().length).toBe(before);
+    handle.cancel();
   });
 
   it('nudge returns a rejected Promise when its payload will not serialize', async () => {
@@ -410,6 +416,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
     await expect(
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('add-context', circular),
     ).rejects.toBeInstanceOf(TypeError);
+    handle.cancel();
   });
 });
 
@@ -429,22 +436,28 @@ describe('stream wire-limit validation', () => {
   it('accepts a custom streamId exactly at the limit', async () => {
     const { socket, ws } = buildStream();
     const atLimit = 'x'.repeat(WIRE_LIMITS.streamId);
-    void socket.stream('ask-ai', { prompt: 'hi' }, { streamId: atLimit }).catch(() => undefined);
+    const pending = socket.stream('ask-ai', { prompt: 'hi' }, { streamId: atLimit });
     expect(ws.sentFrames().at(-1).__wskit.streamId).toBe(atLimit);
+    socket.disconnect();
+    await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
 
 describe('stream id uniqueness across clients (#1)', () => {
-  it('two fresh sockets do not generate the same streamId', () => {
+  it('two fresh sockets do not generate the same streamId', async () => {
     const a = buildStream();
     const b = buildStream();
-    void a.socket.stream('ask-ai', { prompt: 'hi' }).catch(() => undefined);
-    void b.socket.stream('ask-ai', { prompt: 'hi' }).catch(() => undefined);
+    const aPending = a.socket.stream('ask-ai', { prompt: 'hi' });
+    const bPending = b.socket.stream('ask-ai', { prompt: 'hi' });
     // Both counters start at 1; only the per-socket random scope keeps them apart,
     // so a shared server stream map can't have one client clobber the other.
     expect(a.ws.sentFrames().at(-1).__wskit.streamId).not.toBe(
       b.ws.sentFrames().at(-1).__wskit.streamId,
     );
+    a.socket.disconnect();
+    b.socket.disconnect();
+    await expect(aPending).rejects.toMatchObject({ code: 'disconnected' });
+    await expect(bPending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
 
@@ -480,6 +493,7 @@ describe('one reconnect decision per close (#19)', () => {
     expect(calls).toBe(1);
     expect(socket.state.get()).toBe('reconnecting');
     expect(handle.active).toBe(true);
+    socket.disconnect();
   });
 });
 
@@ -505,6 +519,7 @@ describe('stream control frames while not open (#24)', () => {
     await expect(handle.nudge('add-context', { context: 'x' })).rejects.toMatchObject({
       code: 'disconnected',
     });
+    socket.disconnect();
   });
 
   it('resumeStream on a closed non-lazy socket settles the handle with Disconnected', async () => {
@@ -526,6 +541,7 @@ describe('stream wire-id and nudge validation', () => {
     await expect(
       handle.nudge('add-context', circular as unknown as { context: string }),
     ).rejects.toBeInstanceOf(TypeError);
+    handle.cancel();
   });
 
   it('resumeStream with an empty id settles the handle with validation-failed (#3)', async () => {

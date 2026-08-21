@@ -1,6 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
+import { signalBus } from '~/internal/signals.ts';
 import { platform } from '~/primitives/platform.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,7 +53,7 @@ function makeSignalCapture(signal: 'visibility' | 'online' = 'visibility'): {
   const primitive: Primitive<EmptyTypeFn> = {
     _tag: 'signal-capture',
     setup(helpers) {
-      helpers.onSignal(signal, (value) => received.push(value));
+      signalBus(helpers).on(signal, (value) => received.push(value));
       return { id: 'signal-capture' };
     },
   };
@@ -185,7 +186,7 @@ describe('signal handler isolation (#20)', () => {
     const thrower: Primitive<EmptyTypeFn> = {
       _tag: 'signal-thrower',
       setup(helpers) {
-        helpers.onSignal('online', () => {
+        signalBus(helpers).on('online', () => {
           throw new Error('signal boom');
         });
         return { id: 'signal-thrower' };

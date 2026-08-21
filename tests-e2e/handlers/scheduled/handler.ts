@@ -98,15 +98,12 @@ const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
 
 const handleSendToConnTask = base.scheduled('send-to-conn-task', {
   run(ctx, data) {
-    const ref = {
-      __wskit: 'connection-ref' as const,
-      id: data.connectionId,
-      instance: undefined,
-      identity: data.connectionId,
-    };
-    const delivered = ctx.connection(ref).send('schedule-send-to-conn-delivery', {
-      text: data.text,
-    });
+    const target = ctx.connections.all().find((info) => info.id === data.connectionId);
+    const delivered = target
+      ? ctx.connections.get(target.ref()).send('schedule-send-to-conn-delivery', {
+          text: data.text,
+        })
+      : false;
     ctx.broadcast('schedule-send-to-conn-status', {
       connectionId: data.connectionId,
       delivered,
@@ -128,9 +125,9 @@ const handleBroadcastTask = base.scheduled('broadcast-task', {
 
 const handleSendToTagTask = base.scheduled('send-to-tag-task', {
   run(ctx) {
-    for (const conn of ctx.getConnections()) {
+    for (const conn of ctx.connections.all()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
-        ctx.connection(conn.ref()).send('send-to-tag-result', { text: 'tagged-from-task' });
+        ctx.connections.get(conn.ref()).send('send-to-tag-result', { text: 'tagged-from-task' });
       }
     }
   },
@@ -287,7 +284,7 @@ const handleScheduleSendToConn = base.on('schedule-send-to-conn', {
 const handleWhoAmI = base.on('who-am-i', {
   input: v.object({}),
   run(ctx) {
-    ctx.send('who-am-i-result', { connectionId: ctx.id });
+    ctx.send('who-am-i-result', { connectionId: ctx.connection.id });
   },
 });
 
@@ -348,40 +345,42 @@ const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task'
   },
 });
 
-export const scheduledHandler = base.assemble(
-  handleCleanupTask,
-  handleHeartbeatTask,
-  handleFlakyTask,
-  handleDefaultRetryTask,
-  handleAlwaysFailTask,
-  handleBigintThrowTask,
-  handleFilteredCleanupTask,
-  handleSendToConnTask,
-  handleEmptyBackoffTask,
-  handleBroadcastTask,
-  handleSendToTagTask,
-  handleScheduleCleanup,
-  handleCancelCleanup,
-  handleStartHeartbeat,
-  handleCancelHeartbeat,
-  handleTriggerFlakyTask,
-  handleTriggerDefaultRetryTask,
-  handleTriggerAlwaysFail,
-  handleTriggerBigintThrow,
-  handleQueryDeadLetter,
-  handleScheduleFilteredTasks,
-  handleCancelFilteredTask,
-  handleCancelNothing,
-  handleTriggerInvalidCleanupData,
-  handleTriggerInvalidScheduleTime,
-  handleScheduleSendToConn,
-  handleWhoAmI,
-  handleTriggerEmptyBackoff,
-  handleScheduleBroadcastTask,
-  handleScheduleSendToTag,
-  handleTagVip,
-  handleCancelNonexistent,
-  handleTriggerScheduleUnknownTask,
-);
+export const scheduledHandler = base.assemble({
+  handlers: [
+    handleCleanupTask,
+    handleHeartbeatTask,
+    handleFlakyTask,
+    handleDefaultRetryTask,
+    handleAlwaysFailTask,
+    handleBigintThrowTask,
+    handleFilteredCleanupTask,
+    handleSendToConnTask,
+    handleEmptyBackoffTask,
+    handleBroadcastTask,
+    handleSendToTagTask,
+    handleScheduleCleanup,
+    handleCancelCleanup,
+    handleStartHeartbeat,
+    handleCancelHeartbeat,
+    handleTriggerFlakyTask,
+    handleTriggerDefaultRetryTask,
+    handleTriggerAlwaysFail,
+    handleTriggerBigintThrow,
+    handleQueryDeadLetter,
+    handleScheduleFilteredTasks,
+    handleCancelFilteredTask,
+    handleCancelNothing,
+    handleTriggerInvalidCleanupData,
+    handleTriggerInvalidScheduleTime,
+    handleScheduleSendToConn,
+    handleWhoAmI,
+    handleTriggerEmptyBackoff,
+    handleScheduleBroadcastTask,
+    handleScheduleSendToTag,
+    handleTagVip,
+    handleCancelNonexistent,
+    handleTriggerScheduleUnknownTask,
+  ],
+});
 
 export type ScheduledClient = InferClient<typeof scheduledHandler>;

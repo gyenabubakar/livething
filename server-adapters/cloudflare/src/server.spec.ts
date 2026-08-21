@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as ServerAdapters from '@wskit/server/adapters';
 import {
   FakeDurableObjectBase,
   installPermissiveResponse,
@@ -6,6 +7,7 @@ import {
   makeFakeDOState,
   makeFakeEngine,
 } from './test-utils.ts';
+import type { WSKitAdmin } from './admin.ts';
 import type { FakeEngine } from './test-utils.ts';
 
 const responseRestore = installPermissiveResponse();
@@ -13,6 +15,7 @@ afterAll(() => responseRestore.restore());
 
 vi.mock('cloudflare:workers', () => ({
   DurableObject: FakeDurableObjectBase,
+  RpcTarget: class RpcTargetFake {},
 }));
 
 type AdapterSetup = (
@@ -22,7 +25,8 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-vi.mock('@wskit/server/adapters', () => ({
+vi.mock('@wskit/server/adapters', async (importOriginal) => ({
+  ...(await importOriginal<typeof ServerAdapters>()),
   adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
     (_handler: unknown, options: TOpts): TSvc => {
@@ -43,7 +47,11 @@ type DOInstance = {
   webSocketError(ws: WebSocket, err: unknown): Promise<void>;
   alarm(): Promise<void>;
   shutdown(): Promise<void>;
+  admin(): Promise<AdminSurface>;
 };
+
+/** The real built-in surface, plus whatever dev api methods a test stages on it. */
+type AdminSurface = WSKitAdmin & Record<string, unknown>;
 
 function buildClass(opts?: { hibernation?: boolean }) {
   fake = makeFakeEngine();
@@ -386,6 +394,7 @@ describe('engine wiring in the constructor', () => {
 
     expect(fake.calls.create).toHaveLength(1);
     const engineOptions = fake.calls.create[0] as Record<string, unknown>;
+    expect(fake.engine.setInstanceId).toHaveBeenCalledWith('fake-instance');
     expect(engineOptions.env).toEqual(env);
     expect(engineOptions.storage).toBeDefined();
     expect(engineOptions.platform).toBeDefined();
@@ -402,5 +411,233 @@ describe('engine wiring in the constructor', () => {
     const p = Promise.resolve();
     wrapper(p);
     expect(state.waitUntil).toHaveBeenCalledWith(p);
+  });
+
+  it('restores every surviving socket at boot under hibernation so live delivery reaches them', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const sockA = { tag: 'a' } as unknown;
+    const sockB = { tag: 'b' } as unknown;
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await (instance as unknown as { ready: Promise<void> }).ready;
+
+    expect(fake.calls.restoreHibernatedConnections).toHaveLength(1);
+    expect(fake.calls.restoreHibernatedConnections[0]).toEqual([sockA, sockB]);
+    // The eager restore supersedes the id-collecting reconcile at boot.
+    expect(fake.calls.reconcileConnections).toHaveLength(0);
+  });
+
+  it('blocks every lifecycle entrypoint when hibernation restore fails', async () => {
+    const failure = new Error('restore failed');
+    const Cls = buildClass({ hibernation: true });
+    fake.setRestoreFailure(failure);
+    const sockA = { tag: 'a' } as unknown;
+    const sockB = { tag: 'b' } as unknown;
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const ready = (instance as unknown as { ready: Promise<void> }).ready;
+
+    const bootError = await ready.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(bootError).toBe(failure);
+    expect(fake.calls.restoreHibernatedConnections).toEqual([[sockA, sockB]]);
+    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
+
+    const calls = [
+      instance.fetch(upgradeRequest()),
+      instance.webSocketMessage({} as WebSocket, 'hello'),
+      instance.webSocketClose({} as WebSocket, 1000, 'bye'),
+      instance.webSocketError({} as WebSocket, failure),
+      instance.alarm(),
+      instance.shutdown(),
+      instance.admin(),
+    ];
+    for (const call of calls) {
+      await expect(call).rejects.toBe(failure);
+    }
+
+    expect(fake.calls.handleUpgrade).toHaveLength(0);
+    expect(fake.calls.handleHibernationWake).toHaveLength(0);
+    expect(fake.calls.handleAlarm).toBe(0);
+    expect(fake.calls.handleShutdown).toBe(0);
+
+    // Vitest reports an unhandled rejection if the boot restore promise is
+    // dropped; yielding here lets that check run before the test completes.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('observes a boot failure even when no lifecycle event arrives to await ready', async () => {
+    const failure = new Error('restore failed before the first event');
+    const Cls = buildClass({ hibernation: true });
+    fake.setRestoreFailure(failure);
+
+    const unhandled: unknown[] = [];
+    function onUnhandled(reason: unknown) {
+      unhandled.push(reason);
+    }
+    const processLike = (
+      globalThis as unknown as {
+        process: {
+          on(event: string, handler: (reason: unknown) => void): void;
+          off(event: string, handler: (reason: unknown) => void): void;
+        };
+      }
+    ).process;
+    processLike.on('unhandledRejection', onUnhandled);
+    try {
+      new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    } finally {
+      processLike.off('unhandledRejection', onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
+  });
+
+  it('does not restore or reconcile against surviving sockets in standard mode', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'a' }]) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await (instance as unknown as { ready: Promise<void> }).ready;
+
+    expect(fake.calls.restoreHibernatedConnections).toHaveLength(0);
+    expect(state.getWebSockets).not.toHaveBeenCalled();
+  });
+});
+
+describe('WSKitDurableObject admin()', () => {
+  async function adminOf(opts?: { hibernation?: boolean }) {
+    const Cls = buildClass(opts);
+    const state = makeFakeDOState({ getWebSockets: vi.fn(() => [{ tag: 'ws1' }]) });
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    return { admin: await instance.admin(), state };
+  }
+
+  it('built-in methods delegate to engine.admin()', async () => {
+    const { admin } = await adminOf();
+    admin.broadcast('evt', { n: 1 });
+    await admin.purgeUser('u1');
+    admin.closeConnections({ userId: 'u1' }, 4000, 'gone');
+
+    expect(fake.engine.admin).toHaveBeenCalledTimes(1);
+    expect(fake.adminApi.broadcast).toHaveBeenCalledWith('evt', { n: 1 });
+    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1', undefined);
+    expect(fake.adminApi.closeConnections).toHaveBeenCalledWith({ userId: 'u1' }, 4000, 'gone');
+  });
+
+  it('forwards purgeUser options across the stub boundary', async () => {
+    const { admin } = await adminOf();
+    await admin.purgeUser('u1', { keepBroadcastContent: true });
+
+    expect(fake.adminApi.purgeUser).toHaveBeenCalledWith('u1', { keepBroadcastContent: true });
+  });
+
+  it('projects the context managers onto flat, RPC-callable methods', async () => {
+    const { admin } = await adminOf();
+
+    expect(admin.connectionCount()).toBe(3);
+    expect(admin.listConnections()).toEqual([{ id: 'c1', userId: 'u1' }]);
+    expect(admin.sendToConnection('c1', 'evt', { n: 1 })).toBe(true);
+    expect(fake.adminSpies.connectionSend).toHaveBeenCalledWith('evt', { n: 1 });
+
+    expect(admin.sendToUser('u1', 'evt', { n: 2 })).toBe(2);
+    expect(fake.adminSpies.userSend).toHaveBeenCalledWith('evt', { n: 2 });
+
+    admin.closeUser('u1', 4000, 'bye');
+    expect(fake.adminSpies.userClose).toHaveBeenCalledWith(4000, 'bye');
+  });
+
+  it('a snapshot crossing the stub carries data only, never ref()', async () => {
+    const { admin } = await adminOf();
+    const [info] = admin.listConnections();
+    expect(info).not.toHaveProperty('ref');
+  });
+
+  it('sendToConnection reports false for an id no live connection holds', async () => {
+    const { admin } = await adminOf();
+    expect(admin.sendToConnection('nope', 'evt', {})).toBe(false);
+    expect(fake.adminSpies.connectionSend).not.toHaveBeenCalled();
+  });
+
+  it('channel ops resolve a static name and a family + instance alike', async () => {
+    const { admin } = await adminOf();
+    const channels = fake.adminApi.channels as { get: ReturnType<typeof vi.fn> };
+
+    admin.channelBroadcast('lobby', 'evt', { n: 1 });
+    expect(channels.get).toHaveBeenCalledWith('lobby');
+    expect(fake.adminSpies.channelBroadcast).toHaveBeenCalledWith('evt', { n: 1 });
+
+    admin.channelMembers({ family: 'rooms', instance: 'rooms:42' });
+    expect(channels.get).toHaveBeenCalledWith('rooms', 'rooms:42');
+    expect(fake.adminSpies.channelMembers).toHaveBeenCalled();
+
+    const target = { __wskit: 'user-ref', id: 'u1', instance: undefined } as const;
+    await admin.channelKick('lobby', target, { reason: 'banned', revoke: true });
+    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(
+      { ...target, instance: 'fake-instance' },
+      {
+        reason: 'banned',
+        revoke: true,
+      },
+    );
+  });
+
+  it('preserves an explicit foreign user-ref instance for the engine to reject', async () => {
+    const { admin } = await adminOf();
+    const target = { __wskit: 'user-ref', id: 'u1', instance: 'other' } as const;
+
+    await admin.channelKick('lobby', target, { reason: 'foreign' });
+
+    expect(fake.adminSpies.channelKick).toHaveBeenCalledWith(target, { reason: 'foreign' });
+  });
+
+  it('leaves the context plumbing off the stub surface', async () => {
+    const { admin } = await adminOf();
+    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'waitUntil', 'schedule']) {
+      expect(admin).not.toHaveProperty(plumbing);
+    }
+  });
+
+  it("exposes the app's own api methods over the stub", async () => {
+    const evict = vi.fn();
+    fake = makeFakeEngine();
+    fake.adminApi.evict = evict; // a dev-defined api method
+    fake.setHibernation(false);
+    // Rebuild against this staged engine.
+    const Cls = server({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const admin = await instance.admin();
+    (admin.evict as (id: string) => void)('u9');
+    expect(evict).toHaveBeenCalledWith('u9');
+  });
+
+  it('a dev api method cannot shadow a built-in', async () => {
+    const rogue = vi.fn();
+    fake = makeFakeEngine();
+    fake.adminApi.broadcast = rogue; // tries to replace the built-in broadcast
+    fake.setHibernation(false);
+    const Cls = server({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
+    const admin = await instance.admin();
+    admin.broadcast('evt', { n: 1 });
+    // broadcast stays the prototype method, never an own dev override.
+    expect(Object.hasOwn(admin, 'broadcast')).toBe(false);
+    expect(rogue).toHaveBeenCalledWith('evt', { n: 1 });
+  });
+
+  it('wakes hibernated sockets before building the admin surface', async () => {
+    const { state } = await adminOf({ hibernation: true });
+    expect(state.getWebSockets).toHaveBeenCalled();
+    expect(fake.calls.handleHibernationWake).toContainEqual({ tag: 'ws1' });
   });
 });

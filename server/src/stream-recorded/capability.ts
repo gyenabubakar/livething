@@ -33,16 +33,14 @@ function buildDurableSweep(): Primitive {
  * `base.recordedStream(name, { input, run })`. Chunks are buffered as they
  * emit; on reconnect the client receives the chunks it missed — the generator
  * does not re-run. Best for non-resumable sources such as model tokens.
- * Requires the `persistence()` capability.
  *
  * @example
  * ```ts
  * import { define, t } from '@wskit/server';
  * import { recordedStream } from '@wskit/server/streams';
- * import { persistence } from '@wskit/server/persistence';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [persistence(), recordedStream()] });
+ * const base = define({ env: t<Env>(), capabilities: [recordedStream()] });
  *
  * export const handleTokens = base.recordedStream('tokens', {
  *   input: v.object({}),

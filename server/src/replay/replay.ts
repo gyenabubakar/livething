@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
   ensureReplaySchema,
@@ -12,6 +12,9 @@ import {
   pruneReplayScopeRows,
   readReplayContextScope,
   readReplayScope,
+  readReplayWatermark,
+  ReplayPruneGate,
+  replayScopeKey,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
@@ -121,7 +124,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     __wskit: 'replay',
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
-    __requires: { storage: true },
+    __requires: {},
     __requiresCapabilities: [CAPABILITY_KIND.dedup, CAPABILITY_KIND.sequence],
     __validate(view) {
       if (!view.sequencePersistent) {
@@ -138,10 +141,10 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       const exclude = new Set(opts.exclude ?? []);
 
       engine.onBootSchema(() => {
-        ensureReplaySchema(engine.requireStorage().sql);
+        ensureReplaySchema(engine.storage.sql);
       });
       engine.onBoot(() => {
-        pruneExpiredReplayRows(engine.requireStorage().sql, opts.retention, Date.now());
+        pruneExpiredReplayRows(engine.storage.sql, opts.retention, Date.now());
       });
 
       const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
@@ -174,6 +177,17 @@ interface ReplayInstallerOptions {
 }
 
 /**
+ * Resolve the current connection's id from a handler ctx. Reads the engine's
+ * stashed runtime connection first — it is always present on a built ctx — so
+ * the id is available regardless of how the public `ctx.connection` ref is
+ * surfaced on a given dispatch.
+ */
+function readConnectionId(ctx: Record<PropertyKey, unknown>): string {
+  const runtime = ctx[ENGINE_INTERNAL_CONNECTION] as { id?: string } | undefined;
+  return runtime?.id ?? (ctx as { connection?: { id?: string } }).connection?.id ?? '';
+}
+
+/**
  * Bundles the context extender, persist callback, and `__replay__` protocol
  * handler used during replay setup. Using a class lets the three callbacks
  * share the same engine reference, channel key, exclude set, and options
@@ -186,6 +200,7 @@ class ReplayInstaller {
   private readonly channelKey: string | undefined;
   private readonly exclude: Set<string>;
   private readonly opts: ReplayOptions;
+  private readonly pruneGate = new ReplayPruneGate();
 
   constructor({ engine, channelKey, exclude, opts }: ReplayInstallerOptions) {
     this.engine = engine;
@@ -197,11 +212,12 @@ class ReplayInstaller {
   /** Attach `sendReplay` to the relevant scope on every live connection context. */
   contextExtender = (ctx: unknown): Record<string, unknown> => {
     const base = ctx as Record<PropertyKey, unknown> & {
-      id?: string;
+      connection?: { id?: string };
       channel?: Record<PropertyKey, unknown>;
       sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
     };
     const scope = readReplayContextScope(base);
+    const connectionId = readConnectionId(base);
 
     if (this.channelKey) {
       // Channel-level replay. For families, channelKey is the family key and
@@ -209,14 +225,14 @@ class ReplayInstaller {
       // channel name and matches scope.channelName (scope.channelFamily is null).
       const matches =
         scope.channelFamily === this.channelKey || scope.channelName === this.channelKey;
-      if (!matches || !base.id || !base.channel) return {};
+      if (!matches || !connectionId || !base.channel) return {};
 
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.assertReplaySendContract(event, payload, {
           channel: scope.channelName ?? undefined,
           channelFamily: scope.channelFamily ?? null,
         });
-        this.engine.sendReplay(base.id as string, {
+        this.engine.sendReplay(connectionId, {
           channelName: scope.channelName ?? null,
           channelFamily: scope.channelFamily ?? null,
           event,
@@ -228,7 +244,7 @@ class ReplayInstaller {
       return {};
     }
 
-    if (!base.id) return {};
+    if (!connectionId) return {};
 
     // Top-level replay cascades into every channel it has not ceded to a
     // channel-scoped instance. When the live ctx is in such a channel scope,
@@ -246,7 +262,7 @@ class ReplayInstaller {
           channel: scope.channelName ?? undefined,
           channelFamily: scope.channelFamily ?? null,
         });
-        this.engine.sendReplay(base.id as string, {
+        this.engine.sendReplay(connectionId, {
           channelName: scope.channelName ?? null,
           channelFamily: scope.channelFamily ?? null,
           event,
@@ -262,7 +278,7 @@ class ReplayInstaller {
         channel: wire.channel,
         channelFamily: wire.channelFamily,
       });
-      this.engine.sendReplay(base.id as string, {
+      this.engine.sendReplay(connectionId, {
         channelName: wire.channel ?? null,
         channelFamily: wire.channelFamily ?? null,
         event,
@@ -286,7 +302,7 @@ class ReplayInstaller {
     )
       return;
 
-    const { sql } = this.engine.requireStorage();
+    const { sql } = this.engine.storage;
     const scope = this.engine.getInvocationScope() as {
       pendingSnapshotFlushes: Map<string, ReplaySnapshotEntry>;
     } | null;
@@ -330,10 +346,18 @@ class ReplayInstaller {
     //
     // For the queued case the scope flusher calls `runPrune` itself once
     // the row is actually on disk, so we deliberately skip the prune here.
-    const queued = scope !== null && (this.opts.type ?? 'history') === 'snapshot';
+    const isHistory = (this.opts.type ?? 'history') === 'history';
+    const queued = scope !== null && !isHistory;
     if (!queued) {
-      pruneExpiredReplayRows(sql, retention, row?.createdAt ?? Date.now());
-      pruneReplayScopeRows(sql, retention, replayScope);
+      const stamp = row?.createdAt ?? Date.now();
+      if (isHistory) {
+        // History stores one new row per message, so the gate can count exactly
+        // and skip the prune whenever the store is under its caps.
+        this.pruneGate.prune(sql, { retention, scope: replayScope, stamp });
+      } else {
+        pruneExpiredReplayRows(sql, retention, stamp);
+        pruneReplayScopeRows(sql, retention, replayScope);
+      }
     }
   };
 
@@ -358,14 +382,32 @@ class ReplayInstaller {
     }
 
     const since = frame.payload.lastKnownSeq ?? 0;
-    const { sql } = this.engine.requireStorage();
+    const { sql } = this.engine.storage;
+
+    const connectionId = readConnectionId(ctx as Record<PropertyKey, unknown>);
+    if (!connectionId) return true;
+
+    // Snapshot resends current state, so only history mode can have a gap.
+    // Detected against the eviction watermark, not MIN(seq): the global seq counter is sparse.
+    if ((this.opts.type ?? 'history') === 'history' && since > 0) {
+      const scopeKey = replayScopeKey({
+        channel: scope.channelName ?? null,
+        channelFamily: scope.channelFamily ?? null,
+      });
+      const watermark = readReplayWatermark(sql, scopeKey);
+      if (watermark !== null && since < watermark) {
+        this.engine.sendGap(connectionId, {
+          channelName: scope.channelName ?? null,
+          channelFamily: scope.channelFamily ?? null,
+          missedThrough: watermark,
+        });
+      }
+    }
+
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
       channelFamily: scope.channelFamily ?? null,
     });
-
-    const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
-    if (!connectionId) return true;
 
     for (const row of rows) {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;

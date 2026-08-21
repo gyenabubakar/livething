@@ -22,7 +22,7 @@ type AsyncContextStore = { connectionId?: string; [key: PropertyKey]: unknown };
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -30,7 +30,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -187,7 +187,6 @@ describe('stream stop signal (ctx.stream.signal)', () => {
       createShutdownContext: () => ({}),
       cancelActiveStreamsForConnection: () => Promise.resolve(),
       handleConnectionClose: () => Promise.resolve(),
-      alarmState: { current: null },
       logger: runtime.logger,
     } as Parameters<typeof handleShutdown>[0]);
 

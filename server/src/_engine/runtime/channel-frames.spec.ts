@@ -6,7 +6,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -14,7 +14,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -46,7 +46,7 @@ function memberRuntime(
     channelMembers,
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
-      identity: c.identity,
+      userId: c.userId,
       meta: c.meta,
       tags: [],
       channels: [...c.channelMemberships.values()].map((m) => m.channelName),
@@ -57,7 +57,7 @@ function memberRuntime(
         __wskit: 'connection-ref' as const,
         id: c.id,
         instance: undefined,
-        identity: c.identity,
+        userId: c.userId,
       }),
     }),
   };

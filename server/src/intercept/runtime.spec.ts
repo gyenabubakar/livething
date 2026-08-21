@@ -13,7 +13,7 @@ type AsyncContextStore = {
 function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
-    identity: 'c1',
+    userId: 'c1',
     wsKey: 'ws1',
     descriptor: {
       send() {},
@@ -21,7 +21,7 @@ function createConnection(): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: 'c1',
+      userId: 'c1',
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },

@@ -5,7 +5,7 @@ describe('DedupClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<DedupClient['incoming']>().not.toBeAny();
     expectTypeOf<DedupClient['outgoing']>().not.toBeAny();
-    expectTypeOf<DedupClient['requests']>().not.toBeAny();
+    expectTypeOf<DedupClient['clientRequests']>().not.toBeAny();
     expectTypeOf<DedupClient['streams']>().not.toBeAny();
     expectTypeOf<DedupClient['channels']>().not.toBeAny();
     expectTypeOf<DedupClient['errors']>().not.toBeAny();
@@ -48,8 +48,8 @@ describe('DedupClient — channels', () => {
 });
 
 describe('DedupClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof DedupClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof DedupClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

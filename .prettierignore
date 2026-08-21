@@ -14,5 +14,23 @@
 **/.nuxt/
 **/.output/
 
-# Imported docs site — keep upstream formatting
-website/
+# Written by `wrangler types`, committed but never hand-edited
+**/worker-configuration.d.ts
+
+# Scratch git worktrees agents create under `.claude/`, not project source
+.claude/worktrees/
+
+# Docs site: only `website/content` is formatted, so Prettier formats the code
+# blocks inside the markdown. The rest is Nuxt app code kept as-is. Listing the
+# siblings rather than `website/` is deliberate — these patterns follow gitignore
+# rules, where a re-include like `!website/content/` cannot rescue a path whose
+# parent directory is already excluded.
+website/app/
+website/public/
+website/server/
+website/.data/
+website/nuxt.config.ts
+website/tsconfig.json
+website/wrangler.jsonc
+website/package.json
+website/README.md

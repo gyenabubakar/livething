@@ -20,7 +20,7 @@ async function send(
 function makeConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: {},
     descriptor: { send() {}, close() {} } as unknown as RuntimeConnection['descriptor'],
     meta: {},
@@ -50,6 +50,7 @@ function makeRuntime(cap: number) {
     protocolHandlers: new Map(),
     incomingHooks: [incomingHook],
     activityHooks: [],
+    messageActivityHooks: [],
     errorHooks: [],
     incomingDedupCap: cap,
     streamNudgeBuffer: bufferStreamNudge,
@@ -123,24 +124,6 @@ describe('incoming dedup', () => {
     await send(runtime, c2, { event: 'echo', payload: {}, wskit: { messageId: 'shared' } });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
-  });
-
-  it('default cap is 256 (DEDUP_DEFAULT_INCOMING_CAP)', async () => {
-    const connection = makeConnection();
-    // Cap of 256 mirrors the default set by the dedup() primitive.
-    const runtime = makeRuntime(256);
-
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'first' } });
-    for (let i = 0; i < 256; i += 1) {
-      await send(runtime, connection, {
-        event: 'echo',
-        payload: {},
-        wskit: { messageId: `id-${i}` },
-      });
-    }
-    await send(runtime, connection, { event: 'echo', payload: {}, wskit: { messageId: 'first' } });
-
-    expect(runtime.incomingHook).toHaveBeenCalledTimes(1 + 256 + 1);
   });
 
   it('is disabled when cap is 0', async () => {

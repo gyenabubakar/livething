@@ -11,14 +11,12 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
-import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
 import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
-import type * as InterceptPrimitive from '~/intercept/runtime.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -26,19 +24,26 @@ import type * as EngineRuntimeTypes from './types.ts';
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /**
+ * Whether a connection currently holds a channel membership. Computed inline
+ * rather than through the imported `hasChannelMembership`: a cross-module
+ * reference to that function is mis-linked to an undefined binding in the
+ * bundled worker at the dispatch sites below, so we build the key here. Keep
+ * this key in sync with `createChannelMembershipKey`.
+ */
+function connectionHoldsMembership(
+  connection: Pick<RuntimeConnection, 'channelMemberships'>,
+  channelName: string,
+  channelFamily: string | null,
+): boolean {
+  return connection.channelMemberships.has(JSON.stringify([channelFamily, channelName]));
+}
+
+/**
  * Upper bound on concurrent pending `Defer` retry timers per connection. Past
  * this, a deferring message is exhausted instead of scheduling another timer,
  * so a flood of distinct deferring messages can't grow timers without limit.
  */
 const MAX_PENDING_DEFERS = 128;
-
-export type { WSKitRouting } from './protocol.ts';
-
-export {
-  broadcastToChannel,
-  broadcastToConnections,
-  sendThroughPipeline,
-} from '~/outgoing/runtime.ts';
 
 /**
  * Larger dependency bag for inbound message dispatch.
@@ -117,7 +122,7 @@ interface DispatchRuntime
   ): Promise<void>;
 
   broadcastToConnections(
-    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
 
@@ -249,6 +254,9 @@ export interface DispatchIncomingOptions {
   payload: unknown;
   wskit: Protocol.WSKitProtocol | undefined;
   attempt?: number;
+  // The already-resolved scope from processTextMessage, so a channel frame isn't
+  // resolved twice. Omitted on a Defer retry, which re-resolves from scratch.
+  scope?: EngineRuntimeTypes.ResolvedChannel;
 }
 
 interface HandleDispatchErrorOptions {
@@ -263,6 +271,15 @@ interface HandleDispatchErrorOptions {
   error: unknown;
 
   attempt: number;
+
+  /**
+   * True only when the throw came from an `on()` handler body. `Defer` re-queues
+   * the message, which is meaningful only for an `on()` handler: a request would
+   * re-run and re-answer a settled correlation, an intercept fires on every frame
+   * kind, and a stream can't restart after yielding. So `Defer` is honored only
+   * when this is set; thrown anywhere else it collapses to `internal-error`.
+   */
+  fromIncomingHandler: boolean;
 }
 
 /**
@@ -287,23 +304,23 @@ export async function dispatchIncoming(
   if (connection.closing) return;
 
   let scope: EngineRuntimeTypes.ResolvedChannel;
-  try {
-    scope = resolveChannel(runtime.compiled, wskit);
-  } catch (error) {
-    await runtime.handleRuntimeError(connection, {
-      error,
-      event,
-      routing: routingFromWSKit(wskit),
-    });
-    return;
+  if (opts.scope) {
+    scope = opts.scope;
+  } else {
+    try {
+      scope = resolveChannel(runtime.compiled, wskit);
+    } catch (error) {
+      await runtime.handleRuntimeError(connection, {
+        error,
+        event,
+        routing: routingFromWSKit(wskit),
+      });
+      return;
+    }
   }
   if (
     scope.channelName &&
-    !ChannelPrimitive.hasChannelMembership(
-      connection,
-      scope.channelName,
-      scope.channelFamily ?? null,
-    )
+    !connectionHoldsMembership(connection, scope.channelName, scope.channelFamily ?? null)
   ) {
     // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
     // client can match this error to its pending op, then stamp the channel markers.
@@ -339,6 +356,10 @@ export async function dispatchIncoming(
   }
 
   let message = { event, payload };
+  // Set once the `on()` handler is about to run, so the catch can tell a Defer
+  // thrown from the handler body (honored) from one thrown by an intercept or a
+  // request handler (collapsed to internal-error).
+  let fromIncomingHandler = false;
 
   try {
     if (attempt === 0) {
@@ -404,6 +425,7 @@ export async function dispatchIncoming(
     }
 
     if (incoming) {
+      fromIncomingHandler = true;
       await withConnectionContext(runtime.asyncContext, connection.id, () =>
         incoming.handler(getCtx(), payloadValue),
       );
@@ -449,6 +471,7 @@ export async function dispatchIncoming(
       scope,
       error,
       attempt,
+      fromIncomingHandler,
     });
   }
 }
@@ -458,9 +481,23 @@ async function handleDispatchError(
   connection: RuntimeConnection,
   opts: HandleDispatchErrorOptions,
 ): Promise<void> {
-  const { event, payload, wskit, scope, error, attempt } = opts;
+  const { event, payload, wskit, scope, error, attempt, fromIncomingHandler } = opts;
   rethrowIfConfigError(error);
   if (error === Block) return;
+
+  const isDefer =
+    !!error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer';
+
+  // `Defer` re-queues the message, which only makes sense for an `on()` handler.
+  // Thrown from an intercept (fires on every frame kind), a request handler
+  // (would re-answer a settled correlation), or anywhere else, it is a mistake —
+  // log it and let it fall through to `internal-error` below.
+  if (isDefer && !fromIncomingHandler) {
+    runtime.logger.error(
+      '[wskit] Defer is only valid in an on() handler — ignoring it and surfacing internal-error',
+      { event },
+    );
+  }
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
@@ -486,8 +523,10 @@ async function handleDispatchError(
 
   // Defer — re-queue the message after a delay. Give up and fire
   // DeferExhausted after 3 retries, or when this connection already has
-  // MAX_PENDING_DEFERS timers in flight.
-  if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
+  // MAX_PENDING_DEFERS timers in flight. Only an `on()` handler may Defer; a
+  // Defer from anywhere else fell through the guard above and lands on the
+  // generic `internal-error` path below.
+  if (isDefer && fromIncomingHandler) {
     const pendingDefers = connection.deferTimers?.size ?? 0;
     if (attempt >= 3 || pendingDefers >= MAX_PENDING_DEFERS) {
       const exhausted = ErrorsPrimitive.DeferExhausted({
@@ -629,6 +668,22 @@ async function dispatchProtocolFrame(
         });
         return;
       }
+      case '__received__':
+      case '__read__':
+      case '__receivedQuery__':
+      case '__readQuery__': {
+        const handlers = runtime.protocolHandlers.get(frame.event) ?? [];
+        const scope = resolveChannel(runtime.compiled, frame.__wskit);
+        const ctx = runtime.buildConnectionContext(connection, scope);
+        // Acks are fire-and-forget. A handler consuming the frame settles it; an
+        // ack for a channel without inbox/receipts is dropped silently — there is
+        // no reply the client waits on. A receipt query replies to its own
+        // correlationId or, unauthorized, is dropped the same way.
+        for (const handler of handlers) {
+          if (await handler(ctx, frame)) return;
+        }
+        return;
+      }
     }
   } catch (error) {
     await runtime.handleRuntimeError(connection, {
@@ -639,34 +694,107 @@ async function dispatchProtocolFrame(
   }
 }
 
+/** A hook that observes one connection by id and must never break dispatch. */
+type ConnectionHook = (connectionId: string) => void | Promise<void>;
+
 /**
- * Parse one websocket text frame and route protocol messages or app events.
+ * Run every hook in `hooks` against one connection, in registration order,
+ * logging and swallowing whatever a hook throws so one bad observer cannot stop
+ * the frame from being handled.
  */
-export async function processTextMessage(
-  runtime: DispatchRuntime & {
-    activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
-  },
-  connection: RuntimeConnection,
-  data: string,
+async function runConnectionHooks(
+  hooks: readonly ConnectionHook[],
+  hookName: string,
+  observed: { connectionId: string; logger: DispatchRuntime['logger'] },
 ): Promise<void> {
-  for (const hook of runtime.activityHooks) {
+  for (const hook of hooks) {
     try {
-      await hook(connection.id);
+      await hook(observed.connectionId);
     } catch (error) {
-      runtime.logger.error('[wskit] connection activity hook threw', {
-        connectionId: connection.id,
+      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+        connectionId: observed.connectionId,
         error,
       });
     }
   }
+}
 
+type PluginConnectionHook = { handler: (ctx: unknown) => void | Promise<void> };
+
+/**
+ * Run each plugin's `onPing` / `onPong` observer against the same scoped ctx it
+ * would see in any other lifecycle hook, isolating a throw the same way
+ * `runConnectionHooks` does. Building the ctx is skipped when no plugin listens.
+ */
+async function runPluginConnectionHooks(
+  hooks: readonly PluginConnectionHook[],
+  hookName: string,
+  observed: { connectionId: string; logger: DispatchRuntime['logger']; ctx: unknown },
+): Promise<void> {
+  for (const entry of hooks) {
+    try {
+      await entry.handler(observed.ctx);
+    } catch (error) {
+      observed.logger.error(`[wskit] ${hookName} hook threw`, {
+        connectionId: observed.connectionId,
+        error,
+      });
+    }
+  }
+}
+
+/**
+ * Parse one websocket text frame and route protocol messages or app events.
+ *
+ * The bare `ping` and `pong` frames are not JSON and never reach a handler.
+ * They fan out to their own hooks instead: the engine's built-in ping hook
+ * answers with `pong`, and `keepalive()` listens on `pong` to time the
+ * round-trip.
+ */
+export async function processTextMessage(
+  runtime: DispatchRuntime & {
+    activityHooks: readonly ConnectionHook[];
+    messageActivityHooks: readonly ConnectionHook[];
+    pingHooks: readonly ConnectionHook[];
+    pongHooks: readonly ConnectionHook[];
+    pluginPingHooks: readonly PluginConnectionHook[];
+    pluginPongHooks: readonly PluginConnectionHook[];
+    appPingHooks: readonly ConnectionHook[];
+    appPongHooks: readonly ConnectionHook[];
+  },
+  connection: RuntimeConnection,
+  data: string,
+): Promise<void> {
+  const observed = { connectionId: connection.id, logger: runtime.logger };
+
+  if (runtime.activityHooks.length > 0) {
+    await runConnectionHooks(runtime.activityHooks, 'connection activity', observed);
+  }
+
+  // Ping and pong observers run in one order: the engine and capabilities first
+  // (the engine's reply, `keepalive()`'s measurement), then plugins, then the
+  // app — so a plugin or the app always reads a fresh `ctx.latency`.
   if (data === 'ping') {
-    connection.descriptor.send('pong');
+    await runConnectionHooks(runtime.pingHooks, 'ping', observed);
+    if (runtime.pluginPingHooks.length > 0) {
+      await runPluginConnectionHooks(runtime.pluginPingHooks, 'ping', {
+        ...observed,
+        ctx: runtime.buildConnectionContext(connection),
+      });
+    }
+    await runConnectionHooks(runtime.appPingHooks, 'ping', observed);
     return;
   }
 
   if (data === 'pong') {
-    KeepalivePrimitive.recordConnectionLatency(connection);
+    await runConnectionHooks(runtime.pongHooks, 'pong', observed);
+    if (runtime.pluginPongHooks.length > 0) {
+      await runPluginConnectionHooks(runtime.pluginPongHooks, 'pong', {
+        ...observed,
+        ctx: runtime.buildConnectionContext(connection),
+      });
+    }
+    await runConnectionHooks(runtime.appPongHooks, 'pong', observed);
     return;
   }
 
@@ -690,207 +818,234 @@ export async function processTextMessage(
 
   const event = (parsed as { event: string }).event;
 
-  // A declined server→client request comes back as an `__error__` frame echoing
-  // the request's correlationId. `__error__` is protocol-shaped, so without this
-  // it would route to dispatchProtocolFrame — which has no `__error__` case and
-  // would reject it as a validation error — and never reach the answer-frame
-  // settle hooks, leaving the server's pending ctx.request(...) promise to hang
-  // to timeout. Offer a correlated `__error__` to those hooks first; if none own
-  // it (no requests() capability, or the request already settled/timed out), drop
-  // it rather than emit a spurious protocol-validation error back to the client.
-  if (event === '__error__') {
-    const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;
-    if (declineWskit?.correlationId !== undefined) {
-      const payload = (parsed as { payload?: unknown }).payload;
-      for (const hook of runtime.answerFrameHooks) {
-        if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
+  if (runtime.messageActivityHooks.length > 0) {
+    await runConnectionHooks(runtime.messageActivityHooks, 'message activity', observed);
+  }
+
+  let wskit: Protocol.WSKitProtocol | undefined;
+  try {
+    // A declined server→client request comes back as an `__error__` frame echoing
+    // the request's correlationId. `__error__` is protocol-shaped, so without this
+    // it would route to dispatchProtocolFrame — which has no `__error__` case and
+    // would reject it as a validation error — and never reach the answer-frame
+    // settle hooks, leaving the server's pending ctx.request(...) promise to hang
+    // to timeout. Offer a correlated `__error__` to those hooks first; if none own
+    // it (no requests() capability, or the request already settled/timed out), drop
+    // it rather than emit a spurious protocol-validation error back to the client.
+    if (event === '__error__') {
+      const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;
+      if (declineWskit?.correlationId !== undefined) {
+        const payload = (parsed as { payload?: unknown }).payload;
+        for (const hook of runtime.answerFrameHooks) {
+          if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
+        }
+        return;
       }
+    }
+
+    // Protocol frames skip dedup and nudge buffering — a retried one must still
+    // reach its handler.
+    if (Protocol.isProtocolEventName(event)) {
+      await dispatchProtocolFrame(runtime, connection, parsed);
       return;
     }
-  }
 
-  // Protocol frames skip dedup and nudge buffering — a retried one must still
-  // reach its handler.
-  if (Protocol.isProtocolEventName(event)) {
-    await dispatchProtocolFrame(runtime, connection, parsed);
-    return;
-  }
-
-  let frame: Protocol.UserEventFrame;
-  try {
-    frame = v.parse(Protocol.UserEventFrameSchema, parsed);
-  } catch (error) {
-    await runtime.handleRuntimeError(connection, {
-      error: toValidationFailed(event, error),
-      event,
-    });
-    return;
-  }
-  const wskit = frame.__wskit;
-
-  // A user-event frame echoing a `correlationId` may be the client's answer to a
-  // server-initiated request. Offer it to the answer-frame hooks (owned by the
-  // requests capability) before anything else — they settle the server's pending
-  // promise and stop routing so the answer never reaches an `on`/`request`
-  // handler or gets dropped by dedup. A correlationId with no matching pending
-  // entry falls through to normal routing.
-  if (wskit?.correlationId !== undefined) {
-    for (const hook of runtime.answerFrameHooks) {
-      if (hook(connection.id, { event, payload: frame.payload, wskit })) return;
+    let frame: Protocol.UserEventFrame;
+    try {
+      frame = Protocol.parseUserEventFrame(parsed);
+    } catch (error) {
+      await runtime.handleRuntimeError(connection, {
+        error: toValidationFailed(event, error),
+        event,
+      });
+      return;
     }
-  }
+    wskit = frame.__wskit;
 
-  // Dedup here so every frame with a `messageId` shares one idempotency budget.
-  if (
-    runtime.incomingDedupCap > 0 &&
-    isDuplicateIncoming(connection, wskit, runtime.incomingDedupCap)
-  ) {
-    return;
-  }
-
-  // A stream trigger frame skips nudge buffering even with a streamId. Walk the
-  // target scope so a scoped durable trigger isn't misrouted into the buffer.
-  let triggerScope: EngineRuntimeTypes.ResolvedChannel = {};
-  let scopeError: unknown;
-  try {
-    triggerScope = resolveChannel(runtime.compiled, wskit);
-  } catch (error) {
-    scopeError = error;
-  }
-  // A scoped frame whose channel doesn't match the declared scope must not
-  // silently fall through to top-level nudge buffering — that lets a wrong
-  // channel deliver into a same-named top-level stream. If the frame carries
-  // a streamId and scope resolution failed, surface the resolution error to
-  // the client and stop.
-  if (scopeError && wskit?.streamId) {
-    // Preserve the nudge routing so the client can match the rejected nudge
-    // Promise; a nudge reject is non-terminal, so the stream stays alive.
-    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? { streamId: wskit.streamId };
-    if (wskit.streamNudgeId !== undefined) routing.streamTerminated = false;
-    await runtime.handleRuntimeError(connection, {
-      error: scopeError,
-      event,
-      routing,
-    });
-    return;
-  }
-  const triggerScoped = triggerScope.channel;
-  const isStreamTrigger = triggerScoped
-    ? triggerScoped.streams.has(event) ||
-      triggerScoped.resumableStreams.has(event) ||
-      triggerScoped.recordedStreams.has(event)
-    : runtime.compiled.streams.has(event) ||
-      runtime.compiled.resumableStreams.has(event) ||
-      runtime.compiled.recordedStreams.has(event);
-  if (!isStreamTrigger) {
-    let nudgePayload = frame.payload;
-
-    if (wskit?.streamId) {
-      const activeStream = runtime.activeStreams.get(wskit.streamId);
-      // A nudge for a live owned stream must target the exact scope the stream
-      // runs in, and the connection must still hold that membership. A nudge
-      // that claims a different scope (or none) for a channel stream — e.g.
-      // after leaving the channel — is rejected here so it never reaches the
-      // generator and never runs the wrong scope's intercepts.
-      if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
-        const storedScope = activeStream.scope ?? {};
-        const sameScope =
-          (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
-          (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
-        const memberOk =
-          !storedScope.channelName ||
-          ChannelPrimitive.hasChannelMembership(
-            connection,
-            storedScope.channelName,
-            storedScope.channelFamily ?? null,
-          );
-        if (!sameScope || !memberOk) {
-          const rejectRouting: Protocol.WSKitRouting = {
-            streamId: wskit.streamId,
-            streamTerminated: false,
-          };
-          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
-          await runtime.handleRuntimeError(connection, {
-            error: ChannelNotSubscribed(),
-            event,
-            routing: rejectRouting,
-          });
-          return;
-        }
+    // A user-event frame echoing a `correlationId` may be the client's answer to a
+    // server-initiated request. Offer it to the answer-frame hooks (owned by the
+    // requests capability) before anything else — they settle the server's pending
+    // promise and stop routing so the answer never reaches an `on`/`request`
+    // handler or gets dropped by dedup. A correlationId with no matching pending
+    // entry falls through to normal routing.
+    if (wskit?.correlationId !== undefined) {
+      for (const hook of runtime.answerFrameHooks) {
+        if (hook(connection.id, { event, payload: frame.payload, wskit })) return;
       }
+    }
 
-      // Run intercepts in the stream's stored scope, not the nudge's claimed
-      // one, so a channel stream's intercepts always see the channel context.
-      const interceptScope = activeStream?.scope ?? triggerScope;
-      const topIntercepts = runtime.compiled.intercepts;
-      const chIntercepts = interceptScope.channel?.intercepts;
+    // Dedup here so every frame with a `messageId` shares one idempotency budget.
+    if (
+      runtime.incomingDedupCap > 0 &&
+      isDuplicateIncoming(connection, wskit, runtime.incomingDedupCap)
+    ) {
+      return;
+    }
 
-      if (runtime.runIntercepts && (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0)) {
-        let sharedCtx: Record<PropertyKey, unknown> | undefined;
-        function getCtx() {
-          return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
+    // A stream trigger frame skips nudge buffering even with a streamId. Walk the
+    // target scope so a scoped durable trigger isn't misrouted into the buffer.
+    let triggerScope: EngineRuntimeTypes.ResolvedChannel = {};
+    let scopeError: unknown;
+    try {
+      triggerScope = resolveChannel(runtime.compiled, wskit);
+    } catch (error) {
+      scopeError = error;
+    }
+    // A scoped frame whose channel doesn't match the declared scope must not
+    // silently fall through to top-level nudge buffering — that lets a wrong
+    // channel deliver into a same-named top-level stream. If the frame carries
+    // a streamId and scope resolution failed, surface the resolution error to
+    // the client and stop.
+    if (scopeError && wskit?.streamId) {
+      // Preserve the nudge routing so the client can match the rejected nudge
+      // Promise; a nudge reject is non-terminal, so the stream stays alive.
+      const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {
+        streamId: wskit.streamId,
+      };
+      if (wskit.streamNudgeId !== undefined) routing.streamTerminated = false;
+      await runtime.handleRuntimeError(connection, {
+        error: scopeError,
+        event,
+        routing,
+      });
+      return;
+    }
+    const triggerScoped = triggerScope.channel;
+    const isStreamTrigger = triggerScoped
+      ? triggerScoped.streams.has(event) ||
+        triggerScoped.resumableStreams.has(event) ||
+        triggerScoped.recordedStreams.has(event)
+      : runtime.compiled.streams.has(event) ||
+        runtime.compiled.resumableStreams.has(event) ||
+        runtime.compiled.recordedStreams.has(event);
+    if (!isStreamTrigger) {
+      let nudgePayload = frame.payload;
+
+      if (wskit?.streamId) {
+        const activeStream = runtime.activeStreams.get(wskit.streamId);
+        // A nudge for a live owned stream must target the exact scope the stream
+        // runs in, and the connection must still hold that membership. A nudge
+        // that claims a different scope (or none) for a channel stream — e.g.
+        // after leaving the channel — is rejected here so it never reaches the
+        // generator and never runs the wrong scope's intercepts.
+        if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
+          const storedScope = activeStream.scope ?? {};
+          const sameScope =
+            (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
+            (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
+          const memberOk =
+            !storedScope.channelName ||
+            connectionHoldsMembership(
+              connection,
+              storedScope.channelName,
+              storedScope.channelFamily ?? null,
+            );
+          if (!sameScope || !memberOk) {
+            const rejectRouting: Protocol.WSKitRouting = {
+              streamId: wskit.streamId,
+              streamTerminated: false,
+            };
+            if (wskit.streamNudgeId !== undefined)
+              rejectRouting.streamNudgeId = wskit.streamNudgeId;
+            await runtime.handleRuntimeError(connection, {
+              error: ChannelNotSubscribed(),
+              event,
+              routing: rejectRouting,
+            });
+            return;
+          }
         }
 
-        try {
-          let nudgeFrame: InterceptPrimitive.InterceptFrame = {
-            event,
-            payload: frame.payload,
-            kind: 'nudge',
-            routing: buildInterceptRouting(wskit),
-            owner: frameOwner(event),
-          };
-          nudgeFrame = await runtime.runIntercepts(runtime, connection, {
-            intercepts: topIntercepts,
-            frame: nudgeFrame,
-            getCtx,
-          });
-          if (chIntercepts) {
+        // Run intercepts in the stream's stored scope, not the nudge's claimed
+        // one, so a channel stream's intercepts always see the channel context.
+        const interceptScope = activeStream?.scope ?? triggerScope;
+        const topIntercepts = runtime.compiled.intercepts;
+        const chIntercepts = interceptScope.channel?.intercepts;
+
+        if (
+          runtime.runIntercepts &&
+          (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0)
+        ) {
+          let sharedCtx: Record<PropertyKey, unknown> | undefined;
+          function getCtx() {
+            return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
+          }
+
+          try {
+            let nudgeFrame: InterceptPrimitive.InterceptFrame = {
+              event,
+              payload: frame.payload,
+              kind: 'nudge',
+              routing: buildInterceptRouting(wskit),
+              owner: frameOwner(event),
+            };
             nudgeFrame = await runtime.runIntercepts(runtime, connection, {
-              intercepts: chIntercepts,
+              intercepts: topIntercepts,
               frame: nudgeFrame,
               getCtx,
             });
-          }
-          nudgePayload = nudgeFrame.payload;
-        } catch (error) {
-          rethrowIfConfigError(error);
-          if (error === Block) return;
-          if (
-            error &&
-            typeof error === 'object' &&
-            (error as { __wskit?: string }).__wskit === 'disconnect'
-          ) {
-            connection.descriptor.close(
-              (error as { code: number }).code,
-              (error as { reason: string }).reason,
-            );
+            if (chIntercepts) {
+              nudgeFrame = await runtime.runIntercepts(runtime, connection, {
+                intercepts: chIntercepts,
+                frame: nudgeFrame,
+                getCtx,
+              });
+            }
+            nudgePayload = nudgeFrame.payload;
+          } catch (error) {
+            rethrowIfConfigError(error);
+            if (error === Block) return;
+            if (
+              error &&
+              typeof error === 'object' &&
+              (error as { __wskit?: string }).__wskit === 'disconnect'
+            ) {
+              connection.descriptor.close(
+                (error as { code: number }).code,
+                (error as { reason: string }).reason,
+              );
+              return;
+            }
+            // A thrown nudge intercept is non-terminal: tag the error with
+            // streamTerminated:false and the streamNudgeId so the client's nudge()
+            // Promise rejects while the stream stays live and keeps emitting chunks.
+            const rejectRouting: Protocol.WSKitRouting = {
+              streamId: wskit.streamId,
+              streamTerminated: false,
+            };
+            if (wskit.streamNudgeId !== undefined)
+              rejectRouting.streamNudgeId = wskit.streamNudgeId;
+            await runtime.handleRuntimeError(connection, {
+              error,
+              event,
+              routing: rejectRouting,
+            });
             return;
           }
-          // A thrown nudge intercept is non-terminal: tag the error with
-          // streamTerminated:false and the streamNudgeId so the client's nudge()
-          // Promise rejects while the stream stays live and keeps emitting chunks.
-          const rejectRouting: Protocol.WSKitRouting = {
-            streamId: wskit.streamId,
-            streamTerminated: false,
-          };
-          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
-          await runtime.handleRuntimeError(connection, {
-            error,
-            event,
-            routing: rejectRouting,
-          });
-          return;
         }
       }
+
+      const buffered = await runtime.streamNudgeBuffer?.(runtime, connection, {
+        event,
+        payload: nudgePayload,
+        wskit,
+      });
+      if (buffered) return;
     }
 
-    const buffered = await runtime.streamNudgeBuffer?.(runtime, connection, {
+    await dispatchIncoming(runtime, connection, {
       event,
-      payload: nudgePayload,
+      payload: frame.payload,
       wskit,
+      // Reuse the scope resolved above; on a resolve failure pass none so
+      // dispatchIncoming re-resolves and routes the error.
+      scope: scopeError ? undefined : triggerScope,
     });
-    if (buffered) return;
+  } catch (error) {
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event,
+      routing: routingFromWSKit(wskit),
+    });
   }
-
-  await dispatchIncoming(runtime, connection, { event, payload: frame.payload, wskit });
 }

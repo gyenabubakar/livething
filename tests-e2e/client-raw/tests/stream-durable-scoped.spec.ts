@@ -271,4 +271,87 @@ test.describe('stream-durable scoped (channel)', () => {
     // exact number.
     expect(rowsAfter).toBeLessThan(20);
   });
+
+  // A pause nudge makes the generator return, so the stream's durable row goes
+  // to `ended`. Resuming an ended stream replays `__streamEnd__` and never
+  // re-runs the generator — so a stream a nudge paused before the drop stays
+  // paused (ended) after the reconnect. The stream stays paused because it
+  // ended, not because any buffered nudge is persisted: nudges live only in the
+  // in-memory buffer of a running generator, and an unconsumed one does not
+  // survive a drop.
+  test('a resumable stream a pause nudge ended stays ended after reconnect+resume — resume replays the end, no re-run', async ({
+    page,
+  }, testInfo) => {
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'paused-resume-1';
+
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
+
+    await send(page, a, {
+      event: 'paused-feed',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
+
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f: WireFrame) => f.event === 'paused-feed' && typeof f.payload?.row === 'number',
+        ).length >= 2,
+      [a],
+    );
+
+    await send(page, a, {
+      event: 'pause',
+      payload: { at: Date.now() },
+      __wskit: { channel: 'rooms', streamId },
+    });
+
+    await waitForFrame(page, a, {
+      match: (f) =>
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
+    });
+
+    const rowsBeforeDrop = (await frames(page, a)).filter(
+      (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
+    ).length;
+
+    await closeSocket(page, a);
+    await page.waitForTimeout(150);
+
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    const rejoin = await waitForFrame(page, b, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
+    });
+    expect(rejoin.__wskit?.source).toBe('server');
+
+    await send(page, b, {
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'rooms', streamId },
+    });
+
+    // Resuming the ended stream replays the end frame rather than re-running.
+    await waitForFrame(page, b, {
+      match: (f) =>
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
+    });
+
+    // Give a full generator cadence (150ms/row) a chance to emit — it must not.
+    await page.waitForTimeout(600);
+    const rowsAfterResume = (await frames(page, b)).filter(
+      (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
+    ).length;
+
+    // The resumed socket receives no new rows: the generator did not re-run.
+    expect(rowsAfterResume).toBe(0);
+    // And the stream never sneaks past where the pause stopped it.
+    expect(rowsBeforeDrop).toBeLessThan(20);
+  });
 });

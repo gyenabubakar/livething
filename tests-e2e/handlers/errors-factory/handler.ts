@@ -59,12 +59,14 @@ const handleTriggerBigint = base.on('trigger-bigint', {
   },
 });
 
-export const errorsFactoryHandler = base.assemble(
-  handleTriggerNotFound,
-  handleTriggerForbidden,
-  handleTriggerSimple,
-  handleTriggerUnregistered,
-  handleTriggerBigint,
-);
+export const errorsFactoryHandler = base.assemble({
+  handlers: [
+    handleTriggerNotFound,
+    handleTriggerForbidden,
+    handleTriggerSimple,
+    handleTriggerUnregistered,
+    handleTriggerBigint,
+  ],
+});
 
 export type ErrorsFactoryClient = InferClient<typeof errorsFactoryHandler>;

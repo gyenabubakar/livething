@@ -28,9 +28,6 @@ const streamRuntimePrimitive = definePrimitive({
   },
 });
 
-export type { NudgeMap } from '~/stream/shared.ts';
-export { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
-
 /** A `stream()` capability, carrying the builder that turns a config into a primitive. */
 export interface StreamCapability extends Capability<{}, never, 'stream'> {
   /** Build a plain-stream primitive from a `base.stream(...)` config. @internal */

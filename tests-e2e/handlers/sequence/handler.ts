@@ -17,6 +17,6 @@ const handleTick = base.on('tick', {
   },
 });
 
-export const sequenceHandler = base.assemble(handleTick);
+export const sequenceHandler = base.assemble({ handlers: [handleTick] });
 
 export type SequenceClient = InferClient<typeof sequenceHandler>;

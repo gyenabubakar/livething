@@ -5,7 +5,7 @@ describe('ScheduledClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ScheduledClient['incoming']>().not.toBeAny();
     expectTypeOf<ScheduledClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ScheduledClient['requests']>().not.toBeAny();
+    expectTypeOf<ScheduledClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ScheduledClient['streams']>().not.toBeAny();
     expectTypeOf<ScheduledClient['channels']>().not.toBeAny();
     expectTypeOf<ScheduledClient['errors']>().not.toBeAny();
@@ -135,8 +135,8 @@ describe('ScheduledClient — outgoing (server incoming)', () => {
 });
 
 describe('ScheduledClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ScheduledClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof ScheduledClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

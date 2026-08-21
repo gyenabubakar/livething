@@ -1,6 +1,6 @@
 import { addChannelMembership } from '~/channel/runtime.ts';
+import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import {
-  APP_HOOK_OWNER,
   broadcastToChannel,
   broadcastToConnections,
   sendThroughPipeline,
@@ -14,7 +14,7 @@ import type { OutgoingRuntime } from '~/outgoing/runtime.ts';
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
-    identity: id,
+    userId: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -22,7 +22,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
-      identity: id,
+      userId: id,
     },
     meta: {},
     tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
@@ -166,7 +166,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
   });
 
-  it('normalizes an undefined request-response payload to an empty-payload frame', () => {
+  it('sends a void request-response acknowledgement with no payload key at all', () => {
     const runtime = createRuntime();
     const connection = createConnection();
     const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
@@ -180,11 +180,51 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
 
     const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    expect('payload' in sent).toBe(false);
     expect(sent).toEqual({
       event: 'ping',
-      payload: {},
       __wskit: { correlationId: 'req123', source: 'client' },
     });
+  });
+
+  it('still runs the outgoing hooks for a void acknowledgement', () => {
+    const seen: string[] = [];
+    const runtime = createRuntime({
+      outgoingHooks: [
+        {
+          owner: APP_HOOK_OWNER,
+          handler: (frame) => {
+            seen.push(frame.event);
+            return frame.payload;
+          },
+        },
+      ],
+    });
+    const connection = createConnection();
+
+    sendThroughPipeline(runtime, connection, {
+      routing: { correlationId: 'req123', source: 'client' },
+      event: 'ping',
+      payload: undefined,
+    });
+
+    expect(seen).toEqual(['ping']);
+  });
+
+  it('lets an outgoing hook answer a void acknowledgement with real data', () => {
+    const runtime = createRuntime({
+      outgoingHooks: [{ owner: APP_HOOK_OWNER, handler: () => ({ stamped: true }) }],
+    });
+    const connection = createConnection();
+    const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
+
+    sendThroughPipeline(runtime, connection, {
+      routing: { correlationId: 'req123', source: 'client' },
+      event: 'ping',
+      payload: undefined,
+    });
+
+    expect(JSON.parse(send.mock.calls[0]![0] as string).payload).toEqual({ stamped: true });
   });
 
   it('still rejects an undefined payload when it is not a request-response', () => {
@@ -346,7 +386,7 @@ describe('broadcastToConnections — fanout resilience', () => {
   function peer(id: string, send: (frame: string) => void): RuntimeConnection {
     return {
       id,
-      identity: id,
+      userId: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -354,7 +394,7 @@ describe('broadcastToConnections — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: {
@@ -489,7 +529,7 @@ describe('broadcastToChannel — fanout resilience', () => {
   ): RuntimeConnection {
     const conn: RuntimeConnection = {
       id,
-      identity: id,
+      userId: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -497,7 +537,7 @@ describe('broadcastToChannel — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
-        identity: id,
+        userId: id,
       },
       meta: {},
       tags: {
@@ -563,6 +603,289 @@ describe('broadcastToChannel — fanout resilience', () => {
     expect(errorLogs).toHaveLength(1);
     expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
     expect((errorLogs[0]!.data as { channel: string }).channel).toBe('general');
+  });
+});
+
+describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageId', () => {
+  function inboxPeer(
+    channelMembers: Map<string, Set<RuntimeConnection>>,
+    id: string,
+    send: (frame: string) => void,
+  ): RuntimeConnection {
+    const conn: RuntimeConnection = {
+      id,
+      userId: id,
+      wsKey: Symbol(id),
+      descriptor: {
+        send,
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        userId: id,
+      },
+      meta: {},
+      tags: {
+        ephemeral: new Map<string, Set<string>>(),
+        persistent: new Map<string, Set<string>>(),
+      },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+    addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
+    return conn;
+  }
+
+  type FanOutOpts = {
+    channelName: string;
+    channelFamily: string | null;
+    event: string;
+    payload: Record<string, unknown>;
+    seq: number;
+    messageId: string;
+  };
+
+  function inboxRuntime(
+    overrides: Partial<OutgoingRuntime> & {
+      inboxFanOut?: (opts: FanOutOpts) => void;
+    },
+    channelMembers: Map<string, Set<RuntimeConnection>>,
+  ) {
+    return {
+      ...createRuntime({
+        compiled: {
+          outgoing: new Map([['msg', { event: 'msg' }]]),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
+          channelFamilies: new Map(),
+        } as unknown as OutgoingRuntime['compiled'],
+        ...overrides,
+      }),
+      connections: new Map<string, RuntimeConnection>(),
+      channelMembers,
+    } as unknown as OutgoingRuntime;
+  }
+
+  function broadcastOnce(runtime: OutgoingRuntime) {
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: undefined,
+      channelFamily: null,
+    });
+  }
+
+  it('stamps seq/messageId once and hands the same pair to the inbox fan-out', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    let stamperCalls = 0;
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [
+          () => {
+            stamperCalls += 1;
+            return { seq: 42, messageId: 'msg_1' };
+          },
+        ],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastOnce(runtime);
+
+    // The stamper fires exactly once for the whole broadcast, not once per member.
+    expect(stamperCalls).toBe(1);
+    expect(fanOutSeen).toHaveLength(1);
+    expect(fanOutSeen[0]).toMatchObject({ seq: 42, messageId: 'msg_1', event: 'msg' });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBe(sent[1]);
+    const frame = JSON.parse(sent[0]!);
+    expect(frame.__wskit).toMatchObject({ seq: 42, messageId: 'msg_1', channel: 'general' });
+  });
+
+  it('keeps the shared seq/messageId on every recipient even when a beforeSend hook forces the per-recipient path', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    let stamperCalls = 0;
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [
+          () => {
+            stamperCalls += 1;
+            return { seq: 42, messageId: 'msg_1' };
+          },
+        ],
+        beforeSendHooks: [() => {}],
+        inboxFanOut: () => {},
+      },
+      channelMembers,
+    );
+
+    broadcastOnce(runtime);
+
+    // A beforeSend hook disqualifies the shared frame, so sending runs per
+    // recipient — but the stamper still fires only once, so both members see
+    // the same seq/messageId and the durable counter advances a single step.
+    expect(stamperCalls).toBe(1);
+    expect(sent).toHaveLength(2);
+    for (const raw of sent) {
+      expect(JSON.parse(raw).__wskit).toMatchObject({ seq: 42, messageId: 'msg_1' });
+    }
+  });
+
+  it('produces byte-identical frames whether inboxFanOut runs or is absent', () => {
+    function run(withFanOut: boolean): string[] {
+      const channelMembers = new Map<string, Set<RuntimeConnection>>();
+      const sent: string[] = [];
+      inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+      inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+      const runtime = inboxRuntime(withFanOut ? { inboxFanOut: () => {} } : {}, channelMembers);
+      broadcastOnce(runtime);
+      return sent;
+    }
+
+    expect(run(true)).toEqual(run(false));
+  });
+
+  it('excludes the sender from the inbox row when its excluded connection is its only one in the channel', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f)); // sender, connection id === userId 'A'
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+    });
+
+    // Sender excluded from the live broadcast, and from the inbox row too.
+    expect(sent).toHaveLength(1);
+    expect((fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId).toBe('A');
+  });
+
+  it('still writes the sender an inbox row when a second connection of theirs remains in the channel', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    // Two connections share the same userId 'A' — a second tab.
+    const secondTab: RuntimeConnection = {
+      id: 'A-tab2',
+      userId: 'A',
+      wsKey: Symbol('A-tab2'),
+      descriptor: {
+        send: (f: string) => sent.push(f),
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        userId: 'A-tab2',
+      },
+      meta: {},
+      tags: { ephemeral: new Map(), persistent: new Map() },
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+    addChannelMembership(channelMembers, secondTab, {
+      channelName: 'general',
+      channelFamily: null,
+    });
+    inboxPeer(channelMembers, 'B', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+    });
+
+    // Sender's first connection excluded from the live send, second tab still receives it.
+    expect(sent).toHaveLength(2);
+    expect(
+      (fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId,
+    ).toBeUndefined();
+  });
+
+  it('includeSelf never excludes the inbox row', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+
+    const fanOutSeen: FanOutOpts[] = [];
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: (opts) => void fanOutSeen.push(opts),
+      },
+      channelMembers,
+    );
+
+    broadcastToChannel(runtime as never, {
+      channelName: 'general',
+      event: 'msg',
+      payload: { text: 'hi' },
+      excludeConnectionId: 'A',
+      channelFamily: null,
+      includeSelf: true,
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(
+      (fanOutSeen[0] as FanOutOpts & { excludeUserId?: string }).excludeUserId,
+    ).toBeUndefined();
+  });
+
+  it('still broadcasts live when the inbox fan-out throws', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    inboxPeer(channelMembers, 'A', (f) => sent.push(f));
+    const runtime = inboxRuntime(
+      {
+        wskitStampHooks: [() => ({ seq: 1, messageId: 'm1' })],
+        inboxFanOut: () => {
+          throw new Error('storage down');
+        },
+      },
+      channelMembers,
+    );
+
+    expect(() => broadcastOnce(runtime)).not.toThrow();
+    expect(sent).toHaveLength(1);
   });
 });
 

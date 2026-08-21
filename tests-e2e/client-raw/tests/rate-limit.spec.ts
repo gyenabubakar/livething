@@ -108,7 +108,7 @@ test.describe('rate-limit', () => {
     try {
       const pageA = await ctxA.newPage();
       const pageB = await ctxB.newPage();
-      // Distinct usernames keep ctx.identity distinct too.
+      // Distinct usernames keep ctx.user.id distinct too.
       await pageA.goto(`/rate-limit?room=${room}`);
       await pageA.getByTestId('username').fill('user-a');
       await pageA.getByTestId('connect').click();
@@ -144,7 +144,7 @@ test.describe('rate-limit', () => {
   }, testInfo) => {
     // 'shared-tick' has a per-handler override: max=2, per: ctx => ctx.meta.username.
     // Two sockets opened with the SAME username resolve to the same bucket key,
-    // so they share one budget — unlike the default per-connection (ctx.id)
+    // so they share one budget — unlike the default per-connection (ctx.connection.id)
     // isolation proved by the per-connection-isolation test above.
     const room = `shared-${testInfo.testId}`;
     await page.goto('/rate-limit');

@@ -35,6 +35,6 @@ const handleDrainFeed = base.stream('drain-feed', {
   },
 });
 
-export const streamBackpressureHandler = base.assemble(handleDrainFeed);
+export const streamBackpressureHandler = base.assemble({ handlers: [handleDrainFeed] });
 
 export type StreamBackpressureClient = InferClient<typeof streamBackpressureHandler>;

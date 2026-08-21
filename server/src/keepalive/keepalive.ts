@@ -1,7 +1,8 @@
-import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { assertPositiveInteger } from '~/_engine/validation.ts';
+import { createKeepaliveMonitor } from '~/keepalive/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { RuntimeConnection } from '~/_engine/contexts/types.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** Options accepted by the keepalive primitive factory. Both are required. */
@@ -20,6 +21,12 @@ export interface KeepaliveOptions {
    * automatic `pong` reply to the keepalive ping — resets this window. A
    * connection that has truly gone away sends nothing (not even a pong), so the
    * window elapses and it is closed.
+   *
+   * Under hibernation this window does not run: there is no in-memory timer to
+   * enforce it, and the underlying platform can answer a client's ping without
+   * waking the instance, so the instance never even sees that traffic. See
+   * hibernation in the server docs for what to do instead if an idle policy is
+   * required.
    */
   readonly idleTimeoutMs: number;
 }
@@ -35,6 +42,14 @@ export interface KeepalivePrimitive extends Primitive<'keepalive'> {
 /** Unique symbol used to enforce one keepalive registration per handler scope. */
 const KEEPALIVE_KEY = Symbol('keepalive');
 
+/** Read the connection id off a lifecycle context, or `''` when it has none. */
+function connectionIdOf(ctx: unknown): string {
+  const connection = (ctx as Record<PropertyKey, unknown>).connection as
+    | { id?: unknown }
+    | undefined;
+  return String(connection?.id ?? '');
+}
+
 /**
  * Liveness check for a connection. The server sends a `ping` every
  * `pingIntervalMs`; a live client answers with `pong`. Any inbound frame (app
@@ -42,6 +57,10 @@ const KEEPALIVE_KEY = Symbol('keepalive');
  * `idleTimeoutMs` with nothing inbound, the engine closes the socket. The ping
  * exists so a quiet-but-alive client still produces a frame in time — so only a
  * connection that has actually gone away is closed.
+ *
+ * Sending pings is what this capability owns. Answering a client's ping is not:
+ * the engine always replies `pong` on its own, so a server that never lists
+ * `keepalive()` still lets a client measure it.
  *
  * Both options are required and there are no defaults: `pingIntervalMs` must be
  * strictly less than `idleTimeoutMs`, or the ping could not land before the
@@ -69,19 +88,27 @@ export function keepalive(options: KeepaliveOptions): KeepalivePrimitive {
     idleTimeoutMs: options.idleTimeoutMs,
     __setup(engine) {
       engine.installOnce(KEEPALIVE_KEY, () => {
-        engine.setKeepalivePingInterval(options.pingIntervalMs);
+        // Under hibernation this capability supervises nothing: the runtime
+        // answers a client's ping at the edge, so a server ping would only
+        // wake the instance, and a `setTimeout` idle timer would itself hold
+        // the instance in memory — defeating hibernation while closing
+        // quiet-but-alive clients whose traffic never reaches it to refresh
+        // the timer.
+        const monitor = createKeepaliveMonitor(engine, options, !engine.getHibernationEnabled());
 
         engine.extendContext((baseCtx) => buildLatencySurface(engine, baseCtx));
 
         engine.onConnect((ctx) => {
-          const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
-          if (!connectionId) return;
-          engine.refreshConnectionIdleTimeout(connectionId, options.idleTimeoutMs);
+          const connectionId = connectionIdOf(ctx);
+          if (connectionId) monitor.watch(connectionId);
         });
 
-        engine.onConnectionActivity((connectionId) => {
-          engine.refreshConnectionIdleTimeout(connectionId, options.idleTimeoutMs);
-        });
+        engine.onConnectionActivity((connectionId) => monitor.touch(connectionId));
+        engine.onPong((connectionId) => monitor.recordPong(connectionId));
+
+        // Cleanup, not `onDisconnect`: a user disconnect hook that throws must
+        // not be able to strand this connection's ping timer.
+        engine.onConnectionCleanup((connectionId) => monitor.forget(connectionId));
       });
     },
   };

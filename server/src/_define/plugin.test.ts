@@ -23,14 +23,16 @@ interface PresenceApi {
 }
 
 const h = define({
-  scoped: true,
+  scope: 'plugin',
   capabilities: [emits({ 'user-online': t<{ id: string }>() })],
 });
 const heartbeat = h.on('heartbeat', { input: v.object({}), run() {} });
 
 const Presence = plugin('acme:presence', {
-  handler: h.assemble(heartbeat),
-  api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+  handler: h.assemble({
+    handlers: [heartbeat],
+    api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+  }),
 });
 
 const base = define({ env: t<Env>(), capabilities: [Presence()] });
@@ -59,18 +61,9 @@ describe('plugin typing', () => {
     });
   });
 
-  it('accepts an optional registrationId on ctx.plugin', () => {
-    base.on('act', {
-      run(ctx) {
-        const api = ctx.plugin('acme:presence', 'second');
-        expectTypeOf(api).toEqualTypeOf<PresenceApi>();
-      },
-    });
-  });
-
   it('folds a plugin surface into the top-level client maps under __id:: names', () => {
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
     });
     const beat = ph.on('heartbeat', { input: v.object({}), run() {} });
@@ -79,15 +72,17 @@ describe('plugin typing', () => {
       run: () => ({ users: [] as string[] }),
     });
     const P = plugin('acme:presence', {
-      handler: ph.assemble(beat, who),
-      api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+      handler: ph.assemble({
+        handlers: [beat, who],
+        api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
+      }),
     });
     const app = define({ env: t<Env>(), capabilities: [P()] });
-    const handler = app.assemble();
+    const handler = app.assemble({ handlers: [] });
     type C = InferClient<typeof handler>;
     expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
     expectTypeOf<C['outgoing']>().toHaveProperty('__acme:presence::heartbeat');
-    expectTypeOf<C['requests']>().toHaveProperty('__acme:presence::who-is-here');
+    expectTypeOf<C['clientRequests']>().toHaveProperty('__acme:presence::who-is-here');
     // The client carries no `plugins` key; the plugin api lives on the server ctx.
     expectTypeOf<C>().not.toHaveProperty('plugins');
   });
@@ -95,15 +90,15 @@ describe('plugin typing', () => {
   it('folds plugin streams / channels / errors into the top-level client maps under __id:: names', () => {
     const Denied = error('denied', v.object({ why: v.string() }));
     const ph = define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [stream(), channels(), errors([Denied])],
     });
     const ticks = ph.stream('ticks', { input: v.object({}), async *run() {} });
     const room = ph.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
     room.on('say', { input: v.object({}), run() {} });
-    const P = plugin('acme:feed', { handler: ph.assemble(ticks, room) });
+    const P = plugin('acme:feed', { handler: ph.assemble({ handlers: [ticks, room] }) });
     const app = define({ env: t<Env>(), capabilities: [P()] });
-    const feedHandler = app.assemble();
+    const feedHandler = app.assemble({ handlers: [] });
     type C = InferClient<typeof feedHandler>;
     expectTypeOf<C['streams']>().toHaveProperty('__acme:feed::ticks');
     expectTypeOf<C['channels']>().toHaveProperty('__acme:feed::room');
@@ -112,9 +107,9 @@ describe('plugin typing', () => {
 
   it('types a plugin upgrade meta through the scoped define generic', () => {
     define<{ userId: string }>({
-      scoped: true,
+      scope: 'plugin',
       upgrade() {
-        return { identity: 'u1', meta: { userId: 'u1' } };
+        return { userId: 'u1', meta: { userId: 'u1' } };
       },
     });
   });
@@ -127,17 +122,17 @@ describe('plugin typing', () => {
   it('rejects a host-owned capability inside a scoped define at compile time', () => {
     // @ts-expect-error keepalive() is host-owned and cannot be listed in a plugin
     define({
-      scoped: true,
+      scope: 'plugin',
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
   });
 });
 
 describe('plugin host-observation compile gate', () => {
-  const obsHandler = define({ scoped: true, capabilities: [emits({ tick: t<{}>() })] });
+  const obsHandler = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
   const beat = obsHandler.on('tick', { input: v.object({}), run() {} });
   const Observer = plugin('acme:obs', {
-    handler: obsHandler.assemble(beat),
+    handler: obsHandler.assemble({ handlers: [beat] }),
     observesHostTraffic: true,
   });
 

@@ -2,7 +2,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { emits } from '~/emits/emits.ts';
-import { persistence } from '~/persistence/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
@@ -20,7 +19,6 @@ const base = define({
       ephemeral('color', v.picklist(['red', 'blue', 'green'])),
       persistent('favorite', t<string>()),
     ]),
-    persistence(),
     emits({ ping: t<{ n: number }>() }),
   ],
 });
@@ -46,7 +44,7 @@ describe('tags typing', () => {
     define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'a', tags: { ephemeral: { role: 'admin' } } };
+        return { userId: 'a', tags: { ephemeral: { role: 'admin' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
@@ -55,7 +53,7 @@ describe('tags typing', () => {
     define({
       env: t<Env>(),
       upgrade() {
-        return { identity: 'a', tags: { ephemeral: { nope: 'x' } } };
+        return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
@@ -72,7 +70,7 @@ describe('tags typing', () => {
   });
 
   it('keeps tags out of the client contract', () => {
-    const handler = base.assemble(base.on('act', { run() {} }));
+    const handler = base.assemble({ handlers: [base.on('act', { run() {} })] });
     type C = InferClient<typeof handler>;
     expectTypeOf<keyof C>().not.toEqualTypeOf<'ephemeralTags' | 'persistentTags'>();
     // @ts-expect-error tags are server-only and never appear on the client contract

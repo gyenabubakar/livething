@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { scheduled } from './scheduled.ts';
 
 describe('scheduled', () => {
-  it('creates a handler-backed scheduled primitive with storage requirement', () => {
+  it('creates a handler-backed scheduled primitive', () => {
     function handler() {}
     const dataSchema = v.object({ roomId: v.string() });
     const primitive = scheduled('cleanup', (t) => t.data(dataSchema).retry(true).run(handler));
@@ -11,7 +11,7 @@ describe('scheduled', () => {
     expect(primitive.__wskit).toBe('scheduled');
     expect(primitive.__kind).toBe('infrastructure');
     expect(primitive.__identity[1]).toBe('cleanup');
-    expect(primitive.__requires).toEqual({ storage: true });
+    expect(primitive.__requires).toEqual({});
     expect(primitive.handler).toBe(handler);
     expect(primitive.hasData).toBe(true);
     expect(primitive.dataSchema).toBe(dataSchema);

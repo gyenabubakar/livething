@@ -5,7 +5,7 @@ describe('MultifileClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<MultifileClient['incoming']>().not.toBeAny();
     expectTypeOf<MultifileClient['outgoing']>().not.toBeAny();
-    expectTypeOf<MultifileClient['requests']>().not.toBeAny();
+    expectTypeOf<MultifileClient['clientRequests']>().not.toBeAny();
     expectTypeOf<MultifileClient['streams']>().not.toBeAny();
     expectTypeOf<MultifileClient['channels']>().not.toBeAny();
     expectTypeOf<MultifileClient['errors']>().not.toBeAny();
@@ -54,8 +54,8 @@ describe('MultifileClient — channels', () => {
 });
 
 describe('MultifileClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof MultifileClient['requests']>().toBeNever();
+  it('clientRequests is empty', () => {
+    expectTypeOf<keyof MultifileClient['clientRequests']>().toBeNever();
   });
 
   it('streams is empty', () => {

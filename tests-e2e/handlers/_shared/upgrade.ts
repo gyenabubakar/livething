@@ -1,12 +1,12 @@
 import { RejectUpgrade } from '@wskit/server/errors';
 
 /**
- * The plain upgrade result: a stable `identity` and inferred `meta`, with no
+ * The plain upgrade result: a stable `userId` and inferred `meta`, with no
  * tags. Use this in handlers that do not declare a `user` ephemeral tag group —
  * the upgrade runtime rejects a tag for a group the handler never declared.
  */
 interface UsernameUpgrade {
-  identity: string;
+  userId: string;
   meta: { username: string };
 }
 
@@ -19,7 +19,7 @@ interface UsernameUpgradeWithUserTag extends UsernameUpgrade {
 }
 
 /**
- * Pull `username` from the query string and surface it as identity and meta.
+ * Pull `username` from the query string and surface it as userId and meta.
  * Feeds `define()`'s `upgrade(request)`. For handlers that declare a `user`
  * ephemeral tag group and want the tag attached on connect, use
  * {@link requireUsernameWithUserTag} instead.
@@ -28,7 +28,7 @@ export function requireUsername(request: Request): UsernameUpgrade {
   const url = new URL(request.url);
   const username = url.searchParams.get('username');
   if (!username) throw RejectUpgrade(4001, 'Missing username');
-  return { identity: username, meta: { username } };
+  return { userId: username, meta: { username } };
 }
 
 /**
@@ -36,18 +36,18 @@ export function requireUsername(request: Request): UsernameUpgrade {
  * tag. Only valid in handlers that declare a `user` ephemeral tag group.
  */
 export function requireUsernameWithUserTag(request: Request): UsernameUpgradeWithUserTag {
-  const { identity, meta } = requireUsername(request);
-  return { identity, meta, tags: { ephemeral: { user: identity } } };
+  const { userId, meta } = requireUsername(request);
+  return { userId, meta, tags: { ephemeral: { user: userId } } };
 }
 
 /**
  * Like `requireUsername`, but never rejects: a missing `username` yields an
- * empty identity — an anonymous connection. Used to exercise anonymous-path
+ * empty userId — an anonymous connection. Used to exercise anonymous-path
  * behavior such as persistence skipping durable membership writes when the
- * identity is empty (`!key.identity`).
+ * userId is empty (`!key.userId`).
  */
 export function allowAnonymous(request: Request): UsernameUpgrade {
   const url = new URL(request.url);
   const username = url.searchParams.get('username') ?? '';
-  return { identity: username, meta: { username } };
+  return { userId: username, meta: { username } };
 }

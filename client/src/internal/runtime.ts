@@ -1,74 +1,10 @@
+import type { WireMessage, WSKitEnvelope, WSKitError } from '@wskit/core';
 import type { SocketConfig } from '~/internal/config.ts';
+import type { ReadableStore } from '~/internal/store.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectionState } from '~/types.ts';
 
-/**
- * The internal fields the library attaches to each message inside a `__wskit`
- * block — kept separate from `payload` so they never clash with your data.
- * Every field is optional; a plain event has no envelope at all.
- *
- * These values come off the wire untyped, so this describes the *expected* shape
- * — code that reads them still guards against malformed input (e.g. a `seq`
- * that isn't really a number).
- */
-export interface WSKitEnvelope {
-  /** Links a `request()` to its reply. */
-  correlationId?: string;
-
-  /**
-   * The side that originated this exchange: `'server'` or `'client'`. One field
-   * shared by every two-way flow (requests, replies, subscribe). It lets
-   * the client tell a server-initiated request (`'server'`) apart from a reply to
-   * its own request (`'client'`), so it can fast-fail with `request-no-response`
-   * when it has no handler instead of leaving the server's pending promise to
-   * hang to timeout.
-   */
-  source?: 'server' | 'client';
-
-  /** Names the channel a message belongs to. */
-  channel?: string;
-
-  /** The dynamic channel-family key, paired with `channel`. */
-  channelFamily?: string;
-
-  /** Correlates an `__unsubscribe__` with its `__unsubscribeOk__` confirmation. */
-  unsubscribeId?: string;
-
-  /** Set to `true` on `__subscribeOk__` when the server manages rejoining the channel on reconnect, so the client should not re-subscribe it. */
-  channelPersistent?: boolean;
-
-  /** Per-message sequence number from the server, used by replay. */
-  seq?: number;
-
-  /** Unique id from the server, used by dedup. */
-  messageId?: string;
-
-  /** Groups the chunks of one stream. */
-  streamId?: string;
-
-  /** The user event a broadcast stream carries, so an end/error frame that
-   * arrives before any chunk can still be routed to the right subscriber. */
-  eventName?: string;
-
-  /** Whether a stream is resumable (`persistent`) or dies on disconnect (`ephemeral`). */
-  streamKind?: 'ephemeral' | 'persistent';
-
-  /** Correlates a nudge with its `__nudgeOk__` / `__error__` reply. */
-  streamNudgeId?: string;
-
-  /** On a stream `__error__`: false means non-terminal (a rejected nudge). */
-  streamTerminated?: boolean;
-}
-
-/**
- * One message as it travels through the library. `payload` is your data;
- * everything the framework needs for routing lives separately in `__wskit`.
- */
-export interface WireMessage {
-  event: string;
-  payload: unknown;
-  __wskit?: WSKitEnvelope;
-}
+export type { WireMessage, WSKitEnvelope };
 
 /**
  * Where a send ended up. Returned by the internal send paths so a caller that
@@ -116,20 +52,18 @@ export interface InternalSendOptions {
 export type InterceptFn = (message: WireMessage) => WireMessage | void;
 
 /**
- * A signal that one primitive can broadcast and another can listen to.
- * The socket just passes them through, so neither primitive has to import the other.
- *
- * - `online` — `true` when the device is online, `false` when offline.
- * - `visibility` — `true` when the app/tab is visible, `false` when hidden.
- */
-export type PlatformSignal = 'online' | 'visibility';
-
-/**
  * A logger for primitives. `info` / `warn` / `error` are debug breadcrumbs:
  * gated on whether debug mode is on and prefixed with `[wskit]`, so call sites
  * never repeat that check. They map to `console.log` / `console.warn` / `console.error`.
  */
 export interface PrimitiveLogger {
+  /**
+   * Whether debug mode is on right now. `info`/`warn`/`error` already check it,
+   * so read this only to skip building a message that would be thrown away —
+   * worth it on a per-frame path, pointless anywhere else.
+   */
+  debug: boolean;
+
   info(...args: unknown[]): void;
   warn(...args: unknown[]): void;
   error(...args: unknown[]): void;
@@ -229,11 +163,14 @@ export interface PrimitiveHelpers {
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
   send(message: WireMessage, options?: InternalSendOptions): SendResult;
 
-  /** Make a unique id. The counter is shared across all primitives, so ids never collide. */
-  generateId(prefix?: string): string;
+  /** Surface an unclaimed server error without routing it through local onError. */
+  reportServerError(error: WSKitError): void;
 
   /** The current connection state. */
   getState(): ConnectionState;
+
+  /** The connection state as a store, for reacting to changes over time. */
+  state: ReadableStore<ConnectionState>;
 
   /** Whether a primitive with this `_tag` is installed (e.g. `'keepalive'`). */
   hasPrimitive(tag: string): boolean;
@@ -287,11 +224,13 @@ export interface PrimitiveHelpers {
   /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */
   readonly log: PrimitiveLogger;
 
-  /** Publish a platform signal (e.g. `platform()` reporting online/offline). */
-  emitSignal(name: PlatformSignal, value: boolean): void;
-
-  /** React to a platform signal. Returns an unsubscribe. */
-  onSignal(name: PlatformSignal, handler: (value: boolean) => void): () => void;
+  /**
+   * A per-socket key/value store for primitives that must share one instance
+   * without importing each other — e.g. `platform()` and `reconnection()` both
+   * reach the same signal bus through it. The socket never reads it; it only
+   * hands out the same map to every primitive's `setup`.
+   */
+  readonly shared: Map<string, unknown>;
 
   /** Close the connection and stop everything (the public `disconnect()`). */
   disconnect(code?: number, reason?: string): void;

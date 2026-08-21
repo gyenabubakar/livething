@@ -1,8 +1,8 @@
-import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, CloseCodes, StreamAborted } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
+import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -11,8 +11,73 @@ import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
-/** Matches the wire-level channel-name cap; identity is used the same way. */
-const MAX_IDENTITY_LENGTH = 256;
+export { userKeyOf } from '~/_engine/runtime/user-key.ts';
+
+/**
+ * Connections that have been told to close by the `replace` eviction path but
+ * whose real close event has not landed yet. Keyed by connection identity so
+ * admission math for a rapid burst does not count them as still holding a
+ * slot, and so the same connection is never asked to close twice.
+ */
+const pendingEvictions = new WeakSet<EngineRuntimeTypes.RuntimeConnection>();
+
+/**
+ * Add one connection to the user-key fan-out index, creating its set if
+ * needed. A no-op for an anonymous connection (`userKeyOf` returns `null`) —
+ * it has no user identity to fan out to, and must never be reachable via
+ * `ctx.user` or `ctx.users.get(...)`.
+ */
+function addConnectionToUserIndex(
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  const key = userKeyOf(connection);
+  if (key === null) return;
+  let members = usersByKey.get(key);
+  if (!members) {
+    members = new Set();
+    usersByKey.set(key, members);
+  }
+  members.add(connection);
+}
+
+/**
+ * Remove one connection from the user-key fan-out index, dropping an emptied
+ * set. A no-op for an anonymous connection — it was never added.
+ */
+function removeConnectionFromUserIndex(
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  const key = userKeyOf(connection);
+  if (key === null) return;
+  const members = usersByKey.get(key);
+  if (!members) return;
+  members.delete(connection);
+  if (members.size === 0) usersByKey.delete(key);
+}
+
+/**
+ * Undo the in-memory half of a connection setup that failed after indexing
+ * the connection. Wake callers keep durable state so a later boot can retry;
+ * accept callers decide separately whether to delete their row.
+ */
+function rollbackConnectionIndexes(
+  runtime: Pick<
+    ConnectionRuntime,
+    'connections' | 'usersByKey' | 'channelMembers' | 'tagMembers' | 'wsToConnectionId'
+  >,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  runtime.connections.delete(connection.id);
+  removeConnectionFromUserIndex(runtime.usersByKey, connection);
+  runtime.wsToConnectionId.delete(connection.wsKey);
+
+  for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
+    ChannelPrimitive.removeChannelMembership(runtime.channelMembers, connection, membership);
+  }
+  removeConnectionFromTagIndex(runtime.tagMembers, connection);
+}
 
 /**
  * Minimal subset of the WebSocket-like object the engine wraps on wake. The
@@ -33,13 +98,9 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
-  /**
-   * Keepalive ping interval (ms) for new connections, set by `keepalive()`.
-   * `undefined` when no keepalive is configured — the pinger uses its default.
-   */
-  keepalivePingIntervalMs?: number;
-
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  /** User-key → members index, maintained on accept, close, and hibernation wake. */
+  usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   wsToConnectionId: Map<unknown, string>;
@@ -91,18 +152,17 @@ interface ConnectionRuntime {
   ): Promise<void>;
 
   /**
-   * Re-subscribe a fresh connection to every persistent channel its identity
-   * was in. Present when persistence is enabled; called from
-   * `acceptConnection` between the initial row write and `onConnect`.
+   * Re-subscribe a fresh connection to every persistent channel its user id
+   * was in. Called from `acceptConnection` between the initial row write and
+   * `onConnect`.
    */
   autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
 
   logger?: Pick<PublicApi.Logger, 'error'>;
 
   /**
-   * Reload identity-scoped persistent tags into the live index on wake. The
-   * hibernation snapshot only carries ephemeral tags. Present only when
-   * persistence is enabled.
+   * Reload a user's persistent tags into the live index on wake. The
+   * hibernation snapshot only carries ephemeral tags.
    */
   reloadPersistentTags?(connection: EngineRuntimeTypes.RuntimeConnection): void;
 }
@@ -156,7 +216,8 @@ export async function runConnectionLifecycle(
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
-  return withConnectionContext(runtime.asyncContext, String(ctx.id), async () => {
+  const connectionId = (ctx as { connection?: { id?: string } }).connection?.id ?? '';
+  return withConnectionContext(runtime.asyncContext, connectionId, async () => {
     if (kind === 'connect') {
       // Inbound onion: new-model plugins see the connection before the app.
       for (const entry of runtime.pluginConnectHooks ?? []) {
@@ -183,7 +244,7 @@ export async function runConnectionLifecycle(
  *
  * Streams declared with `onDisconnect: 'keep-running'` are left alone — the
  * generator continues producing into storage and a later `__resumeStream__` from
- * the same identity (or any broadcast subscriber) catches up from the buffer.
+ * the same user (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
   runtime: {
@@ -249,7 +310,12 @@ export interface HandleConnectionCloseOptions {
 export async function handleConnectionClose(
   runtime: Pick<
     ConnectionRuntime,
-    'compiled' | 'connections' | 'tagMembers' | 'wsToConnectionId' | 'deleteConnectionState'
+    | 'compiled'
+    | 'connections'
+    | 'usersByKey'
+    | 'tagMembers'
+    | 'wsToConnectionId'
+    | 'deleteConnectionState'
   > & {
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
@@ -264,6 +330,7 @@ export async function handleConnectionClose(
       connection: EngineRuntimeTypes.RuntimeConnection,
       opts: ChannelPrimitive.LeaveChannelOptions,
     ): Promise<void>;
+    connectionCleanupHooks?: readonly ((connectionId: string) => void)[];
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
   options: HandleConnectionCloseOptions,
@@ -281,6 +348,8 @@ export async function handleConnectionClose(
 
   connection.closing = true;
   runtime.connections.delete(connection.id);
+  removeConnectionFromUserIndex(runtime.usersByKey, connection);
+  pendingEvictions.delete(connection);
   runtime.wsToConnectionId.delete(connection.wsKey);
   runtime.deleteConnectionState?.(connection.id);
 
@@ -348,7 +417,16 @@ export async function handleConnectionClose(
     connection.deferTimers.clear();
   }
 
-  KeepalivePrimitive.stopConnectionPing(connection);
+  for (const hook of runtime.connectionCleanupHooks ?? []) {
+    try {
+      hook(connection.id);
+    } catch (error) {
+      runtime.logger?.error('[wskit] connection cleanup hook threw', {
+        connectionId: connection.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 /**
@@ -360,18 +438,45 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  // identity becomes the durable row key for per-user state, so cap it like a
-  // wire field. Reject rather than truncate — two distinct long identities
-  // truncated to the same prefix would silently share durable state.
-  if (descriptor.identity.length > MAX_IDENTITY_LENGTH) {
-    throw new WSKitConfigError(
-      `[wskit] identity returned from onUpgrade is ${descriptor.identity.length} chars; the max is ${MAX_IDENTITY_LENGTH}. Use a stable id (user id, ULID) rather than a token as the identity.`,
-    );
+  assertUsableUserId(descriptor.userId);
+
+  // A per-user connection cap only applies to identified users — an anonymous
+  // connection has no user identity to count against.
+  const usersPolicy = runtime.compiled.usersPolicy;
+  if (usersPolicy?.maxConnections !== undefined && descriptor.userId) {
+    const existing = runtime.usersByKey.get(descriptor.userId);
+    const held = existing?.size ?? 0;
+    if (held >= usersPolicy.maxConnections) {
+      if (usersPolicy.onExceed === 'reject') {
+        descriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
+        return {
+          handleMessage: async () => {},
+          handleClose: async () => {},
+          handleError: async () => {},
+        };
+      }
+      // `replace`: evict the oldest connection(s) — set iteration is insertion
+      // order — until admitting the newcomer would sit at the cap. The real
+      // close event lands later, so the evicted socket is dropped from the
+      // user-key index right away and marked pending: a rapid burst must not
+      // still count it toward `held`, or ask it to close a second time.
+      let toEvict = held - usersPolicy.maxConnections + 1;
+      for (const oldest of existing ?? []) {
+        if (toEvict <= 0) break;
+        // Removed from the index the moment it's picked, so it can never be
+        // picked again by this or a later burst round.
+        if (pendingEvictions.has(oldest)) continue;
+        pendingEvictions.add(oldest);
+        removeConnectionFromUserIndex(runtime.usersByKey, oldest);
+        oldest.descriptor.close(CloseCodes.DUPLICATE, 'replaced by a newer connection');
+        toEvict -= 1;
+      }
+    }
   }
 
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
-    identity: descriptor.identity,
+    userId: descriptor.userId,
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
@@ -393,23 +498,29 @@ export function acceptConnection(
   }
 
   runtime.connections.set(connection.id, connection);
+  addConnectionToUserIndex(runtime.usersByKey, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
   // Initial write goes through without the gate so the row exists from the
   // moment the connection is live. Then the gate is set so onConnect state
   // changes (channel subscribes, ephemeral tag adds, etc.) batch into one
   // flush after the hook resolves.
-  runtime.persistAttachment(connection);
+  try {
+    runtime.persistAttachment(connection);
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    runtime.deleteConnectionState?.(connection.id);
+    throw error;
+  }
   connection.pendingWrites = { active: true };
 
-  if (!runtime.hibernationEnabled) {
-    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
-  }
-
   const ctx = runtime.buildConnectionContext(connection);
-  // Auto-rejoin runs before onConnect so handlers see the connection already
-  // back in its persistent channels. The branch keeps the synchronous start of
-  // `runConnectionLifecycle` for engines without persistence — an unconditional
-  // `.then()` chain would shift onConnect's timing by a microtask.
+  // Auto-rejoin (channel membership and persistent tags) runs before onConnect
+  // so handlers see the connection already restored. `engine.deps.ts` wires
+  // `autoRejoinIdentity` on every real engine regardless of which capabilities
+  // are listed, so a real engine always takes the async branch below — the
+  // synchronous branch only fires for a runtime bag that omits the field
+  // entirely, which only a test harness does. An unconditional `.then()`
+  // chain would shift `onConnect`'s timing by a microtask for those tests.
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)
@@ -458,7 +569,9 @@ export function wakeHibernatedConnection(
   // back to a generated id when there is nothing to read (defensive: a
   // missing attachment means the row is gone too, so this socket becomes a
   // fresh connection with empty state instead of crashing on wake).
-  const attachment = runtime.restoreAttachment ? runtime.restoreAttachment(wsKey) : undefined;
+  const attachment = runtime.restoreAttachment
+    ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
+    : undefined;
   const attachmentId =
     attachment &&
     typeof attachment === 'object' &&
@@ -469,9 +582,26 @@ export function wakeHibernatedConnection(
   const row =
     attachmentId && runtime.readConnectionState ? runtime.readConnectionState(attachmentId) : null;
 
+  if (row) {
+    try {
+      assertUsableUserId(row.user_id);
+    } catch {
+      runtime.deleteConnectionState?.(row.connection_id);
+      wsLike.close?.(CloseCodes.GOING_AWAY, 'invalid persisted user id');
+      return {
+        handleMessage: async () => {},
+        handleClose: async () => {},
+        handleError: async () => {},
+      };
+    }
+  }
+
   const id = row?.connection_id ?? attachmentId ?? runtime.generateId('conn');
-  const identity = row?.identity ?? '';
+  const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
+  if (runtime.connections.has(id)) {
+    throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
+  }
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
     __wskit: 'tag-ref' as const,
     kind: 'ephemeral' as const,
@@ -490,7 +620,7 @@ export function wakeHibernatedConnection(
     send: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
-    identity,
+    userId,
     meta,
     tags: ephemeralRefs,
   };
@@ -510,7 +640,7 @@ export function wakeHibernatedConnection(
 
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id,
-    identity,
+    userId,
     wsKey,
     descriptor,
     meta,
@@ -520,37 +650,39 @@ export function wakeHibernatedConnection(
     quality: 'good',
   };
 
-  runtime.connections.set(connection.id, connection);
-  runtime.wsToConnectionId.set(wsKey, connection.id);
+  try {
+    runtime.connections.set(connection.id, connection);
+    addConnectionToUserIndex(runtime.usersByKey, connection);
+    runtime.wsToConnectionId.set(wsKey, connection.id);
 
-  for (const t of row?.ephemeral_tags ?? []) {
-    addConnectionTag(runtime.tagMembers, connection, {
-      kind: 'ephemeral',
-      group: t.group,
-      key: t.key,
-    });
-  }
+    for (const t of row?.ephemeral_tags ?? []) {
+      addConnectionTag(runtime.tagMembers, connection, {
+        kind: 'ephemeral',
+        group: t.group,
+        key: t.key,
+      });
+    }
 
-  for (const membership of row?.ephemeral_memberships ?? []) {
-    ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
-      channelName: membership.channelName,
-      channelFamily: membership.channelFamily,
-    });
-  }
+    for (const membership of row?.ephemeral_memberships ?? []) {
+      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
+        channelName: membership.channelName,
+        channelFamily: membership.channelFamily,
+      });
+    }
 
-  // The snapshot above only holds ephemeral tags. Persistent tags are
-  // identity-scoped, so reload them from durable storage on wake.
-  runtime.reloadPersistentTags?.(connection);
+    // The snapshot above only holds ephemeral tags. Persistent tags are
+    // user-scoped, so reload them from durable storage on wake.
+    runtime.reloadPersistentTags?.(connection);
 
-  // Re-persist so the row reflects the cleared active_stream_ids (the wake
-  // path drained them above) and the attachment carries the correct id
-  // even if it was missing before.
-  if (restoredStreamIds.length > 0) {
-    runtime.persistAttachment(connection);
-  }
-
-  if (!runtime.hibernationEnabled) {
-    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
+    // Re-persist so the row reflects the cleared active_stream_ids (the wake
+    // path drained them above) and the attachment carries the correct id
+    // even if it was missing before.
+    if (restoredStreamIds.length > 0) {
+      runtime.persistAttachment(connection);
+    }
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    throw error;
   }
 
   connection.lifecycleReady = Promise.resolve();
@@ -575,8 +707,8 @@ export async function handleUpgrade(
         }>)[];
     /**
      * New-model plugin `upgrade` hooks, in registration order. Run before the
-     * app's builder hook (inbound onion). Each may own `identity`, but the
-     * single-owner rule below allows at most one identity source overall.
+     * app's builder hook (inbound onion). Each may own `userId`, but the
+     * single-owner rule below allows at most one user id source overall.
      */
     pluginUpgradeHooks?: readonly {
       pluginId: string;
@@ -584,9 +716,9 @@ export async function handleUpgrade(
         request: Request,
         helpers: LifecycleTypes.UpgradeHelpers,
       ) =>
-        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+        | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
         | Promise<{
-            identity?: string;
+            userId?: string;
             meta?: Record<string, unknown>;
             tags?: readonly PublicApi.TagRef[];
           }>;
@@ -597,12 +729,12 @@ export async function handleUpgrade(
           helpers: LifecycleTypes.UpgradeHelpers,
         ) =>
           | {
-              identity?: string;
+              userId?: string;
               meta?: Record<string, unknown>;
               tags?: readonly PublicApi.TagRef[];
             }
           | Promise<{
-              identity?: string;
+              userId?: string;
               meta?: Record<string, unknown>;
               tags?: readonly PublicApi.TagRef[];
             }>)
@@ -636,28 +768,28 @@ export async function handleUpgrade(
     // primitive hooks, then the app's builder hook last. Each result's meta is
     // shallow-merged into the running total — since the app applies last it
     // wins on key conflict; tags are concatenated (TagRef equality is by
-    // identity). At most one hook may own `identity`.
+    // identity). At most one hook may own `userId`.
     let mergedMeta: Record<string, unknown> | undefined;
-    let builderIdentity: string | undefined;
-    let identityOwner: string | undefined;
+    let resolvedUserId: string | undefined;
+    let userIdOwner: string | undefined;
     const mergedTags: PublicApi.TagRef[] = [];
     function apply(
       result: {
-        identity?: string;
+        userId?: string;
         meta?: Record<string, unknown>;
         tags?: readonly PublicApi.TagRef[];
       },
       owner: string,
     ): void {
-      if (result.identity !== undefined) {
-        if (identityOwner !== undefined) {
+      if (result.userId !== undefined) {
+        if (userIdOwner !== undefined) {
           throw new Error(
-            `[wskit] Two upgrade hooks returned 'identity' (${identityOwner} and ${owner}). ` +
-              'identity has exactly one owner per connection — the app or one plugin, never both.',
+            `[wskit] Two upgrade hooks returned 'userId' (${userIdOwner} and ${owner}). ` +
+              'A user id has exactly one owner per connection — the app or one plugin, never both.',
           );
         }
-        identityOwner = owner;
-        builderIdentity = result.identity;
+        userIdOwner = owner;
+        resolvedUserId = result.userId;
       }
       if (result.meta) {
         mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
@@ -691,7 +823,7 @@ export async function handleUpgrade(
       apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
     return {
-      identity: builderIdentity,
+      userId: resolvedUserId,
       meta: mergedMeta,
       tags: mergedTags.length > 0 ? mergedTags : undefined,
     };
@@ -731,7 +863,6 @@ export async function handleShutdown(
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
-    alarmState: { current: unknown | null };
     logger?: Pick<PublicApi.Logger, 'error'>;
   },
 ): Promise<void> {
@@ -747,9 +878,9 @@ export async function handleShutdown(
     }
   }
 
-  // Shutdown is a best-effort drain: a throwing hook must not block
-  // stream cancellation, socket close, or alarm clear. Each hook runs
-  // inside its own try/catch with logging; cleanup below always runs.
+  // Shutdown is a best-effort drain: a throwing hook must not block stream
+  // cancellation or socket close. Each hook runs inside its own try/catch
+  // with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
     try {
       await hook(runtime.createShutdownContext());
@@ -799,9 +930,4 @@ export async function handleShutdown(
       }
     }),
   );
-
-  if (runtime.alarmState.current !== null) {
-    clearTimeout(runtime.alarmState.current as ReturnType<typeof setTimeout>);
-    runtime.alarmState.current = null;
-  }
 }

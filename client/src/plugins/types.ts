@@ -1,11 +1,12 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
-import type { WireMessage } from '~/internal/runtime.ts';
+/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin api/contract stay generic across call sites */
+import type { NamespacedContract } from '~/plugins/contract.ts';
+import type { PluginSocket } from '~/plugins/plugin-socket.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
-import type { ConnectionState } from '~/types.ts';
+import type { SocketContract } from '~/types.ts';
 
 /**
- * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [channels]`.
- * The static `tag` is required: dependency resolution reads it without running the
+ * A primitive factory you can name as a plugin dependency, e.g.
+ * `dependencies: [clientRequests]`. The static `tag` is read without running the
  * factory, so a factory that needs options can't throw or fire side effects here.
  */
 export type PrimitiveFactory = {
@@ -14,75 +15,104 @@ export type PrimitiveFactory = {
 };
 
 /**
- * The hooks a plugin can register in `setup`. They follow the same lifecycle as
- * a built-in primitive. Each hook can only be set once — registering the same
- * one twice throws, so a plugin can't accidentally overwrite its own handler.
+ * What a plugin's `setup` returns. Both fields are optional: a plugin that only
+ * watches the pipeline needs neither, one with an API sets `api`, one holding
+ * resources sets `dispose`.
  */
-export interface PluginHooks {
-  /** See an incoming message. Return it (maybe changed) to pass on; throw `Block` to drop. */
-  onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
+export interface PluginInstance<TApi = void> {
+  /**
+   * Builds the object reached with `Plugin.use(socket)`. It runs once, the first
+   * time `use()` is called, and the same object is returned after. Omit it for a
+   * plugin that only observes or acts through hooks.
+   */
+  api?: () => TApi;
 
-  /** See an outgoing message. Return it (maybe changed) to send; throw `Block` to cancel. */
-  onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
-
-  /** Runs on every open. Return `{ event, payload }[]` to send right away. */
-  onOpen(handler: () => WireMessage[] | void): void;
-
-  /** Runs only on reconnects. Same return as `onOpen`. */
-  onReconnect(handler: () => WireMessage[] | void): void;
-
-  /** Runs when the socket closes, with the close code and reason. */
-  onClose(handler: (code: number, reason: string) => void): void;
-
-  /** Make a unique id, sharing the kernel's counter so ids never clash. */
-  generateId(prefix?: string): string;
-
-  /** The current connection state. */
-  getState(): ConnectionState;
+  /**
+   * Runs once when the socket is finished for good — reconnection has been given
+   * up, or the app closed the socket on purpose. It does NOT run on a normal drop
+   * that will reconnect. Use it to release timers or other outside resources; a
+   * plugin holding only in-memory state doesn't need it.
+   *
+   * A lazy socket is the exception: it reopens on demand, so no close is ever
+   * final and `dispose` does not run automatically — an idle-close and an explicit
+   * `disconnect()` are indistinguishable, and both may reopen. On a lazy socket,
+   * tie cleanup to your own listeners (the unsubscribe an `on(...)` returns), not
+   * to `dispose`.
+   */
+  dispose?: () => void;
 }
 
 /** What you pass to `plugin()`. */
-export interface PluginDef<TArgs, TApi> {
+export interface PluginDef<P extends SocketContract, TApi> {
   /**
-   * A human-readable name shown in logs and errors. A namespaced form like
-   * `'acme:metrics'` is recommended to avoid clashing with primitive names.
-   * This is NOT what uniquely identifies a plugin — that's `key` (+ `registrationId`).
-   * Two different plugins sharing the same `id` only produces a warning.
+   * The plugin's namespace and log label. It owns every `__<id>::…` name on the
+   * wire, so no two plugins on one socket may share an `id`. A namespaced form
+   * like `'acme:chat'` is the convention.
    */
   id: string;
 
   /**
-   * A `Symbol` that uniquely identifies this plugin. The socket uses it to
-   * store and look up the plugin's API. The same plugin can't be registered
-   * twice on one socket unless it also provides a `registrationId` (see below).
+   * Primitives the host must register for this plugin to work. Any scoped verb
+   * that comes from a primitive needs its primitive listed here: `request` needs
+   * `clientRequests`, `stream`/`onStream`/`resumeStream` need `stream`,
+   * `channel` needs `channels`, `onRequest` needs `serverRequests`. The scoped
+   * socket types these verbs from the plugin's contract, not from this list, so
+   * calling one whose primitive is neither listed here nor registered by the app
+   * fails at runtime — list it here and a missing one is caught when the socket
+   * is built, with a message naming what to add.
    */
-  key: symbol;
-
-  /**
-   * Makes the plugin repeatable. Given the args the caller passes, return a
-   * stable string that identifies this particular instance, so the same plugin
-   * can be registered more than once (e.g. two analytics configs). Two
-   * registrations with the same computed id throw; different ids are kept as
-   * separate instances. Leave this out for a one-per-socket (singleton) plugin.
-   */
-  registrationId?: (args: TArgs) => string;
-
-  /** Primitives this plugin needs registered — asserted and ordered before it. */
   dependencies?: readonly PrimitiveFactory[];
 
-  /** Wire up the hooks and return a factory for the plugin's per-socket API. */
-  setup(args: TArgs, hooks: PluginHooks): (socket: any) => TApi;
+  /**
+   * Let this plugin's `onIncoming`/`onOutgoing` handlers see the whole app's frames,
+   * not just its own namespace. Off by default (least privilege): a plugin
+   * observes only its own traffic. When set to the literal `true`, registering the
+   * plugin bare is a type error — the app must wrap it in `observeHost(...)` to
+   * grant the privilege on purpose. A plugin never sees another plugin's frames
+   * unless this is on.
+   */
+  observesHostTraffic?: boolean;
+
+  /**
+   * Wire up handlers and hooks on the scoped socket, then return the plugin's API
+   * and cleanup. It runs once, when the socket is built.
+   */
+  setup(socket: PluginSocket<P>): PluginInstance<TApi>;
 }
 
 /**
- * What `plugin()` returns. Call it with args to register the plugin (passed
- * alongside primitives to `client()`), and call `.use(socket)` to get its API
- * from a socket it was registered on. For a repeatable plugin, pass the
- * `registrationId` to `.use()` to pick a specific instance.
+ * What `plugin()` returns. Call it to register the plugin (pass the result to
+ * `client()`), and call `.use(socket)` to get its API from a socket it was
+ * registered on. `TId` carries the plugin's id as a literal so the app socket
+ * knows which namespace this plugin claims, and `P` becomes the primitive's
+ * `_requires` so `client()` rejects a socket whose contract lacks that namespace.
  */
-export interface PluginFactory<TArgs, TApi> {
-  (args: TArgs): Primitive<EmptyTypeFn>;
+export interface PluginFactory<
+  TApi,
+  TId extends string = string,
+  P extends SocketContract = {},
+  TObservesHost extends boolean = false,
+> {
+  (): Primitive<EmptyTypeFn, NamespacedContract<P, TId>> & {
+    readonly _plugin: { readonly id: TId };
+    /** Whether the plugin opted its handlers into observing host traffic. @internal */
+    readonly __observesHostTraffic: boolean;
+    /** Set once `observeHost(...)` wraps this plugin; the runtime grant gate reads it. @internal */
+    readonly __hostObservationGranted?: boolean;
+    /**
+     * Phantom brand present only when `observesHostTraffic` is the literal `true`
+     * and the plugin has not been wrapped by `observeHost(...)`. `client()`'s
+     * argument type rejects it, so a bare registration is a compile error;
+     * `observeHost(...)` strips it. Never set at runtime. @internal
+     */
+    readonly __requiresHostGrant?: [TObservesHost] extends [true]
+      ? 'This plugin observes host traffic — wrap it in observeHost(...) to grant the privilege.'
+      : never;
+  };
 
-  /** Get this plugin's API for a socket it was registered on. */
-  use(socket: object, registrationId?: string): TApi;
+  /** The plugin's id — its namespace and log label. */
+  readonly id: TId;
+
+  /** Get this plugin's API from a socket it was registered on. */
+  use(socket: object): TApi;
 }

@@ -1,8 +1,8 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,19 +11,19 @@ interface C {
     general: {
       incoming: { message: { text: string } };
       outgoing: { 'send-message': { text: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
     rooms: {
       addressing: 'dynamic';
       incoming: { update: { body: string } };
       outgoing: { post: { body: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
     lobbies: {
       addressing: 'dynamic';
       incoming: { update: { body: string } };
       outgoing: { post: { body: string } };
-      requests: Record<string, never>;
+      clientRequests: Record<string, never>;
     };
   };
 }
@@ -97,7 +97,7 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       // Drop → reconnect. A persistent channel is auto-rejoined by the server, so
@@ -177,7 +177,7 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
       first.emit({
         event: '__subscribeOk__',
@@ -186,7 +186,7 @@ describe('channels-reconnect-skips-persistent', () => {
           source: 'client',
           channel: 'room:1',
           channelFamily: 'rooms',
-          channelPersistent: false,
+          channelMembership: 'ephemeral',
         },
       });
 
@@ -219,7 +219,7 @@ describe('channels-reconnect-skips-persistent', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -243,7 +243,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       const socket = client<C>()(
         connect('wss://test'),
         channels(),
-        requestResponse(),
+        clientRequests(),
         reconnection(),
       );
       socket.connect();
@@ -297,7 +297,7 @@ describe('channels-unsubscribe-during-reconnect-wins-over-rejoin', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -699,7 +699,7 @@ describe('BUG persistence-flip', () => {
       first.emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
 
       first.serverClose(1006, 'drop');
@@ -758,7 +758,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       MockWebSocket.last().emit({
         event: '__subscribeOk__',
         payload: {},
-        __wskit: { source: 'client', channel: 'general', channelPersistent: true },
+        __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
       MockWebSocket.last().serverClose(1006);
       vi.advanceTimersByTime(1500);

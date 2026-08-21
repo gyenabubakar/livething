@@ -4,9 +4,9 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
+import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
-import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectDescriptor } from '~/connect.ts';
@@ -27,7 +27,7 @@ interface LooseContract {
 }
 
 interface CloseRequestContract {
-  requests: { x: { payload: { v: number }; response: { ok: boolean } } };
+  clientRequests: { x: { payload: { v: number }; response: { ok: boolean } } };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
@@ -229,7 +229,7 @@ describe('disconnect() still cleans up primitives when already closed', () => {
   it('rejects a pending request even if the socket is already closed', async () => {
     const socket = client<CloseRequestContract>()(
       connect('wss://test'),
-      requestResponse({ timeout: 100 }),
+      clientRequests({ timeout: 100 }),
     );
     const pending = socket.request('x', { v: 1 });
     socket.disconnect();
@@ -280,7 +280,7 @@ describe('getLatency() after disconnect', () => {
 });
 
 interface RequestContract {
-  requests: { echo: { payload: null; response: null } };
+  clientRequests: { echo: { payload: null; response: null } };
 }
 
 describe('idle timer armed during close must not fire during reconnect', () => {
@@ -290,7 +290,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
       const socket = client<RequestContract>()(
         connect('wss://test', { lazy: true, idleTimeout: 1000 }),
         reconnection(),
-        requestResponse({ timeout: 60_000 }),
+        clientRequests({ timeout: 60_000 }),
       );
 
       const pending = socket.request('echo', null);
@@ -298,7 +298,7 @@ describe('idle timer armed during close must not fire during reconnect', () => {
       MockWebSocket.last().open();
 
       // Drop the connection. Inside ws.onclose the primitives' onClose fires
-      // while state is still 'open': requestResponse.onClose rejects the
+      // while state is still 'open': clientRequests.onClose rejects the
       // pending request (done() → lazyRelease()), which sees _state === 'open'
       // and _lazyConsumers === 0, so it arms the idle timer. Reconnection then
       // sets the state to 'reconnecting'. The idle timer is never cleared.

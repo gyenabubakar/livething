@@ -37,14 +37,22 @@ export function rethrowIfConfigError(error: unknown): void {
 }
 
 /**
- * Throw if `result` is a Promise. Used to enforce that validators (Standard
- * Schema or plain functions) run synchronously — WSKit does not currently
- * support async validation in the message pipeline or in `error()` factories.
+ * Reject a Promise returned from an API that must finish before its caller
+ * returns. The rejected Promise is observed so the synchronous configuration
+ * error remains the only reported failure. Validators and callbacks use
+ * different messages because they point developers at different fixes.
  */
-export function assertSyncResult<T>(result: T | Promise<T>, label: string): T {
-  if (result && typeof (result as Promise<T>).then === 'function') {
+export function assertSynchronousResult<T>(
+  result: T | PromiseLike<T>,
+  label: string,
+  kind: 'validator' | 'callback' = 'callback',
+): T {
+  if (result && typeof (result as { then?: unknown }).then === 'function') {
+    void Promise.resolve(result).catch(() => {});
     throw new WSKitConfigError(
-      `[wskit] async validators are not supported (${label}). Use a sync schema or parse function.`,
+      kind === 'validator'
+        ? `[wskit] async validators are not supported (${label}). Use a sync schema or parse function.`
+        : `[wskit] async callbacks are not supported (${label}). Use a synchronous callback.`,
     );
   }
   return result as T;

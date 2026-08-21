@@ -66,13 +66,12 @@ describe('plugin onion ordering — shutdown', () => {
       createShutdownContext: () => ({}),
       cancelActiveStreamsForConnection: async () => {},
       handleConnectionClose: async () => {},
-      alarmState: { current: null },
     } as any);
     expect(trace).toEqual(['app', 'p2', 'p1']);
   });
 });
 
-describe('plugin upgrade — meta merge + identity single owner', () => {
+describe('plugin upgrade — meta merge + user id single owner', () => {
   const helpers = {};
 
   function baseRuntime(overrides: Record<string, unknown>) {
@@ -101,37 +100,37 @@ describe('plugin upgrade — meta merge + identity single owner', () => {
         ],
         builderUpgradeHook: () => {
           order.push('app');
-          return { identity: 'u1', meta: { shared: 'app' } };
+          return { userId: 'u1', meta: { shared: 'app' } };
         },
       }),
       new Request('https://x/'),
     );
     expect(order).toEqual(['a', 'app']);
-    expect(decision.identity).toBe('u1');
+    expect(decision.userId).toBe('u1');
     expect(decision.meta).toEqual({ shared: 'app', fromPlugin: 1 });
   });
 
-  it('lets a plugin own identity when the app does not', async () => {
+  it('lets a plugin own the user id when the app does not', async () => {
     const decision = await handleUpgrade(
       baseRuntime({
         pluginUpgradeHooks: [
           {
             pluginId: 'clerk:auth',
-            handler: () => ({ identity: 'sub_1', meta: { userId: 'sub_1' } }),
+            handler: () => ({ userId: 'sub_1', meta: { userId: 'sub_1' } }),
           },
         ],
       }),
       new Request('https://x/'),
     );
-    expect(decision.identity).toBe('sub_1');
+    expect(decision.userId).toBe('sub_1');
     expect(decision.meta).toEqual({ userId: 'sub_1' });
   });
 
-  it('rejects when two upgrade hooks both return identity', async () => {
+  it('rejects when two upgrade hooks both return a user id', async () => {
     const decision = await handleUpgrade(
       baseRuntime({
-        pluginUpgradeHooks: [{ pluginId: 'clerk:auth', handler: () => ({ identity: 'sub_1' }) }],
-        builderUpgradeHook: () => ({ identity: 'sub_2' }),
+        pluginUpgradeHooks: [{ pluginId: 'clerk:auth', handler: () => ({ userId: 'sub_1' }) }],
+        builderUpgradeHook: () => ({ userId: 'sub_2' }),
       }),
       new Request('https://x/'),
     );
@@ -152,7 +151,7 @@ describe('plugin upgrade — meta merge + identity single owner', () => {
           },
         ],
         builderUpgradeHook: () => ({
-          identity: 'u',
+          userId: 'u',
           tags: [{ __wskit: 'tag-ref', kind: 'ephemeral', group: 'g', key: 'k2' }],
         }),
       }),

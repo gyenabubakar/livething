@@ -91,7 +91,7 @@ base.replay({
   },
 });
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(`
     CREATE TABLE IF NOT EXISTS _custom_replay (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,14 +261,16 @@ const handleGetRoomConfirmedCount = customRoom.on('get-room-confirmed-count', {
   },
 });
 
-export const replayCustomHandler = base.assemble(
-  handleAddNote,
-  handleQueryBadReplayLog,
-  handleGetConfirmedCount,
-  handleAddRoomNote,
-  handleQueryRoomReplayEvents,
-  handleRoomStream,
-  handleGetRoomConfirmedCount,
-);
+export const replayCustomHandler = base.assemble({
+  handlers: [
+    handleAddNote,
+    handleQueryBadReplayLog,
+    handleGetConfirmedCount,
+    handleAddRoomNote,
+    handleQueryRoomReplayEvents,
+    handleRoomStream,
+    handleGetRoomConfirmedCount,
+  ],
+});
 
 export type ReplayCustomClient = InferClient<typeof replayCustomHandler>;

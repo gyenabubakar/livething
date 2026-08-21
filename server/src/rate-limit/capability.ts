@@ -40,7 +40,7 @@ export interface RateLimitGlobalConfig {
   readonly max?: number;
   /**
    * Pick the budget key from the connection. Defaults to one budget per
-   * connection; return `ctx.identity` to share one budget across a user's
+   * connection; return `ctx.user.id` to share one budget across a user's
    * sockets.
    */
   readonly per?: (ctx: any) => string;
@@ -48,7 +48,7 @@ export interface RateLimitGlobalConfig {
 
 /** A `rateLimit(...)` capability, carrying its global rule and intercept builder for assembly. */
 export interface RateLimitCapability extends Capability<{}, never, 'rateLimit'> {
-  /** Host-owned: rejected inside a plugin's `define({ scoped: true })`. @internal */
+  /** Host-owned: rejected inside a plugin's `define({ scope: 'plugin' })`. @internal */
   readonly __hostOnly: true;
   /** The global rule, or `undefined` when only per-handler limits apply. @internal */
   readonly __rateLimit: RateLimitConfig | undefined;

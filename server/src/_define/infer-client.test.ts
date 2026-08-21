@@ -13,7 +13,7 @@ const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 const base = define({
   env: t<{ SECRET: string }>(),
-  upgrade: () => ({ identity: 'x', meta: { username: 'x' } }),
+  upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
     emits({ welcome: t<{ username: string }>() }),
     emits({ goodbye: t<{ username: string }>() }),
@@ -38,7 +38,7 @@ const handleAnything = base.on('anything', {
   run() {},
 });
 
-const handler = base.assemble(handleEcho, handleAnything, handleGetTime);
+const handler = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
 type C = InferClient<typeof handler>;
 
 describe('InferClient for define()', () => {
@@ -60,9 +60,13 @@ describe('InferClient for define()', () => {
     expectTypeOf<C['errors']['forbidden']>().toEqualTypeOf<{ reason: string }>();
   });
 
+  it('includes built-in durable stream errors in the client error map', () => {
+    expectTypeOf<C['errors']['durable-stream-requires-user']>().toEqualTypeOf<void>();
+  });
+
   it('maps a base.request handler to a client request with inferred payload and response', () => {
-    expectTypeOf<C['requests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
-    expectTypeOf<C['requests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
+    expectTypeOf<C['clientRequests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
+    expectTypeOf<C['clientRequests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();
   });
 
   it('rejects a builder method whose capability was not listed', () => {

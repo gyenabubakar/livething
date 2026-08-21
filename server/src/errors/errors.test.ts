@@ -4,6 +4,7 @@ import { WSKitError } from '@wskit/core';
 import {
   Block,
   CloseCodes,
+  CrossInstanceRef,
   Defer,
   DeferExhausted,
   Disconnect,
@@ -48,12 +49,38 @@ void [_dfWSKit, _dfDelay];
 const _deCode: 'defer-exhausted' = DeferExhausted.code;
 void _deCode;
 
+declare const unknownErr: unknown;
+
+const _cirCode: 'cross-instance-ref' = CrossInstanceRef.code;
+void _cirCode;
+
+const cirErr = CrossInstanceRef({
+  operation: 'ctx.channel.request({ to })',
+  targetInstance: 'other',
+  engineInstance: 'local',
+});
+const _cirDetail: {
+  operation: string;
+  targetInstance?: string;
+  engineInstance?: string;
+} = cirErr.detail;
+void [_cirDetail, cirErr];
+
+if (CrossInstanceRef.matches(unknownErr)) {
+  const _cirMatchCode: 'cross-instance-ref' = unknownErr.code;
+  const _cirMatchDetail: {
+    operation: string;
+    targetInstance?: string;
+    engineInstance?: string;
+  } = unknownErr.detail;
+  void [_cirMatchCode, _cirMatchDetail];
+}
+
 const deErr = DeferExhausted({ event: 'send-message', payload: { text: 'hi' }, retries: 3 });
 const _deErrCode: 'defer-exhausted' = deErr.code;
 const _deDetail: { event: string; payload: unknown; retries: number } = deErr.detail;
 void [_deErrCode, _deDetail];
 
-declare const unknownErr: unknown;
 if (DeferExhausted.matches(unknownErr)) {
   const _mc: 'defer-exhausted' = unknownErr.code;
   const _md: { event: string; payload: unknown; retries: number } = unknownErr.detail;

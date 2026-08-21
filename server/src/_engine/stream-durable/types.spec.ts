@@ -1,4 +1,4 @@
-import { computeBroadcastKey } from '~/_engine/stream-durable/types.ts';
+import { computeBroadcastKey } from '~/_engine/stream-durable/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { ResolvedChannel } from '~/_engine/runtime/types.ts';
 

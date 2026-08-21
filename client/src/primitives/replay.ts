@@ -17,7 +17,7 @@ export function replay(): Primitive<EmptyTypeFn> {
     dependencies: ['dedup'],
     // The re-subscribe message must arrive before __replay__, or the server
     // rejects it (not yet a member). Order after channels when it's present.
-    optionalAfter: ['channels'],
+    optionalAfter: ['channels', 'inbox'],
     setup(helpers) {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
@@ -26,9 +26,28 @@ export function replay(): Primitive<EmptyTypeFn> {
       return {
         id: 'replay',
         onIncoming(message) {
+          if (message.event === '__gap__') {
+            const payload = message.payload as { missedThrough?: unknown } | null | undefined;
+            const missedThrough = payload?.missedThrough;
+            if (typeof missedThrough === 'number') {
+              const channel = message.__wskit?.channel;
+              const channelFamily = message.__wskit?.channelFamily;
+              const key = channel === undefined ? '' : channelKey(channelFamily, channel);
+              // A gap means retention pruned everything up to missedThrough, even
+              // if no surviving row carried that seq. Advance the high-water mark
+              // here too, or the next reconnect asks from the same stale cursor
+              // and gets the same gap reported again forever.
+              const current = lastSeq.get(key);
+              if (!current || missedThrough > current.seq) {
+                lastSeq.set(key, { seq: missedThrough, channel, channelFamily });
+              }
+            }
+            return message;
+          }
+
           // The server replied that it doesn't support replay (replay off, or
           // off for this scope). Warn every time so the misconfig stays visible;
-          // the error still passes through to the socket's onError below.
+          // the error still passes through to the socket's onServerError below.
           if (message.event === '__error__') {
             const payload = message.payload as
               | { code?: string; detail?: { event?: string } }

@@ -2,6 +2,7 @@ import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
+import { plugin } from '@wskit/server/plugin';
 import { replay } from '@wskit/server/replay';
 import { requests } from '@wskit/server/requests';
 import { sequence } from '@wskit/server/sequence';
@@ -12,6 +13,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 import {
   GetToken,
   InjectFamilyReplay,
+  PingAll,
+  PluginMsg,
   RequestHistory,
   RequestRoomHistory,
   SendCursor,
@@ -23,6 +26,31 @@ import {
   TriggerBigIntReplay,
 } from './events.ts';
 import type { ChatMsg, Cursor, ReplayGuardError, RoomMsg } from './events.ts';
+
+// A tiny scoped plugin that owns one top-level broadcast event. It lists no
+// replay of its own — a plugin cannot own the host-only replay engine. Its
+// `plugin-msg` broadcast rides out namespaced as `__e2e:replay::plugin-msg`,
+// and the host's top-level replay stores and re-delivers it like any other
+// outgoing frame. This is the proof that app-level replay covers plugin events.
+const pluginBase = define({
+  scope: 'plugin',
+  capabilities: [emits({ 'plugin-msg': PluginMsg })],
+});
+
+const handlePluginPingAll = pluginBase.on('ping-all', {
+  input: PingAll,
+  run(ctx, payload) {
+    // Send to the caller AND broadcast to everyone else. The persist hook fires
+    // per recipient, so the send to the live caller is what stores the frame —
+    // exactly how the top-level `chat-msg` handler seeds a replayable row.
+    ctx.send('plugin-msg', { text: payload.text });
+    ctx.broadcast('plugin-msg', { text: payload.text });
+  },
+});
+
+export const ReplayPlugin = plugin('e2e:replay', {
+  handler: pluginBase.assemble({ handlers: [handlePluginPingAll] }),
+});
 
 const base = define({
   env: t<Env>(),
@@ -44,10 +72,11 @@ const base = define({
     }),
     channels(),
     stream(),
+    ReplayPlugin(),
   ],
 });
 
-base.error((_ctx, error, event) => {
+base.onError((_ctx, error, event) => {
   console.error(`[replay] error in ${event}:`, error);
 });
 
@@ -172,7 +201,11 @@ export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
 export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
   input: RequestRoomHistory,
   run(ctx) {
-    ctx.channel.sendReplay(
+    const sendReplay = ctx.channel.sendReplay;
+    if (!sendReplay) {
+      throw new Error('channel replay is not active for replay-room');
+    }
+    sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },
       { seq: 0, messageId: 'room-manual-001' },
@@ -216,20 +249,22 @@ export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
   },
 });
 
-export const replayHandler = base.assemble(
-  handleSendMsg,
-  handleSendCursor,
-  handleRequestHistory,
-  handleGetToken,
-  handleTriggerBadReplay,
-  handleInjectFamilyReplay,
-  handleTriggerBigIntReplay,
-  handleServerDrop,
-  handleStartTinyStream,
-  handleSendRoomMsg,
-  handleRequestRoomHistory,
-  handleFamsSendRoomMsg,
-  handleOptoutSendRoomMsg,
-);
+export const replayHandler = base.assemble({
+  handlers: [
+    handleSendMsg,
+    handleSendCursor,
+    handleRequestHistory,
+    handleGetToken,
+    handleTriggerBadReplay,
+    handleInjectFamilyReplay,
+    handleTriggerBigIntReplay,
+    handleServerDrop,
+    handleStartTinyStream,
+    handleSendRoomMsg,
+    handleRequestRoomHistory,
+    handleFamsSendRoomMsg,
+    handleOptoutSendRoomMsg,
+  ],
+});
 
 export type ReplayClient = InferClient<typeof replayHandler>;

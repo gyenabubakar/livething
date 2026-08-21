@@ -20,13 +20,10 @@ const handleGetTime = requestContract.request('get-time', {
 
 const handleNoResponse = requestContract.request('no-response', {
   input: v.object({}),
-  // Intentionally never produce a value - the server surfaces a correlated
-  // __error__ with code "request-no-response" so the client's pending promise
-  // rejects instead of hanging. The annotated return type keeps the client
-  // contract { ok: boolean } even though nothing is returned at runtime.
-  run(): { ok: boolean } {
-    return undefined as unknown as { ok: boolean };
-  },
+  // Returns nothing — a void acknowledgement. The server sends an empty
+  // correlated frame and the client's request() resolves with no value, rather
+  // than rejecting. The response type is inferred as void.
+  run() {},
 });
 
 const handleDoubleResponse = requestContract.request('double-response', {
@@ -73,15 +70,17 @@ const handleGetChannelInfo = room.request('get-channel-info', {
   },
 });
 
-export const requestHandler = requestContract.assemble(
-  handleGetTime,
-  handleNoResponse,
-  handleDoubleResponse,
-  handleStrictEcho,
-  handleThrowingRequest,
-  handleEchoAnything,
-  handleHang,
-  handleGetChannelInfo,
-);
+export const requestHandler = requestContract.assemble({
+  handlers: [
+    handleGetTime,
+    handleNoResponse,
+    handleDoubleResponse,
+    handleStrictEcho,
+    handleThrowingRequest,
+    handleEchoAnything,
+    handleHang,
+    handleGetChannelInfo,
+  ],
+});
 
 export type RequestClient = InferClient<typeof requestHandler>;

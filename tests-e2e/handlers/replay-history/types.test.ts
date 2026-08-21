@@ -5,7 +5,7 @@ describe('ReplayClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<ReplayClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayClient['outgoing']>().not.toBeAny();
-    expectTypeOf<ReplayClient['requests']>().not.toBeAny();
+    expectTypeOf<ReplayClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayClient['errors']>().not.toBeAny();
@@ -40,9 +40,15 @@ describe('ReplayClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly four events in top-level incoming', () => {
+  it('has the plugin-owned plugin-msg under its wire prefix', () => {
+    expectTypeOf<ReplayClient['incoming']['__e2e:replay::plugin-msg']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('exactly five events in top-level incoming', () => {
     expectTypeOf<keyof ReplayClient['incoming']>().toEqualTypeOf<
-      'chat-msg' | 'cursor' | 'room-msg' | 'replay-guard-error'
+      'chat-msg' | 'cursor' | 'room-msg' | 'replay-guard-error' | '__e2e:replay::plugin-msg'
     >();
   });
 });
@@ -74,16 +80,22 @@ describe('ReplayClient — outgoing (server incoming)', () => {
   it('has trigger-bigint-replay with empty payload', () => {
     expectTypeOf<ReplayClient['outgoing']['trigger-bigint-replay']>().toEqualTypeOf<{}>();
   });
+
+  it('has the plugin-owned ping-all under its wire prefix', () => {
+    expectTypeOf<ReplayClient['outgoing']['__e2e:replay::ping-all']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
 });
 
-describe('ReplayClient — requests', () => {
+describe('ReplayClient — clientRequests', () => {
   it('has get-token', () => {
-    expectTypeOf<ReplayClient['requests']>().toHaveProperty('get-token');
+    expectTypeOf<ReplayClient['clientRequests']>().toHaveProperty('get-token');
   });
 
   it('get-token has correct payload and response', () => {
-    expectTypeOf<ReplayClient['requests']['get-token']['payload']>().toEqualTypeOf<{}>();
-    expectTypeOf<ReplayClient['requests']['get-token']['response']>().toEqualTypeOf<{
+    expectTypeOf<ReplayClient['clientRequests']['get-token']['payload']>().toEqualTypeOf<{}>();
+    expectTypeOf<ReplayClient['clientRequests']['get-token']['response']>().toEqualTypeOf<{
       token: string;
     }>();
   });

@@ -69,6 +69,23 @@ module.exports = {
       },
     },
     {
+      name: 'define-no-plugin-entry-runtime',
+      comment:
+        '`_define/plugin.ts` is a bundle entry, so rollup keeps the module whole rather than ' +
+        'shaking within it. A single value import from `define.ts` therefore lands the plugin ' +
+        'runtime — the wire-namespacing pass and the plugin-scoped context — in the emitted graph ' +
+        'of the main `.` entry, which every app loads. Import the assemble-time checks from ' +
+        '`_define/plugin-checks.ts`, or keep the edge `import type` only.',
+      severity: 'error',
+      from: {
+        path: '^server/src/_define/define\\.ts$',
+      },
+      to: {
+        path: '^server/src/_define/plugin\\.ts$',
+        dependencyTypesNot: ['type-only'],
+      },
+    },
+    {
       name: 'client-utility-entry-no-runtime',
       comment:
         'A client utility subpath (`errors`, `environment`, `platform`) must not value-import the ' +

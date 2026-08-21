@@ -1,28 +1,73 @@
+import { adapter } from '~/_adapters/define.ts';
+import { t } from '~/_api/definitions.ts';
+import { define } from '~/_define/define.ts';
+import { scheduleTask } from '~/_engine/scheduling.ts';
+import { createTestKV, createTestSql } from '~/_test/sql.ts';
+import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { Engine } from '~/_engine/engine.ts';
+import type { SQLProvider } from '~/context.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 import {
   bootstrapScheduledRuntime,
   cancelScheduledRuns,
+  ensureScheduledSchema,
   handleScheduledAlarm,
-  rescheduleScheduledAlarm,
   scheduleTaskRun,
 } from './runtime.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
 
-class FakeSqlResult<TRow = unknown> {
-  constructor(private readonly rows: Record<string, unknown>[]) {}
+/** Build and initialize a real engine, exposing its core's real SQLite storage. */
+async function buildEngine(
+  handler: ServerDefinition,
+): Promise<{ engine: Engine; sql: SQLProvider }> {
+  const sql = createTestSql();
+  let engine!: Engine;
+  const server = adapter({
+    id: 'test',
+    asyncContextFactory: <TStore>() => {
+      let current: TStore | undefined;
+      return {
+        run<R>(store: TStore, callback: () => R): R {
+          const prev = current;
+          current = store;
+          try {
+            return callback();
+          } finally {
+            current = prev;
+          }
+        },
+        getStore: () => current,
+      };
+    },
+    setup(createEngine) {
+      engine = createEngine({
+        env: {},
+        platform: { kind: 'test' },
+        storage: { sql, kv: createTestKV() },
+        timers: {
+          setAlarm: vi.fn(async () => {}),
+          deleteAlarm: vi.fn(async () => {}),
+          getAlarm: vi.fn(async () => null),
+        },
+        waitUntil: () => {},
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+      return {};
+    },
+  });
+  server(handler, {} as never);
+  await engine.initialize();
+  return { engine, sql };
+}
 
-  toArray(): TRow[] {
-    return [...this.rows] as TRow[];
-  }
-
-  one(): TRow | null {
-    return (this.rows[0] as TRow | undefined) ?? null;
-  }
-
-  raw(): unknown[][] {
-    return this.rows.map((row) => Object.values(row));
-  }
+function scheduledTableRows(sql: ReturnType<typeof createTestSql>): Record<string, unknown>[] {
+  return sql
+    .exec<
+      Record<string, unknown>
+    >('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled')
+    .toArray();
 }
 
 function createScheduledRuntime(
@@ -41,92 +86,18 @@ function createScheduledRuntime(
   const runsPersisted = new Map<string, string>();
   const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
-  const storageRows = {
-    scheduled: [] as Record<string, unknown>[],
-    dlq: [] as Record<string, unknown>[],
-  };
+  const sql = createTestSql();
   const timers = {
     setAlarm: vi.fn(async () => {}),
     deleteAlarm: vi.fn(async () => {}),
     getAlarm: vi.fn(async () => null),
   };
 
-  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
-    const normalized = query.replaceAll(/\s+/g, ' ').trim();
-
-    if (
-      normalized.startsWith(
-        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled',
-      )
-    ) {
-      return new FakeSqlResult<TRow>(storageRows.scheduled);
-    }
-
-    if (
-      normalized.startsWith(
-        'SELECT id, taskId, time, failedAt, data, attempts, error FROM __wskit_scheduled_dlq',
-      )
-    ) {
-      return new FakeSqlResult<TRow>(storageRows.dlq);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_scheduled_dlq')) {
-      storageRows.dlq = [];
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('DELETE FROM __wskit_scheduled')) {
-      storageRows.scheduled = [];
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('INSERT INTO __wskit_scheduled_dlq')) {
-      const [id, taskId, time, failedAt, data, attempts, error] = params;
-      storageRows.dlq.push({
-        id,
-        taskId,
-        time,
-        failedAt,
-        data,
-        attempts,
-        error,
-      });
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    if (normalized.startsWith('INSERT INTO __wskit_scheduled')) {
-      const [id, taskId, time, data, everyMs, attempts, recurring, retry] = params;
-      storageRows.scheduled.push({
-        id,
-        taskId,
-        time,
-        data,
-        everyMs,
-        attempts,
-        recurring,
-        retry,
-      });
-      return new FakeSqlResult<TRow>([]);
-    }
-
-    return new FakeSqlResult<TRow>([]);
-  }
-  const sql = {
-    exec,
-    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
-      return fn({ exec });
-    },
-  };
-
   const taskMap = new Map(tasks.map((task) => [task.taskId, task]));
 
-  const runtime: ScheduledRuntimeAccess & {
-    storageRows: typeof storageRows;
-    alarms: number;
-  } = {
-    storageRows,
+  const runtime: ScheduledRuntimeAccess & { alarms: number } = {
     alarms: 0,
-    requireStorage: () => ({
+    getStorage: () => ({
       sql,
       kv: {
         get: async () => undefined,
@@ -150,7 +121,9 @@ function createScheduledRuntime(
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 
-  return { runtime, scheduledRuns, deadLetters, storageRows, timers };
+  ensureScheduledSchema(runtime);
+
+  return { runtime, scheduledRuns, deadLetters, sql, timers };
 }
 
 describe('scheduled/runtime', () => {
@@ -179,22 +152,24 @@ describe('scheduled/runtime', () => {
     // must drop the orphan row instead of restoring it — otherwise every
     // alarm tick would skip the missing handler and re-queue the same row
     // for the next interval, leaving storage to grow forever.
-    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([]);
-    storageRows.scheduled.push({
-      id: 'task_orphan_1',
-      taskId: 'cleanup',
-      time: 5_000,
-      data: null,
-      everyMs: 60_000,
-      attempts: 0,
-      recurring: 1,
-      retry: 1,
-    });
+    const { runtime, scheduledRuns, sql } = createScheduledRuntime([]);
+    sql.exec(
+      `INSERT INTO __wskit_scheduled (id, taskId, time, data, everyMs, attempts, recurring, retry)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      'task_orphan_1',
+      'cleanup',
+      5_000,
+      null,
+      60_000,
+      0,
+      1,
+      1,
+    );
 
     bootstrapScheduledRuntime(runtime);
 
     expect([...scheduledRuns.values()]).toHaveLength(0);
-    expect(storageRows.scheduled).toHaveLength(0);
+    expect(scheduledTableRows(sql)).toHaveLength(0);
   });
 
   it('does not re-queue a recurring run whose task disappeared between alarm ticks', async () => {
@@ -311,7 +286,7 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
 
-  it('throws when required task data is omitted', () => {
+  it('throws when task data is missing or fails validation at enqueue time', () => {
     const { runtime } = createScheduledRuntime([
       {
         taskId: 'flush',
@@ -323,17 +298,6 @@ describe('scheduled/runtime', () => {
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: undefined }),
     ).toThrow();
-  });
-
-  it('throws when task data fails validation at enqueue time', () => {
-    const { runtime } = createScheduledRuntime([
-      {
-        taskId: 'flush',
-        hasData: true,
-        dataSchema: v.object({ label: v.string() }),
-      },
-    ]);
-
     expect(() =>
       scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { label: 42 } }),
     ).toThrow();
@@ -450,110 +414,6 @@ describe('scheduled/runtime', () => {
       error: { message: 'fourth', name: 'Error' },
     });
     now.mockRestore();
-  });
-
-  it('clears the native alarm when the scheduled queue empties', () => {
-    const deleteAlarm = vi.fn(async () => {});
-    const runtime = {
-      getScheduledRuns: () => new Map<string, ScheduledRun>(),
-      timers: {
-        setAlarm: vi.fn(async () => {}),
-        deleteAlarm,
-      },
-      getTimers() {
-        return this.timers;
-      },
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-
-    rescheduleScheduledAlarm(runtime);
-
-    // Native durable alarms (e.g. CF DOs) must be cleared too — otherwise
-    // the platform wakes the DO at the previously-set time and finds
-    // nothing scheduled, billing for a wake that does no work.
-    expect(deleteAlarm).toHaveBeenCalledTimes(1);
-  });
-
-  it('skips deleteAlarm when the adapter does not provide it', () => {
-    const runtime = {
-      getScheduledRuns: () => new Map<string, ScheduledRun>(),
-      getTimers: () => undefined,
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-
-    expect(() => rescheduleScheduledAlarm(runtime)).not.toThrow();
-  });
-
-  it('uses timer alarms when available and falls back to timeouts otherwise', () => {
-    const withAlarm = {
-      getScheduledRuns: () =>
-        new Map<string, ScheduledRun>([
-          [
-            'a',
-            {
-              id: 'a',
-              taskId: 'flush',
-              time: 500,
-              data: undefined,
-              attempts: 0,
-              recurring: false,
-              retry: true,
-            },
-          ],
-        ]),
-      timers: {
-        setAlarm: vi.fn(async () => {}),
-      },
-      getTimers() {
-        return this.timers;
-      },
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-
-    rescheduleScheduledAlarm(withAlarm);
-    expect(withAlarm.timers.setAlarm).toHaveBeenCalled();
-
-    const timeoutCallback = vi.fn();
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
-      callback: Parameters<typeof setTimeout>[0],
-    ) => {
-      timeoutCallback.mockImplementation(callback as () => void);
-      return 'timeout-1' as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout);
-    const withoutAlarm = {
-      getScheduledRuns: () =>
-        new Map<string, ScheduledRun>([
-          [
-            'a',
-            {
-              id: 'a',
-              taskId: 'flush',
-              time: 500,
-              data: undefined,
-              attempts: 0,
-              recurring: false,
-              retry: true,
-            },
-          ],
-        ]),
-      getTimers: () => undefined,
-      getAlarmHandle: () => null,
-      setAlarmHandle: vi.fn(),
-      onAlarm: vi.fn(async () => {}),
-    };
-    const now = vi.spyOn(Date, 'now').mockReturnValue(250);
-
-    rescheduleScheduledAlarm(withoutAlarm);
-
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 250);
-    now.mockRestore();
-    setTimeoutSpy.mockRestore();
   });
 
   it('retries with custom backoff schedule and dead-letters after exhausting it', async () => {
@@ -673,23 +533,75 @@ describe('scheduled/runtime', () => {
   });
 
   it('round-trips custom backoff through serialization', () => {
-    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([
+    const { runtime, scheduledRuns, sql } = createScheduledRuntime([
       { taskId: 'ser', options: { retry: [100, 200] } },
     ]);
 
     scheduleTaskRun(runtime, { taskId: 'ser', time: 500, data: undefined });
-    const serialized = storageRows.scheduled[0];
-    expect(serialized?.retry).toBe('[100,200]');
+    expect(scheduledTableRows(sql)[0]?.retry).toBe('[100,200]');
 
+    // Drop the in-memory copy and re-read the persisted row: deserialization must
+    // turn the stored '[100,200]' string back into a real backoff array.
     scheduledRuns.clear();
-    storageRows.scheduled[0] = {
-      ...serialized!,
-      retry: '[100,200]',
-    };
     bootstrapScheduledRuntime(runtime);
 
     const restored = [...scheduledRuns.values()].find((r) => r.taskId === 'ser');
     expect(restored?.retry).toEqual([100, 200]);
+  });
+
+  it('keeps the running run recoverable in storage across a nested ctx.schedule() call', async () => {
+    // processRefund schedules sendReceipt, then the refund logic runs. If the
+    // process crashes right after the nested schedule, the original
+    // processRefund run must still be re-fireable from storage — not silently
+    // dropped because the nested schedule's own persist deleted it.
+    // Captured from inside the handler — the assertion happens outside, since
+    // an assertion failure inside the handler would be swallowed as a
+    // rejected result by `Promise.allSettled` and never fail the test.
+    let taskIdsRightAfterNestedSchedule: string[] = [];
+
+    const { runtime, sql } = createScheduledRuntime([
+      { taskId: 'sendReceipt' },
+      {
+        taskId: 'processRefund',
+        options: { retry: false },
+        handler: async () => {
+          scheduleTaskRun(runtime, { taskId: 'sendReceipt', time: 999, data: undefined });
+
+          // Simulate the moment right after the nested persist, before this
+          // handler (or the alarm's own closing persist) has run.
+          taskIdsRightAfterNestedSchedule = scheduledTableRows(sql).map((r) => String(r.taskId));
+
+          throw new Error('crash mid-refund');
+        },
+      },
+    ]);
+
+    // Persist the processRefund run for real, the same way `ctx.schedule`
+    // would, so it is genuinely in the durable table before the alarm claims
+    // it — not just present in the in-memory map.
+    scheduleTaskRun(runtime, { taskId: 'processRefund', time: 1, data: undefined });
+    expect(scheduledTableRows(sql).map((r) => r.taskId)).toEqual(['processRefund']);
+
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100);
+    await handleScheduledAlarm(runtime);
+    now.mockRestore();
+
+    expect(taskIdsRightAfterNestedSchedule).toContain('processRefund');
+
+    // After the alarm settles (dead-letters the failed run, since retry is
+    // false), the original run row is gone from storage — this is the
+    // legitimate "actually finished" cleanup, not the bug.
+    const finalRows = scheduledTableRows(sql);
+    expect(finalRows.map((r) => r.taskId)).not.toContain('processRefund');
+    expect(finalRows.map((r) => r.taskId)).toContain('sendReceipt');
+  });
+
+  it('the normal (non-nested) schedule path still persists immediately', () => {
+    const { runtime, sql } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: undefined });
+
+    expect(scheduledTableRows(sql).map((r) => r.taskId)).toEqual(['flush']);
   });
 
   it('dead-letters a task whose rejected value cannot be JSON-stringified', async () => {
@@ -727,5 +639,41 @@ describe('scheduled/runtime', () => {
     expect(typeof dlq!.error.message).toBe('string');
     expect(dlq!.error.message).toBe('1');
     now.mockRestore();
+  });
+});
+
+describe('scheduled/runtime — through the real engine', () => {
+  it('keeps the running task recoverable in storage across a nested ctx.schedule() call', async () => {
+    const rowsDuringHandler: unknown[][] = [];
+
+    const base = define({
+      env: t<Record<string, never>>(),
+      capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
+    });
+    const processRefund = base.scheduled('processRefund', {
+      run(ctx) {
+        ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
+        rowsDuringHandler.push(
+          ctx.sql.exec<{ taskId: string }>('SELECT taskId FROM __wskit_scheduled').toArray(),
+        );
+      },
+    });
+    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+
+    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
+
+    scheduleTask(engine.core, () => ({}), {
+      taskId: 'processRefund',
+      time: 1,
+      data: undefined,
+    });
+
+    await engine.handleAlarm();
+
+    expect(rowsDuringHandler).toHaveLength(1);
+    const taskIdsDuringHandler = (rowsDuringHandler[0] ?? []).map(
+      (row) => (row as { taskId: string }).taskId,
+    );
+    expect(taskIdsDuringHandler).toContain('processRefund');
   });
 });

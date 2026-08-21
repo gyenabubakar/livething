@@ -14,7 +14,7 @@ import type { RoomMsgPayload } from './contract.ts';
 
 const GroupRequestKey = localKey<{ tag: string }>('group-request');
 
-base.init((ctx) => {
+base.onInit((ctx) => {
   ctx.sql.exec(
     'CREATE TABLE IF NOT EXISTS _init_check (id INTEGER PRIMARY KEY, ran INTEGER NOT NULL)',
   );
@@ -30,22 +30,22 @@ base.init((ctx) => {
   );
 });
 
-base.connect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('welcome', { username: ctx.meta.username });
 });
 
-base.disconnect((ctx) => {
-  ctx.sql.exec('INSERT INTO _disconnect_log (identity, t) VALUES (?, ?)', ctx.identity, Date.now());
+base.onDisconnect((ctx) => {
+  ctx.sql.exec('INSERT INTO _disconnect_log (identity, t) VALUES (?, ?)', ctx.user.id, Date.now());
 });
 
-base.error((ctx, err, eventName) => {
+base.onError((ctx, err, eventName) => {
   ctx.send('error-marker', {
     event: eventName,
     msg: err instanceof Error ? err.message : String(err),
   });
 });
 
-base.validationError((ctx, eventName) => {
+base.onValidationError((ctx, eventName) => {
   ctx.send('validation-marker', { event: eventName });
 });
 
@@ -222,7 +222,7 @@ export const handleRoomSendMsg = rooms.on('send-msg', {
     ctx.channel.broadcast(
       'room-msg',
       { text: payload.text, from: ctx.meta.username },
-      { excludeSelf: false },
+      { includeSelf: true },
     );
   },
 });

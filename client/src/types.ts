@@ -15,7 +15,7 @@ import type { Messaging } from '~/messaging.ts';
  *   incoming: { notification: { title: string } };
  *   outgoing: { 'mark-read': { id: string } };
  *   channels: { chat: { incoming: { message: { text: string } } } };
- *   requests: { 'get-balance': { payload: { userId: string }; response: { balance: number } } };
+ *   clientRequests: { 'get-balance': { payload: { userId: string }; response: { balance: number } } };
  *   errors: { forbidden: { reason: string } };
  * }
  * ```
@@ -29,9 +29,9 @@ export interface SocketContract {
   channels?: Record<string, ScopeContract>;
   /** Streaming event definitions. Needs the `stream` primitive. */
   streams?: Record<string, StreamContract>;
-  /** Request/response pairs. Needs the `requestResponse` primitive. */
-  requests?: Record<string, RequestContract>;
-  /** Requests the server asks you (server→client). Needs the `serverRequest` primitive. */
+  /** Request/response pairs. Needs the `clientRequests` primitive. */
+  clientRequests?: Record<string, RequestContract>;
+  /** Requests the server asks you (server→client). Needs the `serverRequests` primitive. */
   serverRequests?: Record<string, RequestContract>;
   /** Typed errors the server can send, so you can match on them. */
   errors?: Record<string, unknown>;
@@ -44,7 +44,7 @@ export interface SocketContract {
 export interface ScopeContract {
   incoming?: Record<string, unknown>;
   outgoing?: Record<string, unknown>;
-  requests?: Record<string, RequestContract>;
+  clientRequests?: Record<string, RequestContract>;
   serverRequests?: Record<string, RequestContract>;
   streams?: Record<string, StreamContract>;
 }
@@ -76,7 +76,7 @@ export type IncomingOf<T> = T extends { incoming: infer I } ? I : {};
 export type OutgoingOf<T> = T extends { outgoing: infer O } ? O : {};
 export type ChannelsOf<T> = T extends { channels: infer C } ? C : {};
 export type StreamsOf<T> = T extends { streams: infer S } ? S : {};
-export type RequestsOf<T> = T extends { requests: infer R } ? R : {};
+export type ClientRequestsOf<T> = T extends { clientRequests: infer R } ? R : {};
 export type ServerRequestsOf<T> = T extends { serverRequests: infer R } ? R : {};
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
 
@@ -91,12 +91,14 @@ export type Requires<
     incoming?: string[];
     outgoing?: string[];
     channels?: string[];
-    requests?: string[];
+    clientRequests?: string[];
   },
 > = (R['incoming'] extends string[] ? { incoming: Record<R['incoming'][number], any> } : {}) &
   (R['outgoing'] extends string[] ? { outgoing: Record<R['outgoing'][number], any> } : {}) &
   (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
-  (R['requests'] extends string[] ? { requests: Record<R['requests'][number], any> } : {});
+  (R['clientRequests'] extends string[]
+    ? { clientRequests: Record<R['clientRequests'][number], any> }
+    : {});
 
 /**
  * The four connection states:
@@ -171,9 +173,9 @@ export type PersistentStreamKeys<S> = {
   [K in keyof S]: S[K] extends { kind: 'persistent' } ? K : never;
 }[keyof S];
 
-/** Adds a `request()`-style method typed from the contract's `requests`. */
+/** Adds a `request()`-style method typed from the contract's `clientRequests`. */
 export type RequestMethod<TContract, TMethod extends string> = TContract extends {
-  requests: infer R extends Record<string, { payload: any; response: any }>;
+  clientRequests: infer R extends Record<string, { payload: any; response: any }>;
 }
   ? {
       [M in TMethod]: <K extends keyof R & string>(
@@ -185,12 +187,25 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
   : {};
 
 /**
- * The full messaging type for one scope (a channel): `on`/`send`
- * plus `request()` when the scope has requests, and the stream methods when it
- * has streams.
+ * What an `onGap` callback receives. `missedThrough` is the highest sequence
+ * number the server dropped from retention — anything you hadn't seen at or
+ * below it is gone. `channel` / `channelFamily` are set on a channel gap and
+ * absent on a top-level one.
  */
+export interface GapInfo {
+  channel?: string;
+  channelFamily?: string;
+  missedThrough: number;
+}
+
+/**
+ * The full messaging type for one scope (a channel): `on`/`send`
+ * plus `request()` when the scope has client requests, and the stream methods
+ * when it has streams.
+ */
+
 export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
-  (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
+  (C extends { clientRequests: infer R extends Record<string, { payload: any; response: any }> }
     ? {
         request<E extends keyof R & string>(
           event: E,

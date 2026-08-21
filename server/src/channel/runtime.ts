@@ -7,6 +7,7 @@ import {
   WSKitConfigError,
 } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { userKeyOf } from '~/_engine/runtime/user-key.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -85,69 +86,6 @@ export function listChannelMemberships(
   return [...connection.channelMemberships.values()];
 }
 
-/** Standard leave flow (unsubscribe hooks, peer broadcast, durable cleanup). */
-type LeaveChannelFn = (
-  connection: RuntimeConnection,
-  opts: {
-    channel?: CompiledChannel;
-    channelName: string;
-    channelFamily: string | null;
-    kickedReason?: string;
-    disconnect?: boolean;
-  },
-) => Promise<void>;
-
-interface RemoveChannelMemberDeps {
-  compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>;
-  connections: ReadonlyMap<string, RuntimeConnection>;
-  logger: Pick<Logger, 'error'>;
-  deleteDurableMembership(key: {
-    identity: string;
-    channelName: string;
-    channelFamily: string | null;
-  }): void;
-}
-
-/**
- * Kick every live connection of `identity` out of one channel — a true leave, so
- * `onUnsubscribe` fires and peers see `__memberLeave__`. The durable row, if any,
- * is dropped first through `deleteDurableMembership`, which is a no-op when
- * persistence is off; the in-memory kick runs regardless.
- */
-export async function removeChannelMember(
-  deps: RemoveChannelMemberDeps,
-  leaveChannel: LeaveChannelFn,
-  key: { identity: string; channelName: string; channelFamily: string | null },
-): Promise<void> {
-  const { identity, channelName, channelFamily } = key;
-  const membershipKey = createChannelMembershipKey(channelName, channelFamily);
-
-  deps.deleteDurableMembership(key);
-
-  const resolved = resolveCompiledChannel(deps.compiled, channelName, channelFamily);
-
-  const targets: RuntimeConnection[] = [];
-  for (const connection of deps.connections.values()) {
-    if (connection.identity !== identity) continue;
-    if (!connection.channelMemberships.has(membershipKey)) continue;
-    targets.push(connection);
-  }
-
-  for (const connection of targets) {
-    try {
-      await leaveChannel(connection, { channel: resolved, channelName, channelFamily });
-    } catch (error) {
-      deps.logger.error('[wskit] removeChannelMember leaveChannel threw', {
-        identity,
-        channel: channelName,
-        channelFamily,
-        connectionId: connection.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-}
-
 /**
  * Check whether a concrete channel name satisfies a compiled channel's pattern.
  * Static channels carry a string pattern (always passes — exact lookup is the
@@ -202,7 +140,8 @@ export interface BroadcastToChannelOptions {
 
   channelFamily: string | null;
 
-  excludeSelf?: boolean;
+  /** Whether to also deliver to `excludeConnectionId`. Defaults to `false`. */
+  includeSelf?: boolean;
 }
 
 /**
@@ -225,7 +164,12 @@ interface ChannelRuntime extends ChannelHooks {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: { channel?: CompiledChannel; channelName?: string; channelFamily?: string | null },
+    scope?: {
+      channel?: CompiledChannel;
+      channelName?: string;
+      channelFamily?: string | null;
+      isSubscribeGate?: boolean;
+    },
   ): Record<PropertyKey, unknown>;
 
   persistAttachment(connection: RuntimeConnection): void;
@@ -248,36 +192,48 @@ interface ChannelRuntime extends ChannelHooks {
 
   /**
    * Whether the given channel-key should write durable memberships. Returns
-   * `false` when persistence is disabled at the server level OR the channel
-   * set `persistent: false` in its definition. The runtime gates every
-   * persistence write through this so persistence-disabled servers pay no SQL cost.
+   * `false` only when the channel set `membership: 'ephemeral'` in its
+   * definition — every other channel is durable by default. The runtime gates
+   * every membership write through this so an opted-out channel pays no SQL
+   * cost.
    */
-  isChannelPersistent(channelKey: string): boolean;
+  isChannelDurable(channelKey: string): boolean;
 
   /**
-   * Insert or replace a durable membership row for the given identity. Called
+   * Insert or replace a durable membership row for the given user. Called
    * after a successful subscribe to a persistent channel. No-op when the
    * channel is not persistent.
    */
-  persistMembership(identity: string, channelName: string, channelFamily: string | null): void;
+  persistMembership(userId: string, channelName: string, channelFamily: string | null): void;
 
   /**
-   * Delete a durable membership row for the given identity. Called on a TRUE
-   * leave (client `__unsubscribe__`, `removeMember`, kick) of a persistent
+   * Delete a durable membership row for the given user. Called on a TRUE
+   * leave (client `__unsubscribe__`, revoking `kick`) of a persistent
    * channel. Disconnect path skips this so the user stays in the group across
    * reconnects.
    */
-  deleteDurableMembership(
-    identity: string,
-    channelName: string,
-    channelFamily: string | null,
-  ): void;
+  deleteDurableMembership(userId: string, channelName: string, channelFamily: string | null): void;
 
-  hasDurableMembership(
-    identity: string,
-    channelName: string,
-    channelFamily: string | null,
-  ): boolean;
+  hasDurableMembership(userId: string, channelName: string, channelFamily: string | null): boolean;
+
+  /**
+   * Drop the user's inbox rows for this channel. Called on a true leave —
+   * they stop being owed the channel's messages. No-op when `inbox()` is off.
+   */
+  clearInbox?(userId: string, channelName: string, channelFamily: string | null): void;
+
+  /**
+   * Whether this channel is inbox-backed. Stamped onto `__subscribeOk__` so the
+   * client acks only inbox channels. Absent (treated as `false`) when `inbox()`
+   * is off.
+   */
+  isInboxChannel?(channelName: string, channelFamily: string | null): boolean;
+
+  /**
+   * Whether this channel opted into read receipts. Stamped onto `__subscribeOk__`
+   * so the client exposes `markAsRead`/`readers`/`readersOf` only where they work.
+   */
+  isReadReceiptsChannel?(channelName: string, channelFamily: string | null): boolean;
 }
 
 interface ChannelTarget {
@@ -335,6 +291,14 @@ export interface LeaveChannelOptions {
 
   /** `true` on socket close. On a persistent channel it keeps the durable row and skips `onUnsubscribe`. */
   disconnect?: boolean;
+
+  /**
+   * `true` to keep the durable membership row on an otherwise-true leave, so
+   * the user auto-rejoins the channel on their next reconnect. Set by a
+   * non-revoking `kick`. Ignored on a plain disconnect, which already keeps
+   * the row via `disconnect`.
+   */
+  keepDurableRow?: boolean;
 }
 
 export async function leaveChannel(
@@ -342,25 +306,45 @@ export async function leaveChannel(
   connection: RuntimeConnection,
   opts: LeaveChannelOptions,
 ): Promise<void> {
-  const { kickedReason, disconnect } = opts;
+  const { kickedReason, disconnect, keepDurableRow } = opts;
   const scope: ChannelTarget = opts;
   if (!hasChannelMembership(connection, scope.channelName, scope.channelFamily)) return;
 
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
-  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : disconnect;
+  const isDurable = scope.channel ? runtime.isChannelDurable(scope.channel.key) : disconnect;
 
   // A disconnect on a persistent channel only ends the session. Every other
   // path also changes group membership.
-  const isTrueLeave = !disconnect || !isPersistent;
+  const isTrueLeave = !disconnect || !isDurable;
 
   // Remove membership before running any async hooks. A concurrent leave
   // will see the member already gone and stop early.
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  if (isTrueLeave && (isPersistent || !scope.channel)) {
-    runtime.deleteDurableMembership(connection.identity, scope.channelName, scope.channelFamily);
+  // Durable membership and the inbox are stored per USER, but a leave is per
+  // CONNECTION — the same user can be in this channel from another tab. Only
+  // drop the user-scoped state once their last connection in this channel is
+  // gone. `connection` was already removed from `channelMembers` above, so any
+  // remaining member sharing this user id is a genuinely separate connection.
+  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
+  const userHasAnotherConnectionHere =
+    connection.userId !== '' &&
+    [...(runtime.channelMembers.get(memberKey) ?? [])].some(
+      (member) => member.userId === connection.userId,
+    );
+
+  if (
+    isTrueLeave &&
+    (isDurable || !scope.channel) &&
+    !keepDurableRow &&
+    !userHasAnotherConnectionHere
+  ) {
+    runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
+    if (connection.userId) {
+      runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
+    }
   }
 
   // Hold the first hook throw and re-throw at the end so the rest of the leave
@@ -460,6 +444,23 @@ async function runSubscribeFlow(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
+  // `check`/`commit`/`revalidate` run inline in the `base.channel(...)` config,
+  // alongside the `capabilities` array they would need to infer their brand
+  // from, so they are typed with no channel-owned capability members
+  // (`ctx.channel.inbox`, `ctx.channel.readReceipts`, or its request verbs).
+  // Build a separate ctx carrying the `isSubscribeGate` marker for them, so
+  // channel-only extenders and channel request wiring skip attaching those
+  // members here — the shared `ctx` above (used for `subscribe` below) is
+  // untouched. Built lazily, and only when a gate hook is actually registered
+  // for this channel.
+  let gateCtx: Record<PropertyKey, unknown> | undefined;
+  function buildGateCtx(): Record<PropertyKey, unknown> {
+    return (gateCtx ??= runtime.buildConnectionContext(connection, {
+      ...scope,
+      isSubscribeGate: true,
+    }));
+  }
+
   // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
   // `revalidate` instead — no payload, revocation only — so a payload-gated
   // `check` is never handed an undefined payload on reconnect.
@@ -468,7 +469,7 @@ async function runSubscribeFlow(
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
       try {
-        await revalidateHook(ctx);
+        await revalidateHook(buildGateCtx());
       } catch (error) {
         // A config error is a framework misconfig, not a revocation — let it
         // propagate so auto-rejoin keeps the membership instead of dropping it.
@@ -498,7 +499,7 @@ async function runSubscribeFlow(
           throw error;
         }
       }
-      checkResult = await checkHook.handler(ctx, validatedData);
+      checkResult = await checkHook.handler(buildGateCtx(), validatedData);
     }
   }
 
@@ -506,14 +507,14 @@ async function runSubscribeFlow(
     return;
   }
 
-  const isPersistent = runtime.isChannelPersistent(scope.channel.key);
+  const isDurable = runtime.isChannelDurable(scope.channel.key);
 
   // Re-check durable membership here — a leave that finished after phase 1
   // may have already cleared the row.
   if (
     rejoining &&
-    isPersistent &&
-    !runtime.hasDurableMembership(connection.identity, scope.channelName, scope.channelFamily)
+    isDurable &&
+    !runtime.hasDurableMembership(connection.userId, scope.channelName, scope.channelFamily)
   ) {
     return;
   }
@@ -524,7 +525,7 @@ async function runSubscribeFlow(
   if (!rejoining) {
     const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
     if (commitHook) {
-      const r: unknown = commitHook.handler(ctx, checkResult);
+      const r: unknown = commitHook.handler(buildGateCtx(), checkResult);
       // Detect any thenable — a native Promise, a cross-realm Promise, or a
       // custom `{ then() {} }` — not just `instanceof Promise`. An async-like
       // commit must fail before membership is written.
@@ -541,8 +542,8 @@ async function runSubscribeFlow(
   // Write the durable membership row first. If the SQL write throws, the
   // connection must not already be a live member of a channel it was never
   // saved into.
-  if (isPersistent) {
-    runtime.persistMembership(connection.identity, scope.channelName, scope.channelFamily);
+  if (isDurable) {
+    runtime.persistMembership(connection.userId, scope.channelName, scope.channelFamily);
   }
 
   // Commit live membership before snapshotting the member list. Otherwise two
@@ -556,13 +557,26 @@ async function runSubscribeFlow(
   const wskit = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
-  // delay or block it from reaching the client. The persistent flag tells the
-  // client to leave this channel to server-driven auto-rejoin on reconnect
-  // rather than re-subscribing it itself.
+  // delay or block it from reaching the client. The membership value tells the
+  // client whether to leave this channel to server-driven auto-rejoin on
+  // reconnect ('persistent') rather than re-subscribing it itself
+  // ('ephemeral'). The inbox flag tells the client to ack this channel's
+  // messages (and only inbox channels) with `__received__`.
+  const confirmation: Record<string, unknown> = {
+    ...wskit,
+    source,
+    channelMembership: isDurable ? 'persistent' : 'ephemeral',
+  };
+  if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
+    confirmation.inbox = true;
+  }
+  if (runtime.isReadReceiptsChannel?.(scope.channelName, scope.channelFamily)) {
+    confirmation.readReceipts = true;
+  }
   runtime.sendProtocolMessage(connection, {
     event: '__subscribeOk__',
     payload: {},
-    wskit: { ...wskit, source, channelPersistent: isPersistent },
+    wskit: confirmation,
   });
 
   runtime.sendProtocolMessage(connection, {
@@ -731,7 +745,7 @@ export interface UnsubscribeConnectionOptions extends ChannelMembership {
  * is judged against current membership. An id-bearing leave for a channel the
  * connection is no longer in (a resend after the first ack was lost on a drop)
  * is re-acked without re-running hooks or broadcasts. A leave with no id for a
- * non-member keeps the legacy `ChannelNotSubscribed` error — the reliable client
+ * non-member gets the `ChannelNotSubscribed` error — the reliable client
  * always sends an id, so only low-level senders hit that path. An unknown channel
  * is always `ChannelNotFound`.
  */
@@ -785,18 +799,21 @@ export async function unsubscribeConnection(
  * Target accepted by `channelHandle.kick(...)` and engine-level kick. Resolves
  * to a connection-matching predicate at runtime:
  *
- * - `ConnectionRef` — kick this exact socket.
+ * - `UserRef` — kick every one of that user's subscribed connections.
  * - `TagRef` — kick every socket holding this `(kind, group, key)` tag.
  * - `{ __wskit: 'group-handle', kind, group }` — kick every socket with any
  *   key under this `(kind, group)`.
+ *
+ * To drop one specific socket without kicking the rest of its user's
+ * connections, callers use `ctx.connections.get(ref).close()` instead.
  */
 export type KickTarget =
-  | { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string }
+  | { __wskit: 'user-ref'; id: string; instance: string | undefined }
   | { __wskit: 'tag-ref'; kind: 'ephemeral' | 'persistent'; group: string; key: string }
   | { __wskit: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string };
 
 function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): boolean {
-  if (target.__wskit === 'connection-ref') return connection.id === target.id;
+  if (target.__wskit === 'user-ref') return userKeyOf(connection) === target.id;
   if (target.__wskit === 'tag-ref') {
     return connection.tags[target.kind].get(target.group)?.has(target.key) ?? false;
   }
@@ -804,7 +821,45 @@ function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): b
 }
 
 /**
- * Remove tagged members from a channel, usually for moderation or access
+ * A channel-scoped `send`/`request` recipient: a specific socket
+ * (`ConnectionRef`), a whole user (`UserRef`), or a tag / tag group. Every
+ * target is intersected with the channel's current membership.
+ */
+export type ChannelRecipient =
+  | { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string }
+  | KickTarget;
+
+/** Whether a connection satisfies a channel-scoped recipient. */
+export function matchesRecipient(connection: RuntimeConnection, target: ChannelRecipient): boolean {
+  if (target.__wskit === 'connection-ref') return connection.id === target.id;
+  return matchesKickTarget(connection, target);
+}
+
+/** Options for resolving a channel recipient to the member connections it addresses. */
+export interface ResolveChannelRecipientsOptions {
+  channelName: string;
+  channelFamily: string | null;
+  to: ChannelRecipient;
+}
+
+/**
+ * Resolve a channel-scoped recipient to the subscribed connections it addresses.
+ * The result is always a subset of the channel's current membership — a
+ * recipient pointing at a non-member yields an empty list.
+ */
+export function resolveChannelRecipients(
+  channelMembers: Map<string, Set<RuntimeConnection>>,
+  opts: ResolveChannelRecipientsOptions,
+): RuntimeConnection[] {
+  const members = channelMembers.get(
+    createChannelMembershipKey(opts.channelName, opts.channelFamily),
+  );
+  if (!members) return [];
+  return [...members].filter((connection) => matchesRecipient(connection, opts.to));
+}
+
+/**
+ * Remove targeted members from a channel, usually for moderation or access
  * control.
  *
  * Scoped to the exact `channelName + channelFamily` pair: kicks never cross
@@ -822,6 +877,14 @@ export interface KickChannelMembersOptions {
   reason: string;
 
   channelFamily: string | null;
+
+  /**
+   * When true, also delete each kicked connection's durable membership row so
+   * the user does not auto-rejoin on reconnect. Defaults to `false` (boot now,
+   * rejoin later). A no-op per connection when the channel is ephemeral —
+   * there is no durable row to drop either way.
+   */
+  revoke?: boolean;
 }
 
 export async function kickChannelMembers(
@@ -830,7 +893,7 @@ export async function kickChannelMembers(
   },
   opts: KickChannelMembersOptions,
 ): Promise<void> {
-  const { channelName, target, reason, channelFamily } = opts;
+  const { channelName, target, reason, channelFamily, revoke = false } = opts;
   const targetKey = createChannelMembershipKey(channelName, channelFamily);
   const pending: Promise<void>[] = [];
   // Snapshot before iterating — members can leave while this loop runs.
@@ -854,6 +917,7 @@ export async function kickChannelMembers(
           channelName: membership.channelName,
           channelFamily: membership.channelFamily,
           kickedReason: reason,
+          keepDurableRow: !revoke,
         })
         .catch((error) => {
           runtime.logger?.error('[wskit] leaveChannel threw during kick', {

@@ -1,6 +1,7 @@
 import { define, emits, t } from '@wskit/server';
-import { persistence } from '@wskit/server/persistence';
+import { dedup } from '@wskit/server/dedup';
 import { observeHost } from '@wskit/server/plugin';
+import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
@@ -47,7 +48,8 @@ const base = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
-    persistence(),
+    sequence({ persist: true }),
+    dedup(),
     Feed(),
     observeHost(Drizzle()),
     emits({
@@ -67,8 +69,8 @@ const base = define({
   ],
 });
 
-base.connect((ctx) => {
-  ctx.log.info('Plugin handler: client connected', { id: ctx.id });
+base.onConnect((ctx) => {
+  ctx.log.info('Plugin handler: client connected', { id: ctx.connection.id });
 });
 
 const handleInsert = base.on('insert-record', {
@@ -186,21 +188,23 @@ const handleStreamThrowOnCancel = base.stream('stream-throw-on-cancel', {
   },
 });
 
-export const pluginsHandler = base.assemble(
-  handleInsert,
-  handleGetAll,
-  handleGetRecord,
-  handleDelete,
-  handleCount,
-  handleMessageCount,
-  handleOutgoingCount,
-  handleDisconnectCount,
-  handleGeneratedId,
-  handleLastState,
-  handleShutdownCount,
-  handleRewriteProbe,
-  handleStreamConnectionId,
-  handleStreamThrowOnCancel,
-);
+export const pluginsHandler = base.assemble({
+  handlers: [
+    handleInsert,
+    handleGetAll,
+    handleGetRecord,
+    handleDelete,
+    handleCount,
+    handleMessageCount,
+    handleOutgoingCount,
+    handleDisconnectCount,
+    handleGeneratedId,
+    handleLastState,
+    handleShutdownCount,
+    handleRewriteProbe,
+    handleStreamConnectionId,
+    handleStreamThrowOnCancel,
+  ],
+});
 
 export type PluginsClient = InferClient<typeof pluginsHandler>;

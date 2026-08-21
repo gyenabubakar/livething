@@ -3,6 +3,8 @@ import {
   ChannelNotFound,
   ChannelNotSubscribed,
   CloseCodes,
+  CrossInstanceRef,
+  DurableStreamRequiresUser,
   error,
   InternalError,
   RateLimited,
@@ -61,6 +63,20 @@ describe('WSKitError', () => {
   it('has a stack trace', () => {
     const err = new WSKitError('test', null);
     expect(err.stack).toBeDefined();
+  });
+});
+
+describe('CrossInstanceRef', () => {
+  it('creates and matches the stable cross-instance error', () => {
+    const err = CrossInstanceRef({
+      operation: 'ctx.channel.request({ to })',
+      targetInstance: 'other',
+      engineInstance: 'local',
+    });
+
+    expect(err).toBeInstanceOf(WSKitError);
+    expect(err.code).toBe('cross-instance-ref');
+    expect(CrossInstanceRef.matches(err)).toBe(true);
   });
 });
 
@@ -670,7 +686,9 @@ describe('error() reserved-code guard', () => {
     expect(() => error('rate-limited')).toThrow(/reserved/);
     expect(() => error('validation-failed')).toThrow(/reserved/);
     expect(() => error('channel-not-found')).toThrow(/reserved/);
+    expect(() => error('cross-instance-ref')).toThrow(/reserved/);
     expect(() => error('stream-aborted')).toThrow(/reserved/);
+    expect(() => error(DurableStreamRequiresUser.code)).toThrow(/reserved/);
   });
 
   it('allows a non-reserved code', () => {

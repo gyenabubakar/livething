@@ -16,13 +16,9 @@ const features = [
   { title: 'Scheduled work', icon: 'i-ph-clock-duotone', desc: 'Run server-side tasks on a timer or interval — cleanup, heartbeats, deferred jobs, no connection needed.' },
   { title: 'Rate limiting', icon: 'i-ph-gauge-duotone', desc: 'Cap how fast any one connection can send, so a flood never takes the server down.' },
   { title: 'Tags', icon: 'i-ph-tag-duotone', desc: 'Label connections by user, role, or team, then address everyone sharing a label as one group.' },
-  {
-    title: 'Plugins',
-    icon: 'i-ph-puzzle-piece-duotone',
-    desc: 'Package your own capabilities as self-contained, typed add-ons — extra handlers, context, and wire messages that compose like the built-ins.',
-    size: 'wide',
-  },
+  { title: 'Plugins', icon: 'i-ph-puzzle-piece-duotone', desc: 'Package your own capabilities as self-contained, typed add-ons — extra handlers, context, and wire messages that compose like the built-ins.' },
   { title: 'Durable state', icon: 'i-ph-database-duotone', desc: 'Channel memberships, tags, and streams survive a restart or redeploy — flip on durable storage and the room is still there when the server comes back.' },
+  { title: 'Inbox', icon: 'i-ph-tray-duotone', desc: 'Guaranteed per-member delivery: every member gets a durable copy of every message, held until they acknowledge it and re-delivered on reconnect — nothing dropped because someone was offline.' },
   { title: 'Connection quality', icon: 'i-ph-cell-signal-high-duotone', desc: 'A live quality tier from round-trip latency, so your UI can react the moment the connection degrades.' },
 ]
 </script>
