@@ -521,7 +521,7 @@ describe('translation runtime', () => {
 
     expect(restored).toEqual([{ cursor: 4 }]);
     expect(socket.send).toHaveBeenCalledWith(expect.stringMatching(/^foreign:/));
-    expect(order).toEqual(['flush', 'send']);
+    expect(order).toEqual(['flush', 'send', 'flush']);
     const flushedConnection = flushAttachment.mock.calls[0]?.[0];
     expect(flushedConnection?.tags.ephemeral).toEqual(new Map([['role', new Set(['member'])]]));
     expect(flushedConnection?.channelMemberships).toEqual(
@@ -564,6 +564,52 @@ describe('translation runtime', () => {
 
     await handle.handleMessage('foreign frame');
     expect(engine.processTextMessage).toHaveBeenCalledWith(connection, 'foreign frame');
+  });
+
+  it('removes wake indexes when the final translator-state flush fails', () => {
+    const socket = descriptor();
+    const deleteConnectionState = vi.fn();
+    const engine = runtime({
+      hibernationEnabled: true,
+      flushAttachment(connection: RuntimeConnection) {
+        connection.closing = true;
+        connection.preserveStateOnClose = true;
+        socket.close(1011, '[wskit] translator configuration failed');
+        throw new WSKitConfigError('translator state is invalid');
+      },
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        hibernation: {
+          serialize: () => ({ state: 'invalid' }),
+          restore() {},
+        },
+      })),
+      restoreAttachment: () => ({ id: 'conn_saved' }),
+      readConnectionState: () => ({
+        connection_id: 'conn_saved',
+        user_id: 'user-1',
+        meta: {},
+        ephemeral_tags: [{ group: 'role', key: 'member' }],
+        ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
+        active_stream_ids: ['stream_1'],
+        translator_state: { state: 'saved' },
+        metadata: {},
+      }),
+      deleteConnectionState,
+      reloadPersistentTags: () => {},
+    });
+
+    expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
+      WSKitConfigError,
+    );
+
+    expect(engine.connections).toHaveLength(0);
+    expect(engine.usersByKey).toHaveLength(0);
+    expect(engine.wsToConnectionId).toHaveLength(0);
+    expect(engine.channelMembers).toHaveLength(0);
+    expect(engine.tagMembers).toHaveLength(0);
+    expect(deleteConnectionState).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledOnce();
   });
 
   it('restores translator state before inbound translation after wake', async () => {

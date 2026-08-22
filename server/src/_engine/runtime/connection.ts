@@ -903,10 +903,19 @@ export function wakeHibernatedConnection(
 
     // Re-persist so the row reflects the cleared active_stream_ids (the wake
     // path drained above) and the attachment carries the correct id even if it
-    // was missing before. A declined stream-abort stays active to retry on a
+    // was missing before. This must finish before wake returns: a queued flush
+    // could fail after this connection is indexed, leaving a closed connection
+    // in the live maps. A declined stream-abort stays active to retry on a
     // later wake.
     if (restoredStreamIds.length > 0) {
-      runtime.persistAttachment(connection);
+      (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        if (!connection.preserveStateOnClose) {
+          runtime.deleteConnectionState?.(connection.id);
+        }
+        return closedHandle();
+      }
     }
   } catch (error) {
     rollbackConnectionIndexes(runtime, connection);
