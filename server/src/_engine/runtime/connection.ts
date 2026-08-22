@@ -280,15 +280,19 @@ function translatedDescriptor({
   return {
     ...descriptor,
     send(data) {
+      let translated: string | null;
       try {
-        const translated = assertSynchronousResult(
-          translator.outbound!(data),
-          'translator.outbound',
-        );
+        translated = assertSynchronousResult(translator.outbound!(data), 'translator.outbound');
         if (translated !== null && typeof translated !== 'string') {
           throw new Error('[wskit] translator outbound must return a string or null.');
         }
-        descriptor.send(translated ?? data);
+      } catch (error) {
+        closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
+        return;
+      }
+
+      descriptor.send(translated ?? data);
+      try {
         const connection = getConnection();
         if (connection) runtime.persistAttachment(connection);
       } catch (error) {
@@ -575,6 +579,9 @@ export function acceptConnection(
 ): EngineAdapterTypes.ConnectionHandle {
   assertUsableUserId(descriptor.userId);
 
+  const translator = createTranslator(runtime, descriptor);
+  if (translator === null) return closedHandle();
+
   // A per-user connection cap only applies to identified users — an anonymous
   // connection has no user identity to count against.
   const usersPolicy = runtime.compiled.usersPolicy;
@@ -604,9 +611,6 @@ export function acceptConnection(
       }
     }
   }
-
-  const translator = createTranslator(runtime, descriptor);
-  if (translator === null) return closedHandle();
 
   let connection!: EngineRuntimeTypes.RuntimeConnection;
   connection = {

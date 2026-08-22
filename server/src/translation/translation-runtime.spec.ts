@@ -1,4 +1,5 @@
 import { acceptConnection, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
+import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { translator } from './translator.ts';
@@ -32,7 +33,12 @@ function runtime(overrides: Record<string, unknown> = {}) {
     processTextMessage: vi.fn(async () => {}),
     handleConnectionClose: async () => {},
     handleRuntimeError: async () => {},
-    logger: { error: vi.fn() },
+    outgoingHooks: [],
+    wskitStampHooks: [],
+    beforeSendHooks: [],
+    afterSendHooks: [],
+    waitUntil() {},
+    logger: { warn: vi.fn(), error: vi.fn() },
     ...overrides,
   };
 }
@@ -80,6 +86,36 @@ describe('translation runtime', () => {
     const connection = [...engine.connections.values()][0]!;
     connection.descriptor.send('hello');
     expect(first.send).toHaveBeenCalledWith('foreign:hello');
+  });
+
+  it('does not run after-send hooks when the underlying socket send fails', () => {
+    const afterSend = vi.fn();
+    const engine = runtime({
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+      afterSendHooks: [afterSend],
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor(
+      vi.fn(() => {
+        throw new Error('socket closed');
+      }),
+    );
+
+    acceptConnection(engine as never, Symbol('socket'), socket);
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(() =>
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toThrow('socket closed');
+    expect(afterSend).not.toHaveBeenCalled();
+    expect(socket.close).not.toHaveBeenCalled();
   });
 
   it('closes invalid validator input before the WSKit message pipeline', async () => {
