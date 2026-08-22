@@ -1,6 +1,7 @@
 import {
   assertSynchronousResult,
   CloseCodes,
+  isWSKitConfigError,
   rethrowIfConfigError,
   StreamAborted,
 } from '@wskit/core';
@@ -233,6 +234,17 @@ function closeForTranslationFailure({
   descriptor.close(code, '[wskit] translator failed');
 }
 
+function rethrowTranslatorConfigError(
+  error: unknown,
+  descriptor: EngineAdapterTypes.ConnectionDescriptor,
+  connection?: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  if (!isWSKitConfigError(error)) return;
+  if (connection) connection.preserveStateOnClose = true;
+  descriptor.close(1011, '[wskit] translator configuration failed');
+  throw error;
+}
+
 function assertTranslator(value: unknown): Translator {
   if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
     throw new Error('[wskit] translator factory did not return inbound(raw).');
@@ -293,18 +305,19 @@ function translatedDescriptor({
           throw new Error('[wskit] translator outbound must return a string or null.');
         }
       } catch (error) {
-        rethrowIfConfigError(error);
+        rethrowTranslatorConfigError(error, descriptor, getConnection());
         closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
-        return;
+        return false;
       }
 
-      descriptor.send(translated ?? data);
+      if (descriptor.send(translated ?? data) === false) return false;
       try {
         const connection = getConnection();
         if (connection) runtime.persistAttachment(connection);
       } catch (error) {
-        rethrowIfConfigError(error);
+        rethrowTranslatorConfigError(error, descriptor, getConnection());
         closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
+        return false;
       }
     },
   };
@@ -328,7 +341,7 @@ function translateInbound(
     if (connection.closing) return undefined;
     return translated ?? data;
   } catch (error) {
-    rethrowIfConfigError(error);
+    rethrowTranslatorConfigError(error, connection.descriptor, connection);
     closeForTranslationFailure({
       runtime,
       descriptor: connection.descriptor,
@@ -499,7 +512,9 @@ export async function handleConnectionClose(
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
   runtime.wsToConnectionId.delete(connection.wsKey);
-  runtime.deleteConnectionState?.(connection.id);
+  if (!connection.preserveStateOnClose) {
+    runtime.deleteConnectionState?.(connection.id);
+  }
 
   // Inject the WebSocket close code and reason onto the disconnect ctx
   // so user code can branch on graceful (1000) vs kick (4xxx) vs

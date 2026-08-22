@@ -123,6 +123,24 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     });
   });
 
+  it('closes an accepted socket when engine connection setup throws', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+    const setupError = new Error('translator setup failed');
+    (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw setupError;
+    });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await expect(instance.fetch(upgradeRequest())).rejects.toThrow(setupError);
+
+    const [, server] = pairs[0]!;
+    expect(state.acceptWebSocket).toHaveBeenCalledWith(server);
+    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] connection setup failed');
+  });
+
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();

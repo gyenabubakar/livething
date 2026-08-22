@@ -14,7 +14,11 @@ import type {
  * accepted connection so the engine can push data to the client.
  */
 export interface ConnectionDescriptor {
-  send(data: string): void;
+  /**
+   * Returning `false` means the descriptor deliberately did not put the frame
+   * on the wire. The outgoing pipeline uses this to skip `afterSend` hooks.
+   */
+  send(data: string): unknown;
 
   close(code?: number, reason?: string): void;
 

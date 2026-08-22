@@ -420,6 +420,12 @@ export interface RuntimeConnection {
   closing?: boolean;
 
   /**
+   * A configuration error closed this live socket. Its hibernation row stays
+   * so a fixed deployment can restore the connection rather than losing it.
+   */
+  preserveStateOnClose?: boolean;
+
+  /**
    * Fingerprint of the last connection row written to durable storage. The
    * hibernation persist path stringifies the next row, compares against this
    * value, and skips the SQL write when they match — eliminating redundant

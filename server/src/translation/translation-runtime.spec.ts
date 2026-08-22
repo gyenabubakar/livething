@@ -1,5 +1,9 @@
 import { WSKitConfigError } from '@wskit/core';
-import { acceptConnection, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
+import {
+  acceptConnection,
+  handleConnectionClose,
+  wakeHibernatedConnection,
+} from '~/_engine/runtime/connection.ts';
 import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -119,6 +123,35 @@ describe('translation runtime', () => {
     expect(socket.close).not.toHaveBeenCalled();
   });
 
+  it('does not run after-send hooks when outbound translation fails', () => {
+    const afterSend = vi.fn();
+    const engine = runtime({
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound() {
+          throw new Error('translator broke');
+        },
+      })),
+      afterSendHooks: [afterSend],
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor();
+
+    acceptConnection(engine as never, Symbol('socket'), socket);
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toBe(false);
+    expect(afterSend).not.toHaveBeenCalled();
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+  });
+
   it('closes invalid validator input before the WSKit message pipeline', async () => {
     const engine = runtime({
       translatorFactory: translator(() => ({
@@ -137,7 +170,7 @@ describe('translation runtime', () => {
     expect(engine.processTextMessage).not.toHaveBeenCalled();
   });
 
-  it('propagates translator configuration errors instead of closing the socket', async () => {
+  it('propagates translator configuration errors and closes live sockets', async () => {
     const factoryEngine = runtime({
       translatorFactory: () => Promise.resolve({ inbound: (raw: string) => raw }),
     });
@@ -168,8 +201,38 @@ describe('translation runtime', () => {
     expect(() => outboundConnection.descriptor.send('frame')).toThrow(WSKitConfigError);
 
     expect(factorySocket.close).not.toHaveBeenCalled();
-    expect(inboundSocket.close).not.toHaveBeenCalled();
-    expect(outboundSocket.close).not.toHaveBeenCalled();
+    expect(inboundSocket.close).toHaveBeenCalledWith(
+      1011,
+      '[wskit] translator configuration failed',
+    );
+    expect(outboundSocket.close).toHaveBeenCalledWith(
+      1011,
+      '[wskit] translator configuration failed',
+    );
+  });
+
+  it('keeps hibernation state when a live config-error close is cleaned up', async () => {
+    const deleteConnectionState = vi.fn();
+    const engine = runtime({
+      hibernationEnabled: true,
+      translatorFactory: translator(() => ({ inbound: () => 42 }) as never),
+      deleteConnectionState,
+      cancelActiveStreamsForConnection: async () => {},
+      leaveChannel: async () => {},
+    });
+    const socket = descriptor();
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    const connection = [...engine.connections.values()][0]!;
+
+    await expect(handle.handleMessage('foreign frame')).rejects.toThrow(WSKitConfigError);
+    await handleConnectionClose(engine as never, {
+      connection,
+      code: 1011,
+      reason: '[wskit] translator configuration failed',
+    });
+
+    expect(engine.connections.has(connection.id)).toBe(false);
+    expect(deleteConnectionState).not.toHaveBeenCalled();
   });
 
   it('propagates a hibernation restore configuration error without deleting state', () => {

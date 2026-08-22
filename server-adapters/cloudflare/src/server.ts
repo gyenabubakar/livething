@@ -216,7 +216,13 @@ const buildServe = adapter<
           server.accept();
         }
 
-        const connection = this.engine.accept(server, descriptor);
+        let connection: ConnectionHandle;
+        try {
+          connection = this.engine.accept(server, descriptor);
+        } catch (error) {
+          server.close(1011, '[wskit] connection setup failed');
+          throw error;
+        }
         this.liveConnections.set(server, connection);
 
         if (!hibernating) {
