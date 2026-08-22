@@ -12,7 +12,7 @@ describe('assertSynchronousResult', () => {
       assertSynchronousResult(Promise.resolve(true), 'user schema', 'validator'),
     ).toThrow(
       new WSKitConfigError(
-        '[wskit] async validators are not supported (user schema). Use a sync schema or parse function.',
+        'async validators are not supported (user schema). Use a sync schema or parse function.',
       ),
     );
   });
@@ -22,7 +22,7 @@ describe('assertSynchronousResult', () => {
       assertSynchronousResult(Promise.resolve(true), 'adapter callback', 'callback'),
     ).toThrow(
       new WSKitConfigError(
-        '[wskit] async callbacks are not supported (adapter callback). Use a synchronous callback.',
+        'async callbacks are not supported (adapter callback). Use a synchronous callback.',
       ),
     );
   });

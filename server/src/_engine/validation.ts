@@ -14,7 +14,7 @@ import { WSKitConfigError } from '@wskit/core';
 export function assertPositiveInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new WSKitConfigError(
-      `[wskit] ${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
+      `${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
 }
@@ -28,7 +28,7 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
 export function assertNonNegativeSafeInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw new WSKitConfigError(
-      `[wskit] ${context}: '${field}' must be a non-negative safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
+      `${context}: '${field}' must be a non-negative safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
 }
@@ -60,7 +60,7 @@ export function assertOneOf<T extends string>(
 ): asserts value is T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw new WSKitConfigError(
-      `[wskit] ${where.context}: '${where.field}' must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${JSON.stringify(value)}.`,
+      `${where.context}: '${where.field}' must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }
 }

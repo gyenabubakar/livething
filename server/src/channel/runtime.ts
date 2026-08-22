@@ -534,7 +534,7 @@ async function runSubscribeFlow(
         (typeof r === 'object' || typeof r === 'function') &&
         typeof (r as { then?: unknown }).then === 'function'
       ) {
-        throw new WSKitConfigError('[wskit] commit() must be synchronous.');
+        throw new WSKitConfigError('commit() must be synchronous.');
       }
     }
   }

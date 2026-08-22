@@ -89,20 +89,20 @@ function assertDefinition(
 ): TranslatorDefinition<unknown> | ValidatedTranslatorDefinition<Validator, unknown> {
   if (!definition || typeof definition !== 'object' || typeof definition.inbound !== 'function') {
     throw new WSKitConfigError(
-      '[wskit] translator() factory must return an object with inbound(raw).',
+      'translator() factory must return an object with inbound(raw).',
     );
   }
   if (definition.outbound !== undefined && typeof definition.outbound !== 'function') {
-    throw new WSKitConfigError('[wskit] translator outbound must be a function when provided.');
+    throw new WSKitConfigError('translator outbound must be a function when provided.');
   }
   if (definition.serialize !== undefined && typeof definition.serialize !== 'function') {
-    throw new WSKitConfigError('[wskit] translator serialize must be a function when provided.');
+    throw new WSKitConfigError('translator serialize must be a function when provided.');
   }
   if (definition.restore !== undefined && typeof definition.restore !== 'function') {
-    throw new WSKitConfigError('[wskit] translator restore must be a function when provided.');
+    throw new WSKitConfigError('translator restore must be a function when provided.');
   }
   if (definition.input !== undefined && !isValidator(definition.input)) {
-    throw new WSKitConfigError('[wskit] translator input must be a Standard Schema validator.');
+    throw new WSKitConfigError('translator input must be a Standard Schema validator.');
   }
   return definition;
 }
@@ -139,5 +139,5 @@ function validateInput(input: Validator, raw: string): unknown {
 
 function assertTranslatedString(value: unknown, method: string): string | null {
   if (typeof value === 'string' || value === null) return value;
-  throw new WSKitConfigError(`[wskit] ${method} must return a string or null.`);
+  throw new WSKitConfigError(`${method} must return a string or null.`);
 }

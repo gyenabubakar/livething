@@ -294,7 +294,7 @@ function assertNotReservedApiName(key: string): void {
       `inherited one is already there — and would go missing without explanation.`;
   }
   throw new WSKitConfigError(
-    `[wskit] assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
+    `assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
 }
 

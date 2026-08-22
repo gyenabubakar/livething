@@ -27,7 +27,7 @@ import type { SocketContract } from '~/types.ts';
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
   throw new WSKitConfigError(
-    `[wskit] a plugin dependency must be a primitive factory with a static 'tag' (e.g. [clientRequests, channels]).`,
+    `a plugin dependency must be a primitive factory with a static 'tag' (e.g. [clientRequests, channels]).`,
   );
 }
 
@@ -54,7 +54,7 @@ function usePlugin(socket: object, id: string): unknown {
   const entry = pluginRegistries.get(socket)?.get(id);
   if (!entry) {
     throw new WSKitConfigError(
-      `[wskit] plugin '${id}' is not registered on this socket, or it exposes no API. Pass it to client().`,
+      `plugin '${id}' is not registered on this socket, or it exposes no API. Pass it to client().`,
     );
   }
   if (!entry.result) {
@@ -114,7 +114,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function once<T>(name: string, current: T | null, handler: T): T {
     if (current) {
       throw new WSKitConfigError(
-        `[wskit] plugin '${id}' registered ${name}() twice — use a single callback.`,
+        `plugin '${id}' registered ${name}() twice — use a single callback.`,
       );
     }
     return handler;
@@ -132,7 +132,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function missing(verb: string, primitive: string): () => never {
     return () => {
       throw new WSKitConfigError(
-        `[wskit] plugin '${id}' used socket.${verb}(), but the ${primitive} primitive isn't registered. ` +
+        `plugin '${id}' used socket.${verb}(), but the ${primitive} primitive isn't registered. ` +
           `List ${primitive} in the plugin's dependencies and register ${primitive}() in client().`,
       );
     };
@@ -141,7 +141,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function missingReceiptMethod(verb: string, primitive: 'inbox' | 'readReceipts'): () => never {
     return () => {
       throw new WSKitConfigError(
-        `[wskit] plugin '${id}' used channel.${verb}(), but ${primitive}() is not registered. ` +
+        `plugin '${id}' used channel.${verb}(), but ${primitive}() is not registered. ` +
           `Register ${primitive}() in client().`,
       );
     };
@@ -459,7 +459,7 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
     // frames. Ids follow the `vendor:name` convention (a single colon).
     if (id.includes(NAMESPACE_DELIMITER)) {
       throw new WSKitConfigError(
-        `[wskit] plugin id '${id}' must not contain '${NAMESPACE_DELIMITER}' — use a single colon, like 'vendor:name'.`,
+        `plugin id '${id}' must not contain '${NAMESPACE_DELIMITER}' — use a single colon, like 'vendor:name'.`,
       );
     }
 

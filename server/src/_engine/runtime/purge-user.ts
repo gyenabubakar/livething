@@ -32,7 +32,7 @@ export async function purgeUser(
 ): Promise<void> {
   if (userId === '') {
     throw new WSKitConfigError(
-      "[wskit] purgeUser('') would match every anonymous connection. Pass the id of a signed-in user.",
+      "purgeUser('') would match every anonymous connection. Pass the id of a signed-in user.",
     );
   }
 

@@ -179,12 +179,12 @@ const CHANNEL_KEY = Symbol('channel');
 function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
   if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
     throw new WSKitConfigError(
-      `[wskit] ${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
+      `${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
   if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
     throw new WSKitConfigError(
-      `[wskit] ${source} requires a compiled template — build it with scope(key, template), ` +
+      `${source} requires a compiled template — build it with scope(key, template), ` +
         `not a hand-rolled object.`,
     );
   }
@@ -250,7 +250,7 @@ export function channel<
   if (typeof pattern === 'string') {
     if (pattern.trim() === '') {
       throw new WSKitConfigError(
-        `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
+        `channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
       );
     }
   } else {
