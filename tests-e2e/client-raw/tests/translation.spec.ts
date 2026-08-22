@@ -22,9 +22,7 @@ async function waitForRawFrame(
 
 async function closeAfterForeignFrame(
   page: Page,
-  path: string,
-  room: string,
-  frame: Record<string, unknown>,
+  { path, room, frame }: { path: string; room: string; frame: Record<string, unknown> },
 ): Promise<number> {
   return page.evaluate(
     async ({ currentPath, currentRoom, currentFrame }) =>
@@ -115,10 +113,10 @@ test.describe('translation', () => {
     await page.goto('/');
 
     await expect(
-      closeAfterForeignFrame(page, '/ws/translation', `translation-invalid-${testInfo.testId}`, {
-        type: 'send',
-        name: 'echo',
-        body: { text: 42 },
+      closeAfterForeignFrame(page, {
+        path: '/ws/translation',
+        room: `translation-invalid-${testInfo.testId}`,
+        frame: { type: 'send', name: 'echo', body: { text: 42 } },
       }),
     ).resolves.toBe(1002);
   });
@@ -127,10 +125,10 @@ test.describe('translation', () => {
     await page.goto('/');
 
     await expect(
-      closeAfterForeignFrame(page, '/ws/translation', `translation-inbound-${testInfo.testId}`, {
-        type: 'send',
-        name: 'throw',
-        body: {},
+      closeAfterForeignFrame(page, {
+        path: '/ws/translation',
+        room: `translation-inbound-${testInfo.testId}`,
+        frame: { type: 'send', name: 'throw', body: {} },
       }),
     ).resolves.toBe(1011);
   });
@@ -139,10 +137,10 @@ test.describe('translation', () => {
     await page.goto('/');
 
     await expect(
-      closeAfterForeignFrame(page, '/ws/translation', `translation-outbound-${testInfo.testId}`, {
-        type: 'send',
-        name: 'outbound-throw',
-        body: {},
+      closeAfterForeignFrame(page, {
+        path: '/ws/translation',
+        room: `translation-outbound-${testInfo.testId}`,
+        frame: { type: 'send', name: 'outbound-throw', body: {} },
       }),
     ).resolves.toBe(1011);
   });
