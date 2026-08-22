@@ -151,6 +151,47 @@ describe('translation runtime', () => {
     expect(afterSend).not.toHaveBeenCalled();
     expect(socket.send).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(connection.closing).toBe(true);
+  });
+
+  it('keeps class-based adapter descriptor methods when translating outbound frames', () => {
+    class ClassDescriptor {
+      readonly frames: string[] = [];
+
+      readonly closes: [number | undefined, string | undefined][] = [];
+
+      readonly userId = 'user-1';
+
+      send(data: string) {
+        this.frames.push(data);
+      }
+
+      close(code?: number, reason?: string) {
+        this.closes.push([code, reason]);
+      }
+
+      bufferedAmount() {
+        return 42;
+      }
+    }
+
+    const socket = new ClassDescriptor();
+    const engine = runtime({
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => `foreign:${outgoing}`,
+      })),
+    });
+
+    acceptConnection(engine as never, Symbol('socket'), socket);
+    const connection = [...engine.connections.values()][0]!;
+
+    connection.descriptor.send('hello');
+    connection.descriptor.close(4000, 'bye');
+
+    expect(connection.descriptor.bufferedAmount()).toBe(42);
+    expect(socket.frames).toEqual(['foreign:hello']);
+    expect(socket.closes).toEqual([[4000, 'bye']]);
   });
 
   it('persists outbound translator state when an adapter declines the frame', async () => {

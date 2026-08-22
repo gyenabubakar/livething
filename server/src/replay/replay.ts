@@ -401,6 +401,7 @@ class ReplayInstaller {
           channelFamily: scope.channelFamily ?? null,
           missedThrough: watermark,
         });
+        if (connection?.closing) return true;
       }
     }
 
@@ -422,6 +423,7 @@ class ReplayInstaller {
           channel: row.channel ?? undefined,
         },
       });
+      if (connection?.closing) return true;
     }
 
     return true;

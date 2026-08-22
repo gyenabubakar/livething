@@ -138,6 +138,29 @@ describe('stream/runtime', () => {
     expect(streamEnd!.wskit.channelFamily).toBe('rooms');
   });
 
+  it('stops a stream when its translated connection rejects a chunk', async () => {
+    const { runtime, protocolMessages, pipelineSends } = createStreamRuntime();
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'stream',
+      stream: {
+        stream: { nudges: [], broadcast: false },
+        generator: async function* () {
+          yield { n: 1 };
+          yield { n: 2 };
+        },
+      } as never,
+      payload: {},
+    });
+
+    expect(pipelineSends).toEqual([]);
+    expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(protocolMessages.some((message) => message.event === '__streamEnd__')).toBe(false);
+  });
+
   it('broadcast stream sends chunks to every connection in scope', async () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');

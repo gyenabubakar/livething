@@ -137,6 +137,30 @@ describe('durable stream runtime', () => {
     ).toHaveLength(2);
   });
 
+  it('stops a durable stream when its translated connection rejects a chunk', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        generator: async function* () {
+          yield { i: 1 };
+          yield { i: 2 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(protocolMessages.some((message) => message.event === '__streamEnd__')).toBe(false);
+    expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('suspended');
+  });
+
   it('recorded stream — yield throws StreamAborted({reason:"buffer-full"}) when cap is hit', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);

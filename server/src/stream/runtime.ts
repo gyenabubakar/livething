@@ -370,6 +370,7 @@ export async function runStream(
     payload: {},
     wskit: { ...buildStreamRouting(streamId, scope), streamKind: 'ephemeral' },
   });
+  if (connection.closing) return;
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
@@ -464,17 +465,21 @@ export async function runStream(
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
         );
       }
-      runtime.sendThroughPipeline(connection, {
+      const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,
         payload: result.value,
       });
+      if (!sent) {
+        activeStream.closed = true;
+        break;
+      }
 
       nextInput = stream.stream.nudges.length > 0 ? [...activeStream.nudges] : undefined;
       activeStream.nudges.length = 0;
     }
 
-    if (!activeStream.closed) {
+    if (!activeStream.closed && !connection.closing) {
       const endWskit = { ...buildStreamRouting(streamId, scope), seq };
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',

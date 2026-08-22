@@ -221,6 +221,7 @@ function closedHandle(): EngineAdapterTypes.ConnectionHandle {
 interface TranslationFailure {
   runtime: Pick<ConnectionRuntime, 'logger'>;
   descriptor: EngineAdapterTypes.ConnectionDescriptor;
+  connection?: EngineRuntimeTypes.RuntimeConnection;
   stage: string;
   error: unknown;
   code?: number;
@@ -229,10 +230,12 @@ interface TranslationFailure {
 function closeForTranslationFailure({
   runtime,
   descriptor,
+  connection,
   stage,
   error,
   code = 1011,
 }: TranslationFailure): void {
+  if (connection) connection.closing = true;
   runtime.logger?.error('[wskit] translator failed', {
     stage,
     error: error instanceof Error ? error.message : String(error),
@@ -302,8 +305,7 @@ function translatedDescriptor({
   getConnection,
 }: TranslatedDescriptorOptions): EngineAdapterTypes.ConnectionDescriptor {
   if (!translator?.outbound) return descriptor;
-  return {
-    ...descriptor,
+  const translated: EngineAdapterTypes.ConnectionDescriptor = {
     send(data) {
       let translated: string | null;
       try {
@@ -312,8 +314,9 @@ function translatedDescriptor({
           throw new Error('[wskit] translator outbound must return a string or null.');
         }
       } catch (error) {
-        rethrowTranslatorConfigError(error, descriptor, getConnection());
-        closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
+        const connection = getConnection();
+        rethrowTranslatorConfigError(error, descriptor, connection);
+        closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
         return false;
       }
 
@@ -324,13 +327,27 @@ function translatedDescriptor({
           if (connection.closing) return false;
         }
       } catch (error) {
-        rethrowTranslatorConfigError(error, descriptor, getConnection());
-        closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
+        const connection = getConnection();
+        rethrowTranslatorConfigError(error, descriptor, connection);
+        closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
         return false;
       }
       return descriptor.send(translated ?? data);
     },
+    close(code, reason) {
+      descriptor.close(code, reason);
+    },
+    bufferedAmount() {
+      return descriptor.bufferedAmount();
+    },
+    userId: descriptor.userId,
   };
+  if (descriptor.backpressureSupported !== undefined) {
+    translated.backpressureSupported = descriptor.backpressureSupported;
+  }
+  if (descriptor.meta !== undefined) translated.meta = descriptor.meta;
+  if (descriptor.tags !== undefined) translated.tags = descriptor.tags;
+  return translated;
 }
 
 function translateInbound(
@@ -355,6 +372,7 @@ function translateInbound(
     closeForTranslationFailure({
       runtime,
       descriptor: connection.descriptor,
+      connection,
       stage: 'inbound',
       error,
       code: error instanceof TranslationInputError ? 1002 : 1011,

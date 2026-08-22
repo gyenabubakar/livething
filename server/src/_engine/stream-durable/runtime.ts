@@ -184,9 +184,9 @@ interface SendChunkFramesOpts {
   streamId: string;
 }
 
-function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): void {
+function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): boolean {
   const { eventName, chunks, scopeMarkers, streamId } = opts;
-  if (chunks.length === 0) return;
+  if (chunks.length === 0) return true;
 
   const eventJson = JSON.stringify(eventName);
   // Serialize the constant part of __wskit (scope fields + streamId), strip the
@@ -201,8 +201,9 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
         ? `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq},"messageId":${JSON.stringify(chunk.messageId)}}}`
         : `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq}}}`;
 
-    connection.descriptor.send(wire);
+    if (connection.descriptor.send(wire) === false || connection.closing) return false;
   }
+  return true;
 }
 
 function ensureUniqueStreamId(
@@ -503,7 +504,9 @@ export async function resumeDurableStream(
       since: lastKnownSeq,
     });
 
-    sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
+    if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
+      return;
+    }
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
 
@@ -829,7 +832,7 @@ async function runGenerator(
 
       const wireTarget = activeStream.connection ?? connection;
       if (!activeStream.detached) {
-        runtime.sendThroughPipeline(wireTarget, {
+        const sent = runtime.sendThroughPipeline(wireTarget, {
           routing: {
             channel: scope.channelName,
             channelFamily: scope.channelFamily,
@@ -840,6 +843,10 @@ async function runGenerator(
           event: def.event,
           payload: wirePayload,
         });
+        if (!sent) {
+          activeStream.closed = true;
+          break;
+        }
       }
 
       if (hasNudges) {
@@ -848,7 +855,7 @@ async function runGenerator(
       }
     }
 
-    if (activeStream.closed) {
+    if (activeStream.closed || connection.closing) {
       // Only suspend if still active and this run still owns the slot — a
       // replacement would otherwise have its 'active' row flipped to 'suspended'.
       const row = Storage.readStream(runtime.sql, userId, streamId);

@@ -205,6 +205,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
       channelFamily: watermark.channelFamily,
       missedThrough: watermark.evictedThroughSeq,
     });
+    if (connection.closing) return;
   }
 
   const rows = loadUndeliveredRows(sql, connection.userId);
@@ -222,6 +223,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
         channel: row.channelName,
       },
     });
+    if (connection.closing) return;
   }
 }
 

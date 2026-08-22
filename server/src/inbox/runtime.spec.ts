@@ -453,6 +453,30 @@ describe('drainInboxOnReconnect', () => {
     expect(seqs).toEqual([1, 2, 3]);
   });
 
+  it('stops reconnect delivery after a translated frame closes the connection', () => {
+    const { core, sql } = createCore();
+    const reconnecting = connection('alice');
+    const seqs: number[] = [];
+    vi.spyOn(Wire, 'sendReplay').mockImplementation((_core, target, opts) => {
+      seqs.push(opts.wire.seq);
+      target.closing = true;
+    });
+
+    for (const seq of [1, 2]) {
+      insertInboxRows(sql, {
+        userIds: ['alice'],
+        channelName: 'room',
+        channelFamily: null,
+        frame: { seq, messageId: `m${seq}`, event: 'msg', payload: {} },
+        now: seq,
+      });
+    }
+
+    drainInboxOnReconnect(core, reconnecting);
+
+    expect(seqs).toEqual([1]);
+  });
+
   it('sends the gap again on a later reconnect when the member never acknowledged it', () => {
     const { core, sql } = createCore();
     const gaps: string[] = [];
