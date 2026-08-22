@@ -121,7 +121,9 @@ const buildServe = adapter<
           // Restore every surviving socket's membership eagerly so a broadcast reaches members that have not sent since the wake.
           if (this.engine.usesHibernation()) {
             await this.engine.restoreHibernatedConnections(this.ctx.getWebSockets());
-            this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+            if (!this.engine.core.translatorFactory) {
+              this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+            }
           } else {
             this.engine.reconcileConnections(new Set());
           }
@@ -156,9 +158,14 @@ const buildServe = adapter<
         socket: WebSocket,
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ) {
+        let closed = false;
         return {
           send: (data: string) => socket.send(data),
-          close: (code?: number, reason?: string) => socket.close(code, reason),
+          close: (code?: number, reason?: string) => {
+            if (closed) return;
+            closed = true;
+            socket.close(code, reason);
+          },
           bufferedAmount: () => 0,
           // Cloudflare does not expose outbound buffer fullness, so drain() is a no-op.
           backpressureSupported: false,
@@ -220,7 +227,7 @@ const buildServe = adapter<
         try {
           connection = this.engine.accept(server, descriptor);
         } catch (error) {
-          server.close(1011, '[wskit] connection setup failed');
+          descriptor.close(1011, '[wskit] connection setup failed');
           throw error;
         }
         this.liveConnections.set(server, connection);
@@ -346,10 +353,10 @@ const buildServe = adapter<
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. The DO uses the
  * Cloudflare WebSocket Hibernation API when the contract sets
- * `hibernation: true`. Under hibernation the runtime answers the client's
+ * `hibernation: true`. Without a translator, the runtime answers the client's
  * keepalive "ping" with "pong" at the edge, so a hibernated DO is not woken
- * just to reply (server-side latency stats pause while hibernated, as
- * expected).
+ * just to reply. A translated connection wakes so both directions pass through
+ * its translator.
  *
  * The returned value is a class, not an instance. Export it from your worker
  * module with a **class declaration** — Cloudflare instantiates it per Durable

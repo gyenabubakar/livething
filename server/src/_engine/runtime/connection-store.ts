@@ -71,6 +71,9 @@ const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNEC
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(CONNECTION_SCHEMA_SQL);
   const columns = sql.exec<{ name: string }>('PRAGMA table_info(__wskit_connections)').toArray();
+  if (!columns.some((column) => column.name === 'metadata')) {
+    sql.exec("ALTER TABLE __wskit_connections ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
+  }
   if (!columns.some((column) => column.name === 'translator_state')) {
     sql.exec('ALTER TABLE __wskit_connections ADD COLUMN translator_state TEXT');
   }
@@ -80,11 +83,7 @@ export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
  * Build the row payload from the in-memory connection record. Centralised so
  * the connect, wake, and per-state-change write paths all agree on the shape.
  */
-export function buildConnectionRow(connection: RuntimeConnection): StoredConnectionRow {
-  const ephemeral_tags: StoredEphemeralTag[] = [];
-  for (const [group, keys] of connection.tags.ephemeral) {
-    for (const key of keys) ephemeral_tags.push({ group, key });
-  }
+export function serializeTranslatorState(connection: RuntimeConnection): unknown {
   const translatorHibernation = connection.translator?.hibernation;
   const translatorState = translatorHibernation
     ? assertSynchronousResult(translatorHibernation.serialize(), 'translator.hibernation.serialize')
@@ -92,6 +91,18 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
   if (translatorState !== undefined) {
     serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
   }
+  return translatorState;
+}
+
+export function buildConnectionRow(
+  connection: RuntimeConnection,
+  options?: { translatorState: unknown },
+): StoredConnectionRow {
+  const ephemeral_tags: StoredEphemeralTag[] = [];
+  for (const [group, keys] of connection.tags.ephemeral) {
+    for (const key of keys) ephemeral_tags.push({ group, key });
+  }
+  const translatorState = options ? options.translatorState : serializeTranslatorState(connection);
   return {
     connection_id: connection.id,
     user_id: connection.userId,

@@ -122,14 +122,19 @@ const hibernationForeignProtocol = translator(() => {
   let sequence = 0;
 
   return {
-    input: v.object({ type: v.literal('send'), text: v.string() }),
-    inbound(frame) {
+    inbound(raw) {
+      if (raw === 'ping') return raw;
+      const frame = v.parse(
+        v.object({ type: v.literal('send'), text: v.string() }),
+        JSON.parse(raw),
+      );
       return JSON.stringify({
         event: 'echo',
         payload: { text: frame.text, translatorSequence: ++sequence },
       });
     },
     outbound(outgoing) {
+      if (outgoing === 'pong') return 'foreign-pong';
       const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
       return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
     },

@@ -1,4 +1,6 @@
-import { commonDeps } from '~/_engine/engine.deps.ts';
+import * as EngineDeps from '~/_engine/engine.deps.ts';
+import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
+import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -15,7 +17,7 @@ describe('common engine deps', () => {
       channelHandleAugmenters: [],
     } as unknown as EngineCore;
 
-    const deps = commonDeps(core);
+    const deps = EngineDeps.commonDeps(core);
     expect(() =>
       deps.sendToChannelRecipient({
         channelName: 'room',
@@ -54,7 +56,7 @@ describe('common engine deps', () => {
       channelHandleAugmenters: [],
     } as unknown as EngineCore;
 
-    const deps = commonDeps(core);
+    const deps = EngineDeps.commonDeps(core);
     const foreign = { __wskit: 'user-ref' as const, id: 'alice', instance: 'other' };
 
     let thrown: unknown;
@@ -71,5 +73,37 @@ describe('common engine deps', () => {
 
     expect(CrossInstanceRef.matches(thrown)).toBe(true);
     expect(kickChannelMembers).not.toHaveBeenCalled();
+  });
+});
+
+describe('connection close dependencies', () => {
+  it('deletes hibernation state during production close cleanup', async () => {
+    const connection = { id: 'conn_1' };
+    const core = {
+      compiled: {},
+      connections: new Map([['conn_1', connection]]),
+      usersByKey: new Map(),
+      tagMembers: new Map(),
+      wsToConnectionId: new Map(),
+      activeStreams: new Map(),
+      hooks: { connectionCleanup: [] },
+      logger: { error: vi.fn() },
+    } as unknown as EngineCore;
+    const deleteState = vi
+      .spyOn(EngineHibernation, 'deleteConnectionState')
+      .mockImplementation(() => {});
+    const close = vi.spyOn(EngineConnectionRuntime, 'handleConnectionClose').mockResolvedValue();
+
+    await EngineDeps.handleConnectionClose(core, {
+      connection: connection as never,
+      code: 1000,
+      reason: 'bye',
+    });
+
+    const runtime = close.mock.calls[0]![0] as {
+      deleteConnectionState(connectionId: string): void;
+    };
+    runtime.deleteConnectionState('conn_1');
+    expect(deleteState).toHaveBeenCalledWith(core, 'conn_1');
   });
 });

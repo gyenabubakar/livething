@@ -919,6 +919,9 @@ export function wakeHibernatedConnection(
     }
   } catch (error) {
     rollbackConnectionIndexes(runtime, connection);
+    if (!connection.preserveStateOnClose) {
+      runtime.deleteConnectionState?.(connection.id);
+    }
     throw error;
   }
 

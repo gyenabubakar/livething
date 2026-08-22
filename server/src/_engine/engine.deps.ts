@@ -605,6 +605,8 @@ export function handleConnectionClose(
       usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
+      deleteConnectionState: (connectionId) =>
+        EngineHibernation.deleteConnectionState(core, connectionId),
       cancelActiveStreamsForConnection: (connectionId) =>
         EngineConnectionRuntime.cancelActiveStreamsForConnection(
           { activeStreams: core.activeStreams },

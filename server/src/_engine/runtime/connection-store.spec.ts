@@ -109,7 +109,7 @@ describe('connection-store', () => {
     expect(readConnectionRow(sql, 'conn_1')?.translator_state).toEqual({ sequence: 3 });
   });
 
-  it('adds translator_state when opening a database created by an older build', () => {
+  it('adds metadata and translator_state when opening a database created by an older build', () => {
     const olderSql = createTestSql();
     olderSql.exec(`
       CREATE TABLE __wskit_connections (
@@ -118,15 +118,17 @@ describe('connection-store', () => {
         meta TEXT NOT NULL,
         ephemeral_tags TEXT NOT NULL DEFAULT '[]',
         ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
-        active_stream_ids TEXT NOT NULL DEFAULT '[]',
-        metadata TEXT NOT NULL DEFAULT '{}'
+        active_stream_ids TEXT NOT NULL DEFAULT '[]'
       )
     `);
 
     ensureConnectionSchema(olderSql);
     writeConnectionRow(olderSql, buildConnectionRow(fakeConnection()));
 
-    expect(readConnectionRow(olderSql, 'conn_1')?.translator_state).toBeUndefined();
+    expect(readConnectionRow(olderSql, 'conn_1')).toMatchObject({
+      metadata: {},
+      translator_state: undefined,
+    });
   });
 
   it('returns null when reading a row that does not exist', () => {

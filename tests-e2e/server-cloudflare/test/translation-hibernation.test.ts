@@ -43,3 +43,20 @@ it('restores translator state when a hibernating socket wakes', async () => {
     body: { text: 'after wake', translatorSequence: 2 },
   });
 });
+
+it('routes a hibernated ping through the translator instead of Cloudflare edge auto-response', async () => {
+  const stub = env.TRANSLATION_HIBERNATION_SERVER.get(
+    env.TRANSLATION_HIBERNATION_SERVER.idFromName('translator-ping-wake'),
+  );
+  const response = (await stub.fetch('https://translation.test/?username=alice', {
+    headers: { Upgrade: 'websocket' },
+  })) as Response & { webSocket: WebSocket };
+  const socket = response.webSocket;
+  socket.accept();
+
+  await evictDurableObject(stub);
+
+  const pong = nextMessage(socket);
+  socket.send('ping');
+  await expect(pong).resolves.toBe('foreign-pong');
+});

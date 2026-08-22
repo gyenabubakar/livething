@@ -209,8 +209,8 @@ describe('withInvocationScope', () => {
 
     expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
     expect(connection.lastPersistedFingerprint).toBeUndefined();
-    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
-    expect(connection.preserveStateOnClose).toBe(true);
+    expect(close).toHaveBeenCalledWith(1011, '[wskit] connection state could not be persisted');
+    expect(connection.preserveStateOnClose).not.toBe(true);
   });
 
   it('closes and rethrows an async translator serializer configuration error', () => {

@@ -41,31 +41,64 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   if (!core.hibernationEnabled) return;
   if (connection.closing) return;
 
+  let state: unknown;
   try {
-    const row = ConnectionStore.buildConnectionRow(connection);
-    const fingerprint = JSON.stringify(row);
-    if (connection.lastPersistedFingerprint === fingerprint) return;
-
-    ConnectionStore.writeConnectionRow(core.storage.sql, row);
-    const persistResult = core.options.hibernation?.persist(connection.wsKey, {
-      id: connection.id,
-    });
-    assertSynchronousResult(persistResult, 'adapter hibernation.persist');
-    connection.lastPersistedFingerprint = fingerprint;
+    state = translatorState(connection);
   } catch (error) {
     if (isWSKitConfigError(error)) {
-      connection.preserveStateOnClose = true;
-      connection.closing = true;
-      connection.descriptor.close(1011, '[wskit] translator configuration failed');
-      throw error;
+      closeForTranslatorStateFailure(connection, error);
     }
-    core.logger.error('[wskit] failed to persist translator state', {
-      connectionId: connection.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    connection.closing = true;
-    connection.descriptor.close(1011, '[wskit] translator state could not be persisted');
+    closeForConnectionStateFailure(core, connection, error);
+    return;
   }
+
+  try {
+    flushConnectionState(core, connection, state);
+  } catch (error) {
+    closeForConnectionStateFailure(core, connection, error);
+  }
+}
+
+function translatorState(connection: RuntimeConnection): unknown {
+  return ConnectionStore.serializeTranslatorState(connection);
+}
+
+function flushConnectionState(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  translatorState: unknown,
+): void {
+  const row = ConnectionStore.buildConnectionRow(connection, { translatorState });
+  const fingerprint = JSON.stringify(row);
+  if (connection.lastPersistedFingerprint === fingerprint) return;
+
+  ConnectionStore.writeConnectionRow(core.storage.sql, row);
+  const persistResult = core.options.hibernation?.persist(connection.wsKey, {
+    id: connection.id,
+  });
+  assertSynchronousResult(persistResult, 'adapter hibernation.persist');
+  connection.lastPersistedFingerprint = fingerprint;
+}
+
+function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
+  connection.preserveStateOnClose = true;
+  connection.closing = true;
+  connection.descriptor.close(1011, '[wskit] translator configuration failed');
+  throw error;
+}
+
+function closeForConnectionStateFailure(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  error: unknown,
+): void {
+  core.logger?.error('[wskit] failed to persist connection state', {
+    connectionId: connection.id,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  connection.closing = true;
+  connection.descriptor.close(1011, '[wskit] connection state could not be persisted');
+  if (isWSKitConfigError(error)) throw error;
 }
 
 /**

@@ -53,9 +53,10 @@ type DOInstance = {
 /** The real built-in surface, plus whatever dev api methods a test stages on it. */
 type AdminSurface = WSKitAdmin & Record<string, unknown>;
 
-function buildClass(opts?: { hibernation?: boolean }) {
+function buildClass(opts?: { hibernation?: boolean; translation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
+  if (opts?.translation) fake.setTranslation(true);
   return server({} as never) as unknown as new (
     ctx: DurableObjectState,
     env: unknown,
@@ -139,6 +140,27 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const [, server] = pairs[0]!;
     expect(state.acceptWebSocket).toHaveBeenCalledWith(server);
     expect(server.close).toHaveBeenCalledWith(1011, '[wskit] connection setup failed');
+  });
+
+  it('does not close an accepted socket again when the engine already closed it', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+    const setupError = new Error('translator setup failed');
+    (fake.engine.accept as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_ws: unknown, descriptor: { close(code: number, reason: string): void }) => {
+        descriptor.close(1011, '[wskit] translator configuration failed');
+        throw setupError;
+      },
+    );
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await expect(instance.fetch(upgradeRequest())).rejects.toThrow(setupError);
+
+    const [, server] = pairs[0]!;
+    expect(server.close).toHaveBeenCalledTimes(1);
+    expect(server.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -235,6 +257,17 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     };
     expect(pair.request).toBe('ping');
     expect(pair.response).toBe('pong');
+  });
+
+  it('does not register the edge ping/pong auto-response when translation is enabled', async () => {
+    const Cls = buildClass({ hibernation: true, translation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
   });
 
   it('does not register an auto-response in standard (non-hibernation) mode', async () => {
