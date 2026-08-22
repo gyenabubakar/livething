@@ -858,21 +858,6 @@ export function wakeHibernatedConnection(
     quality: 'good',
   };
 
-  for (const streamId of restoredStreamIds) {
-    const sent = descriptor.send(
-      JSON.stringify({
-        event: '__error__',
-        payload: {
-          code: StreamAborted.code,
-          detail: { reason: 'hibernation-wake' as const },
-        },
-        __wskit: { streamId },
-      }),
-    );
-    if (sent === false || connection.closing) return closedHandle();
-    connection.activeStreamIds?.delete(streamId);
-  }
-
   try {
     runtime.connections.set(connection.id, connection);
     addConnectionToUserIndex(runtime.usersByKey, connection);
@@ -897,9 +882,29 @@ export function wakeHibernatedConnection(
     // user-scoped, so reload them from durable storage on wake.
     runtime.reloadPersistentTags?.(connection);
 
+    for (const streamId of restoredStreamIds) {
+      const sent = descriptor.send(
+        JSON.stringify({
+          event: '__error__',
+          payload: {
+            code: StreamAborted.code,
+            detail: { reason: 'hibernation-wake' as const },
+          },
+          __wskit: { streamId },
+        }),
+      );
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        runtime.deleteConnectionState?.(connection.id);
+        return closedHandle();
+      }
+      if (sent !== false) connection.activeStreamIds?.delete(streamId);
+    }
+
     // Re-persist so the row reflects the cleared active_stream_ids (the wake
-    // path drained them above) and the attachment carries the correct id
-    // even if it was missing before.
+    // path drained above) and the attachment carries the correct id even if it
+    // was missing before. A declined stream-abort stays active to retry on a
+    // later wake.
     if (restoredStreamIds.length > 0) {
       runtime.persistAttachment(connection);
     }

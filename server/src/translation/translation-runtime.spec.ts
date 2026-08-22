@@ -7,6 +7,7 @@ import {
 import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { translator } from './translator.ts';
 
 function runtime(overrides: Record<string, unknown> = {}) {
@@ -486,9 +487,13 @@ describe('translation runtime', () => {
   it('restores translator state before translating a wake-time stream error', () => {
     const restored: unknown[] = [];
     const order: string[] = [];
+    const flushAttachment = vi.fn((connection: RuntimeConnection) => {
+      order.push('flush');
+      return connection;
+    });
     const engine = runtime({
       hibernationEnabled: true,
-      flushAttachment: () => void order.push('flush'),
+      flushAttachment,
       translatorFactory: translator(() => ({
         inbound: (raw) => raw,
         outbound: (outgoing) => `foreign:${outgoing}`,
@@ -502,8 +507,8 @@ describe('translation runtime', () => {
         connection_id: 'conn_saved',
         user_id: 'user-1',
         meta: {},
-        ephemeral_tags: [],
-        ephemeral_memberships: [],
+        ephemeral_tags: [{ group: 'role', key: 'member' }],
+        ephemeral_memberships: [{ channelName: 'room:general', channelFamily: 'rooms' }],
         active_stream_ids: ['stream_1'],
         translator_state: { cursor: 4 },
         metadata: {},
@@ -517,6 +522,48 @@ describe('translation runtime', () => {
     expect(restored).toEqual([{ cursor: 4 }]);
     expect(socket.send).toHaveBeenCalledWith(expect.stringMatching(/^foreign:/));
     expect(order).toEqual(['flush', 'send']);
+    const flushedConnection = flushAttachment.mock.calls[0]?.[0];
+    expect(flushedConnection?.tags.ephemeral).toEqual(new Map([['role', new Set(['member'])]]));
+    expect(flushedConnection?.channelMemberships).toEqual(
+      new Map([
+        ['["rooms","room:general"]', { channelName: 'room:general', channelFamily: 'rooms' }],
+      ]),
+    );
+  });
+
+  it('keeps a waking connection live when an orphaned stream error is declined', async () => {
+    const flushAttachment = vi.fn();
+    const engine = runtime({
+      hibernationEnabled: true,
+      flushAttachment,
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+      restoreAttachment: () => ({ id: 'conn_saved' }),
+      readConnectionState: () => ({
+        connection_id: 'conn_saved',
+        user_id: 'user-1',
+        meta: {},
+        ephemeral_tags: [],
+        ephemeral_memberships: [],
+        active_stream_ids: ['stream_1'],
+        metadata: {},
+      }),
+      reloadPersistentTags: () => {},
+    });
+    const socket = descriptor(vi.fn(() => false));
+
+    const handle = wakeHibernatedConnection(engine as never, socket as never);
+    const connection = engine.connections.get('conn_saved');
+
+    expect(connection).toBeDefined();
+    expect(connection?.activeStreamIds).toEqual(new Set(['stream_1']));
+    expect(flushAttachment).toHaveBeenCalledWith(connection);
+    expect(socket.close).not.toHaveBeenCalled();
+
+    await handle.handleMessage('foreign frame');
+    expect(engine.processTextMessage).toHaveBeenCalledWith(connection, 'foreign frame');
   });
 
   it('restores translator state before inbound translation after wake', async () => {
