@@ -121,8 +121,7 @@ export function compileChannelTemplate(
         continue;
       }
       throw new WSKitConfigError(
-        `${source} template "${template}" has an unmatched '}'. ` +
-          `Write '}}' for a literal '}'.`,
+        `${source} template "${template}" has an unmatched '}'. ` + `Write '}}' for a literal '}'.`,
       );
     }
 

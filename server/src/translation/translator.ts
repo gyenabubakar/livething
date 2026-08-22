@@ -88,9 +88,7 @@ function assertDefinition(
   definition: TranslatorDefinition<unknown> | ValidatedTranslatorDefinition<Validator, unknown>,
 ): TranslatorDefinition<unknown> | ValidatedTranslatorDefinition<Validator, unknown> {
   if (!definition || typeof definition !== 'object' || typeof definition.inbound !== 'function') {
-    throw new WSKitConfigError(
-      'translator() factory must return an object with inbound(raw).',
-    );
+    throw new WSKitConfigError('translator() factory must return an object with inbound(raw).');
   }
   if (definition.outbound !== undefined && typeof definition.outbound !== 'function') {
     throw new WSKitConfigError('translator outbound must be a function when provided.');
