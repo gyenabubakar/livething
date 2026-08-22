@@ -456,6 +456,9 @@ function buildConnectionRuntime(core: EngineCore) {
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
 
+    flushAttachment: (connection: RuntimeConnection) =>
+      EngineHibernation.flushDirtyAttachment(core, connection),
+
     restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
 
     readConnectionState: (connectionId: string) =>

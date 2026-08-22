@@ -152,6 +152,165 @@ describe('translation runtime', () => {
     expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
   });
 
+  it('persists outbound translator state when an adapter declines the frame', async () => {
+    let sequence = 0;
+    const persistAttachment = vi.fn();
+    const engine = runtime({
+      persistAttachment,
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound(outgoing) {
+          sequence += 1;
+          return outgoing;
+        },
+      })),
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor(vi.fn(() => false));
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+    const beforeOutbound = persistAttachment.mock.calls.length;
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toBe(false);
+
+    expect(sequence).toBe(1);
+    expect(persistAttachment).toHaveBeenCalledTimes(beforeOutbound + 1);
+  });
+
+  it('flushes translator state before writing an outbound frame', async () => {
+    const persistAttachment = vi.fn();
+    const flushAttachment = vi.fn();
+    const engine = runtime({
+      persistAttachment,
+      flushAttachment,
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor();
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+    const connection = [...engine.connections.values()][0]!;
+
+    sendThroughPipeline(engine as never, connection as never, {
+      routing: undefined,
+      event: 'message',
+      payload: {},
+    });
+
+    expect(flushAttachment).toHaveBeenCalledWith(connection);
+    expect(socket.send).toHaveBeenCalledOnce();
+  });
+
+  it('does not write a frame when persisting translator state fails', async () => {
+    let failPersistence = false;
+    const afterSend = vi.fn();
+    const engine = runtime({
+      persistAttachment() {
+        if (failPersistence) throw new Error('storage failed');
+      },
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+      afterSendHooks: [afterSend],
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor();
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+    failPersistence = true;
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toBe(false);
+
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(afterSend).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+  });
+
+  it('does not write a frame before surfacing a translator persistence configuration error', async () => {
+    const afterSend = vi.fn();
+    let failPersistence = false;
+    const engine = runtime({
+      persistAttachment() {
+        if (failPersistence) {
+          throw new WSKitConfigError(
+            'async callbacks are not supported (translator.hibernation.serialize).',
+          );
+        }
+      },
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+      afterSendHooks: [afterSend],
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const socket = descriptor();
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+    failPersistence = true;
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(() =>
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toThrow(WSKitConfigError);
+
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(afterSend).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+  });
+
+  it('does not close twice when a forced translator-state flush reports a configuration error', async () => {
+    const socket = descriptor();
+    const engine = runtime({
+      flushAttachment(connection: { closing?: boolean; preserveStateOnClose?: boolean }) {
+        connection.closing = true;
+        connection.preserveStateOnClose = true;
+        socket.close(1011, '[wskit] translator configuration failed');
+        throw new WSKitConfigError('translator state is invalid');
+      },
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        outbound: (outgoing) => outgoing,
+      })),
+    });
+    engine.compiled.outgoing.set('message', { event: 'message' });
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+    const connection = [...engine.connections.values()][0]!;
+
+    expect(() =>
+      sendThroughPipeline(engine as never, connection as never, {
+        routing: undefined,
+        event: 'message',
+        payload: {},
+      }),
+    ).toThrow(WSKitConfigError);
+
+    expect(socket.close).toHaveBeenCalledTimes(1);
+  });
+
   it('closes invalid validator input before the WSKit message pipeline', async () => {
     const engine = runtime({
       translatorFactory: translator(() => ({
@@ -200,12 +359,15 @@ describe('translation runtime', () => {
     const outboundConnection = [...outboundEngine.connections.values()][0]!;
     expect(() => outboundConnection.descriptor.send('frame')).toThrow(WSKitConfigError);
 
-    expect(factorySocket.close).not.toHaveBeenCalled();
     expect(inboundSocket.close).toHaveBeenCalledWith(
       1011,
       '[wskit] translator configuration failed',
     );
     expect(outboundSocket.close).toHaveBeenCalledWith(
+      1011,
+      '[wskit] translator configuration failed',
+    );
+    expect(factorySocket.close).toHaveBeenCalledWith(
       1011,
       '[wskit] translator configuration failed',
     );
@@ -235,7 +397,7 @@ describe('translation runtime', () => {
     expect(deleteConnectionState).not.toHaveBeenCalled();
   });
 
-  it('propagates a hibernation restore configuration error without deleting state', () => {
+  it('closes a waking socket before propagating a restore configuration error', () => {
     const deleteConnectionState = vi.fn();
     const engine = runtime({
       hibernationEnabled: true,
@@ -268,14 +430,65 @@ describe('translation runtime', () => {
     expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
       WSKitConfigError,
     );
-    expect(socket.close).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
     expect(deleteConnectionState).not.toHaveBeenCalled();
+  });
+
+  it('closes a waking socket when the translator factory is misconfigured', () => {
+    const engine = runtime({
+      hibernationEnabled: true,
+      translatorFactory: () => Promise.resolve({ inbound: (raw: string) => raw }),
+    });
+    const socket = descriptor();
+
+    expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
+      WSKitConfigError,
+    );
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+  });
+
+  it('closes a waking socket when adapter hibernation restore is asynchronous', () => {
+    const engine = runtime({
+      hibernationEnabled: true,
+      restoreAttachment: () => Promise.resolve({ id: 'conn_saved' }),
+    });
+    const socket = descriptor();
+
+    expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
+      WSKitConfigError,
+    );
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] hibernation restore failed');
+  });
+
+  it('closes a waking socket when its restored connection ID is already live', () => {
+    const engine = runtime({
+      hibernationEnabled: true,
+      connections: new Map([['conn_saved', {}]]),
+      restoreAttachment: () => ({ id: 'conn_saved' }),
+      readConnectionState: () => ({
+        connection_id: 'conn_saved',
+        user_id: 'user-1',
+        meta: {},
+        ephemeral_tags: [],
+        ephemeral_memberships: [],
+        active_stream_ids: [],
+        metadata: {},
+      }),
+    });
+    const socket = descriptor();
+
+    expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
+      /duplicate connection id/,
+    );
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] duplicate hibernation connection id');
   });
 
   it('restores translator state before translating a wake-time stream error', () => {
     const restored: unknown[] = [];
+    const order: string[] = [];
     const engine = runtime({
       hibernationEnabled: true,
+      flushAttachment: () => void order.push('flush'),
       translatorFactory: translator(() => ({
         inbound: (raw) => raw,
         outbound: (outgoing) => `foreign:${outgoing}`,
@@ -297,12 +510,13 @@ describe('translation runtime', () => {
       }),
       reloadPersistentTags: () => {},
     });
-    const socket = descriptor();
+    const socket = descriptor(vi.fn(() => void order.push('send')));
 
     wakeHibernatedConnection(engine as never, socket as never);
 
     expect(restored).toEqual([{ cursor: 4 }]);
     expect(socket.send).toHaveBeenCalledWith(expect.stringMatching(/^foreign:/));
+    expect(order).toEqual(['flush', 'send']);
   });
 
   it('restores translator state before inbound translation after wake', async () => {

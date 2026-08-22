@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { WSKitConfigError } from '@wskit/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -46,7 +47,7 @@ function createFakeConnection(id: string): RuntimeConnection {
     id,
     userId: id,
     wsKey: { key: id },
-    descriptor: {} as never,
+    descriptor: { close() {} } as never,
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
@@ -200,12 +201,34 @@ describe('withInvocationScope', () => {
   it('rejects an async hibernation persist callback', () => {
     const { core } = createFakeCore();
     const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
     const failure = new Error('async persist failed');
     (core.options as unknown as { hibernation: { persist: () => unknown } }).hibernation.persist =
       () => Promise.reject(failure);
 
     expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
     expect(connection.lastPersistedFingerprint).toBeUndefined();
+    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(connection.preserveStateOnClose).toBe(true);
+  });
+
+  it('closes and rethrows an async translator serializer configuration error', () => {
+    const { core } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => Promise.resolve({}),
+        restore() {},
+      },
+    };
+
+    expect(() => persistAttachment(core, connection)).toThrow(WSKitConfigError);
+    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(connection.preserveStateOnClose).toBe(true);
   });
 
   it('drops a queued flush when the connection is deleted before the scope closes', async () => {

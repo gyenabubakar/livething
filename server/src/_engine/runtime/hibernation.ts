@@ -1,4 +1,4 @@
-import { assertSynchronousResult } from '@wskit/core';
+import { assertSynchronousResult, isWSKitConfigError } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -41,28 +41,31 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   if (!core.hibernationEnabled) return;
   if (connection.closing) return;
 
-  let row: ConnectionStore.StoredConnectionRow;
-  let fingerprint: string;
   try {
-    row = ConnectionStore.buildConnectionRow(connection);
-    fingerprint = JSON.stringify(row);
+    const row = ConnectionStore.buildConnectionRow(connection);
+    const fingerprint = JSON.stringify(row);
+    if (connection.lastPersistedFingerprint === fingerprint) return;
+
+    ConnectionStore.writeConnectionRow(core.storage.sql, row);
+    const persistResult = core.options.hibernation?.persist(connection.wsKey, {
+      id: connection.id,
+    });
+    assertSynchronousResult(persistResult, 'adapter hibernation.persist');
+    connection.lastPersistedFingerprint = fingerprint;
   } catch (error) {
+    if (isWSKitConfigError(error)) {
+      connection.preserveStateOnClose = true;
+      connection.closing = true;
+      connection.descriptor.close(1011, '[wskit] translator configuration failed');
+      throw error;
+    }
     core.logger.error('[wskit] failed to persist translator state', {
       connectionId: connection.id,
       error: error instanceof Error ? error.message : String(error),
     });
     connection.closing = true;
     connection.descriptor.close(1011, '[wskit] translator state could not be persisted');
-    return;
   }
-  if (connection.lastPersistedFingerprint === fingerprint) return;
-
-  ConnectionStore.writeConnectionRow(core.storage.sql, row);
-  // Cheap adapter call that updates the in-memory hibernation tag. Runs once
-  // per SQL write — when the SQL write is skipped, this is skipped too.
-  const persistResult = core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
-  assertSynchronousResult(persistResult, 'adapter hibernation.persist');
-  connection.lastPersistedFingerprint = fingerprint;
 }
 
 /**

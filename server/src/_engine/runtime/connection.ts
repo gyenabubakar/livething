@@ -2,7 +2,6 @@ import {
   assertSynchronousResult,
   CloseCodes,
   isWSKitConfigError,
-  rethrowIfConfigError,
   StreamAborted,
 } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
@@ -118,6 +117,13 @@ interface ConnectionRuntime {
   generateId(prefix?: string): string;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
+
+  /**
+   * Persist immediately, bypassing an invocation scope's end-of-callback batch.
+   * Outbound translation needs this before bytes reach the socket so its state
+   * snapshot cannot fail after the client has received a translated frame.
+   */
+  flushAttachment?(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
   /**
    * Adapter-provided snapshot restore. Returns the tiny correlation payload
@@ -240,6 +246,7 @@ function rethrowTranslatorConfigError(
   connection?: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   if (!isWSKitConfigError(error)) return;
+  if (connection?.closing) throw error;
   if (connection) connection.preserveStateOnClose = true;
   descriptor.close(1011, '[wskit] translator configuration failed');
   throw error;
@@ -275,7 +282,7 @@ function createTranslator(
       assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
     );
   } catch (error) {
-    rethrowIfConfigError(error);
+    rethrowTranslatorConfigError(error, descriptor);
     closeForTranslationFailure({ runtime, descriptor, stage: 'factory', error });
     return null;
   }
@@ -310,15 +317,18 @@ function translatedDescriptor({
         return false;
       }
 
-      if (descriptor.send(translated ?? data) === false) return false;
       try {
         const connection = getConnection();
-        if (connection) runtime.persistAttachment(connection);
+        if (connection) {
+          (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
+          if (connection.closing) return false;
+        }
       } catch (error) {
         rethrowTranslatorConfigError(error, descriptor, getConnection());
         closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
         return false;
       }
+      return descriptor.send(translated ?? data);
     },
   };
 }
@@ -743,9 +753,15 @@ export function wakeHibernatedConnection(
   // back to a generated id when there is nothing to read (defensive: a
   // missing attachment means the row is gone too, so this socket becomes a
   // fresh connection with empty state instead of crashing on wake).
-  const attachment = runtime.restoreAttachment
-    ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
-    : undefined;
+  let attachment: unknown;
+  try {
+    attachment = runtime.restoreAttachment
+      ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
+      : undefined;
+  } catch (error) {
+    wsLike.close?.(1011, '[wskit] hibernation restore failed');
+    throw error;
+  }
   const attachmentId =
     attachment &&
     typeof attachment === 'object' &&
@@ -770,6 +786,7 @@ export function wakeHibernatedConnection(
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
   if (runtime.connections.has(id)) {
+    wsLike.close?.(1011, '[wskit] duplicate hibernation connection id');
     throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
   }
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
@@ -786,14 +803,15 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const translator = createTranslator(runtime, {
+  const rawDescriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
     userId,
     meta,
     tags: ephemeralRefs,
-  });
+  };
+  const translator = createTranslator(runtime, rawDescriptor);
   if (translator === null) {
     if (row) runtime.deleteConnectionState?.(row.connection_id);
     return closedHandle();
@@ -806,17 +824,10 @@ export function wakeHibernatedConnection(
         'translator.hibernation.restore',
       );
     } catch (error) {
-      rethrowIfConfigError(error);
+      rethrowTranslatorConfigError(error, rawDescriptor);
       closeForTranslationFailure({
         runtime,
-        descriptor: {
-          send: (data) => wsLike.send?.(data),
-          close: (code, reason) => wsLike.close?.(code, reason),
-          bufferedAmount: () => 0,
-          userId,
-          meta,
-          tags: ephemeralRefs,
-        },
+        descriptor: rawDescriptor,
         stage: 'restore',
         error,
       });
@@ -826,33 +837,12 @@ export function wakeHibernatedConnection(
   }
 
   let connection: EngineRuntimeTypes.RuntimeConnection | undefined;
-  const rawDescriptor: EngineAdapterTypes.ConnectionDescriptor = {
-    send: (data) => wsLike.send?.(data),
-    close: (code, reason) => wsLike.close?.(code, reason),
-    bufferedAmount: () => 0,
-    userId,
-    meta,
-    tags: ephemeralRefs,
-  };
   const descriptor = translatedDescriptor({
     runtime,
     descriptor: rawDescriptor,
     translator,
     getConnection: () => connection,
   });
-
-  for (const streamId of restoredStreamIds) {
-    descriptor.send(
-      JSON.stringify({
-        event: '__error__',
-        payload: {
-          code: StreamAborted.code,
-          detail: { reason: 'hibernation-wake' as const },
-        },
-        __wskit: { streamId },
-      }),
-    );
-  }
 
   connection = {
     id,
@@ -863,9 +853,25 @@ export function wakeHibernatedConnection(
     ...(translator ? { translator } : {}),
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships,
+    ...(restoredStreamIds.length > 0 ? { activeStreamIds: new Set(restoredStreamIds) } : {}),
     latency: null,
     quality: 'good',
   };
+
+  for (const streamId of restoredStreamIds) {
+    const sent = descriptor.send(
+      JSON.stringify({
+        event: '__error__',
+        payload: {
+          code: StreamAborted.code,
+          detail: { reason: 'hibernation-wake' as const },
+        },
+        __wskit: { streamId },
+      }),
+    );
+    if (sent === false || connection.closing) return closedHandle();
+    connection.activeStreamIds?.delete(streamId);
+  }
 
   try {
     runtime.connections.set(connection.id, connection);
