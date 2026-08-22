@@ -172,7 +172,7 @@ interface ChannelRuntime extends ChannelHooks {
     },
   ): Record<PropertyKey, unknown>;
 
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
 
   sendProtocolMessage(
     connection: RuntimeConnection,
@@ -647,7 +647,7 @@ function rollbackFailedSubscribe(
 ): void {
   const { scope, isDurable } = opts;
   removeChannelMembership(runtime.channelMembers, connection, scope);
-  runtime.persistAttachment(connection);
+  runtime.persistAttachment(connection, { force: true });
   if (!isDurable || connection.userId === '') return;
 
   const members = runtime.channelMembers.get(

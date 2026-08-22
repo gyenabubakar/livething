@@ -113,7 +113,7 @@ function createRuntime(
           scope,
         };
       },
-      persistAttachment() {},
+      persistAttachment: vi.fn(),
       sendProtocolMessage(
         connection: ReturnType<typeof createConnection>,
         { event, payload, wskit }: SendProtocolMessageOptions,
@@ -1564,6 +1564,27 @@ describe('subscribeConnectionAsServer', () => {
     expect(channelMembers.size).toBe(0);
     expect(broadcasts).toEqual([]);
     expect(onSubscribe).not.toHaveBeenCalled();
+    expect(runtime.persistAttachment).toHaveBeenLastCalledWith(target, { force: true });
+  });
+
+  it('persists the rollback when translated member sync closes the connection', async () => {
+    const { runtime, connections, channelMembers, broadcasts } = createRuntime();
+    const target = createConnection('target');
+    connections.set(target.id, target);
+    runtime.sendProtocolMessage = (_connection, options) => {
+      if (options.event === '__memberSync__') (target as RuntimeConnection).closing = true;
+    };
+
+    await subscribeConnectionAsServer(runtime, target, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      payload: undefined,
+    });
+
+    expect(target.channelMemberships.size).toBe(0);
+    expect(channelMembers.size).toBe(0);
+    expect(broadcasts).toEqual([]);
+    expect(runtime.persistAttachment).toHaveBeenLastCalledWith(target, { force: true });
   });
 
   it('rolls back a subscribe when translated confirmation throws', async () => {

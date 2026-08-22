@@ -6,6 +6,10 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
+interface PersistAttachmentOptions {
+  force?: boolean;
+}
+
 /**
  * Save the connection's hibernation row. There are three reasons this can
  * skip writing right now:
@@ -17,18 +21,22 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
  * - The fingerprint check inside `flushDirtyAttachment` skips the SQL call
  *   when the row's data has not actually changed since the last write.
  */
-export function persistAttachment(core: EngineCore, connection: RuntimeConnection): void {
-  if (connection.pendingWrites?.active) return;
+export function persistAttachment(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  options: PersistAttachmentOptions = {},
+): void {
+  if (!options.force && connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
-  if (connection.closing) return;
+  if (!options.force && connection.closing) return;
 
   const scope = getInvocationScope(core.asyncContext);
-  if (scope) {
+  if (scope && !options.force) {
     scope.dirtyConnections.add(connection);
     return;
   }
 
-  flushDirtyAttachment(core, connection);
+  flushDirtyAttachment(core, connection, options);
 }
 
 /**
@@ -37,9 +45,13 @@ export function persistAttachment(core: EngineCore, connection: RuntimeConnectio
  * before control returns. The fingerprint check still applies, so a flush
  * that matches what is already on disk does no SQL work.
  */
-export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnection): void {
+export function flushDirtyAttachment(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  options: PersistAttachmentOptions = {},
+): void {
   if (!core.hibernationEnabled) return;
-  if (connection.closing) return;
+  if (!options.force && connection.closing) return;
 
   let state: unknown;
   try {

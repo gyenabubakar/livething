@@ -90,7 +90,7 @@ export interface DurableStreamRuntime {
 
   asyncContext: EngineAsyncContext;
 
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
 
   /** SQLite handle. */
   sql: {
@@ -445,13 +445,19 @@ export async function resumeDurableStream(
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
       connection.activeStreamIds.add(streamId);
-      runtime.persistAttachment(connection);
+      try {
+        runtime.persistAttachment(connection);
+      } catch (error) {
+        rollbackResumeAttachment(false);
+        throw error;
+      }
 
-      function rollbackResumeAttachment(): void {
+      function rollbackResumeAttachment(persist = true): void {
         detachedStream.connection = previousConnection;
         detachedStream.connectionId = previousConnectionId;
         detachedStream.detached = true;
         connection.activeStreamIds?.delete(streamId);
+        if (persist) runtime.persistAttachment(connection, { force: true });
       }
 
       try {

@@ -57,6 +57,16 @@ function createFakeConnection(id: string): RuntimeConnection {
 }
 
 describe('withInvocationScope', () => {
+  it('forces a rollback attachment write even after the connection closes', () => {
+    const { core, writes } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    connection.closing = true;
+
+    persistAttachment(core, connection, { force: true });
+
+    expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
+  });
+
   it('batches multiple persistAttachment calls for one connection into a single flush', async () => {
     const { core, writes } = createFakeCore();
     const connection = createFakeConnection('c1');

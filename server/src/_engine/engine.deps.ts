@@ -250,8 +250,8 @@ function buildChannelRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
 
     sendProtocolMessage: (
       connection: RuntimeConnection,
@@ -354,8 +354,8 @@ function buildDispatchRuntime(core: EngineCore) {
       },
     ) => sendReplay(core, connection, opts),
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
 
     handleRuntimeError: (
       connection: RuntimeConnection,
@@ -453,8 +453,8 @@ function buildConnectionRuntime(core: EngineCore) {
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
 
     flushAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.flushDirtyAttachment(core, connection),

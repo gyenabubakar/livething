@@ -1715,6 +1715,7 @@ describe('durable stream runtime', () => {
     expect(live.detached).toBe(true);
     expect(live.connection?.id).toBe(original.id);
     expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
+    expect(runtime.persistAttachment).toHaveBeenLastCalledWith(reconnect, { force: true });
   });
 
   it('keep-running — after resume, final __streamEnd__ targets the fresh connection and clears its attachment', async () => {
