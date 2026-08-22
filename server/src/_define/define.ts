@@ -46,6 +46,7 @@ import type { ServerRequestDeclaration } from '~/request/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
+import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugin.ts` — it is a package entry, so a
@@ -135,6 +136,8 @@ export interface DefineConfig<
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** Turn on Cloudflare Durable Object hibernation (which disables server pings). */
   readonly hibernation?: { readonly enabled: boolean };
+  /** Translate one foreign WebSocket wire format into WSKit at this server's connection edge. */
+  readonly translate?: TranslatorFactory;
   /**
    * Cap how many live connections one user may hold at once. `onExceed` decides
    * what a would-be breaching connection does: `reject` refuses the newcomer
@@ -2357,6 +2360,7 @@ export function define(config: any): any {
         __wskit: 'server' as const,
         primitives: Object.freeze(primitives) as readonly Primitive[],
         __features: Object.freeze(features) as ReadonlySet<string>,
+        ...(config.translate ? { __translate: config.translate } : {}),
         ...(config.users ? { __usersPolicy: config.users } : {}),
         // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),

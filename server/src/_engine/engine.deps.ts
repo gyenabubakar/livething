@@ -444,6 +444,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
+    translatorFactory: core.translatorFactory,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,

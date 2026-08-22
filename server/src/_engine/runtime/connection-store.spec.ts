@@ -64,6 +64,8 @@ describe('connection-store', () => {
         { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
+      metadata: {},
+      translator_state: undefined,
     });
   });
 
@@ -83,7 +85,45 @@ describe('connection-store', () => {
         { channelName: 'lobby', channelFamily: null },
       ],
       active_stream_ids: ['stream_1', 'stream_2'],
+      metadata: {},
+      translator_state: undefined,
     });
+  });
+
+  it('stores translator state in its own column', () => {
+    const row = buildConnectionRow(
+      fakeConnection({
+        translator: {
+          inbound: (raw) => raw,
+          serialize: () => ({ sequence: 3 }),
+        },
+      }),
+    );
+
+    writeConnectionRow(sql, row);
+
+    expect(readConnectionRow(sql, 'conn_1')?.metadata).toEqual({});
+    expect(readConnectionRow(sql, 'conn_1')?.translator_state).toEqual({ sequence: 3 });
+  });
+
+  it('adds translator_state when opening a database created by an older build', () => {
+    const olderSql = createTestSql();
+    olderSql.exec(`
+      CREATE TABLE __wskit_connections (
+        connection_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        meta TEXT NOT NULL,
+        ephemeral_tags TEXT NOT NULL DEFAULT '[]',
+        ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
+        active_stream_ids TEXT NOT NULL DEFAULT '[]',
+        metadata TEXT NOT NULL DEFAULT '{}'
+      )
+    `);
+
+    ensureConnectionSchema(olderSql);
+    writeConnectionRow(olderSql, buildConnectionRow(fakeConnection()));
+
+    expect(readConnectionRow(olderSql, 'conn_1')?.translator_state).toBeUndefined();
   });
 
   it('returns null when reading a row that does not exist', () => {

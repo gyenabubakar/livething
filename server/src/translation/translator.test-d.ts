@@ -1,0 +1,39 @@
+/* oxlint-disable no-unused-vars */
+import { t } from '~/_api/definitions.ts';
+import { define } from '~/_define/define.ts';
+import * as v from 'valibot';
+import { expectTypeOf } from 'vitest';
+import { translator } from './translator.ts';
+
+const validated = translator(() => ({
+  input: v.object({ event: v.string(), payload: v.number() }),
+  inbound(frame) {
+    expectTypeOf(frame).toEqualTypeOf<{ event: string; payload: number }>();
+    return JSON.stringify(frame);
+  },
+}));
+void validated;
+
+translator(() => ({
+  inbound(raw) {
+    expectTypeOf(raw).toEqualTypeOf<string>();
+    return raw;
+  },
+}));
+
+translator(() => ({
+  inbound: (raw) => raw,
+  serialize() {
+    return { sequence: 0 };
+  },
+  restore(state) {
+    expectTypeOf(state).toEqualTypeOf<{ sequence: number } | undefined>();
+    void state?.sequence;
+  },
+}));
+
+const serverOnly = translator(() => ({ inbound: (raw) => raw }));
+define({ env: t<{}>(), translate: serverOnly });
+
+// @ts-expect-error translation belongs to the app server, not a plugin scope
+define({ scope: 'plugin', translate: serverOnly });

@@ -79,6 +79,19 @@
       { "name": "INBOX_GAP_SERVER", "class_name": "InboxGapServer" },
       { "name": "INBOX_HANDLE_SERVER", "class_name": "InboxHandleServer" },
       { "name": "LAST_SEEN_SERVER", "class_name": "LastSeenServer" },
+      { "name": "TRANSLATION_SERVER", "class_name": "TranslationServer" },
+      {
+        "name": "TRANSLATION_PASS_THROUGH_SERVER",
+        "class_name": "TranslationPassThroughServer",
+      },
+      {
+        "name": "TRANSLATION_INBOUND_ONLY_SERVER",
+        "class_name": "TranslationInboundOnlyServer",
+      },
+      {
+        "name": "TRANSLATION_HIBERNATION_SERVER",
+        "class_name": "TranslationHibernationServer",
+      },
     ],
   },
   "observability": {
@@ -198,6 +211,18 @@
     {
       "tag": "v17",
       "new_sqlite_classes": ["InboxRetentionServer"],
+    },
+    {
+      "tag": "v18",
+      "new_sqlite_classes": [
+        "TranslationServer",
+        "TranslationPassThroughServer",
+        "TranslationInboundOnlyServer",
+      ],
+    },
+    {
+      "tag": "v19",
+      "new_sqlite_classes": ["TranslationHibernationServer"],
     },
   ],
 }

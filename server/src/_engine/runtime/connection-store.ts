@@ -1,4 +1,5 @@
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertSynchronousResult } from '@wskit/core';
+import { parseJsonOrUndefined, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
@@ -11,6 +12,7 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
     active_stream_ids     TEXT NOT NULL DEFAULT '[]',
+    translator_state      TEXT,
     -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata              TEXT NOT NULL DEFAULT '{}'
   )
@@ -42,8 +44,10 @@ export interface StoredConnectionRow {
   ephemeral_tags: readonly StoredEphemeralTag[];
   ephemeral_memberships: readonly { channelName: string; channelFamily: string | null }[];
   active_stream_ids: readonly string[];
-  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  /** Framework-owned JSON state reserved for connection-level features. */
   metadata?: Record<string, unknown>;
+  /** Per-connection translator state, restored when a hibernating socket wakes. */
+  translator_state?: unknown;
 }
 
 type RawRow = {
@@ -53,6 +57,8 @@ type RawRow = {
   ephemeral_tags: string;
   ephemeral_memberships: string;
   active_stream_ids: string;
+  metadata: string;
+  translator_state: string | null;
 };
 
 // Table + index bundled — one round trip instead of two.
@@ -64,6 +70,10 @@ const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNEC
  */
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(CONNECTION_SCHEMA_SQL);
+  const columns = sql.exec<{ name: string }>('PRAGMA table_info(__wskit_connections)').toArray();
+  if (!columns.some((column) => column.name === 'translator_state')) {
+    sql.exec('ALTER TABLE __wskit_connections ADD COLUMN translator_state TEXT');
+  }
 }
 
 /**
@@ -75,6 +85,12 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
   }
+  const translatorState = connection.translator?.serialize
+    ? assertSynchronousResult(connection.translator.serialize(), 'translator.serialize')
+    : undefined;
+  if (translatorState !== undefined) {
+    serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
+  }
   return {
     connection_id: connection.id,
     user_id: connection.userId,
@@ -82,6 +98,8 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
     ephemeral_tags,
     ephemeral_memberships: [...connection.channelMemberships.values()],
     active_stream_ids: [...(connection.activeStreamIds ?? [])],
+    metadata: {},
+    translator_state: translatorState,
   };
 }
 
@@ -93,8 +111,8 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_connections
-        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
-      VALUES (?, ?, ?, ?, ?, ?)
+        (connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     row.connection_id,
     row.user_id,
@@ -102,6 +120,10 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
     JSON.stringify(row.ephemeral_tags),
     JSON.stringify(row.ephemeral_memberships),
     JSON.stringify(row.active_stream_ids),
+    row.translator_state === undefined
+      ? null
+      : serializeJsonOrThrow(row.translator_state, `Translator state for "${row.connection_id}"`),
+    serializeJsonOrThrow(row.metadata ?? {}, `Connection metadata for "${row.connection_id}"`),
   );
 }
 
@@ -116,7 +138,7 @@ export function readConnectionRow(
   const raw = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
         FROM __wskit_connections
         WHERE connection_id = ?
       `,
@@ -131,6 +153,8 @@ export function readConnectionRow(
     ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
     ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
     active_stream_ids: parseStringArray(raw.active_stream_ids),
+    metadata: parseObject(raw.metadata),
+    translator_state: parseJsonOrUndefined(raw.translator_state),
   };
 }
 
@@ -145,7 +169,7 @@ export function readAllConnectionRows(
   const rows = sql
     .exec<RawRow>(
       `
-        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
+        SELECT connection_id, user_id, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids, translator_state, metadata
         FROM __wskit_connections
       `,
     )
@@ -159,6 +183,8 @@ export function readAllConnectionRows(
       ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
       ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
       active_stream_ids: parseStringArray(raw.active_stream_ids),
+      metadata: parseObject(raw.metadata),
+      translator_state: parseJsonOrUndefined(raw.translator_state),
     });
   }
   return byId;

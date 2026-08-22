@@ -248,22 +248,22 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('medium (channels + hibernation): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(mediumHandler);
-    if (execCount !== 5) {
+    if (execCount !== 6) {
       // eslint-disable-next-line no-console
       console.log(
         '[medium cold] sql.exec calls:\n' +
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // 1 sentinel SELECT + 2 schema hooks (channel membership, hibernation) + 1
-    // mark + 1 cleanup (channel membership reconcile SELECT). No
+    // 1 sentinel SELECT + 2 schema hooks (channel membership, hibernation) +
+    // 1 hibernation-column check + 1 mark + 1 cleanup (channel membership reconcile SELECT). No
     // replay/sequence/scheduled.
-    expect(execCount).toBe(5);
+    expect(execCount).toBe(6);
   });
 
   it('medium: WARM boot re-runs the schema hooks and skips the marker write', async () => {
     const { execCount, calls } = await initWithFakeStorage(mediumHandler, true);
-    if (execCount !== 4) {
+    if (execCount !== 5) {
       // eslint-disable-next-line no-console
       console.log(
         '[medium warm] sql.exec calls:\n' +
@@ -272,14 +272,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // 1 marker SELECT (returns a row, so storage is not fresh and the marker
     // write is skipped) + 2 schema hooks (connections, channel membership) +
-    // 1 cleanup (channel membership reconcile). The schema hooks run on every
-    // boot so a capability added later still gets its tables.
-    expect(execCount).toBe(4);
+    // 1 hibernation-column check + 1 cleanup (channel membership reconcile).
+    // The schema hooks run on every boot so a capability added later still gets its tables.
+    expect(execCount).toBe(5);
   });
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler);
-    if (execCount !== 12) {
+    if (execCount !== 13) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy cold] sql.exec calls:\n' +
@@ -290,10 +290,11 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   1. sentinel SELECT (throws — no table yet)
     //   2-7. six schema hooks: channel membership, connections (hibernation),
     //        sequence, replay, durable streams, scheduled
-    //   8. mark sentinel (bundled CREATE meta + INSERT)
-    //   9. channel membership reconcile (cleanup SELECT)
-    //   10-11. scheduled bootstrap loads queued runs + dlq
-    //   12. scheduled persist-after-restore — one INSERT for the new recurring
+    //   8. translator-state column check for hibernation migrations
+    //   9. mark sentinel (bundled CREATE meta + INSERT)
+    //   10. channel membership reconcile (cleanup SELECT)
+    //   11-12. scheduled bootstrap loads queued runs + dlq
+    //   13. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist only
     //       writes genuine new rows, so the empty-load case costs zero extra
     //       writes.
@@ -307,14 +308,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
-    // hook (#7), the bootstrap loads (#10-11), and the one persist-after-restore
-    // INSERT (#12) — so a durable-stream server pays 12 round trips on a cold boot.
-    expect(execCount).toBe(12);
+    // hook (#7), the bootstrap loads (#11-12), and the one persist-after-restore
+    // INSERT (#13) — so a durable-stream server pays 13 round trips on a cold boot.
+    expect(execCount).toBe(13);
   });
 
   it('heavy: WARM boot re-runs every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
-    if (execCount !== 10) {
+    if (execCount !== 11) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
@@ -325,8 +326,9 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   1. marker SELECT (returns a row, so the marker write is skipped)
     //   2-7. every schema hook: connections, sequence, replay, foreign keys,
     //        channel membership, scheduled
-    //   8. channel membership reconcile (cleanup SELECT)
-    //   9-10. scheduled bootstrap loads queued runs + dlq
+    //   8. translator-state column check for hibernation migrations
+    //   9. channel membership reconcile (cleanup SELECT)
+    //   10-11. scheduled bootstrap loads queued runs + dlq
     //
     // The schema hooks run on every boot rather than being skipped by a
     // warm-boot gate, so a capability added after this storage was first
@@ -335,7 +337,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // declares a durable stream) was already persisted during the cold boot
     // that seeded this storage, so the bootstrap finds it in the loaded rows
     // and issues no extra persist write.
-    expect(execCount).toBe(10);
+    expect(execCount).toBe(11);
   });
 });
 

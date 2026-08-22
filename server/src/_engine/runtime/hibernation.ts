@@ -41,8 +41,20 @@ export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnec
   if (!core.hibernationEnabled) return;
   if (connection.closing) return;
 
-  const row = ConnectionStore.buildConnectionRow(connection);
-  const fingerprint = JSON.stringify(row);
+  let row: ConnectionStore.StoredConnectionRow;
+  let fingerprint: string;
+  try {
+    row = ConnectionStore.buildConnectionRow(connection);
+    fingerprint = JSON.stringify(row);
+  } catch (error) {
+    core.logger.error('[wskit] failed to persist translator state', {
+      connectionId: connection.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    connection.closing = true;
+    connection.descriptor.close(1011, '[wskit] translator state could not be persisted');
+    return;
+  }
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
   ConnectionStore.writeConnectionRow(core.storage.sql, row);

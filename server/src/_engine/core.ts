@@ -27,6 +27,7 @@ import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 import type * as DefineServer from '~/server-definition.ts';
+import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -48,6 +49,9 @@ export class EngineCore {
    * was declared.
    */
   readonly adminApiFactory?: (ctx: unknown) => unknown;
+
+  /** Optional factory for the one foreign-wire translator assigned to each connection. */
+  readonly translatorFactory?: TranslatorFactory;
 
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
@@ -252,6 +256,7 @@ export class EngineCore {
     this.options = options;
     this.primitives = handler.primitives;
     this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
+    this.translatorFactory = handler.__translate;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
     this.storage = options.storage;
     this.env = options.env;

@@ -3,11 +3,13 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type { Translator, TranslatorFactory } from '~/translation/translator.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -98,6 +100,8 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
+  translatorFactory?: TranslatorFactory;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   /** User-key → members index, maintained on accept, close, and hibernation wake. */
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -179,7 +183,9 @@ function createHandle(
   return {
     handleMessage: async (data) => {
       await waitForLifecycle();
-      return runtime.processTextMessage(connection, data);
+      const translated = translateInbound(runtime, connection, data);
+      if (translated === undefined) return;
+      return runtime.processTextMessage(connection, translated);
     },
     handleClose: async (code, reason) => {
       await waitForLifecycle();
@@ -190,6 +196,132 @@ function createHandle(
       return runtime.handleRuntimeError(connection, error, undefined);
     },
   };
+}
+
+function closedHandle(): EngineAdapterTypes.ConnectionHandle {
+  return {
+    handleMessage: async () => {},
+    handleClose: async () => {},
+    handleError: async () => {},
+  };
+}
+
+interface TranslationFailure {
+  runtime: Pick<ConnectionRuntime, 'logger'>;
+  descriptor: EngineAdapterTypes.ConnectionDescriptor;
+  stage: string;
+  error: unknown;
+  code?: number;
+}
+
+function closeForTranslationFailure({
+  runtime,
+  descriptor,
+  stage,
+  error,
+  code = 1011,
+}: TranslationFailure): void {
+  runtime.logger?.error('[wskit] translator failed', {
+    stage,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  descriptor.close(code, '[wskit] translator failed');
+}
+
+function assertTranslator(value: unknown): Translator {
+  if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
+    throw new Error('[wskit] translator factory did not return inbound(raw).');
+  }
+  const translator = value as Translator;
+  if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
+    throw new Error('[wskit] translator outbound must be a function when provided.');
+  }
+  if (translator.serialize !== undefined && typeof translator.serialize !== 'function') {
+    throw new Error('[wskit] translator serialize must be a function when provided.');
+  }
+  if (translator.restore !== undefined && typeof translator.restore !== 'function') {
+    throw new Error('[wskit] translator restore must be a function when provided.');
+  }
+  return translator;
+}
+
+function createTranslator(
+  runtime: Pick<ConnectionRuntime, 'translatorFactory' | 'logger'>,
+  descriptor: EngineAdapterTypes.ConnectionDescriptor,
+): Translator | null | undefined {
+  if (!runtime.translatorFactory) return undefined;
+  try {
+    return assertTranslator(
+      assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
+    );
+  } catch (error) {
+    closeForTranslationFailure({ runtime, descriptor, stage: 'factory', error });
+    return null;
+  }
+}
+
+interface TranslatedDescriptorOptions {
+  runtime: ConnectionRuntime;
+  descriptor: EngineAdapterTypes.ConnectionDescriptor;
+  translator: Translator | undefined;
+  getConnection: () => EngineRuntimeTypes.RuntimeConnection | undefined;
+}
+
+function translatedDescriptor({
+  runtime,
+  descriptor,
+  translator,
+  getConnection,
+}: TranslatedDescriptorOptions): EngineAdapterTypes.ConnectionDescriptor {
+  if (!translator?.outbound) return descriptor;
+  return {
+    ...descriptor,
+    send(data) {
+      try {
+        const translated = assertSynchronousResult(
+          translator.outbound!(data),
+          'translator.outbound',
+        );
+        if (translated !== null && typeof translated !== 'string') {
+          throw new Error('[wskit] translator outbound must return a string or null.');
+        }
+        descriptor.send(translated ?? data);
+        const connection = getConnection();
+        if (connection) runtime.persistAttachment(connection);
+      } catch (error) {
+        closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
+      }
+    },
+  };
+}
+
+function translateInbound(
+  runtime: ConnectionRuntime,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  data: string,
+): string | undefined {
+  if (!connection.translator) return data;
+  try {
+    const translated = assertSynchronousResult(
+      connection.translator.inbound(data),
+      'translator.inbound',
+    );
+    if (translated !== null && typeof translated !== 'string') {
+      throw new Error('[wskit] translator inbound must return a string or null.');
+    }
+    runtime.persistAttachment(connection);
+    if (connection.closing) return undefined;
+    return translated ?? data;
+  } catch (error) {
+    closeForTranslationFailure({
+      runtime,
+      descriptor: connection.descriptor,
+      stage: 'inbound',
+      error,
+      code: error instanceof TranslationInputError ? 1002 : 1011,
+    });
+    return undefined;
+  }
 }
 
 /**
@@ -449,11 +581,7 @@ export function acceptConnection(
     if (held >= usersPolicy.maxConnections) {
       if (usersPolicy.onExceed === 'reject') {
         descriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
-        return {
-          handleMessage: async () => {},
-          handleClose: async () => {},
-          handleError: async () => {},
-        };
+        return closedHandle();
       }
       // `replace`: evict the oldest connection(s) — set iteration is insertion
       // order — until admitting the newcomer would sit at the cap. The real
@@ -474,12 +602,22 @@ export function acceptConnection(
     }
   }
 
-  const connection: EngineRuntimeTypes.RuntimeConnection = {
+  const translator = createTranslator(runtime, descriptor);
+  if (translator === null) return closedHandle();
+
+  let connection!: EngineRuntimeTypes.RuntimeConnection;
+  connection = {
     id: runtime.generateId('conn'),
     userId: descriptor.userId,
     wsKey,
-    descriptor,
+    descriptor: translatedDescriptor({
+      runtime,
+      descriptor,
+      translator,
+      getConnection: () => connection,
+    }),
     meta: descriptor.meta ?? {},
+    ...(translator ? { translator } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
@@ -506,6 +644,11 @@ export function acceptConnection(
   // flush after the hook resolves.
   try {
     runtime.persistAttachment(connection);
+    if (connection.closing) {
+      rollbackConnectionIndexes(runtime, connection);
+      runtime.deleteConnectionState?.(connection.id);
+      return closedHandle();
+    }
   } catch (error) {
     rollbackConnectionIndexes(runtime, connection);
     runtime.deleteConnectionState?.(connection.id);
@@ -588,11 +731,7 @@ export function wakeHibernatedConnection(
     } catch {
       runtime.deleteConnectionState?.(row.connection_id);
       wsLike.close?.(CloseCodes.GOING_AWAY, 'invalid persisted user id');
-      return {
-        handleMessage: async () => {},
-        handleClose: async () => {},
-        handleError: async () => {},
-      };
+      return closedHandle();
     }
   }
 
@@ -616,7 +755,42 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
+  const translator = createTranslator(runtime, {
+    send: (data) => wsLike.send?.(data),
+    close: (code, reason) => wsLike.close?.(code, reason),
+    bufferedAmount: () => 0,
+    userId,
+    meta,
+    tags: ephemeralRefs,
+  });
+  if (translator === null) {
+    if (row) runtime.deleteConnectionState?.(row.connection_id);
+    return closedHandle();
+  }
+  if (translator?.restore) {
+    try {
+      assertSynchronousResult(translator.restore(row?.translator_state), 'translator.restore');
+    } catch (error) {
+      closeForTranslationFailure({
+        runtime,
+        descriptor: {
+          send: (data) => wsLike.send?.(data),
+          close: (code, reason) => wsLike.close?.(code, reason),
+          bufferedAmount: () => 0,
+          userId,
+          meta,
+          tags: ephemeralRefs,
+        },
+        stage: 'restore',
+        error,
+      });
+      if (row) runtime.deleteConnectionState?.(row.connection_id);
+      return closedHandle();
+    }
+  }
+
+  let connection: EngineRuntimeTypes.RuntimeConnection | undefined;
+  const rawDescriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
@@ -624,6 +798,12 @@ export function wakeHibernatedConnection(
     meta,
     tags: ephemeralRefs,
   };
+  const descriptor = translatedDescriptor({
+    runtime,
+    descriptor: rawDescriptor,
+    translator,
+    getConnection: () => connection,
+  });
 
   for (const streamId of restoredStreamIds) {
     descriptor.send(
@@ -638,12 +818,13 @@ export function wakeHibernatedConnection(
     );
   }
 
-  const connection: EngineRuntimeTypes.RuntimeConnection = {
+  connection = {
     id,
     userId,
     wsKey,
     descriptor,
     meta,
+    ...(translator ? { translator } : {}),
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships,
     latency: null,

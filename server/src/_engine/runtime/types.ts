@@ -6,6 +6,7 @@ import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type { Translator } from '~/translation/translator.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 /**
@@ -348,6 +349,9 @@ export interface RuntimeConnection {
 
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
+
+  /** One server-defined foreign-wire translator created for this connection. */
+  translator?: Translator;
 
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
