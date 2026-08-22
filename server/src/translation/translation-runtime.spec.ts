@@ -1,3 +1,4 @@
+import { WSKitConfigError } from '@wskit/core';
 import { acceptConnection, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import * as v from 'valibot';
@@ -134,6 +135,78 @@ describe('translation runtime', () => {
 
     expect(socket.close).toHaveBeenCalledWith(1002, '[wskit] translator failed');
     expect(engine.processTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('propagates translator configuration errors instead of closing the socket', async () => {
+    const factoryEngine = runtime({
+      translatorFactory: () => Promise.resolve({ inbound: (raw: string) => raw }),
+    });
+    const factorySocket = descriptor();
+    expect(() =>
+      acceptConnection(factoryEngine as never, Symbol('factory'), factorySocket),
+    ).toThrow(WSKitConfigError);
+
+    const inboundEngine = runtime({
+      translatorFactory: translator(() => ({ inbound: () => 42 }) as never),
+    });
+    const inboundSocket = descriptor();
+    const inboundHandle = acceptConnection(
+      inboundEngine as never,
+      Symbol('inbound'),
+      inboundSocket,
+    );
+    await expect(inboundHandle.handleMessage('foreign frame')).rejects.toThrow(WSKitConfigError);
+
+    const outboundEngine = runtime({
+      translatorFactory: translator(
+        () => ({ inbound: (raw: string) => raw, outbound: () => 42 }) as never,
+      ),
+    });
+    const outboundSocket = descriptor();
+    acceptConnection(outboundEngine as never, Symbol('outbound'), outboundSocket);
+    const outboundConnection = [...outboundEngine.connections.values()][0]!;
+    expect(() => outboundConnection.descriptor.send('frame')).toThrow(WSKitConfigError);
+
+    expect(factorySocket.close).not.toHaveBeenCalled();
+    expect(inboundSocket.close).not.toHaveBeenCalled();
+    expect(outboundSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('propagates a hibernation restore configuration error without deleting state', () => {
+    const deleteConnectionState = vi.fn();
+    const engine = runtime({
+      hibernationEnabled: true,
+      translatorFactory: translator(
+        () =>
+          ({
+            inbound: (raw: string) => raw,
+            hibernation: {
+              serialize: () => ({}),
+              restore: () => Promise.resolve(),
+            },
+          }) as never,
+      ),
+      restoreAttachment: () => ({ id: 'conn_saved' }),
+      readConnectionState: () => ({
+        connection_id: 'conn_saved',
+        user_id: 'user-1',
+        meta: {},
+        ephemeral_tags: [],
+        ephemeral_memberships: [],
+        active_stream_ids: [],
+        translator_state: {},
+        metadata: {},
+      }),
+      deleteConnectionState,
+      reloadPersistentTags: () => {},
+    });
+    const socket = descriptor();
+
+    expect(() => wakeHibernatedConnection(engine as never, socket as never)).toThrow(
+      WSKitConfigError,
+    );
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(deleteConnectionState).not.toHaveBeenCalled();
   });
 
   it('restores translator state before translating a wake-time stream error', () => {

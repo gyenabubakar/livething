@@ -1,4 +1,9 @@
-import { assertSynchronousResult, CloseCodes, StreamAborted } from '@wskit/core';
+import {
+  assertSynchronousResult,
+  CloseCodes,
+  rethrowIfConfigError,
+  StreamAborted,
+} from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
@@ -258,6 +263,7 @@ function createTranslator(
       assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
     );
   } catch (error) {
+    rethrowIfConfigError(error);
     closeForTranslationFailure({ runtime, descriptor, stage: 'factory', error });
     return null;
   }
@@ -287,6 +293,7 @@ function translatedDescriptor({
           throw new Error('[wskit] translator outbound must return a string or null.');
         }
       } catch (error) {
+        rethrowIfConfigError(error);
         closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
         return;
       }
@@ -296,6 +303,7 @@ function translatedDescriptor({
         const connection = getConnection();
         if (connection) runtime.persistAttachment(connection);
       } catch (error) {
+        rethrowIfConfigError(error);
         closeForTranslationFailure({ runtime, descriptor, stage: 'outbound', error });
       }
     },
@@ -320,6 +328,7 @@ function translateInbound(
     if (connection.closing) return undefined;
     return translated ?? data;
   } catch (error) {
+    rethrowIfConfigError(error);
     closeForTranslationFailure({
       runtime,
       descriptor: connection.descriptor,
@@ -782,6 +791,7 @@ export function wakeHibernatedConnection(
         'translator.hibernation.restore',
       );
     } catch (error) {
+      rethrowIfConfigError(error);
       closeForTranslationFailure({
         runtime,
         descriptor: {
