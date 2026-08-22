@@ -57,6 +57,7 @@ export function flushDirtyAttachment(
   try {
     state = translatorState(connection);
   } catch (error) {
+    if (options.force && connection.closing) return;
     if (isWSKitConfigError(error)) {
       closeForTranslatorStateFailure(connection, error);
     }

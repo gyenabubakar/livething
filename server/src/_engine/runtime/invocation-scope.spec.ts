@@ -241,6 +241,24 @@ describe('withInvocationScope', () => {
     expect(connection.preserveStateOnClose).toBe(true);
   });
 
+  it('does not re-close a failed connection when forced rollback persistence cannot serialize', () => {
+    const { core } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
+    connection.closing = true;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => Promise.resolve({}),
+        restore() {},
+      },
+    };
+
+    expect(() => persistAttachment(core, connection, { force: true })).not.toThrow();
+    expect(close).not.toHaveBeenCalled();
+  });
+
   it('drops a queued flush when the connection is deleted before the scope closes', async () => {
     const { core, writes } = createFakeCore();
     const connection = createFakeConnection('c1');
