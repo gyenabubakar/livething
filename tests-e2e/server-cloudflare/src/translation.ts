@@ -133,11 +133,13 @@ const hibernationForeignProtocol = translator(() => {
       const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
       return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
     },
-    serialize() {
-      return { sequence };
-    },
-    restore(state) {
-      sequence = state?.sequence ?? 0;
+    hibernation: {
+      serialize() {
+        return { sequence };
+      },
+      restore(state) {
+        sequence = state?.sequence ?? 0;
+      },
     },
   };
 });

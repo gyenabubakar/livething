@@ -236,11 +236,14 @@ function assertTranslator(value: unknown): Translator {
   if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
     throw new Error('[wskit] translator outbound must be a function when provided.');
   }
-  if (translator.serialize !== undefined && typeof translator.serialize !== 'function') {
-    throw new Error('[wskit] translator serialize must be a function when provided.');
-  }
-  if (translator.restore !== undefined && typeof translator.restore !== 'function') {
-    throw new Error('[wskit] translator restore must be a function when provided.');
+  if (
+    translator.hibernation !== undefined &&
+    (!translator.hibernation ||
+      typeof translator.hibernation !== 'object' ||
+      typeof translator.hibernation.serialize !== 'function' ||
+      typeof translator.hibernation.restore !== 'function')
+  ) {
+    throw new Error('[wskit] translator hibernation must provide both serialize() and restore().');
   }
   return translator;
 }
@@ -767,9 +770,13 @@ export function wakeHibernatedConnection(
     if (row) runtime.deleteConnectionState?.(row.connection_id);
     return closedHandle();
   }
-  if (translator?.restore) {
+  const translatorHibernation = translator?.hibernation;
+  if (translatorHibernation) {
     try {
-      assertSynchronousResult(translator.restore(row?.translator_state), 'translator.restore');
+      assertSynchronousResult(
+        translatorHibernation.restore(row?.translator_state),
+        'translator.hibernation.restore',
+      );
     } catch (error) {
       closeForTranslationFailure({
         runtime,

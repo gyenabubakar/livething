@@ -85,8 +85,9 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
   }
-  const translatorState = connection.translator?.serialize
-    ? assertSynchronousResult(connection.translator.serialize(), 'translator.serialize')
+  const translatorHibernation = connection.translator?.hibernation;
+  const translatorState = translatorHibernation
+    ? assertSynchronousResult(translatorHibernation.serialize(), 'translator.hibernation.serialize')
     : undefined;
   if (translatorState !== undefined) {
     serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);

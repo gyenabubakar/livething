@@ -107,7 +107,10 @@ describe('translation runtime', () => {
       translatorFactory: translator(() => ({
         inbound: (raw) => raw,
         outbound: (outgoing) => `foreign:${outgoing}`,
-        restore: (state) => void restored.push(state),
+        hibernation: {
+          serialize: () => ({ cursor: 0 }),
+          restore: (state) => void restored.push(state),
+        },
       })),
       restoreAttachment: () => ({ id: 'conn_saved' }),
       readConnectionState: () => ({
@@ -138,11 +141,13 @@ describe('translation runtime', () => {
         inbound(raw) {
           return `${raw}:${++sequence}`;
         },
-        serialize() {
-          return { sequence };
-        },
-        restore(state) {
-          sequence = state?.sequence ?? 0;
+        hibernation: {
+          serialize() {
+            return { sequence };
+          },
+          restore(state) {
+            sequence = state?.sequence ?? 0;
+          },
         },
       })),
       restoreAttachment: () => ({ id: 'conn_saved' }),

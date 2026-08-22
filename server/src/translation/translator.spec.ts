@@ -47,4 +47,16 @@ describe('translator()', () => {
 
     expect(() => invalid().inbound('frame')).toThrow(/must return a string or null/);
   });
+
+  it('requires both hibernation state methods', () => {
+    const invalid = translator(
+      () =>
+        ({
+          inbound: (raw: string) => raw,
+          hibernation: { serialize: () => ({}) },
+        }) as never,
+    );
+
+    expect(() => invalid()).toThrow(/must provide both serialize\(\) and restore\(\)/);
+  });
 });

@@ -95,7 +95,10 @@ describe('connection-store', () => {
       fakeConnection({
         translator: {
           inbound: (raw) => raw,
-          serialize: () => ({ sequence: 3 }),
+          hibernation: {
+            serialize: () => ({ sequence: 3 }),
+            restore: () => {},
+          },
         },
       }),
     );

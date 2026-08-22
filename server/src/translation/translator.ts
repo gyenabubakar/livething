@@ -5,8 +5,10 @@ import type { Validator } from '~/types.ts';
 export interface Translator<TState = unknown> {
   inbound(raw: string): string | null;
   outbound?(outgoing: string): string | null;
-  serialize?(): TState;
-  restore?(state: NoInfer<TState> | undefined): void;
+  hibernation?: {
+    serialize(): TState;
+    restore(state: NoInfer<TState> | undefined): void;
+  };
 }
 
 export type TranslatorFactory<TState = unknown> = () => Translator<TState>;
@@ -47,8 +49,7 @@ export function translator(
   return () => {
     const definition = assertDefinition(factory());
     const input = definition.input;
-
-    return {
+    const instance: Translator = {
       inbound(raw) {
         const value = input === undefined ? raw : validateInput(input, raw);
         return assertTranslatedString(
@@ -56,31 +57,33 @@ export function translator(
           'translator.inbound',
         );
       },
-      ...(definition.outbound
-        ? {
-            outbound(outgoing: string) {
-              return assertTranslatedString(
-                assertSynchronousResult(definition.outbound!(outgoing), 'translator.outbound'),
-                'translator.outbound',
-              );
-            },
-          }
-        : {}),
-      ...(definition.serialize
-        ? {
-            serialize() {
-              return assertSynchronousResult(definition.serialize!(), 'translator.serialize');
-            },
-          }
-        : {}),
-      ...(definition.restore
-        ? {
-            restore(state: unknown) {
-              assertSynchronousResult(definition.restore!(state), 'translator.restore');
-            },
-          }
-        : {}),
-    } satisfies Translator;
+    };
+
+    if (definition.outbound) {
+      instance.outbound = (outgoing) =>
+        assertTranslatedString(
+          assertSynchronousResult(definition.outbound!(outgoing), 'translator.outbound'),
+          'translator.outbound',
+        );
+    }
+    if (definition.hibernation) {
+      instance.hibernation = {
+        serialize() {
+          return assertSynchronousResult(
+            definition.hibernation!.serialize(),
+            'translator.hibernation.serialize',
+          );
+        },
+        restore(state) {
+          assertSynchronousResult(
+            definition.hibernation!.restore(state),
+            'translator.hibernation.restore',
+          );
+        },
+      };
+    }
+
+    return instance;
   };
 }
 
@@ -93,11 +96,16 @@ function assertDefinition(
   if (definition.outbound !== undefined && typeof definition.outbound !== 'function') {
     throw new WSKitConfigError('translator outbound must be a function when provided.');
   }
-  if (definition.serialize !== undefined && typeof definition.serialize !== 'function') {
-    throw new WSKitConfigError('translator serialize must be a function when provided.');
-  }
-  if (definition.restore !== undefined && typeof definition.restore !== 'function') {
-    throw new WSKitConfigError('translator restore must be a function when provided.');
+  if (
+    definition.hibernation !== undefined &&
+    (!definition.hibernation ||
+      typeof definition.hibernation !== 'object' ||
+      typeof definition.hibernation.serialize !== 'function' ||
+      typeof definition.hibernation.restore !== 'function')
+  ) {
+    throw new WSKitConfigError(
+      'translator hibernation must provide both serialize() and restore().',
+    );
   }
   if (definition.input !== undefined && !isValidator(definition.input)) {
     throw new WSKitConfigError('translator input must be a Standard Schema validator.');

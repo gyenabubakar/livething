@@ -23,12 +23,30 @@ translator(() => ({
 
 translator(() => ({
   inbound: (raw) => raw,
-  serialize() {
-    return { sequence: 0 };
+  hibernation: {
+    serialize() {
+      return { sequence: 0 };
+    },
+    restore(state) {
+      expectTypeOf(state).toEqualTypeOf<{ sequence: number } | undefined>();
+      void state?.sequence;
+    },
   },
-  restore(state) {
-    expectTypeOf(state).toEqualTypeOf<{ sequence: number } | undefined>();
-    void state?.sequence;
+}));
+
+translator(() => ({
+  inbound: (raw) => raw,
+  // @ts-expect-error hibernation state requires restore()
+  hibernation: {
+    serialize: () => 0,
+  },
+}));
+
+translator(() => ({
+  inbound: (raw) => raw,
+  // @ts-expect-error hibernation state requires serialize()
+  hibernation: {
+    restore: (_state: number | undefined) => {},
   },
 }));
 
