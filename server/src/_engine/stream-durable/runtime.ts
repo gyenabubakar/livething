@@ -290,11 +290,20 @@ export async function runDurableStream(
     }
   }
 
-  runtime.sendProtocolMessage(connection, {
-    event: '__streamOk__',
-    payload: {},
-    wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__streamOk__',
+      payload: {},
+      wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
+    });
+  } catch (error) {
+    Storage.deleteStream(runtime.sql, storageUserId, streamId);
+    throw error;
+  }
+  if (connection.closing) {
+    Storage.deleteStream(runtime.sql, storageUserId, streamId);
+    return;
+  }
 
   await runGenerator(runtime, connection, {
     scope,
@@ -426,20 +435,39 @@ export async function resumeDurableStream(
   if (!isPeerSubscriber && row.status === 'active') {
     const live = runtime.activeStreams.get(streamId);
     if (live && live.detached) {
-      live.connection = connection;
-      live.connectionId = connection.id;
-      live.detached = false;
+      const detachedStream = live;
+      const previousConnection = detachedStream.connection;
+      const previousConnectionId = detachedStream.connectionId;
+      detachedStream.connection = connection;
+      detachedStream.connectionId = connection.id;
+      detachedStream.detached = false;
 
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
       connection.activeStreamIds.add(streamId);
       runtime.persistAttachment(connection);
 
-      runtime.sendProtocolMessage(connection, {
-        event: '__streamOk__',
-        payload: {},
-        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
-      });
+      function rollbackResumeAttachment(): void {
+        detachedStream.connection = previousConnection;
+        detachedStream.connectionId = previousConnectionId;
+        detachedStream.detached = true;
+        connection.activeStreamIds?.delete(streamId);
+      }
+
+      try {
+        runtime.sendProtocolMessage(connection, {
+          event: '__streamOk__',
+          payload: {},
+          wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+        });
+      } catch (error) {
+        rollbackResumeAttachment();
+        throw error;
+      }
+      if (connection.closing) {
+        rollbackResumeAttachment();
+        return;
+      }
 
       const chunks = Storage.readChunksSince(runtime.sql, {
         userId: storageUserId,
@@ -447,7 +475,16 @@ export async function resumeDurableStream(
         since: lastKnownSeq,
       });
 
-      sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
+      try {
+        if (
+          !sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })
+        ) {
+          rollbackResumeAttachment();
+        }
+      } catch (error) {
+        rollbackResumeAttachment();
+        throw error;
+      }
 
       return;
     }
@@ -474,13 +511,6 @@ export async function resumeDurableStream(
   }
 
   if (isPeerSubscriber && row.kind === 'resumable') {
-    Storage.setCaughtUpSeq(runtime.sql, {
-      storageUserId,
-      streamId,
-      subscriberUserId: realUserId,
-      caughtUpSeq: row.lastSeq,
-    });
-
     if (row.status === 'ended') {
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
@@ -494,6 +524,13 @@ export async function resumeDurableStream(
         wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
       });
     }
+    if (connection.closing) return;
+    Storage.setCaughtUpSeq(runtime.sql, {
+      storageUserId,
+      streamId,
+      subscriberUserId: realUserId,
+      caughtUpSeq: row.lastSeq,
+    });
     return;
   }
 
@@ -578,6 +615,7 @@ export async function resumeDurableStream(
     payload: {},
     wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
   });
+  if (connection.closing) return;
 
   runtime.sql.exec(
     "UPDATE __wskit_streams SET status = 'active', last_activity_at = ? WHERE user_id = ? AND stream_id = ?",

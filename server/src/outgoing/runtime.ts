@@ -5,6 +5,7 @@ import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { hookRunsForFrame } from '~/intercept/intercept.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
+import { isTranslatorConfigError } from '~/translation/error.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -455,7 +456,7 @@ export function broadcastToConnections(
     try {
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
-      rethrowIfConfigError(error);
+      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
       runtime.logger?.error('[wskit] broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         event,
@@ -584,7 +585,7 @@ export function broadcastToChannel(
     try {
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
-      rethrowIfConfigError(error);
+      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
       runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         channel: channelName,

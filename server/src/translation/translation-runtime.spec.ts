@@ -154,6 +154,75 @@ describe('translation runtime', () => {
     expect(connection.closing).toBe(true);
   });
 
+  it('blocks later server sends after an inbound-only translator closes the connection', async () => {
+    const socket = descriptor();
+    const engine = runtime({
+      translatorFactory: translator(() => ({
+        inbound() {
+          throw new Error('translator broke');
+        },
+      })),
+    });
+
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    const connection = [...engine.connections.values()][0]!;
+    await handle.handleMessage('foreign frame');
+
+    expect(connection.closing).toBe(true);
+    expect(connection.descriptor.send('server frame')).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+
+  it('does not run inbound translation again after a translator failure closes the connection', async () => {
+    let inboundCalls = 0;
+    const socket = descriptor();
+    const engine = runtime({
+      translatorFactory: translator(() => ({
+        inbound() {
+          inboundCalls += 1;
+          throw new Error('translator broke');
+        },
+      })),
+    });
+
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('first frame');
+    await handle.handleMessage('second frame');
+
+    expect(inboundCalls).toBe(1);
+    expect(socket.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes inbound-only translator state before a server response', async () => {
+    let failStateFlush = false;
+    const socket = descriptor();
+    const engine = runtime({
+      persistAttachment() {
+        if (failStateFlush) throw new Error('state write failed');
+      },
+      translatorFactory: translator(() => ({
+        inbound: (raw) => raw,
+        hibernation: {
+          serialize() {
+            return {};
+          },
+          restore() {},
+        },
+      })),
+      processTextMessage(connection: RuntimeConnection) {
+        failStateFlush = true;
+        connection.descriptor.send('server response');
+        return Promise.resolve();
+      },
+    });
+
+    const handle = acceptConnection(engine as never, Symbol('socket'), socket);
+    await handle.handleMessage('foreign frame');
+
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+  });
+
   it('keeps class-based adapter descriptor methods when translating outbound frames', () => {
     class ClassDescriptor {
       readonly frames: string[] = [];
@@ -321,6 +390,9 @@ describe('translation runtime', () => {
     expect(socket.send).not.toHaveBeenCalled();
     expect(afterSend).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(connection.closing).toBe(true);
+    expect(connection.descriptor.send('another frame')).toBe(false);
+    expect(socket.close).toHaveBeenCalledTimes(1);
   });
 
   it('does not close twice when a forced translator-state flush reports a configuration error', async () => {

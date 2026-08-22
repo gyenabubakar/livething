@@ -573,17 +573,35 @@ async function runSubscribeFlow(
   if (runtime.isReadReceiptsChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.readReceipts = true;
   }
-  runtime.sendProtocolMessage(connection, {
-    event: '__subscribeOk__',
-    payload: {},
-    wskit: confirmation,
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__subscribeOk__',
+      payload: {},
+      wskit: confirmation,
+    });
+  } catch (error) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    throw error;
+  }
+  if (connection.closing) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    return;
+  }
 
-  runtime.sendProtocolMessage(connection, {
-    event: '__memberSync__',
-    payload: { members },
-    wskit: { ...wskit, source },
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__memberSync__',
+      payload: { members },
+      wskit: { ...wskit, source },
+    });
+  } catch (error) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    throw error;
+  }
+  if (connection.closing) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    return;
+  }
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
   // Rejoin skips __memberJoin__ — the user was already a member.
@@ -620,6 +638,28 @@ async function runSubscribeFlow(
       }
     }
   }
+}
+
+function rollbackFailedSubscribe(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  opts: { scope: ResolvedChannelTarget; isDurable: boolean },
+): void {
+  const { scope, isDurable } = opts;
+  removeChannelMembership(runtime.channelMembers, connection, scope);
+  runtime.persistAttachment(connection);
+  if (!isDurable || connection.userId === '') return;
+
+  const members = runtime.channelMembers.get(
+    createChannelMembershipKey(scope.channelName, scope.channelFamily),
+  );
+  const anotherConnectionForUser = [...(members ?? [])].some(
+    (member) => member.userId === connection.userId,
+  );
+  if (anotherConnectionForUser) return;
+
+  runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
+  runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
 }
 
 /** Build the public member snapshot for a channel, excluding the given connection. */

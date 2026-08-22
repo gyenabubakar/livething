@@ -1543,6 +1543,49 @@ describe('subscribeConnectionAsServer', () => {
       protocol.some((p) => p.event === '__subscribeOk__' && p.wskit?.source === 'server'),
     ).toBe(true);
   });
+
+  it('rolls back a subscribe when translated confirmation closes the connection', async () => {
+    const { runtime, connections, channelMembers, broadcasts } = createRuntime();
+    const target = createConnection('target');
+    connections.set(target.id, target);
+    const onSubscribe = vi.fn();
+    runtime.subscribeHooks = new Map([['rooms', [onSubscribe]]]);
+    runtime.sendProtocolMessage = (_connection, options) => {
+      if (options.event === '__subscribeOk__') (target as RuntimeConnection).closing = true;
+    };
+
+    await subscribeConnectionAsServer(runtime, target, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      payload: undefined,
+    });
+
+    expect(target.channelMemberships.size).toBe(0);
+    expect(channelMembers.size).toBe(0);
+    expect(broadcasts).toEqual([]);
+    expect(onSubscribe).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a subscribe when translated confirmation throws', async () => {
+    const { runtime, connections, channelMembers, broadcasts } = createRuntime();
+    const target = createConnection('target');
+    connections.set(target.id, target);
+    runtime.sendProtocolMessage = () => {
+      throw new WSKitConfigError('translator outbound is invalid');
+    };
+
+    await expect(
+      subscribeConnectionAsServer(runtime, target, {
+        channelName: 'room:general',
+        channelFamily: 'rooms',
+        payload: undefined,
+      }),
+    ).rejects.toThrow(WSKitConfigError);
+
+    expect(target.channelMemberships.size).toBe(0);
+    expect(channelMembers.size).toBe(0);
+    expect(broadcasts).toEqual([]);
+  });
 });
 
 describe('channel runtime bug tests', () => {

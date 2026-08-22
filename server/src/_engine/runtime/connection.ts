@@ -8,6 +8,7 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { markTranslatorConfigError } from '~/translation/error.ts';
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -249,8 +250,12 @@ function rethrowTranslatorConfigError(
   connection?: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   if (!isWSKitConfigError(error)) return;
+  markTranslatorConfigError(error);
   if (connection?.closing) throw error;
-  if (connection) connection.preserveStateOnClose = true;
+  if (connection) {
+    connection.closing = true;
+    connection.preserveStateOnClose = true;
+  }
   descriptor.close(1011, '[wskit] translator configuration failed');
   throw error;
 }
@@ -304,20 +309,28 @@ function translatedDescriptor({
   translator,
   getConnection,
 }: TranslatedDescriptorOptions): EngineAdapterTypes.ConnectionDescriptor {
-  if (!translator?.outbound) return descriptor;
+  if (!translator) return descriptor;
   const translated: EngineAdapterTypes.ConnectionDescriptor = {
     send(data) {
-      let translated: string | null;
-      try {
-        translated = assertSynchronousResult(translator.outbound!(data), 'translator.outbound');
-        if (translated !== null && typeof translated !== 'string') {
-          throw new Error('[wskit] translator outbound must return a string or null.');
+      if (getConnection()?.closing) return false;
+
+      let outgoing = data;
+      if (translator.outbound) {
+        try {
+          const translated = assertSynchronousResult(
+            translator.outbound(data),
+            'translator.outbound',
+          );
+          if (translated !== null && typeof translated !== 'string') {
+            throw new Error('[wskit] translator outbound must return a string or null.');
+          }
+          if (translated !== null) outgoing = translated;
+        } catch (error) {
+          const connection = getConnection();
+          rethrowTranslatorConfigError(error, descriptor, connection);
+          closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
+          return false;
         }
-      } catch (error) {
-        const connection = getConnection();
-        rethrowTranslatorConfigError(error, descriptor, connection);
-        closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
-        return false;
       }
 
       try {
@@ -332,7 +345,7 @@ function translatedDescriptor({
         closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
         return false;
       }
-      return descriptor.send(translated ?? data);
+      return descriptor.send(outgoing);
     },
     close(code, reason) {
       descriptor.close(code, reason);
@@ -355,6 +368,7 @@ function translateInbound(
   connection: EngineRuntimeTypes.RuntimeConnection,
   data: string,
 ): string | undefined {
+  if (connection.closing) return undefined;
   if (!connection.translator) return data;
   try {
     const translated = assertSynchronousResult(
