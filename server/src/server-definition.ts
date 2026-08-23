@@ -124,7 +124,8 @@ export interface ServerDefinition<
    * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
-   * surface. Absent (`unknown`) on app servers.
+   * surface and to carry its environment requirement to the host. Absent
+   * (`unknown`) on app servers.
    */
   readonly __scopedCtx?: TScopedCtx;
   /**

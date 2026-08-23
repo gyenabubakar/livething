@@ -77,7 +77,7 @@ import type {
   SlotsOf,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
-import type { GrantableCapability } from './plugin.ts';
+import type { GrantableCapability, PluginEnvRequirements } from './plugin.ts';
 
 /**
  * What an `upgrade(...)` function returns to accept a connection. Return a
@@ -130,7 +130,7 @@ export interface DefineConfig<
   // capabilities the server never listed.
   TCaps extends readonly AnyCapability[] = readonly [],
 > {
-  /** The platform env bindings type, marked with `t<Env>()`. */
+  /** The application environment type, marked with `t<Env>()`. */
   readonly env: TypeMarker<TEnv>;
   /** Auth gate. Return `{ userId, meta }` to accept, or throw `RejectUpgrade(...)` to deny. */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
@@ -177,16 +177,20 @@ export type TopLevelCapability = AnyCapability & { __channelOnly?: never };
 /**
  * The configuration for a **plugin's** scoped handler (`scope: 'plugin'`).
  * Authored with the same builders as an app, but it declares only its own
- * namespaced slice and inherits the host's env, transport, and global
- * singletons — so it has no `env` field and cannot own host-level capabilities
- * (see `plugin(...)`).
+ * namespaced slice and inherits the host's runtime environment, transport, and
+ * global singletons. Its optional `env` field is a type-only requirement; the
+ * host still supplies the runtime value and the plugin cannot own host-level
+ * capabilities (see `plugin(...)`).
  */
 export interface ScopedDefineConfig<
   TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
+  TEnv = unknown,
 > {
   /** Marks this as a plugin's scoped handler. */
   readonly scope: 'plugin';
+  /** The environment shape this plugin requires from its host, marked with `t<Env>()`. */
+  readonly env?: TypeMarker<TEnv>;
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
    * onion: it sees only the raw request, not the app's identity. Return
@@ -199,6 +203,27 @@ export interface ScopedDefineConfig<
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
   readonly capabilities?: TCaps;
 }
+
+/** Reads the capabilities from an inferred scoped config object. @internal */
+type ScopedCapabilitiesOf<TConfig> = TConfig extends {
+  readonly capabilities?: infer TCaps;
+}
+  ? TCaps extends readonly AnyCapability[]
+    ? TCaps
+    : readonly []
+  : readonly [];
+
+/** Reads the type-only environment requirement from an inferred scoped config. @internal */
+type ScopedEnvironmentOf<TConfig> = TConfig extends {
+  readonly env?: TypeMarker<infer TEnv>;
+}
+  ? TEnv
+  : unknown;
+
+/** Keeps excess-property checks when a scoped config is inferred through a generic. @internal */
+type NoExtraScopedConfigKeys<TConfig> = {
+  readonly [K in Exclude<keyof TConfig, keyof ScopedDefineConfig>]: never;
+};
 
 /** The value `base.on(...)` returns — a handler primitive that also declares its contract slot. */
 export type IncomingHandlerValue<TEvent extends string, TPayload> = IncomingPrimitive<
@@ -1776,6 +1801,19 @@ export interface CoreBase<
 /** A value `assemble(...)` accepts — a handler, never a capability. */
 export type AssembleInput = Contribution & { readonly __wskitCapability?: never };
 
+/**
+ * Compile-time check that a host's environment satisfies every listed plugin's
+ * environment requirement. A plugin with no requirement contributes `unknown`.
+ */
+type PluginEnvCheck<TEnv, TCaps extends readonly AnyCapability[]> =
+  unknown extends PluginEnvRequirements<TCaps>
+    ? {}
+    : TEnv extends PluginEnvRequirements<TCaps>
+      ? {}
+      : {
+          readonly __wskit_plugin_env_error: 'The host environment must satisfy every plugin environment requirement.';
+        };
+
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
 interface ChannelRateLimitSource {
   readonly __key: string;
@@ -1954,14 +1992,24 @@ export function define<
   TMeta = unknown,
   const TCaps extends readonly (GrantableCapability & TopLevelCapability)[] = readonly [],
 >(
-  config: DefineConfig<TEnv, TMeta, TCaps>,
+  config: DefineConfig<TEnv, TMeta, TCaps> & PluginEnvCheck<TEnv, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
 export function define<
   TMeta = unknown,
-  const TCaps extends readonly (PluginSafeCapability & TopLevelCapability)[] = readonly [],
+  const TConfig extends ScopedDefineConfig<
+    TMeta,
+    readonly (PluginSafeCapability & TopLevelCapability)[],
+    unknown
+  > = ScopedDefineConfig<TMeta, readonly (PluginSafeCapability & TopLevelCapability)[], unknown>,
 >(
-  config: ScopedDefineConfig<TMeta, TCaps>,
-): Base<MergeSlots<SlotsOf<TCaps[number]>>, unknown, TMeta, TCaps, true>;
+  config: TConfig & NoExtraScopedConfigKeys<TConfig>,
+): Base<
+  MergeSlots<SlotsOf<ScopedCapabilitiesOf<TConfig>[number]>>,
+  ScopedEnvironmentOf<TConfig>,
+  TMeta,
+  ScopedCapabilitiesOf<TConfig>,
+  true
+>;
 export function define(config: any): any {
   const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];

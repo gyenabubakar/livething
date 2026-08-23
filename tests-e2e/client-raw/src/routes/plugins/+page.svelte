@@ -10,6 +10,7 @@
 	let recordCount = $state('');
 	let deleteResult = $state('');
 	let dbConnected = $state(false);
+	let pluginEnvLabel = $state('');
 	let drizzleReadyPayload = $state('');
 	let messageLog = $state<string[]>([]);
 	let messageCountResult = $state('');
@@ -63,78 +64,81 @@
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
 
 			switch (evt) {
-				case '__e2e:drizzle::drizzle-ready':
-					dbConnected = true;
-					drizzleReadyPayload = JSON.stringify(payload);
-					break;
-				case 'record-inserted':
-					lastInsertedId = payload.id as number;
-					insertResult = `id: ${payload.id}`;
-					break;
-				case 'record-list':
-					recordList = JSON.stringify(payload.records);
-					break;
-				case 'single-record':
-					singleRecord = JSON.stringify(payload.record);
-					break;
-				case 'record-count':
-					recordCount = `count: ${payload.count}`;
-					break;
-				case 'record-deleted':
-					deleteResult = payload.success ? 'deleted' : 'failed';
-					break;
-				case 'message-count':
-					messageCountResult = `messages: ${payload.count}`;
-					break;
-				case '__e2e:drizzle::drizzle-vacuum-done':
-					vacuumResult = `vacuum:${payload.timestamp}`;
-					break;
-				case 'outgoing-count':
-					outgoingCountResult = `outgoing: ${payload.count}`;
-					break;
-				case 'disconnect-count':
-					disconnectCountResult = `disconnects: ${payload.count}`;
-					break;
-				case 'generated-id':
-					generatedIdResult = payload.value ? `generated: ${payload.value}` : 'generated: none';
-					break;
-				case 'last-state':
-					lastStateResult = JSON.stringify(payload.state);
-					break;
-				case 'shutdown-count':
-					shutdownCountResult = `shutdowns: ${payload.count}`;
-					break;
-				case 'plugin-rewrite-result':
-					rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
-					break;
-				case '__e2e:drizzle::plugin-every-tick':
-					everyTickCount = Number(payload.count);
-					break;
-				case '__e2e:drizzle::plugin-flaky-result':
-					flakyResult = `attempts:${payload.attempts}`;
-					break;
-				case '__e2e:drizzle::plugin-dlq-result':
-					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
-					break;
-				case '__e2e:drizzle::error-result':
-					errorLog = JSON.stringify(payload);
-					break;
-				case '__e2e:drizzle::plugin-task-data-result':
-					pluginTaskDataResult = payload.result as string;
-					break;
-				case 'stream-connection-id':
-					if (typeof payload.id === 'string') {
-						streamConnIdChunks = [...streamConnIdChunks, payload.id];
-					}
-					break;
-				case 'stream-throw-on-cancel':
-					if (typeof payload.tick === 'number') {
-						streamThrowChunks++;
-					}
-					break;
-				case '__streamOk__':
-					if (typeof msg.__wskit?.streamId === 'string') streamThrowId = msg.__wskit.streamId;
-					break;
+			case '__e2e:drizzle::plugin-env-result':
+				pluginEnvLabel = `label:${payload.label}`;
+				break;
+			case '__e2e:drizzle::drizzle-ready':
+				dbConnected = true;
+				drizzleReadyPayload = JSON.stringify(payload);
+				break;
+			case 'record-inserted':
+				lastInsertedId = payload.id as number;
+				insertResult = `id: ${payload.id}`;
+				break;
+			case 'record-list':
+				recordList = JSON.stringify(payload.records);
+				break;
+			case 'single-record':
+				singleRecord = JSON.stringify(payload.record);
+				break;
+			case 'record-count':
+				recordCount = `count: ${payload.count}`;
+				break;
+			case 'record-deleted':
+				deleteResult = payload.success ? 'deleted' : 'failed';
+				break;
+			case 'message-count':
+				messageCountResult = `messages: ${payload.count}`;
+				break;
+			case '__e2e:drizzle::drizzle-vacuum-done':
+				vacuumResult = `vacuum:${payload.timestamp}`;
+				break;
+			case 'outgoing-count':
+				outgoingCountResult = `outgoing: ${payload.count}`;
+				break;
+			case 'disconnect-count':
+				disconnectCountResult = `disconnects: ${payload.count}`;
+				break;
+			case 'generated-id':
+				generatedIdResult = payload.value ? `generated: ${payload.value}` : 'generated: none';
+				break;
+			case 'last-state':
+				lastStateResult = JSON.stringify(payload.state);
+				break;
+			case 'shutdown-count':
+				shutdownCountResult = `shutdowns: ${payload.count}`;
+				break;
+			case 'plugin-rewrite-result':
+				rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
+				break;
+			case '__e2e:drizzle::plugin-every-tick':
+				everyTickCount = Number(payload.count);
+				break;
+			case '__e2e:drizzle::plugin-flaky-result':
+				flakyResult = `attempts:${payload.attempts}`;
+				break;
+			case '__e2e:drizzle::plugin-dlq-result':
+				dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
+				break;
+			case '__e2e:drizzle::error-result':
+				errorLog = JSON.stringify(payload);
+				break;
+			case '__e2e:drizzle::plugin-task-data-result':
+				pluginTaskDataResult = payload.result as string;
+				break;
+			case 'stream-connection-id':
+				if (typeof payload.id === 'string') {
+					streamConnIdChunks = [...streamConnIdChunks, payload.id];
+				}
+				break;
+			case 'stream-throw-on-cancel':
+				if (typeof payload.tick === 'number') {
+					streamThrowChunks++;
+				}
+				break;
+			case '__streamOk__':
+				if (typeof msg.__wskit?.streamId === 'string') streamThrowId = msg.__wskit.streamId;
+				break;
 			}
 		};
 	}
@@ -165,6 +169,7 @@
 		>
 		<span data-testid="status">{status}</span>
 		<span data-testid="db-connected">{dbConnected ? 'db-ready' : ''}</span>
+		<div data-testid="plugin-env-result">{pluginEnvLabel}</div>
 		<div data-testid="drizzle-ready-payload">{drizzleReadyPayload}</div>
 	</section>
 

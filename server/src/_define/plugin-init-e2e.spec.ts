@@ -13,7 +13,7 @@ import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { plugin } from './plugin.ts';
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(handler: ServerDefinition, env: Record<string, unknown> = {}): Engine {
   let captured: Engine | undefined;
   const server = adapter({
     id: 'plugin-init-e2e',
@@ -22,7 +22,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+        env,
         platform: {},
         timers: createTestTimers(),
         waitUntil: () => {},
@@ -75,5 +75,29 @@ describe('plugin init — onion order end-to-end', () => {
 
     const engine = buildEngine(base.assemble({ handlers: [] }));
     await expect(engine.initialize()).resolves.toBeUndefined();
+  });
+
+  it('passes the host environment to a plugin unchanged', async () => {
+    const env = { services: { issuer: 'test-issuer' } };
+    let seen: unknown;
+
+    const ph = define({
+      scope: 'plugin',
+      env: t<typeof env>(),
+    });
+    ph.onInit((ctx) => {
+      seen = ctx.env;
+    });
+    const Plug = plugin('acme:env', { handler: ph.assemble({ handlers: [] }) });
+
+    const base = define({
+      env: t<typeof env>(),
+      capabilities: [Plug()],
+    });
+    const engine = buildEngine(base.assemble({ handlers: [] }), env);
+
+    await engine.initialize();
+
+    expect(seen).toBe(env);
   });
 });

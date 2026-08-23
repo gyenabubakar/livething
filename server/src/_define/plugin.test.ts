@@ -137,9 +137,9 @@ describe('plugin host-observation compile gate', () => {
   });
 
   it('rejects a bare literal-true observing plugin in capabilities', () => {
+    // @ts-expect-error observesHostTraffic: true — must be wrapped in observeHost(...)
     define({
       env: t<Env>(),
-      // @ts-expect-error observesHostTraffic: true — must be wrapped in observeHost(...)
       capabilities: [Observer()],
     });
   });

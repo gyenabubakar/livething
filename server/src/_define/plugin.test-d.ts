@@ -26,6 +26,12 @@ import type { DefineConfig, ScopedDefineConfig } from '~/_define/define.ts';
 import type { InferPluginClient } from '~/_define/plugin.ts';
 import type { InferClient } from '~/infer-client.ts';
 
+interface PluginEnv {
+  auth: {
+    issuer: string;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
 // ---------------------------------------------------------------------------
@@ -62,6 +68,37 @@ const ApiPlugin = plugin('acme:presence', {
   }),
 });
 void ApiPlugin;
+
+// ---------------------------------------------------------------------------
+// Plugin environment requirements — the plugin declares a type-only
+// requirement, and the host must provide a structurally compatible env.
+// ---------------------------------------------------------------------------
+const envScoped = define({
+  scope: 'plugin',
+  env: t<PluginEnv>(),
+});
+
+const envHandler = envScoped.on('env-probe', {
+  run(ctx) {
+    expectTypeOf(ctx.env.auth.issuer).toEqualTypeOf<string>();
+  },
+});
+
+const EnvPlugin = plugin('acme:env', {
+  handler: envScoped.assemble({ handlers: [envHandler] }),
+});
+
+const envHost = define({
+  env: t<PluginEnv & { region: string }>(),
+  capabilities: [EnvPlugin()],
+});
+void envHost;
+
+// @ts-expect-error — the host env does not satisfy the plugin's auth requirement
+define({
+  env: t<{ region: string }>(),
+  capabilities: [EnvPlugin()],
+});
 
 // ---------------------------------------------------------------------------
 // Gap 2 — `api` return type is inferred (no annotation) and reaches the host

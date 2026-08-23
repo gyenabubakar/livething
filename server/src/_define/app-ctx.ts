@@ -219,7 +219,7 @@ export interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]>
  * so reading one without its capability is a compile error.
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  */
 export type CoreCtx<TSlots, TEnv, TMeta> = {
@@ -233,7 +233,7 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
-  /** The platform env bindings (for example Cloudflare Workers `Env`). */
+  /** The typed application environment supplied by the adapter. */
   readonly env: TEnv;
   /** The raw platform handle (for example a Durable Object state). Untyped by default. */
   readonly platform: unknown;
@@ -559,7 +559,7 @@ export type CtxExtensionsOf<
  * present only when their capability is listed (see `CtxExtensionsOf`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned ctx fields.
  */
@@ -588,7 +588,7 @@ export type AppCtx<
  * itself and no-ops when there is nothing durable to clean up.
  *
  * @template TSlots The merged contract slots — drives the typed `broadcast`.
- * @template TEnv   The platform env bindings, declared by `env: t<Env>()`.
+ * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned fields.
  */

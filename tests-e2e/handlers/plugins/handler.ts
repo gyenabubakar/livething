@@ -9,6 +9,10 @@ import * as v from 'valibot';
 import type { ServerContract } from '@wskit/server/adapters';
 import type { PluginCapability } from '@wskit/server/plugin';
 
+export interface PluginsEnv {
+  PLUGIN_LABEL: string;
+}
+
 export interface DrizzlePluginApi {
   insert(data: { name: string; value: string }): { id: number } | null;
   findAll(): unknown[];
@@ -28,13 +32,15 @@ type DrizzleCapability<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
   TObservesHost extends boolean,
-> = PluginCapability<'e2e:drizzle', TContract, TApi, TObservesHost>;
+  TEnv,
+> = PluginCapability<'e2e:drizzle', TContract, TApi, TObservesHost, TEnv>;
 
 export function createPluginsHandler<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
   TObservesHost extends boolean,
->(drizzle: () => DrizzleCapability<TContract, TApi, TObservesHost>) {
+  TEnv,
+>(drizzle: () => DrizzleCapability<TContract, TApi, TObservesHost, TEnv>) {
   const InsertRecord = v.object({ name: v.string(), value: v.string() });
   const GetAllRecords = v.object({});
   const GetRecord = v.object({ id: v.number() });
@@ -56,7 +62,7 @@ export function createPluginsHandler<
   const drizzleCapability = drizzle();
 
   const base = define({
-    env: t<Env>(),
+    env: t<Env & TEnv>(),
     upgrade: (request) => requireUsername(request),
     capabilities: [
       stream(),

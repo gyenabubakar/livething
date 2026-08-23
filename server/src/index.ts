@@ -28,6 +28,7 @@ export type {
   OnConfig,
   RequestConfig,
   RequestHandlerValue,
+  ScopedDefineConfig,
   UpgradeFn,
   UpgradeReturn,
 } from './_define/define.ts';

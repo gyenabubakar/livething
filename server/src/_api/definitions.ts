@@ -34,7 +34,8 @@ export { nudge, stream } from '~/stream/definition.ts';
 
 /**
  * Marker carrying a phantom type so `meta: t<{ username: string }>()` flows the
- * type into the contract without any runtime cost.
+ * type into the contract without any runtime cost. It is also used for the
+ * application's typed environment and plugin environment requirements.
  */
 export interface TypeMarker<T> {
   readonly __wskit_t: 't';

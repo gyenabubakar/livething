@@ -40,7 +40,7 @@ function getFixture(route: string, room: string): Fixture {
   const service = spec.create({
     server: transport,
     sql: databasePath(route, room),
-    env: { NODE_ENV: 'test' },
+    env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
     shutdownOnSignal: false,
   });
   const fixture = { service, transport };

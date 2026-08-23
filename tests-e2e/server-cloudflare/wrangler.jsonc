@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-04-07",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": { "PLUGIN_LABEL": "cloudflare" },
   "durable_objects": {
     "bindings": [
       { "name": "REPLAY_SERVER", "class_name": "ReplayServer" },
