@@ -86,6 +86,41 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(fake.calls.handleUpgrade).toHaveLength(0);
   });
 
+  it('passes Cloudflare client IP metadata to the engine request', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.fetch(
+      new Request('https://do.example/', {
+        headers: {
+          Upgrade: 'websocket',
+          'CF-Connecting-IP': '203.0.113.7',
+          'WSKit-Client-IP': '198.51.100.99',
+        },
+      }),
+    );
+
+    expect(fake.calls.handleUpgrade[0]?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+  });
+
+  it('does not pass through a client-supplied IP metadata header', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.fetch(
+      new Request('https://do.example/', {
+        headers: {
+          Upgrade: 'websocket',
+          'WSKit-Client-IP': '198.51.100.99',
+        },
+      }),
+    );
+
+    expect(fake.calls.handleUpgrade[0]?.headers.get('WSKit-Client-IP')).toBeNull();
+  });
+
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();

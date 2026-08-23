@@ -202,7 +202,7 @@ const buildServe = adapter<
           return new Response('Expected Upgrade: websocket', { status: 426 });
         }
 
-        const result = await this.engine.handleUpgrade(request);
+        const result = await this.engine.handleUpgrade(requestWithClientIp(request));
         if (result.reject) {
           return this.handleRejectedUpgrade(result);
         }
@@ -345,6 +345,16 @@ const buildServe = adapter<
     };
   },
 });
+
+function requestWithClientIp(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.delete('WSKit-Client-IP');
+
+  const clientIp = request.headers.get('CF-Connecting-IP');
+  if (clientIp) headers.set('WSKit-Client-IP', clientIp);
+
+  return new Request(request, { headers });
+}
 
 /**
  * Turn a WSKit handler into a Cloudflare Durable Object class.

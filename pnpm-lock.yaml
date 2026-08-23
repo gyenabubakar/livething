@@ -119,7 +119,17 @@ importers:
         version: 4.5.4(@types/node@24.12.0)(rollup@4.62.2)(typescript@6.0.2)(vite@8.0.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))
 
   server-adapters/node:
+    dependencies:
+      '@fastify/proxy-addr':
+        specifier: ^5.1.0
+        version: 5.1.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.18.0
     devDependencies:
+      '@types/ws':
+        specifier: ^8.5.12
+        version: 8.18.1
       '@wskit/server':
         specifier: workspace:*
         version: link:../../server
@@ -1827,6 +1837,18 @@ packages:
     resolution:
       {
         integrity: sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==,
+      }
+
+  '@fastify/forwarded@3.0.2':
+    resolution:
+      {
+        integrity: sha512-NE8HgKLgYejV9lDpqkEFaDKMLYelJBVfHekhB0UKvX0ghagXRJqg68feg8er1NPXxG4N9i6vPxzt8E+3wHfcmA==,
+      }
+
+  '@fastify/proxy-addr@5.1.0':
+    resolution:
+      {
+        integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==,
       }
 
   '@fingerprintjs/botd@2.0.0':
@@ -9799,6 +9821,13 @@ packages:
       }
     engines: { node: '>= 0.10' }
 
+  ipaddr.js@2.5.0:
+    resolution:
+      {
+        integrity: sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w==,
+      }
+    engines: { node: '>= 10' }
+
   ipx@3.1.1:
     resolution:
       {
@@ -15940,6 +15969,13 @@ snapshots:
   '@fastify/accept-negotiator@2.0.1':
     optional: true
 
+  '@fastify/forwarded@3.0.2': {}
+
+  '@fastify/proxy-addr@5.1.0':
+    dependencies:
+      '@fastify/forwarded': 3.0.2
+      ipaddr.js: 2.5.0
+
   '@fingerprintjs/botd@2.0.0': {}
 
   '@floating-ui/core@1.7.5':
@@ -21217,6 +21253,8 @@ snapshots:
   ip-address@10.2.0: {}
 
   ipaddr.js@1.9.1: {}
+
+  ipaddr.js@2.5.0: {}
 
   ipx@3.1.1(db0@0.3.4(better-sqlite3@12.11.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260412.1)(@opentelemetry/api@1.9.1)(better-sqlite3@12.11.1)))(ioredis@5.11.1)(srvx@0.11.17):
     dependencies:

@@ -29,7 +29,12 @@
   "peerDependencies": {
     "@wskit/server": "^1.0.0-beta.0"
   },
+  "dependencies": {
+    "@fastify/proxy-addr": "^5.1.0",
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
+    "@types/ws": "^8.5.12",
     "@wskit/server": "workspace:*",
     "vite": "8.0.5",
     "vite-plugin-dts": "^4.5.4"
