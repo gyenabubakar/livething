@@ -44,7 +44,7 @@ export function compileChannelTemplate(
 ): CompiledChannelTemplate {
   if (typeof template !== 'string' || template.length === 0) {
     throw new WSKitConfigError(
-      `[wskit] ${source} requires a non-empty template string — got ${JSON.stringify(template)}.`,
+      `${source} requires a non-empty template string — got ${JSON.stringify(template)}.`,
     );
   }
 
@@ -75,32 +75,32 @@ export function compileChannelTemplate(
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" has an unclosed '{'. ` +
+          `${source} template "${template}" has an unclosed '{'. ` +
             `Write '{{' for a literal '{'.`,
         );
       }
       const name = template.slice(i + 1, end);
       if (name === '') {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" has an empty '{}'. ` +
+          `${source} template "${template}" has an empty '{}'. ` +
             `Name the parameter, e.g. '{id}'.`,
         );
       }
       if (!PARAM_NAME.test(name)) {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" has an invalid parameter name '${name}'. ` +
+          `${source} template "${template}" has an invalid parameter name '${name}'. ` +
             `Use a plain identifier (letters, digits, underscore; not starting with a digit).`,
         );
       }
       if (paramNames.includes(name)) {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" declares the parameter '${name}' twice. ` +
+          `${source} template "${template}" declares the parameter '${name}' twice. ` +
             `Each parameter name must be unique.`,
         );
       }
       if (previousWasParam) {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" has two parameters with no text between them. ` +
+          `${source} template "${template}" has two parameters with no text between them. ` +
             `Separate them with a literal, e.g. '{a}:{b}'.`,
         );
       }
@@ -121,8 +121,7 @@ export function compileChannelTemplate(
         continue;
       }
       throw new WSKitConfigError(
-        `[wskit] ${source} template "${template}" has an unmatched '}'. ` +
-          `Write '}}' for a literal '}'.`,
+        `${source} template "${template}" has an unmatched '}'. ` + `Write '}}' for a literal '}'.`,
       );
     }
 
@@ -164,7 +163,7 @@ export function fillChannelTemplate(
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" has an unclosed '{' — it must be a ` +
+          `${source} template "${template}" has an unclosed '{' — it must be a ` +
             'compiled family template.',
         );
       }
@@ -172,7 +171,7 @@ export function fillChannelTemplate(
       const value = params[name];
       if (typeof value !== 'string' || value === '') {
         throw new WSKitConfigError(
-          `[wskit] ${source} template "${template}" needs a non-empty '${name}' to resolve a ` +
+          `${source} template "${template}" needs a non-empty '${name}' to resolve a ` +
             `channel name — got ${JSON.stringify(value)}.`,
         );
       }

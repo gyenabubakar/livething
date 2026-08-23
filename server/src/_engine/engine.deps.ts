@@ -250,8 +250,8 @@ function buildChannelRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
 
     sendProtocolMessage: (
       connection: RuntimeConnection,
@@ -354,8 +354,8 @@ function buildDispatchRuntime(core: EngineCore) {
       },
     ) => sendReplay(core, connection, opts),
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
 
     handleRuntimeError: (
       connection: RuntimeConnection,
@@ -444,6 +444,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
+    translatorFactory: core.translatorFactory,
     connections: core.connections,
     usersByKey: core.usersByKey,
     channelMembers: core.channelMembers,
@@ -452,8 +453,11 @@ function buildConnectionRuntime(core: EngineCore) {
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
-    persistAttachment: (connection: RuntimeConnection) =>
-      EngineHibernation.persistAttachment(core, connection),
+    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+      EngineHibernation.persistAttachment(core, connection, options),
+
+    flushAttachment: (connection: RuntimeConnection) =>
+      EngineHibernation.flushDirtyAttachment(core, connection),
 
     restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
 
@@ -601,6 +605,8 @@ export function handleConnectionClose(
       usersByKey: core.usersByKey,
       tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
+      deleteConnectionState: (connectionId) =>
+        EngineHibernation.deleteConnectionState(core, connectionId),
       cancelActiveStreamsForConnection: (connectionId) =>
         EngineConnectionRuntime.cancelActiveStreamsForConnection(
           { activeStreams: core.activeStreams },

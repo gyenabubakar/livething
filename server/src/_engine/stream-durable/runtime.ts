@@ -90,7 +90,7 @@ export interface DurableStreamRuntime {
 
   asyncContext: EngineAsyncContext;
 
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
 
   /** SQLite handle. */
   sql: {
@@ -184,9 +184,9 @@ interface SendChunkFramesOpts {
   streamId: string;
 }
 
-function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): void {
+function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): boolean {
   const { eventName, chunks, scopeMarkers, streamId } = opts;
-  if (chunks.length === 0) return;
+  if (chunks.length === 0) return true;
 
   const eventJson = JSON.stringify(eventName);
   // Serialize the constant part of __wskit (scope fields + streamId), strip the
@@ -201,8 +201,9 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
         ? `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq},"messageId":${JSON.stringify(chunk.messageId)}}}`
         : `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq}}}`;
 
-    connection.descriptor.send(wire);
+    if (connection.descriptor.send(wire) === false || connection.closing) return false;
   }
+  return true;
 }
 
 function ensureUniqueStreamId(
@@ -289,11 +290,20 @@ export async function runDurableStream(
     }
   }
 
-  runtime.sendProtocolMessage(connection, {
-    event: '__streamOk__',
-    payload: {},
-    wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__streamOk__',
+      payload: {},
+      wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
+    });
+  } catch (error) {
+    Storage.deleteStream(runtime.sql, storageUserId, streamId);
+    throw error;
+  }
+  if (connection.closing) {
+    Storage.deleteStream(runtime.sql, storageUserId, streamId);
+    return;
+  }
 
   await runGenerator(runtime, connection, {
     scope,
@@ -425,20 +435,45 @@ export async function resumeDurableStream(
   if (!isPeerSubscriber && row.status === 'active') {
     const live = runtime.activeStreams.get(streamId);
     if (live && live.detached) {
-      live.connection = connection;
-      live.connectionId = connection.id;
-      live.detached = false;
+      const detachedStream = live;
+      const previousConnection = detachedStream.connection;
+      const previousConnectionId = detachedStream.connectionId;
+      detachedStream.connection = connection;
+      detachedStream.connectionId = connection.id;
+      detachedStream.detached = false;
 
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
 
       connection.activeStreamIds.add(streamId);
-      runtime.persistAttachment(connection);
+      try {
+        runtime.persistAttachment(connection);
+      } catch (error) {
+        rollbackResumeAttachment(false);
+        throw error;
+      }
 
-      runtime.sendProtocolMessage(connection, {
-        event: '__streamOk__',
-        payload: {},
-        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
-      });
+      function rollbackResumeAttachment(persist = true): void {
+        detachedStream.connection = previousConnection;
+        detachedStream.connectionId = previousConnectionId;
+        detachedStream.detached = true;
+        connection.activeStreamIds?.delete(streamId);
+        if (persist) runtime.persistAttachment(connection, { force: true });
+      }
+
+      try {
+        runtime.sendProtocolMessage(connection, {
+          event: '__streamOk__',
+          payload: {},
+          wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
+        });
+      } catch (error) {
+        rollbackResumeAttachment();
+        throw error;
+      }
+      if (connection.closing) {
+        rollbackResumeAttachment();
+        return;
+      }
 
       const chunks = Storage.readChunksSince(runtime.sql, {
         userId: storageUserId,
@@ -446,7 +481,16 @@ export async function resumeDurableStream(
         since: lastKnownSeq,
       });
 
-      sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
+      try {
+        if (
+          !sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })
+        ) {
+          rollbackResumeAttachment();
+        }
+      } catch (error) {
+        rollbackResumeAttachment();
+        throw error;
+      }
 
       return;
     }
@@ -473,13 +517,6 @@ export async function resumeDurableStream(
   }
 
   if (isPeerSubscriber && row.kind === 'resumable') {
-    Storage.setCaughtUpSeq(runtime.sql, {
-      storageUserId,
-      streamId,
-      subscriberUserId: realUserId,
-      caughtUpSeq: row.lastSeq,
-    });
-
     if (row.status === 'ended') {
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
@@ -493,6 +530,13 @@ export async function resumeDurableStream(
         wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
       });
     }
+    if (connection.closing) return;
+    Storage.setCaughtUpSeq(runtime.sql, {
+      storageUserId,
+      streamId,
+      subscriberUserId: realUserId,
+      caughtUpSeq: row.lastSeq,
+    });
     return;
   }
 
@@ -503,7 +547,9 @@ export async function resumeDurableStream(
       since: lastKnownSeq,
     });
 
-    sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
+    if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
+      return;
+    }
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
 
@@ -575,6 +621,7 @@ export async function resumeDurableStream(
     payload: {},
     wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
   });
+  if (connection.closing) return;
 
   runtime.sql.exec(
     "UPDATE __wskit_streams SET status = 'active', last_activity_at = ? WHERE user_id = ? AND stream_id = ?",
@@ -724,10 +771,13 @@ async function runGenerator(
       seq += 1;
       const { chunkValue, cursorValue } = unwrapYield(result.value);
 
-      // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
+      const serializedCursor =
+        def.kind === 'resumable' && cursorValue !== undefined
+          ? serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`)
+          : undefined;
       if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
           userId,
@@ -768,21 +818,21 @@ async function runGenerator(
         }
       }
 
-      if (def.kind === 'resumable' && cursorValue !== undefined) {
-        const serializedCursor = serializeJsonOrThrow(
-          cursorValue,
-          `Durable stream cursor for "${def.event}"`,
-        );
-        Storage.updateCursor(runtime.sql, {
-          userId,
-          streamId,
-          cursor: serializedCursor,
-          lastSeq: seq,
-          now,
-        });
-      } else {
+      function persistDelivery(): void {
+        if (def.kind === 'resumable' && cursorValue !== undefined) {
+          Storage.updateCursor(runtime.sql, {
+            userId,
+            streamId,
+            cursor: serializedCursor!,
+            lastSeq: seq,
+            now,
+          });
+          return;
+        }
         Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
       }
+
+      if (def.kind !== 'resumable') persistDelivery();
 
       const wirePayload = chunkToPayload(chunkValue);
 
@@ -829,7 +879,7 @@ async function runGenerator(
 
       const wireTarget = activeStream.connection ?? connection;
       if (!activeStream.detached) {
-        runtime.sendThroughPipeline(wireTarget, {
+        const sent = runtime.sendThroughPipeline(wireTarget, {
           routing: {
             channel: scope.channelName,
             channelFamily: scope.channelFamily,
@@ -840,7 +890,13 @@ async function runGenerator(
           event: def.event,
           payload: wirePayload,
         });
+        if (!sent) {
+          activeStream.closed = true;
+          break;
+        }
       }
+
+      if (def.kind === 'resumable') persistDelivery();
 
       if (hasNudges) {
         nextInput = [...nudgeBuffer];
@@ -848,7 +904,7 @@ async function runGenerator(
       }
     }
 
-    if (activeStream.closed) {
+    if (activeStream.closed || attachedConnection()?.closing) {
       // Only suspend if still active and this run still owns the slot — a
       // replacement would otherwise have its 'active' row flipped to 'suspended'.
       const row = Storage.readStream(runtime.sql, userId, streamId);

@@ -5,6 +5,7 @@ import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { requests } from '~/request/capability.ts';
+import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { define } from './define.ts';
@@ -96,6 +97,13 @@ describe('define() send/receive core', () => {
     const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'hibernation')).toBe(false);
     expect(handler.__features?.has('hibernation')).toBe(false);
+  });
+
+  it('retains one translator factory on the assembled server definition', () => {
+    const translate = translator(() => ({ inbound: (raw) => raw }));
+    const base = define({ env: t<Env>(), translate });
+
+    expect(base.assemble({ handlers: [] }).__translate).toBe(translate);
   });
 
   it.each([

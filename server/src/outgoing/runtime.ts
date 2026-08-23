@@ -1,9 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { rethrowIfConfigError } from '@wskit/core';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { hookRunsForFrame } from '~/intercept/intercept.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
+import { isTranslatorConfigError } from '~/translation/error.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -227,11 +229,12 @@ export function sendThroughPipeline(
     hook(wireMessage);
   }
 
-  connection.descriptor.send(
+  const sent = connection.descriptor.send(
     payloadJson === undefined
       ? `{"event":${JSON.stringify(message.event)},"__wskit":${JSON.stringify(wskit)}}`
       : `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
   );
+  if (sent === false) return false;
 
   invokeAfterSendHooks(runtime, wireMessage);
 
@@ -334,12 +337,12 @@ function sendPrepared(
   runtime: BroadcastRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
   prepared: PreparedBroadcast,
-): void {
+): boolean {
   // Shared-frame fast path: the bytes are the same for everyone, so just
   // write the prepared string. beforeSend is empty here (it disqualifies a
   // shared frame), so only an afterSend hook still needs the wire message.
   if (prepared.sharedFrame !== undefined) {
-    connection.descriptor.send(prepared.sharedFrame);
+    if (connection.descriptor.send(prepared.sharedFrame) === false) return false;
     if (prepared.needsWireMessage) {
       invokeAfterSendHooks(runtime, {
         connectionId: connection.id,
@@ -349,7 +352,7 @@ function sendPrepared(
         meta: connection.meta,
       });
     }
-    return;
+    return true;
   }
 
   const wskit = { ...prepared.baseWSKit };
@@ -368,13 +371,18 @@ function sendPrepared(
     }
   }
 
-  connection.descriptor.send(
-    `{"event":${prepared.eventJson},"payload":${prepared.payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
-  );
+  if (
+    connection.descriptor.send(
+      `{"event":${prepared.eventJson},"payload":${prepared.payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
+    ) === false
+  ) {
+    return false;
+  }
 
   if (wireMessage) {
     invokeAfterSendHooks(runtime, wireMessage);
   }
+  return true;
 }
 
 /**
@@ -434,6 +442,7 @@ export function broadcastToConnections(
           payload,
         });
       } catch (error) {
+        rethrowIfConfigError(error);
         // A payload or declaration error fails the same way for every peer — log once.
         runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
           event,
@@ -447,6 +456,7 @@ export function broadcastToConnections(
     try {
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
+      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
       runtime.logger?.error('[wskit] broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         event,
@@ -521,6 +531,7 @@ export function broadcastToChannel(
       payload,
     });
   } catch (error) {
+    rethrowIfConfigError(error);
     // A payload or declaration error fails the same way for every member — log once.
     runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {
       channel: channelName,
@@ -555,6 +566,7 @@ export function broadcastToChannel(
           : soleExcludedMemberUserId(members, excludeConnectionId),
       });
     } catch (error) {
+      rethrowIfConfigError(error);
       runtime.logger?.error('[wskit] inbox fan-out failed; live broadcast still proceeds', {
         channel: channelName,
         channelFamily,
@@ -573,6 +585,7 @@ export function broadcastToChannel(
     try {
       sendPrepared(runtime, connection, prepared);
     } catch (error) {
+      if (!isTranslatorConfigError(error)) rethrowIfConfigError(error);
       runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
         connectionId: connection.id,
         channel: channelName,

@@ -1,4 +1,4 @@
-import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { parseJsonOrUndefined, serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('serializeJsonOrThrow', () => {
@@ -26,5 +26,16 @@ describe('serializeJsonOrThrow', () => {
 
   it('lets JSON.stringify exceptions propagate (e.g. BigInt) — caller decides how to react', () => {
     expect(() => serializeJsonOrThrow({ n: 1n }, 'bigint')).toThrow(TypeError);
+  });
+});
+
+describe('parseJsonOrUndefined', () => {
+  it('returns parsed JSON values', () => {
+    expect(parseJsonOrUndefined('{"a":1}')).toEqual({ a: 1 });
+  });
+
+  it('returns undefined for null and malformed JSON', () => {
+    expect(parseJsonOrUndefined(null)).toBeUndefined();
+    expect(parseJsonOrUndefined('not-json')).toBeUndefined();
   });
 });

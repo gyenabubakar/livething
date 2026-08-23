@@ -37,13 +37,13 @@ export function chunkForBind<T>(
 ): T[][] {
   if (!Number.isInteger(paramsPerItem) || paramsPerItem <= 0) {
     throw new WSKitConfigError(
-      `[wskit] chunkForBind: 'paramsPerItem' must be a positive integer, got ${paramsPerItem}.`,
+      `chunkForBind: 'paramsPerItem' must be a positive integer, got ${paramsPerItem}.`,
     );
   }
 
   if (paramsPerItem > limits.maxBoundParams) {
     throw new WSKitConfigError(
-      `[wskit] chunkForBind: this adapter's SQL engine allows at most ${limits.maxBoundParams} bound parameters per statement, but a single item needs ${paramsPerItem}. No batch size can satisfy that — reduce the number of columns bound per item.`,
+      `chunkForBind: this adapter's SQL engine allows at most ${limits.maxBoundParams} bound parameters per statement, but a single item needs ${paramsPerItem}. No batch size can satisfy that — reduce the number of columns bound per item.`,
     );
   }
 

@@ -21,3 +21,13 @@ export function serializeJsonOrThrow(value: unknown, context: string): string {
   }
   return json;
 }
+
+/** Parse a nullable JSON storage value, recovering to undefined when it is invalid. */
+export function parseJsonOrUndefined(value: string | null): unknown {
+  if (value === null) return undefined;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}

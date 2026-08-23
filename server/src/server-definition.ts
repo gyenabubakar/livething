@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Primitive } from '~/primitive.ts';
+import type { TranslatorFactory } from '~/translation/translator.ts';
 
 /**
  * The client-facing contract for a server — described from the **client's**
@@ -141,6 +142,8 @@ export interface ServerDefinition<
     readonly maxConnections?: number;
     readonly onExceed: 'replace' | 'reject';
   };
+  /** One optional foreign-wire translator factory, created once per connection. */
+  readonly __translate?: TranslatorFactory;
   /**
    * Type-only field — never set at runtime.
    *

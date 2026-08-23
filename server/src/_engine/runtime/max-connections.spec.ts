@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes, WSKitConfigError } from '@wskit/core';
 import { acceptConnection } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -21,7 +21,10 @@ function baseCompiled(usersPolicy?: { maxConnections?: number; onExceed: 'replac
   };
 }
 
-function createRuntime(usersPolicy?: { maxConnections?: number; onExceed: 'replace' | 'reject' }) {
+function createRuntime(
+  usersPolicy?: { maxConnections?: number; onExceed: 'replace' | 'reject' },
+  overrides: Record<string, unknown> = {},
+) {
   let idCounter = 0;
   return {
     compiled: baseCompiled(usersPolicy),
@@ -39,6 +42,7 @@ function createRuntime(usersPolicy?: { maxConnections?: number; onExceed: 'repla
     async processTextMessage() {},
     async handleConnectionClose() {},
     async handleRuntimeError() {},
+    ...overrides,
   };
 }
 
@@ -93,6 +97,44 @@ describe('acceptConnection — users.maxConnections policy', () => {
     // socket, just no longer one the user can be reached at.
     expect(runtime.usersByKey.get('u1')?.size).toBe(2);
     expect(runtime.connections.size).toBe(3);
+  });
+
+  it('does not evict a healthy connection when the replacement translator factory fails', () => {
+    let translatorFactories = 0;
+    const runtime = createRuntime(
+      { maxConnections: 1, onExceed: 'replace' },
+      {
+        translatorFactory() {
+          translatorFactories += 1;
+          if (translatorFactories === 2) throw new Error('invalid translator');
+          return { inbound: (raw: string) => raw };
+        },
+      },
+    );
+    const first = descriptorFor('u1');
+    const rejected = descriptorFor('u1');
+
+    acceptConnection(runtime as never, Symbol('first'), first);
+    acceptConnection(runtime as never, Symbol('rejected'), rejected);
+
+    expect(first.close).not.toHaveBeenCalled();
+    expect(rejected.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
+    expect(runtime.usersByKey.get('u1')?.size).toBe(1);
+  });
+
+  it('reports a malformed direct translator factory as configuration error', () => {
+    const runtime = createRuntime(undefined, {
+      translatorFactory() {
+        return { outbound() {} };
+      },
+    });
+    const descriptor = descriptorFor('u1');
+
+    expect(() =>
+      acceptConnection(runtime as never, Symbol('invalid-translator'), descriptor),
+    ).toThrow(WSKitConfigError);
+    expect(descriptor.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(runtime.connections).toHaveLength(0);
   });
 
   it('replace evicts multiple oldest connections when the newcomer pushes further over the cap', () => {

@@ -137,6 +137,123 @@ describe('durable stream runtime', () => {
     ).toHaveLength(2);
   });
 
+  it('removes a new durable row when the translated start frame throws', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendProtocolMessage = () => {
+      throw new WSKitConfigError('translator outbound is invalid');
+    };
+
+    await expect(
+      runDurableStream(runtime as never, connection, {
+        scope: {},
+        def: baseDef(),
+        payload: {},
+        wskit: { streamId: 'failed-start' } as never,
+      }),
+    ).rejects.toThrow(WSKitConfigError);
+
+    expect(Storage.readStream(sql, 'u1', 'failed-start')).toBeNull();
+  });
+
+  it('stops a durable stream when its translated connection rejects a chunk', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        generator: async function* () {
+          yield { i: 1 };
+          yield { i: 2 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(protocolMessages.some((message) => message.event === '__streamEnd__')).toBe(false);
+    expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('suspended');
+  });
+
+  it('does not advance a resumable cursor when its chunk is rejected', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ row: 1 }, { idx: 1 });
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    const row = Storage.readStream(sql, 'u1', 'gen-1')!;
+    expect(row.cursor).toBeNull();
+    expect(row.lastSeq).toBe(0);
+  });
+
+  it('does not send a resumable chunk when its cursor cannot be serialized', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ row: 1 }, { toJSON: () => undefined });
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(pipelineSends).toHaveLength(0);
+    expect(runtime.handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a durable generator after its translated start frame closes the connection', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendProtocolMessage = vi.fn(() => {
+      connection.closing = true;
+    });
+    let generatorStarted = false;
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        generator: async function* () {
+          generatorStarted = true;
+          yield { i: 1 };
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(generatorStarted).toBe(false);
+    expect(Storage.readStream(sql, 'u1', 'gen-1')).toBeNull();
+  });
+
   it('recorded stream — yield throws StreamAborted({reason:"buffer-full"}) when cap is hit', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1163,6 +1280,49 @@ describe('durable stream runtime', () => {
     ).toBe(2);
   });
 
+  it('does not advance a peer cursor when translated resume confirmation closes the connection', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const peer = createConnection('c-peer', 'u-peer');
+    runtime.sendProtocolMessage = () => {
+      (peer as RuntimeConnection).closing = true;
+    };
+
+    Storage.insertStream(sql, {
+      userId: '__bcast:top__',
+      streamId: 's-b',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+      broadcast: true,
+      creatorUserId: 'u-creator',
+      maxChunks: 10,
+    });
+    Storage.updateLastSeq(sql, {
+      userId: '__bcast:top__',
+      streamId: 's-b',
+      lastSeq: 5,
+      now: Date.now(),
+    });
+
+    await resumeDurableStream(runtime as never, peer, {
+      resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'resumable', broadcast: true }) }),
+      row: Storage.readStream(sql, '__bcast:top__', 's-b'),
+      streamId: 's-b',
+      lastKnownSeq: 0,
+    });
+
+    expect(
+      Storage.getSubscriber(sql, {
+        storageUserId: '__bcast:top__',
+        streamId: 's-b',
+        subscriberUserId: 'u-peer',
+      }),
+    ).toBeNull();
+  });
+
   it('broadcast resumableStream — a late-joining peer only gets chunks produced after it joined', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1514,6 +1674,96 @@ describe('durable stream runtime', () => {
     expect(sentAfterResume).toBeGreaterThan(sentBeforeResume);
   });
 
+  it('keeps a stream detached when translated replay chunks fail during creator resume', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const original = createConnection('c-orig', 'u1');
+    const reconnect = createConnection('c-new', 'u1');
+    reconnect.descriptor.send = vi.fn(() => false);
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = runDurableStream(runtime as never, original, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        onDisconnect: 'keep-running',
+        generator: async function* () {
+          yield { i: 1 };
+          await gate;
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const live = [...runtime.activeStreams.values()][0]!;
+    await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
+
+    await resumeDurableStream(runtime as never, reconnect, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({ kind: 'recorded', onDisconnect: 'keep-running' }),
+      }),
+      row: Storage.readStream(sql, 'u1', live.id),
+      streamId: live.id,
+      lastKnownSeq: 0,
+    });
+
+    expect(live.detached).toBe(true);
+    expect(live.connection?.id).toBe('c-orig');
+    expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
+
+    release();
+    await run;
+  });
+
+  it('keeps a stream detached when translated creator resume confirmation throws', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const original = createConnection('c-orig', 'u1');
+    const reconnect = createConnection('c-new', 'u1');
+    runtime.sendProtocolMessage = () => {
+      throw new WSKitConfigError('translator outbound is invalid');
+    };
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 'resume-failure',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: Date.now(),
+      maxChunks: 10,
+    });
+    const live = {
+      id: 'resume-failure',
+      connection: original,
+      connectionId: original.id,
+      detached: true,
+    } as ActiveStream;
+    runtime.activeStreams.set(live.id, live);
+
+    await expect(
+      resumeDurableStream(runtime as never, reconnect, {
+        resolveDef: () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
+        row: Storage.readStream(sql, 'u1', live.id),
+        streamId: live.id,
+        lastKnownSeq: 0,
+      }),
+    ).rejects.toThrow(WSKitConfigError);
+
+    expect(live.detached).toBe(true);
+    expect(live.connection?.id).toBe(original.id);
+    expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
+    expect(runtime.persistAttachment).toHaveBeenLastCalledWith(reconnect, { force: true });
+  });
+
   it('keep-running — after resume, final __streamEnd__ targets the fresh connection and clears its attachment', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1546,6 +1796,7 @@ describe('durable stream runtime', () => {
     await new Promise((r) => setTimeout(r, 10));
     const live = [...runtime.activeStreams.values()][0]!;
     await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
+    original.closing = true;
 
     await resumeDurableStream(runtime as never, reconnect, {
       resolveDef: () => ({
@@ -1569,8 +1820,8 @@ describe('durable stream runtime', () => {
     const end = protocolMessages.find(
       (message) => message.event === '__streamEnd__' && message.wskit.streamId === live.id,
     );
-    expect(end?.targetId).toBe('c-new');
-    expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
+    expect(end?.targetId).toBe(reconnect.id);
+    expect(Storage.readStream(sql, 'u1', live.id)?.status).toBe('ended');
   });
 
   it('synchronous throw while creating the generator marks the row ended (not stuck active)', async () => {

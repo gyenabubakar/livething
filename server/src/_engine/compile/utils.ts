@@ -21,7 +21,7 @@ export function collectUnique<T>(
     const key = keyFn(item);
     if (seen.has(key)) {
       throw new WSKitConfigError(
-        `[wskit] ${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
+        `${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
       );
     }
     seen.add(key);
@@ -45,7 +45,7 @@ export function setUniqueOrThrow<V>(
 ): void {
   if (map.has(key)) {
     throw new WSKitConfigError(
-      `[wskit] Duplicate ${entry.kind} declaration for "${key}". ` +
+      `Duplicate ${entry.kind} declaration for "${key}". ` +
         `Each name can only be declared once per scope.`,
     );
   }

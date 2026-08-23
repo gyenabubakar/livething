@@ -126,7 +126,7 @@ function buildSocket(
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
-    throw new WSKitConfigError('[wskit] client() requires a connect() capability.');
+    throw new WSKitConfigError('client() requires a connect() capability.');
   }
 
   const socket = new WSKitSocket(config);
@@ -153,7 +153,7 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
     if (REPEATABLE_TAGS.has(spec._tag)) continue;
     if (seen.has(spec._tag)) {
       throw new WSKitConfigError(
-        `[wskit] duplicate ${spec._tag}() — register each primitive at most once.`,
+        `duplicate ${spec._tag}() — register each primitive at most once.`,
       );
     }
     seen.add(spec._tag);
@@ -171,7 +171,7 @@ function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
     const { id } = spec._plugin!;
     if (seen.has(id)) {
       throw new WSKitConfigError(
-        `[wskit] plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
+        `plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
     seen.add(id);
@@ -184,7 +184,7 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
     for (const dependency of spec.dependencies ?? []) {
       if (!tags.has(dependency)) {
         throw new WSKitConfigError(
-          `[wskit] ${spec._tag} requires ${dependency}. Register ${dependency}() in client.`,
+          `${spec._tag} requires ${dependency}. Register ${dependency}() in client.`,
         );
       }
     }
@@ -208,7 +208,7 @@ function assertHostObservationGranted(pluginSpecs: readonly Primitive[]): void {
     const { id } = spec._plugin!;
     if (!grant.__hostObservationGranted) {
       throw new WSKitConfigError(
-        `[wskit] plugin '${id}' observes host traffic but was registered without observeHost(...). ` +
+        `plugin '${id}' observes host traffic but was registered without observeHost(...). ` +
           `Wrap it as observeHost(${id}()) in client() to grant the privilege.`,
       );
     }
@@ -238,7 +238,7 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
     const status = state.get(spec);
     if (status === 'done') return;
     if (status === 'visiting') {
-      throw new WSKitConfigError(`[wskit] circular primitive dependency detected at ${spec._tag}.`);
+      throw new WSKitConfigError(`circular primitive dependency detected at ${spec._tag}.`);
     }
     state.set(spec, 'visiting');
     for (const dependency of [...(spec.dependencies ?? []), ...(spec.optionalAfter ?? [])]) {

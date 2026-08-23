@@ -6,6 +6,7 @@ import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type { Translator } from '~/translation/translator.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 /**
@@ -349,6 +350,9 @@ export interface RuntimeConnection {
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
 
+  /** One server-defined foreign-wire translator created for this connection. */
+  translator?: Translator;
+
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
    * keys held under that group. The `(kind, group)` split is enforced at
@@ -414,6 +418,12 @@ export interface RuntimeConnection {
    * hibernation row for a dead connection.
    */
   closing?: boolean;
+
+  /**
+   * A configuration error closed this live socket. Its hibernation row stays
+   * so a fixed deployment can restore the connection rather than losing it.
+   */
+  preserveStateOnClose?: boolean;
 
   /**
    * Fingerprint of the last connection row written to durable storage. The

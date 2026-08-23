@@ -138,6 +138,35 @@ describe('stream/runtime', () => {
     expect(streamEnd!.wskit.channelFamily).toBe('rooms');
   });
 
+  it('stops a stream when its translated connection rejects a chunk', async () => {
+    const { runtime, protocolMessages, pipelineSends } = createStreamRuntime();
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+    let finalized = false;
+
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'stream',
+      stream: {
+        stream: { nudges: [], broadcast: false },
+        generator: async function* () {
+          try {
+            yield { n: 1 };
+            yield { n: 2 };
+          } finally {
+            finalized = true;
+          }
+        },
+      } as never,
+      payload: {},
+    });
+
+    expect(pipelineSends).toEqual([]);
+    expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(protocolMessages.some((message) => message.event === '__streamEnd__')).toBe(false);
+    expect(finalized).toBe(true);
+  });
+
   it('broadcast stream sends chunks to every connection in scope', async () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
@@ -170,6 +199,39 @@ describe('stream/runtime', () => {
         seq: 1,
       });
     }
+  });
+
+  it('broadcast stream terminates peers when the creator rejects its chunk', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const creator = createConnection('creator');
+    const peer = createConnection('peer');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(peer.id, peer);
+    const pipelineTargets: string[] = [];
+    runtime.sendThroughPipeline = vi.fn((target: RuntimeConnection) => {
+      pipelineTargets.push(target.id);
+      return target.id !== creator.id;
+    });
+
+    await runStream(runtime as Parameters<typeof runStream>[0], creator, {
+      scope: {},
+      event: 'broadcast-stream',
+      stream: {
+        stream: { nudges: [], broadcast: true },
+        generator: async function* () {
+          yield { token: 'hello' };
+        },
+      } as never,
+      payload: {},
+    });
+
+    expect(pipelineTargets).toEqual(['peer', 'creator']);
+    expect(protocolMessages).toContainEqual(
+      expect.objectContaining({
+        event: '__streamEnd__',
+        wskit: expect.objectContaining({ eventName: 'broadcast-stream', seq: 1 }),
+      }),
+    );
   });
 
   it('broadcast stream forwards channelFamily to peer sends (dynamic channel families)', async () => {

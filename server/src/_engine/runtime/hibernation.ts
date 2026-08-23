@@ -1,10 +1,14 @@
-import { assertSynchronousResult } from '@wskit/core';
+import { assertSynchronousResult, isWSKitConfigError } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
+
+interface PersistAttachmentOptions {
+  force?: boolean;
+}
 
 /**
  * Save the connection's hibernation row. There are three reasons this can
@@ -17,18 +21,22 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
  * - The fingerprint check inside `flushDirtyAttachment` skips the SQL call
  *   when the row's data has not actually changed since the last write.
  */
-export function persistAttachment(core: EngineCore, connection: RuntimeConnection): void {
-  if (connection.pendingWrites?.active) return;
+export function persistAttachment(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  options: PersistAttachmentOptions = {},
+): void {
+  if (!options.force && connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
-  if (connection.closing) return;
+  if (!options.force && connection.closing) return;
 
   const scope = getInvocationScope(core.asyncContext);
-  if (scope) {
+  if (scope && !options.force) {
     scope.dirtyConnections.add(connection);
     return;
   }
 
-  flushDirtyAttachment(core, connection);
+  flushDirtyAttachment(core, connection, options);
 }
 
 /**
@@ -37,20 +45,77 @@ export function persistAttachment(core: EngineCore, connection: RuntimeConnectio
  * before control returns. The fingerprint check still applies, so a flush
  * that matches what is already on disk does no SQL work.
  */
-export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnection): void {
+export function flushDirtyAttachment(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  options: PersistAttachmentOptions = {},
+): void {
   if (!core.hibernationEnabled) return;
-  if (connection.closing) return;
+  if (!options.force && connection.closing) return;
 
-  const row = ConnectionStore.buildConnectionRow(connection);
-  const fingerprint = JSON.stringify(row);
+  let state: ConnectionStore.SerializedTranslatorState;
+  try {
+    state = translatorState(connection);
+  } catch (error) {
+    if (options.force && connection.closing) return;
+    if (isWSKitConfigError(error)) {
+      closeForTranslatorStateFailure(connection, error);
+    }
+    closeForConnectionStateFailure(core, connection, error);
+    return;
+  }
+
+  try {
+    flushConnectionState(core, connection, state);
+  } catch (error) {
+    closeForConnectionStateFailure(core, connection, error);
+  }
+}
+
+function translatorState(connection: RuntimeConnection): ConnectionStore.SerializedTranslatorState {
+  return ConnectionStore.serializeTranslatorState(connection);
+}
+
+function flushConnectionState(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  translatorState: ConnectionStore.SerializedTranslatorState,
+): void {
+  const row = ConnectionStore.buildConnectionRow(connection, {
+    translatorState: translatorState.value,
+  });
+  const fingerprint = JSON.stringify({ ...row, translator_state: translatorState.json });
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
-  ConnectionStore.writeConnectionRow(core.storage.sql, row);
-  // Cheap adapter call that updates the in-memory hibernation tag. Runs once
-  // per SQL write — when the SQL write is skipped, this is skipped too.
-  const persistResult = core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  ConnectionStore.writeConnectionRow(core.storage.sql, row, {
+    translatorStateJson: translatorState.json,
+  });
+  const persistResult = core.options.hibernation?.persist(connection.wsKey, {
+    id: connection.id,
+  });
   assertSynchronousResult(persistResult, 'adapter hibernation.persist');
   connection.lastPersistedFingerprint = fingerprint;
+}
+
+function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
+  connection.preserveStateOnClose = true;
+  connection.closing = true;
+  connection.descriptor.close(1011, '[wskit] translator configuration failed');
+  throw error;
+}
+
+function closeForConnectionStateFailure(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  error: unknown,
+): void {
+  core.logger?.error('[wskit] failed to persist connection state', {
+    connectionId: connection.id,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  connection.closing = true;
+  connection.descriptor.close(1011, '[wskit] connection state could not be persisted');
+  if (isWSKitConfigError(error)) throw error;
 }
 
 /**

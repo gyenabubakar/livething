@@ -153,6 +153,7 @@ export interface FakeEngine {
     decision: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision),
   ) => void;
   setHibernation: (enabled: boolean) => void;
+  setTranslation: (enabled: boolean) => void;
   setRestoreFailure: (error?: unknown) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
@@ -187,7 +188,13 @@ export function makeFakeEngine(): FakeEngine {
 
   let stagedUpgrade: UpgradeDecision | (() => Promise<UpgradeDecision> | UpgradeDecision) = {};
   let hibernation = false;
+  let translation = false;
   let restoreFailure: unknown;
+  const core = {
+    get translatorFactory() {
+      return translation ? () => ({}) : undefined;
+    },
+  };
 
   // What engine.admin() returns: the admin context (spied), which the app's own
   // api is merged into. WSKitAdmin projects this onto flat RPC methods, so the
@@ -233,6 +240,7 @@ export function makeFakeEngine(): FakeEngine {
   };
 
   const engine = {
+    core,
     setInstanceId: vi.fn(),
     initialize: vi.fn(async () => {
       calls.initialize += 1;
@@ -275,6 +283,9 @@ export function makeFakeEngine(): FakeEngine {
     },
     setHibernation(enabled) {
       hibernation = enabled;
+    },
+    setTranslation(enabled) {
+      translation = enabled;
     },
     setRestoreFailure(error) {
       restoreFailure = error;

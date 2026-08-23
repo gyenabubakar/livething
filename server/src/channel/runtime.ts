@@ -172,7 +172,7 @@ interface ChannelRuntime extends ChannelHooks {
     },
   ): Record<PropertyKey, unknown>;
 
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
 
   sendProtocolMessage(
     connection: RuntimeConnection,
@@ -534,7 +534,7 @@ async function runSubscribeFlow(
         (typeof r === 'object' || typeof r === 'function') &&
         typeof (r as { then?: unknown }).then === 'function'
       ) {
-        throw new WSKitConfigError('[wskit] commit() must be synchronous.');
+        throw new WSKitConfigError('commit() must be synchronous.');
       }
     }
   }
@@ -573,17 +573,35 @@ async function runSubscribeFlow(
   if (runtime.isReadReceiptsChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.readReceipts = true;
   }
-  runtime.sendProtocolMessage(connection, {
-    event: '__subscribeOk__',
-    payload: {},
-    wskit: confirmation,
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__subscribeOk__',
+      payload: {},
+      wskit: confirmation,
+    });
+  } catch (error) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    throw error;
+  }
+  if (connection.closing) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    return;
+  }
 
-  runtime.sendProtocolMessage(connection, {
-    event: '__memberSync__',
-    payload: { members },
-    wskit: { ...wskit, source },
-  });
+  try {
+    runtime.sendProtocolMessage(connection, {
+      event: '__memberSync__',
+      payload: { members },
+      wskit: { ...wskit, source },
+    });
+  } catch (error) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    throw error;
+  }
+  if (connection.closing) {
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
+    return;
+  }
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
   // Rejoin skips __memberJoin__ — the user was already a member.
@@ -620,6 +638,28 @@ async function runSubscribeFlow(
       }
     }
   }
+}
+
+function rollbackFailedSubscribe(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  opts: { scope: ResolvedChannelTarget; isDurable: boolean; rejoining: boolean },
+): void {
+  const { scope, isDurable, rejoining } = opts;
+  removeChannelMembership(runtime.channelMembers, connection, scope);
+  runtime.persistAttachment(connection, { force: true });
+  if (rejoining || !isDurable || connection.userId === '') return;
+
+  const members = runtime.channelMembers.get(
+    createChannelMembershipKey(scope.channelName, scope.channelFamily),
+  );
+  const anotherConnectionForUser = [...(members ?? [])].some(
+    (member) => member.userId === connection.userId,
+  );
+  if (anotherConnectionForUser) return;
+
+  runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
+  runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
 }
 
 /** Build the public member snapshot for a channel, excluding the given connection. */

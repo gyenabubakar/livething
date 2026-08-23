@@ -14,6 +14,9 @@ export type { RateLimitConfig } from './rate-limit/rate-limit.ts';
 
 export type { Validator } from './types.ts';
 
+export { translator } from './translation/translator.ts';
+export type { Translator, TranslatorFactory } from './translation/translator.ts';
+
 export type { ScopeDeclaration } from './channel/channel.ts';
 
 export { define } from './_define/define.ts';

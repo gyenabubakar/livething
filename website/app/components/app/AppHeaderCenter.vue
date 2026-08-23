@@ -104,6 +104,12 @@ const landingItems = [
         to: '/server/define/overview'
       },
       {
+        label: 'Adapters',
+        icon: 'i-ph-plugs-duotone',
+        description: 'Run the definition on a platform',
+        to: '/server/adapters/overview'
+      },
+      {
         label: 'Capabilities',
         icon: 'i-ph-puzzle-piece-duotone',
         description: 'The opt-in feature catalog',
@@ -138,12 +144,6 @@ const landingItems = [
         icon: 'i-ph-plug-duotone',
         description: 'Package a reusable feature',
         to: '/server/plugins/overview'
-      },
-      {
-        label: 'Adapters',
-        icon: 'i-ph-plugs-duotone',
-        description: 'Run the definition on a platform',
-        to: '/server/adapters/overview'
       },
       {
         label: 'Under the hood',

@@ -62,6 +62,12 @@ export { ReceiptsServer } from './receipts.ts';
 export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
+export { TranslationServer } from './translation.ts';
+export {
+  TranslationHibernationServer,
+  TranslationInboundOnlyServer,
+  TranslationPassThroughServer,
+} from './translation.ts';
 
 /** Returned when a route names an op that has no case below. */
 const UNKNOWN_OP = Symbol('unknown-op');
@@ -233,6 +239,9 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
   '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
   '/ws/last-seen': 'LAST_SEEN_SERVER',
+  '/ws/translation': 'TRANSLATION_SERVER',
+  '/ws/translation-inbound-only': 'TRANSLATION_INBOUND_ONLY_SERVER',
+  '/ws/translation-pass-through': 'TRANSLATION_PASS_THROUGH_SERVER',
 };
 
 export default {

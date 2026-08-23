@@ -43,10 +43,10 @@ export interface TestSqlOptions {
  * `INSERT OR REPLACE`, foreign-key cascades, and primary-key constraints that a
  * fake can only guess at, so these specs run against the engine Node ships.
  *
- * A statement starting with `SELECT` or `WITH` is read as a query; anything else
- * is a write. A write may bundle several `;`-separated statements (a schema
- * batch) — the leading statements run unparameterized and the params bind onto
- * the last one.
+ * A statement starting with `SELECT`, `WITH`, or `PRAGMA table_info` is read as
+ * a query; anything else is a write. A write may bundle several
+ * `;`-separated statements (a schema batch) — the leading statements run
+ * unparameterized and the params bind onto the last one.
  */
 export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db: DatabaseSync } {
   const db = new DatabaseSync(':memory:');
@@ -56,7 +56,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
     options.onExec?.(query, params);
     const trimmed = query.trim();
 
-    if (/^\s*(SELECT|WITH)/i.test(trimmed)) {
+    if (/^\s*(SELECT|WITH|PRAGMA\s+table_info)/i.test(trimmed)) {
       const rows = db.prepare(trimmed).all(...(params as never[])) as TRow[];
       return {
         toArray: () => rows,

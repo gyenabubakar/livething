@@ -370,6 +370,7 @@ export async function runStream(
     payload: {},
     wskit: { ...buildStreamRouting(streamId, scope), streamKind: 'ephemeral' },
   });
+  if (connection.closing) return;
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
@@ -380,6 +381,21 @@ export async function runStream(
   // connection otherwise — minus the creator, who gets its own copy.
   function broadcastTargets(): RuntimeConnection[] {
     return streamBroadcastTargets(runtime.connections, connection.id, scope);
+  }
+
+  async function sendBroadcastEnd(seq: number): Promise<void> {
+    if (!stream.stream.broadcast) return;
+    const endWskit = { ...buildStreamRouting(streamId, scope), seq, eventName: event };
+    await forEachIsolatedAsync(
+      broadcastTargets(),
+      (target) =>
+        runtime.sendProtocolMessage(target, {
+          event: '__streamEnd__',
+          payload: {},
+          wskit: endWskit,
+        }),
+      { context: `stream broadcast end streamId="${streamId}"` },
+    );
   }
 
   // The drain function needs the active-stream object to know when the stream is
@@ -464,38 +480,30 @@ export async function runStream(
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
         );
       }
-      runtime.sendThroughPipeline(connection, {
+      const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,
         payload: result.value,
       });
+      if (!sent) {
+        activeStream.closed = true;
+        await iterator.return?.(undefined);
+        await sendBroadcastEnd(seq);
+        break;
+      }
 
       nextInput = stream.stream.nudges.length > 0 ? [...activeStream.nudges] : undefined;
       activeStream.nudges.length = 0;
     }
 
-    if (!activeStream.closed) {
+    if (!activeStream.closed && !connection.closing) {
       const endWskit = { ...buildStreamRouting(streamId, scope), seq };
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
         payload: {},
         wskit: endWskit,
       });
-      if (stream.stream.broadcast) {
-        // Peers route a terminal frame by the stream's event name (its own `event`
-        // field is the protocol name), so the fan-out carries eventName.
-        const peerEndWskit = { ...endWskit, eventName: event };
-        await forEachIsolatedAsync(
-          broadcastTargets(),
-          (target) =>
-            runtime.sendProtocolMessage(target, {
-              event: '__streamEnd__',
-              payload: {},
-              wskit: peerEndWskit,
-            }),
-          { context: `stream broadcast end streamId="${streamId}"` },
-        );
-      }
+      await sendBroadcastEnd(seq);
     }
   } catch (streamError) {
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };

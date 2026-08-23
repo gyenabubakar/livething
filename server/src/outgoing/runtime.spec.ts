@@ -1,3 +1,4 @@
+import { WSKitConfigError } from '@wskit/core';
 import { addChannelMembership } from '~/channel/runtime.ts';
 import { APP_HOOK_OWNER } from '~/intercept/intercept.ts';
 import {
@@ -6,6 +7,7 @@ import {
   sendThroughPipeline,
 } from '~/outgoing/runtime.ts';
 import { frameOwner } from '~/plugin-scope.ts';
+import { markTranslatorConfigError } from '~/translation/error.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { OutgoingFrame } from '~/intercept/intercept.ts';
@@ -433,6 +435,35 @@ describe('broadcastToConnections — fanout resilience', () => {
     expect(delivered[1]).toContain('C:');
     expect(errorLogs).toHaveLength(1);
     expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
+  });
+
+  it('propagates a configuration error from a peer instead of hiding it in fanout logs', () => {
+    const runtime = createRuntime();
+    const a = peer('A', () => {});
+    const b = peer('B', () => {
+      throw new WSKitConfigError('bad translator config');
+    });
+
+    expect(() =>
+      broadcastToConnections(runtime, [a, b], { event: 'foo', payload: { text: 'hi' } }),
+    ).toThrow(WSKitConfigError);
+  });
+
+  it('continues when one translated peer has a configuration error', () => {
+    const runtime = createRuntime();
+    const delivered: string[] = [];
+    const translatedConfigError = new WSKitConfigError('translator outbound must return a string');
+    markTranslatorConfigError(translatedConfigError);
+    const a = peer('A', () => {
+      throw translatedConfigError;
+    });
+    const b = peer('B', (frame) => delivered.push(frame));
+
+    expect(() =>
+      broadcastToConnections(runtime, [a, b], { event: 'foo', payload: { text: 'hi' } }),
+    ).not.toThrow();
+
+    expect(delivered).toHaveLength(1);
   });
 
   it('reports an unserializable broadcast payload once and does not throw (BigInt)', () => {

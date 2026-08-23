@@ -41,7 +41,7 @@ export class MessageBuffer {
     this.maxSize = options.maxSize ?? 50;
     if (!Number.isInteger(this.maxSize) || this.maxSize < 1) {
       throw new WSKitConfigError(
-        `[wskit] buffering maxSize must be a positive integer, got ${this.maxSize}.`,
+        `buffering maxSize must be a positive integer, got ${this.maxSize}.`,
       );
     }
     this.ttlConfig = options.ttl;

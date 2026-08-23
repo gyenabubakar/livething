@@ -56,7 +56,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
       // visibility — surface the mistake now, not as a silent no-op.
       if (wantsBackground && !environment.onVisibilityChange) {
         throw new WSKitConfigError(
-          '[wskit] platform({ backgroundDisconnectMs }) needs an environment that implements onVisibilityChange.',
+          'platform({ backgroundDisconnectMs }) needs an environment that implements onVisibilityChange.',
         );
       }
 

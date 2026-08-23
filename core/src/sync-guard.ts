@@ -9,7 +9,7 @@ export class WSKitConfigError extends Error {
   readonly __wskitConfig = true as const;
 
   constructor(message: string) {
-    super(message);
+    super(`[wskit] ${message}`);
     this.name = 'WSKitConfigError';
   }
 }
@@ -51,8 +51,8 @@ export function assertSynchronousResult<T>(
     void Promise.resolve(result).catch(() => {});
     throw new WSKitConfigError(
       kind === 'validator'
-        ? `[wskit] async validators are not supported (${label}). Use a sync schema or parse function.`
-        : `[wskit] async callbacks are not supported (${label}). Use a synchronous callback.`,
+        ? `async validators are not supported (${label}). Use a sync schema or parse function.`
+        : `async callbacks are not supported (${label}). Use a synchronous callback.`,
     );
   }
   return result as T;

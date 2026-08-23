@@ -1,8 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { WSKitConfigError } from '@wskit/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import * as ConnectionStore from './connection-store.ts';
 import { deleteConnectionState, persistAttachment } from './hibernation.ts';
 import { withInvocationScope, withInvocationScopeSync } from './invocation-scope.ts';
 
@@ -13,15 +15,17 @@ function createFakeCore(): {
   core: EngineCore;
   writes: string[];
   attachments: { wsKey: unknown; snapshot: unknown }[];
+  sqlExec: ReturnType<typeof vi.fn>;
 } {
   const writes: string[] = [];
   const attachments: { wsKey: unknown; snapshot: unknown }[] = [];
 
+  const sqlExec = vi.fn((query: string) => {
+    writes.push(query.trim().split(/\s+/).slice(0, 2).join(' '));
+    return { toArray: () => [], one: () => null, raw: () => [] };
+  });
   const sql = {
-    exec: vi.fn((query: string) => {
-      writes.push(query.trim().split(/\s+/).slice(0, 2).join(' '));
-      return { toArray: () => [], one: () => null, raw: () => [] };
-    }),
+    exec: sqlExec,
     transaction: vi.fn(<T>(fn: (tx: unknown) => T) => fn(sql)),
   };
 
@@ -38,7 +42,7 @@ function createFakeCore(): {
     storage: { sql },
   } as unknown as EngineCore;
 
-  return { core, writes, attachments };
+  return { core, writes, attachments, sqlExec };
 }
 
 function createFakeConnection(id: string): RuntimeConnection {
@@ -46,7 +50,7 @@ function createFakeConnection(id: string): RuntimeConnection {
     id,
     userId: id,
     wsKey: { key: id },
-    descriptor: {} as never,
+    descriptor: { close() {} } as never,
     meta: {},
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
@@ -56,6 +60,52 @@ function createFakeConnection(id: string): RuntimeConnection {
 }
 
 describe('withInvocationScope', () => {
+  it('serializes translator state once and reuses that JSON for persistence', () => {
+    const { core, sqlExec } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    let serializations = 0;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => ({
+          toJSON() {
+            serializations += 1;
+            return { serializations };
+          },
+        }),
+        restore() {},
+      },
+    };
+
+    const writeConnectionRow = vi
+      .spyOn(ConnectionStore, 'writeConnectionRow')
+      .mockImplementation(() => {});
+
+    try {
+      persistAttachment(core, connection);
+
+      expect(serializations).toBe(1);
+      expect(writeConnectionRow).toHaveBeenCalledWith(
+        core.storage.sql,
+        expect.objectContaining({ translator_state: { serializations: 1 } }),
+        { translatorStateJson: '{"serializations":1}' },
+      );
+      expect(sqlExec).not.toHaveBeenCalled();
+    } finally {
+      writeConnectionRow.mockRestore();
+    }
+  });
+
+  it('forces a rollback attachment write even after the connection closes', () => {
+    const { core, writes } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    connection.closing = true;
+
+    persistAttachment(core, connection, { force: true });
+
+    expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(1);
+  });
+
   it('batches multiple persistAttachment calls for one connection into a single flush', async () => {
     const { core, writes } = createFakeCore();
     const connection = createFakeConnection('c1');
@@ -200,12 +250,52 @@ describe('withInvocationScope', () => {
   it('rejects an async hibernation persist callback', () => {
     const { core } = createFakeCore();
     const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
     const failure = new Error('async persist failed');
     (core.options as unknown as { hibernation: { persist: () => unknown } }).hibernation.persist =
       () => Promise.reject(failure);
 
     expect(() => persistAttachment(core, connection)).toThrow(/async callbacks are not supported/);
     expect(connection.lastPersistedFingerprint).toBeUndefined();
+    expect(close).toHaveBeenCalledWith(1011, '[wskit] connection state could not be persisted');
+    expect(connection.preserveStateOnClose).not.toBe(true);
+  });
+
+  it('closes and rethrows an async translator serializer configuration error', () => {
+    const { core } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => Promise.resolve({}),
+        restore() {},
+      },
+    };
+
+    expect(() => persistAttachment(core, connection)).toThrow(WSKitConfigError);
+    expect(close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(connection.preserveStateOnClose).toBe(true);
+  });
+
+  it('does not re-close a failed connection when forced rollback persistence cannot serialize', () => {
+    const { core } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    const close = vi.fn();
+    connection.descriptor = { close } as never;
+    connection.closing = true;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => Promise.resolve({}),
+        restore() {},
+      },
+    };
+
+    expect(() => persistAttachment(core, connection, { force: true })).not.toThrow();
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('drops a queued flush when the connection is deleted before the scope closes', async () => {
