@@ -21,6 +21,7 @@ import type { NodeWebSocketServer } from './upgrade.ts';
 
 type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 
+/** Configuration for an owned or externally managed Node HTTP server. */
 export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOptions, 'logger'> {
   /** Attach WSKit to an existing Node HTTP server, such as an Express server. */
   server?: Server;
@@ -31,10 +32,13 @@ export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOption
   /** Host passed to the owned HTTP server's `listen()` call. */
   host?: string;
 
+  /** The application environment passed through to `ctx.env`. */
   env?: Env;
 
+  /** Logger used by the engine and Node runtime services. */
   logger?: Logger;
 
+  /** Optional trusted-peer strategy for the `WSKit-Client-IP` request header. */
   clientIp?: NodeClientIpConfig;
 
   /** Inject a configured `ws` server for tests or advanced transport setup. */
@@ -44,6 +48,7 @@ export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOption
   shutdownOnSignal?: boolean;
 }
 
+/** The in-process admin surface returned by a Node service. */
 export type NodeAdmin<TApi = unknown> = AdminContext<
   Record<string, unknown>,
   Record<string, unknown>,
@@ -51,6 +56,7 @@ export type NodeAdmin<TApi = unknown> = AdminContext<
 > &
   TApi;
 
+/** The live service created by the Node adapter. */
 export interface NodeServer<Env = unknown, TApi = unknown> {
   readonly server: Server;
   readonly ready: Promise<void>;
@@ -128,12 +134,15 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
           });
           socket.destroy();
         });
+
+      // Upgrades can arrive while startup is still running; shutdown waits for them here.
       pendingUpgrades.add(task);
       void task.finally(() => pendingUpgrades.delete(task));
     }
 
     server.on('upgrade', handleUpgrade);
 
+    // The listener is attached immediately, but every upgrade waits for `ready`.
     const ready = (async () => {
       await engine.initialize();
       engine.reconcileConnections(new Set());
@@ -142,6 +151,8 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
         await listen(server, options.port!, options.host);
       }
     })();
+
+    // Keep startup failures available through `ready` without creating an unhandled rejection.
     void ready.catch(() => {});
 
     function detachSignalHandlers(): void {
@@ -155,15 +166,19 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
       server,
       ready,
       env,
+
       admin() {
         return engine.admin() as NodeAdmin<TApi>;
       },
+
       shutdown() {
         if (shutdownPromise) return shutdownPromise;
+
         shuttingDown = true;
         detachSignalHandlers();
         server.off('upgrade', handleUpgrade);
         shutdownPromise = (async () => {
+          // Stop new upgrades, then drain the ones that already passed the listener.
           await Promise.all([...pendingUpgrades]);
 
           let startupError: unknown;
@@ -228,6 +243,7 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
+/** Creates a Node service for a compiled WSKit server definition. */
 export function server<THandler extends ServerDefinition, Env = unknown>(
   handler: THandler,
   options: NodeServerOptions<Env>,

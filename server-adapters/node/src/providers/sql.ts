@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import type { SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
 
+/** The limits reported to WSKit by better-sqlite3. */
 export const BETTER_SQLITE3_LIMITS: SqlLimits = {
   maxBoundParams: 32_766,
   maxStatementBytes: 1_000_000_000,
@@ -8,14 +9,18 @@ export const BETTER_SQLITE3_LIMITS: SqlLimits = {
 };
 
 export type NodeSqlDatabase = Database.Database;
+
+/** A file path, existing database, or fully configured SQL provider. */
 export type NodeSqlSource = string | NodeSqlDatabase | SQLProvider;
 
+/** The SQL provider and ownership information used by the Node runtime. */
 export interface NodeSqlRuntime {
   provider: SQLProvider;
   database?: NodeSqlDatabase;
   close(): void;
 }
 
+/** Creates a SQL provider, using an in-memory database when no source is given. */
 export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
   if (isSqlProvider(source)) {
     return { provider: source, close() {} };
@@ -46,6 +51,7 @@ function isSqlProvider(source: NodeSqlSource): source is SQLProvider {
 function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
   function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
     const trimmed = query.trim();
+
     if (trimmed.length === 0) return emptyResult<TRow>();
 
     if (/^\s*(SELECT|WITH|PRAGMA\s+table_info)/i.test(trimmed)) {
@@ -57,11 +63,15 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
       .split(';')
       .map((statement) => statement.trim())
       .filter(Boolean);
+
     const last = statements.pop();
+
     if (!last) return emptyResult<TRow>();
 
+    // better-sqlite3 exposes query rows and write statements through different APIs.
     for (const statement of statements) database.exec(statement);
     database.prepare(last).run(...(params as never[]));
+
     return emptyResult<TRow>();
   }
 
@@ -84,6 +94,7 @@ function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
         `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
       );
     }
+
     consumed = method;
   }
 
@@ -92,6 +103,7 @@ function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
       claim('toArray');
       return rows;
     },
+
     one() {
       claim('one');
       if (rows.length > 1) {
@@ -101,6 +113,7 @@ function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
       }
       return rows[0] ?? null;
     },
+
     raw() {
       claim('raw');
       return rows.map((row) => Object.values(row as Record<string, unknown>));

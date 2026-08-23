@@ -3,11 +3,13 @@ import type { Logger, SQLProvider, TimerProvider } from '@wskit/server/adapters'
 const ALARM_TABLE = '__wskit_node_alarm';
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
+/** Timer provider plus the lifecycle controls used by the Node server. */
 export interface NodeTimers extends TimerProvider {
   start(onAlarm: () => Promise<void>): Promise<void>;
   stop(): void;
 }
 
+/** Creates a durable alarm backed by the adapter's SQL provider. */
 export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   let tableReady = false;
   let started = false;
@@ -16,12 +18,14 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
   async function ensureTable(): Promise<void> {
     if (tableReady) return;
+
     sql.exec(
       `CREATE TABLE IF NOT EXISTS ${ALARM_TABLE} (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         time_ms INTEGER NOT NULL
       )`,
     );
+
     tableReady = true;
   }
 
@@ -29,12 +33,15 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     if (!Number.isSafeInteger(timeMs) || timeMs <= 0) {
       throw new RangeError('[wskit] Node alarm time must be a positive safe integer.');
     }
+
     await ensureTable();
+
     sql.exec(
       `INSERT INTO ${ALARM_TABLE} (id, time_ms) VALUES (1, ?)
        ON CONFLICT(id) DO UPDATE SET time_ms = excluded.time_ms`,
       timeMs,
     );
+
     if (started) await armStoredAlarm();
   }
 
@@ -46,9 +53,11 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
   async function getAlarm(): Promise<number | null> {
     await ensureTable();
+
     const row = sql
       .exec<{ timeMs: number }>(`SELECT time_ms AS timeMs FROM ${ALARM_TABLE} WHERE id = 1`)
       .one();
+
     return row?.timeMs ?? null;
   }
 
@@ -67,12 +76,16 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
   async function armStoredAlarm(): Promise<void> {
     clearTimeoutIfSet();
+
     const deadline = await getAlarm();
     if (!started || deadline === null) return;
 
+    // Node timers cannot represent delays larger than a signed 32-bit integer.
     const delay = Math.max(0, Math.min(MAX_TIMEOUT_MS, deadline - Date.now()));
+
     timeout = setTimeout(() => {
       timeout = undefined;
+
       void runAlarm().catch((error: unknown) => {
         logger?.error('[wskit] Node durable alarm failed', {
           error: error instanceof Error ? error.message : String(error),
@@ -83,8 +96,10 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
   async function runAlarm(): Promise<void> {
     if (!started) return;
+
     const deadline = await getAlarm();
     if (deadline === null) return;
+
     if (deadline > Date.now()) {
       await armStoredAlarm();
       return;

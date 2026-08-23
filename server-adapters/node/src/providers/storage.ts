@@ -3,17 +3,20 @@ import { createKv } from './kv.ts';
 import { createSql } from './sql.ts';
 import type { NodeSqlDatabase, NodeSqlSource } from './sql.ts';
 
+/** Storage dependencies accepted by the Node server. */
 export interface NodeStorageOptions {
   sql?: NodeSqlSource;
   kv?: KVProvider;
   logger?: Logger;
 }
 
+/** Storage providers plus the resources the Node adapter must close. */
 export interface NodeStorageRuntime {
   storage: StorageProvider;
   close(): void;
 }
 
+/** Creates the Node SQL and KV providers from the server options. */
 export function createStorage(options: NodeStorageOptions = {}): NodeStorageRuntime {
   const sql = createSql(options.sql);
   const kv = options.kv ?? createDefaultKv(sql.database, options.logger);

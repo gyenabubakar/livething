@@ -11,6 +11,7 @@ export interface Platform<Env = unknown> {
   env: Env;
 }
 
+/** Creates the Node-specific value exposed through `ctx.platform`. */
 export function createPlatform<Env>(server: Server, env: Env): Platform<Env> {
   return { server, env };
 }

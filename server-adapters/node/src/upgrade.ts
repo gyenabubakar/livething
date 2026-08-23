@@ -8,6 +8,7 @@ import { createClientIpResolver } from './client-ip.ts';
 import { requestToWebRequest } from './request.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 
+/** Creates the Node boundary between an HTTP upgrade and the WSKit engine. */
 export function createUpgradeHandler({
   engine,
   onAccepted,
@@ -18,9 +19,16 @@ export function createUpgradeHandler({
 
   return async (request, socket, head) => {
     const abortController = new AbortController();
+
     function abort(): void {
       abortController.abort();
     }
+
+    function detachAbortListeners(): void {
+      request.off('aborted', abort);
+      socket.off('close', abort);
+    }
+
     request.once('aborted', abort);
     socket.once('close', abort);
 
@@ -31,8 +39,7 @@ export function createUpgradeHandler({
         clientIp: resolveClientIp(request),
       });
     } catch {
-      request.off('aborted', abort);
-      socket.off('close', abort);
+      detachAbortListeners();
       writeHttpRejection(socket, { reject: true, code: 400, reason: 'Invalid upgrade request' });
       return;
     }
@@ -41,8 +48,7 @@ export function createUpgradeHandler({
     try {
       decision = await engine.handleUpgrade(webRequest);
     } finally {
-      request.off('aborted', abort);
-      socket.off('close', abort);
+      detachAbortListeners();
     }
 
     if (decision.reject) {
@@ -51,6 +57,7 @@ export function createUpgradeHandler({
     }
 
     let acceptedSocket: WebSocket | undefined;
+
     try {
       await new Promise<void>((resolve, reject) => {
         webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
@@ -121,6 +128,7 @@ function writeHttpRejection(socket: Duplex, decision: UpgradeDecision): void {
   socket.end(Buffer.concat([Buffer.from(response), bodyBytes]));
 }
 
+/** The small part of `ws.WebSocketServer` needed by the adapter. */
 export interface NodeWebSocketServer {
   handleUpgrade(
     request: IncomingMessage,
@@ -130,6 +138,7 @@ export interface NodeWebSocketServer {
   ): void;
 }
 
+/** Dependencies used to create the Node HTTP upgrade handler. */
 export interface NodeUpgradeHandlerOptions {
   engine: Pick<Engine, 'handleUpgrade'>;
   onAccepted: (
@@ -141,6 +150,7 @@ export interface NodeUpgradeHandlerOptions {
   clientIp?: NodeClientIpConfig;
 }
 
+/** Handles one Node HTTP upgrade event. */
 export type NodeUpgradeHandler = (
   request: IncomingMessage,
   socket: Duplex,

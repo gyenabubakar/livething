@@ -2,25 +2,38 @@ import { isIP } from 'node:net';
 import proxyaddr from '@fastify/proxy-addr';
 import type { IncomingMessage } from 'node:http';
 
+/** Use the TCP peer address as the client address. */
 export interface NodeDirectClientIpConfig {
   mode: 'direct';
 }
 
+/** Resolve a client address through an explicitly trusted proxy chain. */
 export interface NodeProxyClientIpConfig {
   mode: 'proxy';
   trustedProxies: readonly string[];
 }
 
+/** The strategies Node supports for deriving `WSKit-Client-IP`. */
 export type NodeClientIpConfig = NodeDirectClientIpConfig | NodeProxyClientIpConfig;
 
+/** Resolves a client address for one incoming Node request. */
 export type ClientIpResolver = (request: IncomingMessage) => string | undefined;
 
+/**
+ * Creates the client-IP resolver used while building the Web API `Request`.
+ *
+ * Without configuration, the adapter omits `WSKit-Client-IP`. Proxy mode only
+ * returns a forwarded address when every hop it trusts is a valid IP address.
+ */
 export function createClientIpResolver(config?: NodeClientIpConfig): ClientIpResolver {
-  if (!config) return () => undefined;
+  if (!config) {
+    return () => undefined;
+  }
 
   if (config.mode === 'direct') {
     return (request) => {
       const address = request.socket.remoteAddress;
+
       return address && isIP(address) !== 0 ? address : undefined;
     };
   }

@@ -1,10 +1,12 @@
 import type { IncomingMessage } from 'node:http';
 
+/** Optional request metadata supplied while adapting a Node upgrade. */
 export interface WebRequestOptions {
   signal?: AbortSignal;
   clientIp?: string;
 }
 
+/** Converts Node's incoming upgrade request into the standard Web API shape. */
 export function requestToWebRequest(
   request: IncomingMessage,
   { signal, clientIp }: WebRequestOptions = {},

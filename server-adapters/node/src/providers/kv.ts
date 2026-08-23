@@ -9,6 +9,7 @@ interface KvRow {
   expiresAt: number | null;
 }
 
+/** Creates the SQLite-backed KV provider used by the Node runtime by default. */
 export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider {
   database.exec(`
     CREATE TABLE IF NOT EXISTS ${KV_TABLE} (
@@ -32,10 +33,13 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
 
   function readFresh(row: KvRow | undefined): KvRow | undefined {
     if (!row) return undefined;
+
+    // Expire lazily so reads and prefix listings do not return stale values.
     if (row.expiresAt !== null && row.expiresAt <= Date.now()) {
       deleteStatement.run(row.key);
       return undefined;
     }
+
     return row;
   }
 
@@ -44,24 +48,30 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
       const row = readFresh(getStatement.get(key) as KvRow | undefined);
       return row ? decode(row.value) : undefined;
     },
+
     async set(key, value, options) {
       if (options?.ttl === 0) {
         logger?.warn(
           '[wskit] kv.set called with { ttl: 0 } — Node treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
         );
       }
+
       setStatement.run(key, encode(value), options?.ttl ? Date.now() + options.ttl : null);
     },
+
     async delete(key) {
       deleteStatement.run(key);
     },
+
     async list(prefix) {
       const pattern = prefix === undefined ? '%' : `${escapeLike(prefix)}%`;
       const rows = listStatement.all(pattern) as KvRow[];
       const keys: string[] = [];
+
       for (const row of rows) {
         if (readFresh(row)) keys.push(row.key);
       }
+
       return keys;
     },
   };
@@ -69,7 +79,10 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
 
 function encode(value: unknown): string {
   const encoded = JSON.stringify(value);
+
+  // JSON.stringify returns undefined for values that JSON cannot represent.
   if (encoded === undefined) return 'undefined';
+
   return encoded;
 }
 

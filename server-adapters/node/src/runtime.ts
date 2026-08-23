@@ -9,12 +9,14 @@ import type { NodeStorageOptions } from './providers/storage.ts';
 import type { NodeTimers } from './providers/timers.ts';
 import type { NodeWaitUntil } from './wait-until.ts';
 
+/** Runtime dependencies assembled by the public Node server. */
 export interface NodeRuntimeOptions<Env> extends Omit<NodeStorageOptions, 'logger'> {
   server: Server;
   env: Env;
   logger?: Logger;
 }
 
+/** The Node runtime services passed into the WSKit engine. */
 export interface NodeRuntime<Env> {
   env: Record<string, unknown>;
   platform: ReturnType<typeof createPlatform<Env>>;
@@ -26,6 +28,7 @@ export interface NodeRuntime<Env> {
   close(): Promise<void>;
 }
 
+/** Creates storage, timers, async context, logging, and background-work services. */
 export function createRuntime<Env>(options: NodeRuntimeOptions<Env>): NodeRuntime<Env> {
   const logger = options.logger ?? createLogger();
   const storageRuntime = createStorage({

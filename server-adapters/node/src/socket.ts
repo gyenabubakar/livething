@@ -8,12 +8,14 @@ import type { RawData, WebSocket } from 'ws';
 
 const BINARY_CLOSE_REASON = '[wskit] binary frames are not supported yet';
 
+/** Inputs required to connect one `ws` socket to the WSKit engine. */
 export interface NodeWebSocketBridgeOptions {
   engine: Pick<Engine, 'accept'>;
   socket: WebSocket;
   decision: UpgradeDecision;
 }
 
+/** Creates the engine handle and forwards lifecycle events from a `ws` socket. */
 export function createWebSocketBridge({
   engine,
   socket,
@@ -31,6 +33,7 @@ export function createWebSocketBridge({
 
   const connection = engine.accept(socket, descriptor);
 
+  // These callbacks intentionally allow message, close, and error handling to progress concurrently.
   socket.on('message', (data, isBinary) => {
     if (isBinary) {
       socket.close(1003, BINARY_CLOSE_REASON);
@@ -39,9 +42,11 @@ export function createWebSocketBridge({
 
     void connection.handleMessage(rawDataToString(data));
   });
+
   socket.on('close', (code, reason) => {
     void connection.handleClose(code, reason.toString());
   });
+
   socket.on('error', (error) => {
     void connection.handleError(error);
   });
