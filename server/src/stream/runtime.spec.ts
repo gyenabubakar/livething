@@ -201,6 +201,39 @@ describe('stream/runtime', () => {
     }
   });
 
+  it('broadcast stream terminates peers when the creator rejects its chunk', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const creator = createConnection('creator');
+    const peer = createConnection('peer');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(peer.id, peer);
+    const pipelineTargets: string[] = [];
+    runtime.sendThroughPipeline = vi.fn((target: RuntimeConnection) => {
+      pipelineTargets.push(target.id);
+      return target.id !== creator.id;
+    });
+
+    await runStream(runtime as Parameters<typeof runStream>[0], creator, {
+      scope: {},
+      event: 'broadcast-stream',
+      stream: {
+        stream: { nudges: [], broadcast: true },
+        generator: async function* () {
+          yield { token: 'hello' };
+        },
+      } as never,
+      payload: {},
+    });
+
+    expect(pipelineTargets).toEqual(['peer', 'creator']);
+    expect(protocolMessages).toContainEqual(
+      expect.objectContaining({
+        event: '__streamEnd__',
+        wskit: expect.objectContaining({ eventName: 'broadcast-stream', seq: 1 }),
+      }),
+    );
+  });
+
   it('broadcast stream forwards channelFamily to peer sends (dynamic channel families)', async () => {
     const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');

@@ -383,6 +383,21 @@ export async function runStream(
     return streamBroadcastTargets(runtime.connections, connection.id, scope);
   }
 
+  async function sendBroadcastEnd(seq: number): Promise<void> {
+    if (!stream.stream.broadcast) return;
+    const endWskit = { ...buildStreamRouting(streamId, scope), seq, eventName: event };
+    await forEachIsolatedAsync(
+      broadcastTargets(),
+      (target) =>
+        runtime.sendProtocolMessage(target, {
+          event: '__streamEnd__',
+          payload: {},
+          wskit: endWskit,
+        }),
+      { context: `stream broadcast end streamId="${streamId}"` },
+    );
+  }
+
   // The drain function needs the active-stream object to know when the stream is
   // torn down, but the iterator (built from ctx, which carries drain) is created
   // before the active stream exists. A late-bound holder breaks the cycle.
@@ -473,6 +488,7 @@ export async function runStream(
       if (!sent) {
         activeStream.closed = true;
         await iterator.return?.(undefined);
+        await sendBroadcastEnd(seq);
         break;
       }
 
@@ -487,21 +503,7 @@ export async function runStream(
         payload: {},
         wskit: endWskit,
       });
-      if (stream.stream.broadcast) {
-        // Peers route a terminal frame by the stream's event name (its own `event`
-        // field is the protocol name), so the fan-out carries eventName.
-        const peerEndWskit = { ...endWskit, eventName: event };
-        await forEachIsolatedAsync(
-          broadcastTargets(),
-          (target) =>
-            runtime.sendProtocolMessage(target, {
-              event: '__streamEnd__',
-              payload: {},
-              wskit: peerEndWskit,
-            }),
-          { context: `stream broadcast end streamId="${streamId}"` },
-        );
-      }
+      await sendBroadcastEnd(seq);
     }
   } catch (streamError) {
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };

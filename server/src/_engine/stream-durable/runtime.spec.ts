@@ -206,6 +206,28 @@ describe('durable stream runtime', () => {
     expect(row.lastSeq).toBe(0);
   });
 
+  it('does not send a resumable chunk when its cursor cannot be serialized', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ row: 1 }, { toJSON: () => undefined });
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(pipelineSends).toHaveLength(0);
+    expect(runtime.handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+
   it('does not start a durable generator after its translated start frame closes the connection', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);

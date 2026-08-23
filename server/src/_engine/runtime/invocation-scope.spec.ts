@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import * as ConnectionStore from './connection-store.ts';
 import { deleteConnectionState, persistAttachment } from './hibernation.ts';
 import { withInvocationScope, withInvocationScopeSync } from './invocation-scope.ts';
 
@@ -76,20 +77,23 @@ describe('withInvocationScope', () => {
       },
     };
 
-    persistAttachment(core, connection);
+    const writeConnectionRow = vi
+      .spyOn(ConnectionStore, 'writeConnectionRow')
+      .mockImplementation(() => {});
 
-    expect(serializations).toBe(1);
-    expect(sqlExec).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT OR REPLACE'),
-      'c1',
-      'c1',
-      '{}',
-      '[]',
-      '[]',
-      '[]',
-      '{"serializations":1}',
-      '{}',
-    );
+    try {
+      persistAttachment(core, connection);
+
+      expect(serializations).toBe(1);
+      expect(writeConnectionRow).toHaveBeenCalledWith(
+        core.storage.sql,
+        expect.objectContaining({ translator_state: { serializations: 1 } }),
+        { translatorStateJson: '{"serializations":1}' },
+      );
+      expect(sqlExec).not.toHaveBeenCalled();
+    } finally {
+      writeConnectionRow.mockRestore();
+    }
   });
 
   it('forces a rollback attachment write even after the connection closes', () => {

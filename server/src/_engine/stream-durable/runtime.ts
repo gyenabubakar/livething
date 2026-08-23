@@ -774,6 +774,10 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
+      const serializedCursor =
+        def.kind === 'resumable' && cursorValue !== undefined
+          ? serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`)
+          : undefined;
       if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
           userId,
@@ -816,14 +820,10 @@ async function runGenerator(
 
       function persistDelivery(): void {
         if (def.kind === 'resumable' && cursorValue !== undefined) {
-          const serializedCursor = serializeJsonOrThrow(
-            cursorValue,
-            `Durable stream cursor for "${def.event}"`,
-          );
           Storage.updateCursor(runtime.sql, {
             userId,
             streamId,
-            cursor: serializedCursor,
+            cursor: serializedCursor!,
             lastSeq: seq,
             now,
           });
