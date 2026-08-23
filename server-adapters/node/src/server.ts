@@ -1,0 +1,210 @@
+import { createServer } from 'node:http';
+import { adapter } from '@wskit/server/adapters';
+import type {
+  AdminContext,
+  ApiOf,
+  Engine,
+  EngineOptions,
+  Logger,
+  ServerDefinition,
+} from '@wskit/server/adapters';
+import type { IncomingMessage, Server } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { createAsyncContext } from './async-context.ts';
+import { createRuntime } from './runtime.ts';
+import { createWebSocketBridge } from './socket.ts';
+import { createUpgradeHandler } from './upgrade.ts';
+import type { NodeClientIpConfig } from './client-ip.ts';
+import type { NodeStorageOptions } from './providers/storage.ts';
+import type { NodeWebSocketServer } from './upgrade.ts';
+
+type EngineRuntimeOptions = Omit<
+  EngineOptions,
+  'adapterId' | 'hibernation' | 'asyncContextFactory'
+>;
+
+export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOptions, 'logger'> {
+  /** Attach WSKit to an existing Node HTTP server, such as an Express server. */
+  server?: Server;
+
+  /** Create and listen on an owned HTTP server when `server` is omitted. */
+  port?: number | string;
+
+  /** Host passed to the owned HTTP server's `listen()` call. */
+  host?: string;
+
+  env?: Env;
+
+  logger?: Logger;
+
+  clientIp?: NodeClientIpConfig;
+
+  /** Inject a configured `ws` server for tests or advanced transport setup. */
+  webSocketServer?: NodeWebSocketServer;
+}
+
+export type NodeAdmin<TApi = unknown> = AdminContext<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  unknown
+> &
+  TApi;
+
+export interface NodeServer<Env = unknown, TApi = unknown> {
+  readonly server: Server;
+  readonly ready: Promise<void>;
+  admin(): NodeAdmin<TApi>;
+  shutdown(): Promise<void>;
+  readonly env: Env;
+}
+
+const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unknown>>({
+  id: 'node',
+  asyncContextFactory: createAsyncContext,
+
+  setup<TApi>(
+    createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
+    options: NodeServerOptions<unknown>,
+  ) {
+    if (options.server && options.port !== undefined) {
+      throw new TypeError('[wskit] Node server options cannot include both server and port.');
+    }
+
+    if (!options.server && options.port === undefined) {
+      throw new TypeError('[wskit] Node server options need either server or port.');
+    }
+
+    const ownsServer = options.server === undefined;
+    const server =
+      options.server ??
+      createServer((_request, response) => {
+        response.statusCode = 404;
+        response.end();
+      });
+
+    const env = options.env ?? {};
+    const runtime = createRuntime({
+      server,
+      env,
+      sql: options.sql,
+      kv: options.kv,
+      logger: options.logger,
+    });
+
+    const logger = runtime.logger;
+    let shuttingDown = false;
+    let shutdownPromise: Promise<void> | undefined;
+    const pendingUpgrades = new Set<Promise<void>>();
+
+    const engine = createEngine({
+      logger,
+      env: runtime.env,
+      platform: runtime.platform,
+      storage: runtime.storage,
+      timers: runtime.timers,
+      waitUntil: runtime.waitUntil.waitUntil,
+    });
+
+    const upgrade = createUpgradeHandler({
+      engine,
+      clientIp: options.clientIp,
+      webSocketServer: options.webSocketServer,
+      onAccepted(webSocket, _request, decision) {
+        createWebSocketBridge({ engine, socket: webSocket, decision });
+      },
+    });
+
+    function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+      const task = ready
+        .then(() => {
+          if (shuttingDown) return;
+          return upgrade(request, socket, head);
+        })
+        .catch((error: unknown) => {
+          logger.error('[wskit] Node upgrade failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          socket.destroy();
+        });
+      pendingUpgrades.add(task);
+      void task.finally(() => pendingUpgrades.delete(task));
+    }
+
+    server.on('upgrade', handleUpgrade);
+
+    const ready = (async () => {
+      await engine.initialize();
+      engine.reconcileConnections(new Set());
+      await runtime.timers.start(() => engine.handleAlarm());
+      if (!shuttingDown && ownsServer) {
+        await listen(server, options.port!, options.host);
+      }
+    })();
+    void ready.catch(() => {});
+
+    const service: NodeServer<unknown, TApi> = {
+      server,
+      ready,
+      env,
+      admin() {
+        return engine.admin() as NodeAdmin<TApi>;
+      },
+      shutdown() {
+        if (shutdownPromise) return shutdownPromise;
+        shuttingDown = true;
+        server.off('upgrade', handleUpgrade);
+        shutdownPromise = (async () => {
+          await Promise.all([...pendingUpgrades]);
+
+          let startupError: unknown;
+          try {
+            await ready;
+          } catch (error) {
+            startupError = error;
+          }
+
+          try {
+            if (startupError === undefined) await engine.handleShutdown();
+          } finally {
+            await runtime.close();
+            if (ownsServer) await closeServer(server);
+          }
+
+          if (startupError !== undefined) throw startupError;
+        })();
+        return shutdownPromise;
+      },
+    };
+
+    return service;
+  },
+});
+
+function listen(server: Server, port: number | string, host?: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    function onError(error: Error): void {
+      server.off('error', onError);
+      reject(error);
+    }
+
+    server.once('error', onError);
+    server.listen({ port, host }, () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+export function server<THandler extends ServerDefinition, Env = unknown>(
+  handler: THandler,
+  options: NodeServerOptions<Env>,
+): NodeServer<Env, ApiOf<THandler>> {
+  return buildServe(handler, options) as unknown as NodeServer<Env, ApiOf<THandler>>;
+}

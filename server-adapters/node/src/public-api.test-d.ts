@@ -3,6 +3,8 @@
 import * as Adapter from './index.ts';
 import type { Platform } from './index.ts';
 
+void Adapter.server;
+
 declare const _platform: Platform;
 void _platform;
 
