@@ -1,10 +1,16 @@
 import type { Server } from 'node:http';
 
-export interface NodePlatform<Env = unknown> {
+/**
+ * Node-specific escape hatch exposed as `ctx.platform`.
+ *
+ * Most application code should use the portable WSKit context APIs. Use this
+ * object when code needs the live Node HTTP server or the adapter environment.
+ */
+export interface Platform<Env = unknown> {
   server: Server;
   env: Env;
 }
 
-export function createPlatform<Env>(server: Server, env: Env): NodePlatform<Env> {
+export function createPlatform<Env>(server: Server, env: Env): Platform<Env> {
   return { server, env };
 }
