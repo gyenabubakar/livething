@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import process from 'node:process';
 import { adapter } from '@wskit/server/adapters';
 import type {
   AdminContext,
@@ -23,6 +24,8 @@ type EngineRuntimeOptions = Omit<
   'adapterId' | 'hibernation' | 'asyncContextFactory'
 >;
 
+type ShutdownSignal = 'SIGINT' | 'SIGTERM';
+
 export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOptions, 'logger'> {
   /** Attach WSKit to an existing Node HTTP server, such as an Express server. */
   server?: Server;
@@ -41,6 +44,9 @@ export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOption
 
   /** Inject a configured `ws` server for tests or advanced transport setup. */
   webSocketServer?: NodeWebSocketServer;
+
+  /** Automatically drain the service when the Node process receives SIGINT or SIGTERM. */
+  shutdownOnSignal?: boolean;
 }
 
 export type NodeAdmin<TApi = unknown> = AdminContext<
@@ -95,6 +101,7 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
     let shuttingDown = false;
     let shutdownPromise: Promise<void> | undefined;
     const pendingUpgrades = new Set<Promise<void>>();
+    const signalHandlers = new Map<ShutdownSignal, () => void>();
 
     const engine = createEngine({
       logger,
@@ -142,6 +149,13 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
     })();
     void ready.catch(() => {});
 
+    function detachSignalHandlers(): void {
+      for (const [signal, handler] of signalHandlers) {
+        process.off(signal, handler);
+      }
+      signalHandlers.clear();
+    }
+
     const service: NodeServer<unknown, TApi> = {
       server,
       ready,
@@ -152,6 +166,7 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
       shutdown() {
         if (shutdownPromise) return shutdownPromise;
         shuttingDown = true;
+        detachSignalHandlers();
         server.off('upgrade', handleUpgrade);
         shutdownPromise = (async () => {
           await Promise.all([...pendingUpgrades]);
@@ -175,6 +190,22 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
         return shutdownPromise;
       },
     };
+
+    const shouldShutdownOnSignal = options.shutdownOnSignal ?? ownsServer;
+    if (shouldShutdownOnSignal) {
+      for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+        function handler(): void {
+          void service.shutdown().catch((error: unknown) => {
+            logger.error('[wskit] Node signal shutdown failed', {
+              signal,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+        signalHandlers.set(signal, handler);
+        process.once(signal, handler);
+      }
+    }
 
     return service;
   },

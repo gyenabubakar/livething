@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
+import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@wskit/server/adapters';
 import type { Server } from 'node:http';
@@ -198,5 +199,33 @@ describe('server()', () => {
     await service.shutdown();
 
     expect(httpServer.close).not.toHaveBeenCalled();
+  });
+
+  it('shuts down on SIGTERM when signal handling is enabled', async () => {
+    const httpServer = new FakeHttpServer();
+    const service = server({} as never, {
+      server: httpServer as unknown as Server,
+      shutdownOnSignal: true,
+    });
+
+    await service.ready;
+    process.emit('SIGTERM');
+
+    await vi.waitFor(() => expect(fake.handleShutdown).toHaveBeenCalledOnce());
+    await service.shutdown();
+  });
+
+  it('does not install signal handlers when signal shutdown is disabled', async () => {
+    const before = process.listeners('SIGTERM');
+    const httpServer = new FakeHttpServer();
+    const service = server({} as never, {
+      server: httpServer as unknown as Server,
+      shutdownOnSignal: false,
+    });
+
+    await service.ready;
+
+    expect(process.listeners('SIGTERM')).toEqual(before);
+    await service.shutdown();
   });
 });
