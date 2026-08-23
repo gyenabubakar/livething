@@ -1,0 +1,23 @@
+{
+  "name": "@wskit/tests-e2e-server-node",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build:deps": "pnpm --filter @wskit/server-node... run build",
+    "dev:server": "node --experimental-strip-types src/index.ts",
+    "test:e2e:node": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:server' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf node_modules .node-e2e-state"
+  },
+  "dependencies": {
+    "@wskit/server": "workspace:*",
+    "@wskit/server-node": "workspace:*",
+    "@wskit/tests-e2e-handlers": "workspace:*",
+    "valibot": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "typescript": "^6.0.2"
+  }
+}

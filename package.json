@@ -15,6 +15,7 @@
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare",
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
     "test:e2e:cloudflare": "pnpm -r run test:e2e:cloudflare",
+    "test:e2e:node": "pnpm -r run test:e2e:node",
     "bench": "pnpm -r run bench",
     "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@wskit/website' run typecheck",
     "dup": "jscpd",
@@ -28,7 +29,7 @@
     "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean",
     "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e",
-    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm depcruise && pnpm bundle-check"
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm test:e2e:node && pnpm depcruise && pnpm bundle-check"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",

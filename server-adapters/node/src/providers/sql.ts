@@ -48,7 +48,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     const trimmed = query.trim();
     if (trimmed.length === 0) return emptyResult<TRow>();
 
-    if (/^\s*(SELECT|WITH|PRAGMA\b)/i.test(trimmed)) {
+    if (/^\s*(SELECT|WITH|PRAGMA\s+table_info)/i.test(trimmed)) {
       const rows = database.prepare(trimmed).all(...(params as never[])) as TRow[];
       return createResult(rows);
     }

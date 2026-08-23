@@ -28,7 +28,8 @@ describe('createSql', () => {
     const runtime = createSql();
     try {
       runtime.provider.exec(
-        `CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT);
+        `PRAGMA foreign_keys = ON;
+         CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT);
          CREATE INDEX messages_id ON messages(id)`,
       );
       runtime.provider.exec('INSERT INTO messages (id, body) VALUES (?, ?)', 1, 'hello');
