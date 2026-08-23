@@ -14,15 +14,17 @@ function createFakeCore(): {
   core: EngineCore;
   writes: string[];
   attachments: { wsKey: unknown; snapshot: unknown }[];
+  sqlExec: ReturnType<typeof vi.fn>;
 } {
   const writes: string[] = [];
   const attachments: { wsKey: unknown; snapshot: unknown }[] = [];
 
+  const sqlExec = vi.fn((query: string) => {
+    writes.push(query.trim().split(/\s+/).slice(0, 2).join(' '));
+    return { toArray: () => [], one: () => null, raw: () => [] };
+  });
   const sql = {
-    exec: vi.fn((query: string) => {
-      writes.push(query.trim().split(/\s+/).slice(0, 2).join(' '));
-      return { toArray: () => [], one: () => null, raw: () => [] };
-    }),
+    exec: sqlExec,
     transaction: vi.fn(<T>(fn: (tx: unknown) => T) => fn(sql)),
   };
 
@@ -39,7 +41,7 @@ function createFakeCore(): {
     storage: { sql },
   } as unknown as EngineCore;
 
-  return { core, writes, attachments };
+  return { core, writes, attachments, sqlExec };
 }
 
 function createFakeConnection(id: string): RuntimeConnection {
@@ -57,6 +59,39 @@ function createFakeConnection(id: string): RuntimeConnection {
 }
 
 describe('withInvocationScope', () => {
+  it('serializes translator state once and reuses that JSON for persistence', () => {
+    const { core, sqlExec } = createFakeCore();
+    const connection = createFakeConnection('c1');
+    let serializations = 0;
+    connection.translator = {
+      inbound: (raw) => raw,
+      hibernation: {
+        serialize: () => ({
+          toJSON() {
+            serializations += 1;
+            return { serializations };
+          },
+        }),
+        restore() {},
+      },
+    };
+
+    persistAttachment(core, connection);
+
+    expect(serializations).toBe(1);
+    expect(sqlExec).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT OR REPLACE'),
+      'c1',
+      'c1',
+      '{}',
+      '[]',
+      '[]',
+      '[]',
+      '{"serializations":1}',
+      '{}',
+    );
+  });
+
   it('forces a rollback attachment write even after the connection closes', () => {
     const { core, writes } = createFakeCore();
     const connection = createFakeConnection('c1');

@@ -77,7 +77,7 @@ describe('common engine deps', () => {
 });
 
 describe('connection close dependencies', () => {
-  it('deletes hibernation state during production close cleanup', async () => {
+  it('passes hibernation-state cleanup into the connection close runtime', async () => {
     const connection = { id: 'conn_1' };
     const core = {
       compiled: {},

@@ -472,6 +472,7 @@ export async function runStream(
       });
       if (!sent) {
         activeStream.closed = true;
+        await iterator.return?.(undefined);
         break;
       }
 

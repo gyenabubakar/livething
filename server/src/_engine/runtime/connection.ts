@@ -3,6 +3,7 @@ import {
   CloseCodes,
   isWSKitConfigError,
   StreamAborted,
+  WSKitConfigError,
 } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
@@ -262,11 +263,11 @@ function rethrowTranslatorConfigError(
 
 function assertTranslator(value: unknown): Translator {
   if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
-    throw new Error('[wskit] translator factory did not return inbound(raw).');
+    throw new WSKitConfigError('translator factory did not return inbound(raw).');
   }
   const translator = value as Translator;
   if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
-    throw new Error('[wskit] translator outbound must be a function when provided.');
+    throw new WSKitConfigError('translator outbound must be a function when provided.');
   }
   if (
     translator.hibernation !== undefined &&
@@ -275,7 +276,9 @@ function assertTranslator(value: unknown): Translator {
       typeof translator.hibernation.serialize !== 'function' ||
       typeof translator.hibernation.restore !== 'function')
   ) {
-    throw new Error('[wskit] translator hibernation must provide both serialize() and restore().');
+    throw new WSKitConfigError(
+      'translator hibernation must provide both serialize() and restore().',
+    );
   }
   return translator;
 }

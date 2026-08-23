@@ -487,6 +487,18 @@ describe('translation runtime', () => {
     );
   });
 
+  it('surfaces a malformed direct translator factory as a configuration error', () => {
+    const engine = runtime({
+      translatorFactory: () => ({ outbound() {} }) as never,
+    });
+    const socket = descriptor();
+
+    expect(() => acceptConnection(engine as never, Symbol('malformed'), socket)).toThrow(
+      WSKitConfigError,
+    );
+    expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+  });
+
   it('keeps hibernation state when a live config-error close is cleaned up', async () => {
     const deleteConnectionState = vi.fn();
     const engine = runtime({

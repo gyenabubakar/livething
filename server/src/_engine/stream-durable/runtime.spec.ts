@@ -182,6 +182,30 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('suspended');
   });
 
+  it('does not advance a resumable cursor when its chunk is rejected', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+    runtime.sendThroughPipeline = vi.fn(() => false);
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ row: 1 }, { idx: 1 });
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    const row = Storage.readStream(sql, 'u1', 'gen-1')!;
+    expect(row.cursor).toBeNull();
+    expect(row.lastSeq).toBe(0);
+  });
+
   it('does not start a durable generator after its translated start frame closes the connection', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1750,6 +1774,7 @@ describe('durable stream runtime', () => {
     await new Promise((r) => setTimeout(r, 10));
     const live = [...runtime.activeStreams.values()][0]!;
     await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
+    original.closing = true;
 
     await resumeDurableStream(runtime as never, reconnect, {
       resolveDef: () => ({
@@ -1773,8 +1798,8 @@ describe('durable stream runtime', () => {
     const end = protocolMessages.find(
       (message) => message.event === '__streamEnd__' && message.wskit.streamId === live.id,
     );
-    expect(end?.targetId).toBe('c-new');
-    expect(reconnect.activeStreamIds?.has(live.id)).toBe(false);
+    expect(end?.targetId).toBe(reconnect.id);
+    expect(Storage.readStream(sql, 'u1', live.id)?.status).toBe('ended');
   });
 
   it('synchronous throw while creating the generator marks the row ended (not stuck active)', async () => {

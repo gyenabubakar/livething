@@ -1,4 +1,4 @@
-import { CloseCodes } from '@wskit/core';
+import { CloseCodes, WSKitConfigError } from '@wskit/core';
 import { acceptConnection } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -120,6 +120,21 @@ describe('acceptConnection — users.maxConnections policy', () => {
     expect(first.close).not.toHaveBeenCalled();
     expect(rejected.close).toHaveBeenCalledWith(1011, '[wskit] translator failed');
     expect(runtime.usersByKey.get('u1')?.size).toBe(1);
+  });
+
+  it('reports a malformed direct translator factory as configuration error', () => {
+    const runtime = createRuntime(undefined, {
+      translatorFactory() {
+        return { outbound() {} };
+      },
+    });
+    const descriptor = descriptorFor('u1');
+
+    expect(() =>
+      acceptConnection(runtime as never, Symbol('invalid-translator'), descriptor),
+    ).toThrow(WSKitConfigError);
+    expect(descriptor.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
+    expect(runtime.connections).toHaveLength(0);
   });
 
   it('replace evicts multiple oldest connections when the newcomer pushes further over the cap', () => {

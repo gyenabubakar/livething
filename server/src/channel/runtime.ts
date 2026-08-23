@@ -580,11 +580,11 @@ async function runSubscribeFlow(
       wskit: confirmation,
     });
   } catch (error) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     throw error;
   }
   if (connection.closing) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     return;
   }
 
@@ -595,11 +595,11 @@ async function runSubscribeFlow(
       wskit: { ...wskit, source },
     });
   } catch (error) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     throw error;
   }
   if (connection.closing) {
-    rollbackFailedSubscribe(runtime, connection, { scope, isDurable });
+    rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     return;
   }
 
@@ -643,12 +643,12 @@ async function runSubscribeFlow(
 function rollbackFailedSubscribe(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
-  opts: { scope: ResolvedChannelTarget; isDurable: boolean },
+  opts: { scope: ResolvedChannelTarget; isDurable: boolean; rejoining: boolean },
 ): void {
-  const { scope, isDurable } = opts;
+  const { scope, isDurable, rejoining } = opts;
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection, { force: true });
-  if (!isDurable || connection.userId === '') return;
+  if (rejoining || !isDurable || connection.userId === '') return;
 
   const members = runtime.channelMembers.get(
     createChannelMembershipKey(scope.channelName, scope.channelFamily),

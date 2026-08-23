@@ -53,7 +53,7 @@ export function flushDirtyAttachment(
   if (!core.hibernationEnabled) return;
   if (!options.force && connection.closing) return;
 
-  let state: unknown;
+  let state: ConnectionStore.SerializedTranslatorState;
   try {
     state = translatorState(connection);
   } catch (error) {
@@ -72,20 +72,24 @@ export function flushDirtyAttachment(
   }
 }
 
-function translatorState(connection: RuntimeConnection): unknown {
+function translatorState(connection: RuntimeConnection): ConnectionStore.SerializedTranslatorState {
   return ConnectionStore.serializeTranslatorState(connection);
 }
 
 function flushConnectionState(
   core: EngineCore,
   connection: RuntimeConnection,
-  translatorState: unknown,
+  translatorState: ConnectionStore.SerializedTranslatorState,
 ): void {
-  const row = ConnectionStore.buildConnectionRow(connection, { translatorState });
-  const fingerprint = JSON.stringify(row);
+  const row = ConnectionStore.buildConnectionRow(connection, {
+    translatorState: translatorState.value,
+  });
+  const fingerprint = JSON.stringify({ ...row, translator_state: translatorState.json });
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
-  ConnectionStore.writeConnectionRow(core.storage.sql, row);
+  ConnectionStore.writeConnectionRow(core.storage.sql, row, {
+    translatorStateJson: translatorState.json,
+  });
   const persistResult = core.options.hibernation?.persist(connection.wsKey, {
     id: connection.id,
   });

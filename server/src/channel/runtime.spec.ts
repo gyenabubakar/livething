@@ -1247,6 +1247,37 @@ describe('subscribeConnectionAsServer', () => {
     expect(onSubscribeHook).not.toHaveBeenCalled();
   });
 
+  it('keeps saved durable membership and inbox when a rejoin confirmation closes', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    const deleteDurableMembership = vi.fn();
+    const clearInbox = vi.fn();
+    connections.set(target.id, target);
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelDurable: () => true,
+      hasDurableMembership: () => true,
+      deleteDurableMembership,
+      clearInbox,
+      sendProtocolMessage: () => {
+        Object.assign(target, { closing: true });
+      },
+    };
+
+    await subscribeConnectionAsServer(rejoinRuntime, target, {
+      channelName: 'room:general',
+      channelFamily: 'rooms',
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      false,
+    );
+    expect(deleteDurableMembership).not.toHaveBeenCalled();
+    expect(clearInbox).not.toHaveBeenCalled();
+  });
+
   it('a throwing revalidate rejects rejoin and does not commit membership', async () => {
     const { connections, runtime } = createRuntime();
     const target = createConnection('target', { userId: 't' });

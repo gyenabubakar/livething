@@ -771,7 +771,6 @@ async function runGenerator(
       seq += 1;
       const { chunkValue, cursorValue } = unwrapYield(result.value);
 
-      // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
@@ -815,21 +814,25 @@ async function runGenerator(
         }
       }
 
-      if (def.kind === 'resumable' && cursorValue !== undefined) {
-        const serializedCursor = serializeJsonOrThrow(
-          cursorValue,
-          `Durable stream cursor for "${def.event}"`,
-        );
-        Storage.updateCursor(runtime.sql, {
-          userId,
-          streamId,
-          cursor: serializedCursor,
-          lastSeq: seq,
-          now,
-        });
-      } else {
+      function persistDelivery(): void {
+        if (def.kind === 'resumable' && cursorValue !== undefined) {
+          const serializedCursor = serializeJsonOrThrow(
+            cursorValue,
+            `Durable stream cursor for "${def.event}"`,
+          );
+          Storage.updateCursor(runtime.sql, {
+            userId,
+            streamId,
+            cursor: serializedCursor,
+            lastSeq: seq,
+            now,
+          });
+          return;
+        }
         Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
       }
+
+      if (def.kind !== 'resumable') persistDelivery();
 
       const wirePayload = chunkToPayload(chunkValue);
 
@@ -893,13 +896,15 @@ async function runGenerator(
         }
       }
 
+      if (def.kind === 'resumable') persistDelivery();
+
       if (hasNudges) {
         nextInput = [...nudgeBuffer];
         nudgeBuffer.length = 0;
       }
     }
 
-    if (activeStream.closed || connection.closing) {
+    if (activeStream.closed || attachedConnection()?.closing) {
       // Only suspend if still active and this run still owns the slot — a
       // replacement would otherwise have its 'active' row flipped to 'suspended'.
       const row = Storage.readStream(runtime.sql, userId, streamId);

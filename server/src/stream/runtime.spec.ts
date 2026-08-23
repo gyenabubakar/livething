@@ -142,6 +142,7 @@ describe('stream/runtime', () => {
     const { runtime, protocolMessages, pipelineSends } = createStreamRuntime();
     const connection = createConnection();
     runtime.sendThroughPipeline = vi.fn(() => false);
+    let finalized = false;
 
     await runStream(runtime as Parameters<typeof runStream>[0], connection, {
       scope: {},
@@ -149,8 +150,12 @@ describe('stream/runtime', () => {
       stream: {
         stream: { nudges: [], broadcast: false },
         generator: async function* () {
-          yield { n: 1 };
-          yield { n: 2 };
+          try {
+            yield { n: 1 };
+            yield { n: 2 };
+          } finally {
+            finalized = true;
+          }
         },
       } as never,
       payload: {},
@@ -159,6 +164,7 @@ describe('stream/runtime', () => {
     expect(pipelineSends).toEqual([]);
     expect(runtime.sendThroughPipeline).toHaveBeenCalledTimes(1);
     expect(protocolMessages.some((message) => message.event === '__streamEnd__')).toBe(false);
+    expect(finalized).toBe(true);
   });
 
   it('broadcast stream sends chunks to every connection in scope', async () => {

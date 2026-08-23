@@ -50,6 +50,16 @@ export interface StoredConnectionRow {
   translator_state?: unknown;
 }
 
+/**
+ * A translator state snapshot and its already-serialized JSON form. Keeping
+ * both means persistence can compare and write the same value without asking
+ * a custom `toJSON()` method to run again.
+ */
+export interface SerializedTranslatorState {
+  value: unknown;
+  json: string | undefined;
+}
+
 type RawRow = {
   connection_id: string;
   user_id: string;
@@ -83,15 +93,16 @@ export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
  * Build the row payload from the in-memory connection record. Centralised so
  * the connect, wake, and per-state-change write paths all agree on the shape.
  */
-export function serializeTranslatorState(connection: RuntimeConnection): unknown {
+export function serializeTranslatorState(connection: RuntimeConnection): SerializedTranslatorState {
   const translatorHibernation = connection.translator?.hibernation;
   const translatorState = translatorHibernation
     ? assertSynchronousResult(translatorHibernation.serialize(), 'translator.hibernation.serialize')
     : undefined;
-  if (translatorState !== undefined) {
-    serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
+  if (translatorState === undefined) {
+    return { value: undefined, json: undefined };
   }
-  return translatorState;
+  const json = serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
+  return { value: JSON.parse(json) as unknown, json };
 }
 
 export function buildConnectionRow(
@@ -102,7 +113,9 @@ export function buildConnectionRow(
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
   }
-  const translatorState = options ? options.translatorState : serializeTranslatorState(connection);
+  const translatorState = options
+    ? options.translatorState
+    : serializeTranslatorState(connection).value;
   return {
     connection_id: connection.id,
     user_id: connection.userId,
@@ -119,7 +132,11 @@ export function buildConnectionRow(
  * Write (or replace) one connection row. Used for the initial insert on
  * accept, on each state change, and on the post-onConnect flush.
  */
-export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredConnectionRow): void {
+export function writeConnectionRow(
+  sql: Pick<SQLProvider, 'exec'>,
+  row: StoredConnectionRow,
+  options?: { translatorStateJson?: string },
+): void {
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_connections
@@ -134,7 +151,11 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
     JSON.stringify(row.active_stream_ids),
     row.translator_state === undefined
       ? null
-      : serializeJsonOrThrow(row.translator_state, `Translator state for "${row.connection_id}"`),
+      : (options?.translatorStateJson ??
+          serializeJsonOrThrow(
+            row.translator_state,
+            `Translator state for "${row.connection_id}"`,
+          )),
     serializeJsonOrThrow(row.metadata ?? {}, `Connection metadata for "${row.connection_id}"`),
   );
 }
