@@ -20,7 +20,7 @@ export default defineConfig({
     minify: true,
     sourcemap: true,
     rollupOptions: {
-      external: [/^node:/, /^@wskit\/server(?:\/.*)?$/],
+      external: [/^node:/, /^@wskit\/server(?:\/.*)?$/, /^better-sqlite3$/],
     },
   },
 });

@@ -1,0 +1,117 @@
+import Database from 'better-sqlite3';
+import type { SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
+
+export const BETTER_SQLITE3_LIMITS: SqlLimits = {
+  maxBoundParams: 32_766,
+  maxStatementBytes: 1_000_000_000,
+  maxValueBytes: 1_000_000_000,
+};
+
+export type NodeSqlDatabase = Database.Database;
+export type NodeSqlSource = string | NodeSqlDatabase | SQLProvider;
+
+export interface NodeSqlRuntime {
+  provider: SQLProvider;
+  database?: NodeSqlDatabase;
+  close(): void;
+}
+
+export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
+  if (isSqlProvider(source)) {
+    return { provider: source, close() {} };
+  }
+
+  const database = typeof source === 'string' ? new Database(source) : source;
+  const ownsDatabase = typeof source === 'string';
+  database.pragma('foreign_keys = ON');
+
+  return {
+    provider: createSqlProvider(database),
+    database,
+    close() {
+      if (ownsDatabase) database.close();
+    },
+  };
+}
+
+function isSqlProvider(source: NodeSqlSource): source is SQLProvider {
+  return (
+    typeof source === 'object' &&
+    'limits' in source &&
+    typeof source.exec === 'function' &&
+    typeof source.transaction === 'function'
+  );
+}
+
+function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
+  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) return emptyResult<TRow>();
+
+    if (/^\s*(SELECT|WITH|PRAGMA\b)/i.test(trimmed)) {
+      const rows = database.prepare(trimmed).all(...(params as never[])) as TRow[];
+      return createResult(rows);
+    }
+
+    const statements = trimmed
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    const last = statements.pop();
+    if (!last) return emptyResult<TRow>();
+
+    for (const statement of statements) database.exec(statement);
+    database.prepare(last).run(...(params as never[]));
+    return emptyResult<TRow>();
+  }
+
+  return {
+    exec,
+    limits: BETTER_SQLITE3_LIMITS,
+    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
+      const runTransaction = database.transaction(() => fn({ exec }));
+      return runTransaction();
+    },
+  };
+}
+
+function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
+  let consumed: 'toArray' | 'one' | 'raw' | null = null;
+
+  function claim(method: 'toArray' | 'one' | 'raw'): void {
+    if (consumed) {
+      throw new Error(
+        `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
+      );
+    }
+    consumed = method;
+  }
+
+  return {
+    toArray() {
+      claim('toArray');
+      return rows;
+    },
+    one() {
+      claim('one');
+      if (rows.length > 1) {
+        throw new Error(
+          '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
+        );
+      }
+      return rows[0] ?? null;
+    },
+    raw() {
+      claim('raw');
+      return rows.map((row) => Object.values(row as Record<string, unknown>));
+    },
+  };
+}
+
+function emptyResult<TRow>(): SqlResult<TRow> {
+  return {
+    toArray: () => [],
+    one: () => null,
+    raw: () => [],
+  };
+}
