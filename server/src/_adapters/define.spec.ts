@@ -4,14 +4,14 @@ import type { Engine } from '~/_engine/engine.ts';
 import type { AsyncContextFactory, Logger, TimerProvider } from '~/context.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { adapter } from './define.ts';
-import type { EngineOptions } from './types.ts';
+import type { EngineRuntimeOptions } from './types.ts';
 
 const noopHibernation = {
   persist: vi.fn(),
   restore: vi.fn(() => undefined),
 };
 
-type RuntimeOptions = Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>;
+type RuntimeOptions = EngineRuntimeOptions;
 
 function makeAsyncContextFactory(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {

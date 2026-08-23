@@ -111,8 +111,29 @@ export interface HibernationApi {
   restore(wsKey: unknown): unknown;
 }
 
-/** Configuration the adapter passes when creating an engine instance. */
-export interface EngineOptions {
+/** Runtime surfaces a platform adapter must provide for each engine instance. */
+export interface EngineRuntimeOptions {
+  /** Adapter-provided SQL and key-value storage surface. Every adapter provides this. */
+  storage: StorageProvider;
+
+  /** Env bindings exposed to every runtime context. */
+  env: Record<string, unknown>;
+
+  /** Adapter-specific platform object exposed as `ctx.platform`. */
+  platform: unknown;
+
+  /** Adapter-provided durable alarm implementation. Every adapter provides this. */
+  timers: TimerProvider;
+
+  /** Platform hook for background work that may outlive the current callback. */
+  waitUntil: (promise: Promise<unknown>) => void;
+
+  /** Structured logger exposed as `ctx.log`. */
+  logger: Logger;
+}
+
+/** Complete configuration passed to the engine constructor by the adapter factory. */
+export interface EngineOptions extends EngineRuntimeOptions {
   /**
    * Stable identifier for the adapter, used for wake/hibernate routing on
    * platforms that need to look up the right engine after a cold start.
@@ -128,26 +149,8 @@ export interface EngineOptions {
    */
   hibernation?: HibernationApi;
 
-  /** Adapter-provided SQL and key-value storage surface. Every adapter provides this. */
-  storage: StorageProvider;
-
-  /** Env bindings exposed to every runtime context. */
-  env: Record<string, unknown>;
-
-  /** Adapter-specific platform object exposed as `ctx.platform`. */
-  platform: unknown;
-
-  /** Adapter-provided durable alarm implementation. Every adapter provides this. */
-  timers: TimerProvider;
-
   /** Factory for the async-context implementation used by this runtime. */
   asyncContextFactory: AsyncContextFactory;
-
-  /** Platform hook for background work that may outlive the current callback. */
-  waitUntil: (promise: Promise<unknown>) => void;
-
-  /** Structured logger exposed as `ctx.log`. */
-  logger: Logger;
 }
 
 /**
@@ -192,9 +195,7 @@ export interface AdapterConfig<TOptions, TService> {
    * generic `server(handler)` of its own on top of this.
    */
   setup<TApi>(
-    createEngine: (
-      runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>,
-    ) => Engine<TApi>,
+    createEngine: (runtimeOptions: EngineRuntimeOptions) => Engine<TApi>,
     options: TOptions,
   ): TService;
 }

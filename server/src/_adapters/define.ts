@@ -18,10 +18,7 @@ export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TSer
     options: TOptions,
   ): TService {
     function createEngine(
-      runtimeOptions: Omit<
-        AdapterTypes.EngineOptions,
-        'adapterId' | 'hibernation' | 'asyncContextFactory'
-      >,
+      runtimeOptions: AdapterTypes.EngineRuntimeOptions,
     ): EngineModule.Engine<TApi> {
       return new EngineModule.Engine(handler, {
         adapterId: config.id,

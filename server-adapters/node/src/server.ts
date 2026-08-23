@@ -5,7 +5,7 @@ import type {
   AdminContext,
   ApiOf,
   Engine,
-  EngineOptions,
+  EngineRuntimeOptions,
   Logger,
   ServerDefinition,
 } from '@wskit/server/adapters';
@@ -18,11 +18,6 @@ import { createUpgradeHandler } from './upgrade.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
-
-type EngineRuntimeOptions = Omit<
-  EngineOptions,
-  'adapterId' | 'hibernation' | 'asyncContextFactory'
->;
 
 type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 

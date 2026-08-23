@@ -5,7 +5,7 @@ import type {
   ApiOf,
   ConnectionHandle,
   Engine,
-  EngineOptions,
+  EngineRuntimeOptions,
   Logger,
   MetaOf,
   ServerDefinition,
@@ -54,12 +54,6 @@ export type CloudflareDurableObjectClass<
   TApi = unknown,
   TMeta = Record<string, never>,
 > = new (ctx: DurableObjectState, env: Env) => WSKitDurableObjectInstance<Env, TApi, TMeta>;
-
-/** What the shared adapter factory passes to `createEngine` inside `setup`. */
-type EngineRuntimeOptions = Omit<
-  EngineOptions,
-  'adapterId' | 'hibernation' | 'asyncContextFactory'
->;
 
 function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
