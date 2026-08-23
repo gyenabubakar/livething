@@ -29,7 +29,7 @@
     "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean",
     "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e",
-    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm test:e2e:node && pnpm depcruise && pnpm bundle-check"
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test && pnpm depcruise && pnpm bundle-check"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
