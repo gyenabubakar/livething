@@ -5,6 +5,7 @@ const scopes = [
   'shared',
   'server-adapters',
   'server-adapters/cloudflare',
+  'server-node',
   'cloudflare',
   'tests-e2e',
   'e2e',

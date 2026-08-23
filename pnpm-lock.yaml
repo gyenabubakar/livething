@@ -118,6 +118,18 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4(@types/node@24.12.0)(rollup@4.62.2)(typescript@6.0.2)(vite@8.0.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))
 
+  server-adapters/node:
+    devDependencies:
+      '@wskit/server':
+        specifier: workspace:*
+        version: link:../../server
+      vite:
+        specifier: 8.0.5
+        version: 8.0.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0)
+      vite-plugin-dts:
+        specifier: ^4.5.4
+        version: 4.5.4(@types/node@24.12.0)(rollup@4.62.2)(typescript@6.0.2)(vite@8.0.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@24.12.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.22.3)(yaml@2.9.0))
+
   tests-e2e/client:
     dependencies:
       '@wskit/client':
