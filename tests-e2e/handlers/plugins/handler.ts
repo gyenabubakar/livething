@@ -61,6 +61,9 @@ export function createPluginsHandler<
 
   const drizzleCapability = drizzle();
 
+  // This shared factory is generic over the plugin's environment. The concrete
+  // plugin passed by each adapter supplies the requirement at its call site.
+  // @ts-expect-error TypeScript cannot prove that relationship inside the generic factory.
   const base = define({
     env: t<Env & TEnv>(),
     upgrade: (request) => requireUsername(request),
@@ -109,7 +112,9 @@ export function createPluginsHandler<
   const handleGetRecord = base.on('get-record', {
     input: GetRecord,
     run(ctx, payload) {
-      ctx.send('single-record', { record: ctx.plugin('e2e:drizzle').findById(payload.id) });
+      ctx.send('single-record', {
+        record: ctx.plugin('e2e:drizzle').findById(payload.id) ?? null,
+      });
     },
   });
 

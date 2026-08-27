@@ -28,7 +28,7 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
   );
   const deleteStatement = database.prepare(`DELETE FROM ${KV_TABLE} WHERE key = ?`);
   const listStatement = database.prepare(
-    `SELECT key, value, expires_at AS expiresAt FROM ${KV_TABLE} WHERE key LIKE ? ESCAPE '!'`,
+    `SELECT key, value, expires_at AS expiresAt FROM ${KV_TABLE} WHERE key GLOB ?`,
   );
 
   function readFresh(row: KvRow | undefined): KvRow | undefined {
@@ -64,7 +64,7 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
     },
 
     async list(prefix) {
-      const pattern = prefix === undefined ? '%' : `${escapeLike(prefix)}%`;
+      const pattern = prefix === undefined ? '*' : `${escapeGlob(prefix)}*`;
       const rows = listStatement.all(pattern) as KvRow[];
       const keys: string[] = [];
 
@@ -91,6 +91,6 @@ function decode(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
 
-function escapeLike(value: string): string {
-  return value.replace(/[!%_]/g, (character) => `!${character}`);
+function escapeGlob(value: string): string {
+  return value.replace(/[*?[]/g, (character) => `[${character}]`);
 }

@@ -100,6 +100,13 @@ define({
   capabilities: [EnvPlugin()],
 });
 
+// An ordinary host capability must not hide a plugin's environment requirement.
+// @ts-expect-error — the plugin still requires auth when the host declares emits
+define({
+  env: t<{ region: string }>(),
+  capabilities: [emits({ hostEvent: t<{ ok: boolean }>() }), EnvPlugin()],
+});
+
 // ---------------------------------------------------------------------------
 // Gap 2 — `api` return type is inferred (no annotation) and reaches the host
 // through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server

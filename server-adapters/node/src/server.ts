@@ -60,7 +60,7 @@ export type NodeAdmin<TApi = unknown> = AdminContext<
 export interface NodeServer<Env = unknown, TApi = unknown> {
   readonly server: Server;
   readonly ready: Promise<void>;
-  admin(): NodeAdmin<TApi>;
+  admin(): Promise<NodeAdmin<TApi>>;
   shutdown(): Promise<void>;
   readonly env: Env;
 }
@@ -167,7 +167,8 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
       ready,
       env,
 
-      admin() {
+      async admin() {
+        await ready;
         return engine.admin() as NodeAdmin<TApi>;
       },
 

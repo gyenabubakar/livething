@@ -48,8 +48,8 @@ function getFixture(route: string, room: string): Fixture {
   return fixture;
 }
 
-function adminOf(fixture: Fixture): AnyAdmin {
-  return fixture.service.admin() as unknown as AnyAdmin;
+async function adminOf(fixture: Fixture): Promise<AnyAdmin> {
+  return (await fixture.service.admin()) as unknown as AnyAdmin;
 }
 
 async function shutdownFixture(route: string, room: string): Promise<void> {
@@ -198,7 +198,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/admin/purge' || url.pathname === '/ws/admin/announce') {
       const fixture = getFixture('/ws/admin', room);
       await fixture.service.ready;
-      const admin = adminOf(fixture);
+      const admin = await adminOf(fixture);
       if (url.pathname.endsWith('/purge')) {
         await admin.purgeUser(url.searchParams.get('userId') ?? '');
       } else {
@@ -212,7 +212,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const fixture = getFixture('/ws/admin', room);
       await fixture.service.ready;
       const result = await runAdminOp(
-        adminOf(fixture),
+        await adminOf(fixture),
         url.pathname.slice('/ws/admin/api/'.length),
         {
           text: url.searchParams.get('text') ?? '',
@@ -233,7 +233,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const fixture = getFixture('/ws/admin', room);
       await fixture.service.ready;
       const result = await runAdminBuiltIn(
-        adminOf(fixture),
+        await adminOf(fixture),
         url.pathname.slice('/ws/admin/builtin/'.length),
         {
           text: url.searchParams.get('text') ?? '',
@@ -272,7 +272,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/receipts/seed-stale') {
       const fixture = getFixture('/ws/receipts', room);
       await fixture.service.ready;
-      await adminOf(fixture).seedStaleReceipt();
+      const admin = await adminOf(fixture);
+      await admin.seedStaleReceipt();
       writeText(response, 204, '');
       return;
     }
@@ -280,14 +281,16 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/receipts/stale-count') {
       const fixture = getFixture('/ws/receipts', room);
       await fixture.service.ready;
-      writeJson(response, 200, { count: await adminOf(fixture).staleReceiptCount() });
+      const admin = await adminOf(fixture);
+      writeJson(response, 200, { count: await admin.staleReceiptCount() });
       return;
     }
 
     if (url.pathname === '/ws/receipts/drop-inbox') {
       const fixture = getFixture('/ws/receipts', room);
       await fixture.service.ready;
-      await adminOf(fixture).dropInboxTable();
+      const admin = await adminOf(fixture);
+      await admin.dropInboxTable();
       writeText(response, 204, '');
       return;
     }
@@ -295,7 +298,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/receipts/receivers') {
       const fixture = getFixture('/ws/receipts', room);
       await fixture.service.ready;
-      const users = await adminOf(fixture).receiptUsers(
+      const admin = await adminOf(fixture);
+      const users = await admin.receiptUsers(
         url.searchParams.get('channel') ?? 'chat',
         Number(url.searchParams.get('seq') ?? 0),
       );
@@ -306,8 +310,9 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/receipts/purge') {
       const fixture = getFixture('/ws/receipts', room);
       await fixture.service.ready;
+      const admin = await adminOf(fixture);
       try {
-        await adminOf(fixture).purgeUser('alice');
+        await admin.purgeUser('alice');
         writeText(response, 204, '');
       } catch {
         writeText(response, 500, '');

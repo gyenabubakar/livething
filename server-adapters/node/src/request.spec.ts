@@ -37,6 +37,17 @@ describe('requestToWebRequest', () => {
     expect(request.body).toBeNull();
   });
 
+  it('keeps the Host header as the authority for a network-path request target', () => {
+    const request = requestToWebRequest(
+      incomingRequest({
+        url: '//evil.example/chat',
+        headers: { host: 'trusted.example' },
+      }),
+    );
+
+    expect(request.url).toBe('http://trusted.example//evil.example/chat');
+  });
+
   it('preserves the supplied abort signal', () => {
     const controller = new AbortController();
     const request = requestToWebRequest(incomingRequest(), { signal: controller.signal });

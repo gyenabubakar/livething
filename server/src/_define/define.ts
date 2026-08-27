@@ -1803,16 +1803,17 @@ export type AssembleInput = Contribution & { readonly __wskitCapability?: never 
 
 /**
  * Compile-time check that a host's environment satisfies every listed plugin's
- * environment requirement. A plugin with no requirement contributes `unknown`.
+ * environment requirement. A plugin with no requirement contributes nothing.
  */
-type PluginEnvCheck<TEnv, TCaps extends readonly AnyCapability[]> =
-  unknown extends PluginEnvRequirements<TCaps>
+type PluginEnvCheck<TEnv, TCaps extends readonly AnyCapability[]> = [
+  PluginEnvRequirements<TCaps>,
+] extends [never]
+  ? {}
+  : TEnv extends PluginEnvRequirements<TCaps>
     ? {}
-    : TEnv extends PluginEnvRequirements<TCaps>
-      ? {}
-      : {
-          readonly __wskit_plugin_env_error: 'The host environment must satisfy every plugin environment requirement.';
-        };
+    : {
+        readonly __wskit_plugin_env_error: 'The host environment must satisfy every plugin environment requirement.';
+      };
 
 /** The rate-limit slots `assemble(...)` reads off a collected channel object. @internal */
 interface ChannelRateLimitSource {

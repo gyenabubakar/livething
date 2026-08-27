@@ -1,5 +1,6 @@
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
+import { CloseCodes } from '@wskit/server/errors';
 import { describe, expect, it, vi } from 'vitest';
 import type { UpgradeDecision } from '@wskit/server/adapters';
 import { createUpgradeHandler } from './upgrade.ts';
@@ -109,12 +110,41 @@ describe('createUpgradeHandler', () => {
 
     await createUpgradeHandler({
       engine: {
-        handleUpgrade: vi.fn(async () => ({ reject: true, code: 4002, reason: 'Invalid token' })),
+        handleUpgrade: vi.fn(async () => ({
+          reject: true,
+          code: CloseCodes.AUTH_INVALID,
+          reason: 'Invalid token',
+        })),
       },
       onAccepted: vi.fn(),
       webSocketServer,
     })(incomingRequest(), fakeSocket(), Buffer.alloc(0));
 
-    expect(webSocket.close).toHaveBeenCalledWith(4002, 'Invalid token');
+    expect(webSocket.close).toHaveBeenCalledWith(CloseCodes.AUTH_INVALID, 'Invalid token');
+  });
+
+  it('does not pass an invalid WebSocket close code to the transport', async () => {
+    const webSocket = {
+      close: vi.fn(() => {
+        throw new TypeError('First argument must be a valid error code number');
+      }),
+    };
+    const socket = fakeSocket();
+
+    await expect(
+      createUpgradeHandler({
+        engine: {
+          handleUpgrade: vi.fn(async () => ({
+            reject: true,
+            code: 1004,
+            reason: 'Invalid close code',
+          })),
+        },
+        onAccepted: vi.fn(),
+        webSocketServer: fakeWebSocketServer(webSocket),
+      })(incomingRequest(), socket, Buffer.alloc(0)),
+    ).resolves.toBeUndefined();
+
+    expect(webSocket.close).not.toHaveBeenCalledWith(1004, 'Invalid close code');
   });
 });

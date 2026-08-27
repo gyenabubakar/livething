@@ -19,7 +19,14 @@ export interface NodeStorageRuntime {
 /** Creates the Node SQL and KV providers from the server options. */
 export function createStorage(options: NodeStorageOptions = {}): NodeStorageRuntime {
   const sql = createSql(options.sql);
-  const kv = options.kv ?? createDefaultKv(sql.database, options.logger);
+
+  let kv: KVProvider;
+  try {
+    kv = options.kv ?? createDefaultKv(sql.database, options.logger);
+  } catch (error) {
+    sql.close();
+    throw error;
+  }
 
   return {
     storage: { sql: sql.provider, kv },

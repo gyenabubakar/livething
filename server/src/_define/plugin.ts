@@ -2,12 +2,7 @@
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
 import { scopePluginContext } from '~/plugin-scope.ts';
-import type {
-  AnyCapability,
-  Capability,
-  CapabilityFactory,
-  UnionToIntersection,
-} from '~/_define/capability.ts';
+import type { AnyCapability, Capability, CapabilityFactory } from '~/_define/capability.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ClientPluginContract } from '~/infer-client.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -223,14 +218,27 @@ export interface PluginCapability<
     : never;
 }
 
-/** The environment requirement carried by one capability, or `unknown` when absent. */
-export type PluginEnvOf<TCapability> =
-  TCapability extends PluginCapability<any, any, any, any, infer TEnv> ? TEnv : unknown;
+/** The environment requirement carried by one capability, or `never` when absent. */
+type RequiredPluginEnvOf<TCapability> = TCapability extends {
+  readonly __pluginId: string;
+  readonly __pluginEnv?: infer TEnv;
+}
+  ? unknown extends TEnv
+    ? never
+    : TEnv
+  : never;
 
 /** The combined environment requirement of all plugin capabilities in a host. */
-export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = UnionToIntersection<
-  PluginEnvOf<TCaps[number]>
->;
+export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = TCaps extends readonly [
+  infer THead extends AnyCapability,
+  ...infer TTail extends AnyCapability[],
+]
+  ? [RequiredPluginEnvOf<THead>] extends [never]
+    ? PluginEnvRequirements<TTail>
+    : [PluginEnvRequirements<TTail>] extends [never]
+      ? RequiredPluginEnvOf<THead>
+      : RequiredPluginEnvOf<THead> & PluginEnvRequirements<TTail>
+  : never;
 
 /**
  * A capability the app's `define({ capabilities })` accepts: any capability,

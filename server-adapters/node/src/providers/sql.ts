@@ -54,24 +54,25 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
 
     if (trimmed.length === 0) return emptyResult<TRow>();
 
-    if (/^\s*(SELECT|WITH|PRAGMA\s+table_info)/i.test(trimmed)) {
-      const rows = database.prepare(trimmed).all(...(params as never[])) as TRow[];
+    let statement: Database.Statement<unknown[], unknown>;
+    try {
+      statement = database.prepare(trimmed) as Database.Statement<unknown[], unknown>;
+    } catch (error) {
+      if (params.length > 0) throw error;
+
+      // The public SQL contract is one statement, but the engine uses an
+      // unparameterized batch for schema setup. Let SQLite parse that batch so
+      // semicolons inside string literals remain part of the SQL.
+      database.exec(trimmed);
+      return emptyResult<TRow>();
+    }
+
+    if (statement.reader) {
+      const rows = statement.all(...(params as never[])) as TRow[];
       return createResult(rows);
     }
 
-    const statements = trimmed
-      .split(';')
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-
-    const last = statements.pop();
-
-    if (!last) return emptyResult<TRow>();
-
-    // better-sqlite3 exposes query rows and write statements through different APIs.
-    for (const statement of statements) database.exec(statement);
-    database.prepare(last).run(...(params as never[]));
-
+    statement.run(...(params as never[]));
     return emptyResult<TRow>();
   }
 
@@ -122,9 +123,5 @@ function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
 }
 
 function emptyResult<TRow>(): SqlResult<TRow> {
-  return {
-    toArray: () => [],
-    one: () => null,
-    raw: () => [],
-  };
+  return createResult<TRow>([]);
 }

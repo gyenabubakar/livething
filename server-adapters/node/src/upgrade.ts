@@ -79,7 +79,7 @@ async function rejectUpgrade({
   head,
   decision,
 }: RejectUpgradeOptions): Promise<void> {
-  if ((decision.code ?? 0) >= 1000) {
+  if (decision.code !== undefined && isValidWebSocketCloseCode(decision.code)) {
     await new Promise<void>((resolve, reject) => {
       try {
         webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
@@ -98,6 +98,13 @@ async function rejectUpgrade({
   }
 
   writeHttpRejection(socket, decision);
+}
+
+function isValidWebSocketCloseCode(code: number): boolean {
+  return (
+    (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) ||
+    (code >= 3000 && code <= 4999)
+  );
 }
 
 interface RejectUpgradeOptions {

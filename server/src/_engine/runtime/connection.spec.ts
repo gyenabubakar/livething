@@ -27,6 +27,62 @@ function deferred() {
 }
 
 describe('connection runtime', () => {
+  it('routes rejected message callbacks through engine error handling', async () => {
+    const failure = new Error('message processing failed');
+    const handledErrors: unknown[] = [];
+
+    const handle = acceptConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map(),
+        usersByKey: new Map(),
+        wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
+        generateId() {
+          return 'conn_error';
+        },
+        persistAttachment() {},
+        buildConnectionContext() {
+          return {};
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {
+          throw failure;
+        },
+        async handleConnectionClose() {},
+        async handleRuntimeError(_connection: unknown, error: unknown) {
+          handledErrors.push(error);
+        },
+      } as never,
+      Symbol('ws'),
+      {
+        send() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        userId: 'error-test',
+      },
+    );
+
+    await expect(handle.handleMessage('hello')).resolves.toBeUndefined();
+    expect(handledErrors).toEqual([failure]);
+  });
+
   it('waits for async connect lifecycle work before handling the first message', async () => {
     const events: string[] = [];
     const gate = deferred();

@@ -18,7 +18,7 @@ const handler = base.assemble({
 });
 
 const service = Adapter.server(handler, { port: 0 });
-const admin = service.admin();
+const admin = await service.admin();
 
 expectTypeOf(admin.archiveRoom).toEqualTypeOf<(room: string) => Promise<number>>();
 expectTypeOf(admin.connectionCount).toEqualTypeOf<number>();

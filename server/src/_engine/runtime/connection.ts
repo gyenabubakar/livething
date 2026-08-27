@@ -9,7 +9,7 @@ import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { markTranslatorConfigError } from '~/translation/error.ts';
+import { isTranslatorConfigError, markTranslatorConfigError } from '~/translation/error.ts';
 import { TranslationInputError } from '~/translation/translator.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -194,20 +194,45 @@ function createHandle(
     await connection.lifecycleReady;
   }
 
+  async function reportCallbackError(error: unknown): Promise<void> {
+    try {
+      await runtime.handleRuntimeError(connection, error, undefined);
+    } catch (handlerError) {
+      runtime.logger?.error('[wskit] connection error handler failed', {
+        error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+      });
+    }
+  }
+
   return {
     handleMessage: async (data) => {
-      await waitForLifecycle();
-      const translated = translateInbound(runtime, connection, data);
-      if (translated === undefined) return;
-      return runtime.processTextMessage(connection, translated);
+      try {
+        await waitForLifecycle();
+        const translated = translateInbound(runtime, connection, data);
+        if (translated === undefined) return;
+        await runtime.processTextMessage(connection, translated);
+      } catch (error) {
+        if (isTranslatorConfigError(error)) throw error;
+        await reportCallbackError(error);
+      }
     },
     handleClose: async (code, reason) => {
-      await waitForLifecycle();
-      return runtime.handleConnectionClose(connection, code, reason);
+      try {
+        await waitForLifecycle();
+        await runtime.handleConnectionClose(connection, code, reason);
+      } catch (error) {
+        await reportCallbackError(error);
+      }
     },
     handleError: async (error) => {
-      await waitForLifecycle();
-      return runtime.handleRuntimeError(connection, error, undefined);
+      try {
+        await waitForLifecycle();
+        await runtime.handleRuntimeError(connection, error, undefined);
+      } catch (handlerError) {
+        runtime.logger?.error('[wskit] connection error handler failed', {
+          error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+        });
+      }
     },
   };
 }

@@ -55,6 +55,11 @@ test.describe('plugins handler', () => {
     await waitForText(page, 'single-record', /test-item/);
   });
 
+  test('represents a missing single record as JSON null', async ({ page }) => {
+    await page.getByTestId('get-one-btn').click();
+    await waitForText(page, 'single-record', 'null');
+  });
+
   test('delete record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);

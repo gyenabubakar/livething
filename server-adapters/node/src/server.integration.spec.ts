@@ -462,7 +462,7 @@ describe('Node server integration', () => {
     await connected;
 
     const announcement = waitForMessage(socket);
-    expect(service.admin().announce('from admin')).toBe(1);
+    expect((await service.admin()).announce('from admin')).toBe(1);
     await expect(announcement).resolves.toMatchObject({
       event: 'adminAnnouncement',
       payload: { text: 'from admin' },
@@ -486,7 +486,7 @@ describe('Node server integration', () => {
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
     await connected;
-    expect(first.admin().connectionCount).toBe(1);
+    expect((await first.admin()).connectionCount).toBe(1);
 
     const secondState: IntegrationState = { errors: [], shutdowns: 0 };
     const second = server(createHandler(secondState), {
@@ -497,7 +497,7 @@ describe('Node server integration', () => {
     services.push(second);
     await second.ready;
 
-    expect(second.admin().connectionCount).toBe(0);
+    expect((await second.admin()).connectionCount).toBe(0);
   });
 
   it('translates inbound and outbound frames through the real engine', async () => {

@@ -14,7 +14,9 @@ export function requestToWebRequest(
   const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
   const protocol = encrypted ? 'https' : 'http';
   const host = request.headers.host ?? 'localhost';
-  const url = new URL(request.url ?? '/', `${protocol}://${host}`);
+  const target = request.url ?? '/';
+  const base = `${protocol}://${host}`;
+  const url = new URL(target.startsWith('//') ? `${base}${target}` : target, base);
   const headers = new Headers();
 
   for (const [name, value] of Object.entries(request.headers)) {

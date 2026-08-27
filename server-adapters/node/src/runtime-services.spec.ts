@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
 import type { KVProvider, Logger, SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
 import type { Server } from 'node:http';
@@ -6,6 +10,7 @@ import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
 import { createKv } from './providers/kv.ts';
 import { createSql } from './providers/sql.ts';
+import { createStorage } from './providers/storage.ts';
 import { createTimers } from './providers/timers.ts';
 import { createRuntime } from './runtime.ts';
 import { createWaitUntil } from './wait-until.ts';
@@ -74,6 +79,65 @@ describe('createSql', () => {
     expect(runtime.provider).toBe(provider);
     expect(() => runtime.close()).not.toThrow();
   });
+
+  it('closes its owned database when default KV initialization fails', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'wskit-storage-'));
+    const databasePath = join(directory, 'state.sqlite');
+    const setup = new Database(databasePath);
+    setup.exec('CREATE TABLE __wskit_kv (wrong_column TEXT)');
+    setup.close();
+
+    const close = vi.spyOn(Database.prototype, 'close');
+    try {
+      expect(() => createStorage({ sql: databasePath })).toThrow(/no such column/);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      close.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('returns rows from a write statement with RETURNING', () => {
+    const runtime = createSql();
+    try {
+      runtime.provider.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+
+      expect(
+        runtime.provider
+          .exec<{ id: number }>('INSERT INTO users (name) VALUES (?) RETURNING id', 'Ada')
+          .one(),
+      ).toEqual({ id: 1 });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('does not split a semicolon inside a SQL string literal', () => {
+    const runtime = createSql();
+    try {
+      runtime.provider.exec('CREATE TABLE messages (body TEXT)');
+      runtime.provider.exec("INSERT INTO messages (body) VALUES ('hello;world')");
+
+      expect(runtime.provider.exec('SELECT body FROM messages').one()).toEqual({
+        body: 'hello;world',
+      });
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('consumes an empty result exactly once', () => {
+    const runtime = createSql();
+    try {
+      runtime.provider.exec('CREATE TABLE values_table (value TEXT)');
+      const result = runtime.provider.exec('INSERT INTO values_table (value) VALUES (?)', 'one');
+
+      expect(result.one()).toBeNull();
+      expect(() => result.toArray()).toThrow(/already consumed by \.one\(\)/);
+    } finally {
+      runtime.close();
+    }
+  });
 });
 
 describe('createKv', () => {
@@ -126,6 +190,20 @@ describe('createKv', () => {
       expect(sql.provider.exec<{ key: string }>('SELECT key FROM __wskit_kv').toArray()).toEqual([
         { key: 'shared' },
       ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('matches a prefix case-sensitively', async () => {
+    const sql = createSql();
+    try {
+      const kv = createKv(sql.database!);
+      await kv.set('Foo:one', 1);
+      await kv.set('foo:two', 2);
+      await kv.set('FOO:three', 3);
+
+      expect(await kv.list('foo:')).toEqual(['foo:two']);
     } finally {
       sql.close();
     }
@@ -215,6 +293,47 @@ describe('createTimers', () => {
 
       expect(onAlarm).not.toHaveBeenCalled();
       expect(await timers.getAlarm()).toBe(401_000);
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries after a transient failure deleting a due alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const sql = createSql();
+    const logger = createMockLogger();
+
+    try {
+      const timers = createTimers(sql.provider, logger);
+      const onAlarm = vi.fn(async () => {});
+
+      await timers.setAlarm(101_000);
+      await timers.start(onAlarm);
+
+      sql.database!.exec(`
+        CREATE TABLE alarm_failure_control (fail INTEGER NOT NULL);
+        INSERT INTO alarm_failure_control (fail) VALUES (1);
+        CREATE TRIGGER fail_alarm_delete
+        BEFORE DELETE ON __wskit_node_alarm
+        WHEN (SELECT fail FROM alarm_failure_control) = 1
+        BEGIN
+          SELECT RAISE(ABORT, 'temporary alarm delete failure');
+        END
+      `);
+
+      await vi.advanceTimersToNextTimerAsync();
+
+      expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm failed', {
+        error: 'temporary alarm delete failure',
+      });
+      expect(await timers.getAlarm()).toBe(101_000);
+
+      sql.database!.prepare('UPDATE alarm_failure_control SET fail = 0').run();
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(onAlarm).toHaveBeenCalledOnce();
     } finally {
       sql.close();
       vi.useRealTimers();

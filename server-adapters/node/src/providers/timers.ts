@@ -2,6 +2,7 @@ import type { Logger, SQLProvider, TimerProvider } from '@wskit/server/adapters'
 
 const ALARM_TABLE = '__wskit_node_alarm';
 const MAX_TIMEOUT_MS = 2_147_483_647;
+const ALARM_RETRY_DELAY_MS = 1_000;
 
 /** Timer provider plus the lifecycle controls used by the Node server. */
 export interface NodeTimers extends TimerProvider {
@@ -87,11 +88,22 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       timeout = undefined;
 
       void runAlarm().catch((error: unknown) => {
-        logger?.error('[wskit] Node durable alarm failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        handleAlarmFailure(error);
       });
     }, delay);
+  }
+
+  function handleAlarmFailure(error: unknown): void {
+    logger?.error('[wskit] Node durable alarm failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    if (started) {
+      timeout = setTimeout(() => {
+        timeout = undefined;
+        void runAlarm().catch(handleAlarmFailure);
+      }, ALARM_RETRY_DELAY_MS);
+    }
   }
 
   async function runAlarm(): Promise<void> {

@@ -162,6 +162,29 @@ describe('server()', () => {
     await service.shutdown();
   });
 
+  it('waits for initialization before exposing the admin surface', async () => {
+    const httpServer = new FakeHttpServer();
+    let finishInitialization!: () => void;
+    fake.initialize.mockImplementation(
+      () => new Promise<void>((resolve) => (finishInitialization = resolve)),
+    );
+    const service = server({} as never, {
+      server: httpServer as unknown as Server,
+      shutdownOnSignal: false,
+    });
+
+    try {
+      const admin = service.admin();
+
+      expect(admin).toBeInstanceOf(Promise);
+      expect(fake.admin).not.toHaveBeenCalled();
+    } finally {
+      finishInitialization();
+      await service.ready;
+      await service.shutdown();
+    }
+  });
+
   it('forwards alarms, shutdown, and admin calls', async () => {
     vi.useFakeTimers();
     const httpServer = new FakeHttpServer();
@@ -172,7 +195,7 @@ describe('server()', () => {
     await runtime.timers.setAlarm(Date.now());
     await vi.runOnlyPendingTimersAsync();
     expect(fake.handleAlarm).toHaveBeenCalledOnce();
-    const admin = service.admin();
+    const admin = await service.admin();
     expect(fake.admin).toHaveBeenCalledOnce();
     expect(admin).toBe(fake.admin.mock.results[0]?.value);
 
