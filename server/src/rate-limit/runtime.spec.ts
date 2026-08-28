@@ -75,7 +75,19 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
-    expect(verdict!.retryAfterMs).toBeGreaterThanOrEqual(1);
+    expect(verdict!.retryAfterMs).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it('keeps the minimum retryAfterMs at one second', () => {
+    const c = clock();
+    const rt = new RateLimitRuntime(
+      plan([['top', { id: 1, windowMs: 1_000, max: 1, per: (ctx: any) => ctx.id }]]),
+      c.read.bind(c),
+    );
+    rt.check({ id: 'c1' }, 'e');
+
+    c.advance(999);
+    expect(rt.check({ id: 'c1' }, 'e')!.retryAfterMs).toBe(1_000);
   });
 
   it('refills tokens over time and accepts again after retryAfterMs', () => {

@@ -33,6 +33,6 @@ describe('rateLimit primitive', () => {
       caught = err;
     }
     expect(RateLimited.matches(caught)).toBe(true);
-    expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1);
+    expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1_000);
   });
 });

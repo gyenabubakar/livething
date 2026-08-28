@@ -105,7 +105,7 @@ export class RateLimitRuntime {
     if (tokens < 1) {
       const msUntilOne = (1 - tokens) / refillRate;
       this.buckets.set(bucketKey, { tokens, lastRefillMs: now });
-      return { retryAfterMs: Math.max(1, Math.ceil(msUntilOne)) };
+      return { retryAfterMs: Math.max(1_000, Math.ceil(msUntilOne)) };
     }
 
     this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now });
