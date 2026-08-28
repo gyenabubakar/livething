@@ -12,7 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('rate-limit (conformance)', () => {
-  test('spamming a capped event past its cap delivers rate-limited + retryAfter to onServerError', async ({
+  test('spamming a capped event past its cap delivers rate-limited + retryAfterMs to onServerError', async ({
     page,
   }, testInfo) => {
     await open(page, `rl-tick-${testInfo.testId}`);
@@ -24,7 +24,7 @@ test.describe('rate-limit (conformance)', () => {
     await page.getByTestId('tick').click();
 
     await expect(page.getByTestId('error-code')).toHaveText('rate-limited');
-    const retry = await page.getByTestId('retry-after').textContent();
+    const retry = await page.getByTestId('retry-after-ms').textContent();
     expect(Number(retry)).toBeGreaterThanOrEqual(1);
   });
 

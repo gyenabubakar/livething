@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  ConnectionBusy,
   CrossInstanceRef,
   DurableStreamRequiresUser,
   InternalError,
@@ -181,6 +182,7 @@ export class EngineCore {
     CrossInstanceRef.code,
     DurableStreamRequiresUser.code,
     RateLimited.code,
+    ConnectionBusy.code,
     RejoinRejected.code,
     RequestNoCorrelation.code,
     RequestNoResponse.code,

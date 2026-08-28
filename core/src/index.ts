@@ -12,6 +12,7 @@ export {
   InternalError,
   NudgeOverflow,
   RateLimited,
+  ConnectionBusy,
   RejoinRejected,
   RequestInvalidResponse,
   RequestNoCorrelation,

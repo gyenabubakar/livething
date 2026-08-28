@@ -199,12 +199,12 @@ export const Block = Object.freeze({ __wskit: 'block' as const });
  *    ```ts
  *    import * as v from 'valibot';
  *
- *    const RateLimited = error('rate-limited', v.object({ retryAfter: v.number() }));
+ *    const RateLimited = error('rate-limited', v.object({ retryAfterMs: v.number() }));
  *    ```
  *
  * The schema overload returns a callable factory. Call it to create the error:
  * ```ts
- * throw RateLimited({ retryAfter: 30 });
+ * throw RateLimited({ retryAfterMs: 30_000 });
  * ```
  */
 /**
@@ -230,6 +230,7 @@ const RESERVED_ERROR_CODES = new Set([
   'stream-id-collision',
   'durable-stream-requires-user',
   'rate-limited',
+  'connection-busy',
   'stream-already-active',
 ]);
 
@@ -654,7 +655,7 @@ export const DurableStreamRequiresUser = /* @__PURE__ */ buildErrorFactory(
  * Sent to the client when an incoming frame is rejected because the connection
  * is sending faster than the configured rate-limit cap for the scope the frame
  * landed in. The handler does not run; the validator does not run. The client
- * can read `detail.retryAfter` (seconds until the next slot opens) and back off.
+ * can read `detail.retryAfterMs` (milliseconds until the next slot opens) and back off.
  *
  * If a connection blows past the cap by a large factor the framework may close
  * the socket with `CloseCodes.RATE_LIMITED` (4005) instead — that is a separate
@@ -666,14 +667,24 @@ export const DurableStreamRequiresUser = /* @__PURE__ */ buildErrorFactory(
  *   await socket.request('send-message', { text });
  * } catch (err) {
  *   if (RateLimited.matches(err)) {
- *     setTimeout(retry, err.detail.retryAfter * 1000);
+ *     setTimeout(retry, err.detail.retryAfterMs);
  *   }
  * }
  * ```
  */
 export const RateLimited = /* @__PURE__ */ buildErrorFactory(
   'rate-limited',
-  v.object({ retryAfter: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
+  v.object({ retryAfterMs: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
+);
+
+/**
+ * Sent when a connection has temporarily reached its limit for ordered work.
+ * The connection stays open; the client should wait at least
+ * `detail.retryAfterMs` milliseconds before trying again.
+ */
+export const ConnectionBusy = /* @__PURE__ */ buildErrorFactory(
+  'connection-busy',
+  v.object({ retryAfterMs: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
 );
 
 /**

@@ -64,6 +64,12 @@ describe('InferClient for define()', () => {
     expectTypeOf<C['errors']['durable-stream-requires-user']>().toEqualTypeOf<void>();
   });
 
+  it('includes built-in connection backpressure errors in the client error map', () => {
+    expectTypeOf<C['errors']['connection-busy']>().toEqualTypeOf<{
+      retryAfterMs: number;
+    }>();
+  });
+
   it('maps a base.request handler to a client request with inferred payload and response', () => {
     expectTypeOf<C['clientRequests']['get-time']['payload']>().toEqualTypeOf<{ zone: string }>();
     expectTypeOf<C['clientRequests']['get-time']['response']>().toEqualTypeOf<{ now: string }>();

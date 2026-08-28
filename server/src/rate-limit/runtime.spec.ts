@@ -64,7 +64,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'ev')).toBeNull();
   });
 
-  it('allows up to max in a fresh window then rejects with retryAfter', () => {
+  it('allows up to max in a fresh window then rejects with retryAfterMs', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 60_000, max: 3, per: (ctx: any) => ctx.id }]]),
@@ -75,10 +75,10 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
-    expect(verdict!.retryAfter).toBeGreaterThanOrEqual(1);
+    expect(verdict!.retryAfterMs).toBeGreaterThanOrEqual(1);
   });
 
-  it('refills tokens over time and accepts again after retryAfter', () => {
+  it('refills tokens over time and accepts again after retryAfterMs', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 60_000, max: 3, per: (ctx: any) => ctx.id }]]),
@@ -129,7 +129,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'cheap')).toBeNull();
   });
 
-  it('retryAfter reflects the configured refill rate', () => {
+  it('retryAfterMs reflects the configured refill rate', () => {
     const c = clock();
     const rt = new RateLimitRuntime(
       plan([['top', { id: 1, windowMs: 10_000, max: 10, per: (ctx: any) => ctx.id }]]),
@@ -138,8 +138,8 @@ describe('RateLimitRuntime — token bucket math', () => {
     for (let i = 0; i < 10; i += 1) rt.check({ id: 'c1' }, 'e');
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
-    // Tokens went to 0; one token comes back in 1000ms → retryAfter ≈ 1s.
-    expect(verdict!.retryAfter).toBe(1);
+    // Tokens went to 0; one token comes back in 1000ms.
+    expect(verdict!.retryAfterMs).toBe(1000);
   });
 
   it('refill clamps at max even after a very long idle', () => {

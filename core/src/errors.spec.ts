@@ -3,6 +3,7 @@ import {
   ChannelNotFound,
   ChannelNotSubscribed,
   CloseCodes,
+  ConnectionBusy,
   CrossInstanceRef,
   DurableStreamRequiresUser,
   error,
@@ -197,22 +198,22 @@ describe('error() with valibot', () => {
 });
 
 describe('error() with zod', () => {
-  const RateLimited = error('rate-exceeded', z.object({ retryAfter: z.number() }));
+  const RateLimited = error('rate-exceeded', z.object({ retryAfterMs: z.number() }));
 
   it('is callable and returns WSKitError with validated detail', () => {
-    const err = RateLimited({ retryAfter: 5000 });
+    const err = RateLimited({ retryAfterMs: 5000 });
     expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('rate-exceeded');
-    expect(err.detail).toEqual({ retryAfter: 5000 });
+    expect(err.detail).toEqual({ retryAfterMs: 5000 });
   });
 
   it('throws when runtime data fails validation', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => RateLimited({ retryAfter: 'not a number' } as any)).toThrow('Validation failed');
+    expect(() => RateLimited({ retryAfterMs: 'not a number' } as any)).toThrow('Validation failed');
   });
 
   it('.matches() returns true for valid detail', () => {
-    const err = new WSKitError('rate-exceeded', { retryAfter: 3000 });
+    const err = new WSKitError('rate-exceeded', { retryAfterMs: 3000 });
     expect(RateLimited.matches(err)).toBe(true);
   });
 });
@@ -239,7 +240,7 @@ describe('error() async StandardSchema rejection', () => {
 
 describe('.matches() edge cases', () => {
   const CodeOnly = error('gone');
-  const WithDetail = error('rate-exceeded', v.object({ retryAfter: v.number() }));
+  const WithDetail = error('rate-exceeded', v.object({ retryAfterMs: v.number() }));
 
   it('code-only matches regardless of detail value', () => {
     expect(CodeOnly.matches(new WSKitError('gone', undefined))).toBe(true);
@@ -253,7 +254,7 @@ describe('.matches() edge cases', () => {
   });
 
   it('with-detail accepts when validate passes', () => {
-    expect(WithDetail.matches(new WSKitError('rate-exceeded', { retryAfter: 5000 }))).toBe(true);
+    expect(WithDetail.matches(new WSKitError('rate-exceeded', { retryAfterMs: 5000 }))).toBe(true);
   });
 
   it('multiple error defs do not interfere', () => {
@@ -569,25 +570,25 @@ describe('RateLimited', () => {
     expect(RateLimited.code).toBe('rate-limited');
   });
 
-  it('creates WSKitError with retryAfter', () => {
-    const err = RateLimited({ retryAfter: 5 });
+  it('creates WSKitError with retryAfterMs', () => {
+    const err = RateLimited({ retryAfterMs: 5_000 });
     expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('rate-limited');
-    expect(err.detail).toEqual({ retryAfter: 5 });
+    expect(err.detail).toEqual({ retryAfterMs: 5_000 });
   });
 
   it('.matches() returns true for a valid detail', () => {
-    const err = new WSKitError('rate-limited', { retryAfter: 2 });
+    const err = new WSKitError('rate-limited', { retryAfterMs: 2_000 });
     expect(RateLimited.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WSKitError('forbidden', { retryAfter: 2 });
+    const err = new WSKitError('forbidden', { retryAfterMs: 2_000 });
     expect(RateLimited.matches(err)).toBe(false);
   });
 
   it('.matches() returns false for matching code but invalid detail', () => {
-    const err = new WSKitError('rate-limited', { retryAfter: 'soon' });
+    const err = new WSKitError('rate-limited', { retryAfterMs: 'soon' });
     expect(RateLimited.matches(err)).toBe(false);
   });
 
@@ -602,18 +603,33 @@ describe('RateLimited parser — bad payload', () => {
     expect(() => RateLimited('nope' as any)).toThrow('Validation failed');
   });
 
-  it('throws when retryAfter is missing or non-numeric', () => {
+  it('throws when retryAfterMs is missing or non-numeric', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => RateLimited({} as any)).toThrow('Validation failed');
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => RateLimited({ retryAfter: 'soon' } as any)).toThrow('Validation failed');
+    expect(() => RateLimited({ retryAfterMs: 'soon' } as any)).toThrow('Validation failed');
   });
 
-  it('throws when retryAfter is negative or non-finite', () => {
-    expect(() => RateLimited({ retryAfter: -1 })).toThrow('Validation failed');
-    expect(() => RateLimited({ retryAfter: Number.POSITIVE_INFINITY })).toThrow(
+  it('throws when retryAfterMs is negative or non-finite', () => {
+    expect(() => RateLimited({ retryAfterMs: -1 })).toThrow('Validation failed');
+    expect(() => RateLimited({ retryAfterMs: Number.POSITIVE_INFINITY })).toThrow(
       'Validation failed',
     );
+  });
+});
+
+describe('ConnectionBusy', () => {
+  it('has a retryAfterMs detail in milliseconds', () => {
+    const err = ConnectionBusy({ retryAfterMs: 1_000 });
+    expect(err).toBeInstanceOf(WSKitError);
+    expect(err.code).toBe('connection-busy');
+    expect(err.detail).toEqual({ retryAfterMs: 1_000 });
+    expect(ConnectionBusy.matches(err)).toBe(true);
+  });
+
+  it('rejects an invalid detail', () => {
+    expect(() => ConnectionBusy({ retryAfterMs: -1 })).toThrow('Validation failed');
+    expect(() => ConnectionBusy({ retryAfterMs: 'soon' } as never)).toThrow('Validation failed');
   });
 });
 
@@ -668,6 +684,7 @@ describe('built-in error codes', () => {
       StreamAborted: StreamAborted.code,
       StreamAlreadyActive: StreamAlreadyActive.code,
       StreamIdCollision: StreamIdCollision.code,
+      ConnectionBusy: ConnectionBusy.code,
     }).toEqual({
       ValidationFailed: 'validation-failed',
       ChannelNotFound: 'channel-not-found',
@@ -677,6 +694,7 @@ describe('built-in error codes', () => {
       StreamAborted: 'stream-aborted',
       StreamAlreadyActive: 'stream-already-active',
       StreamIdCollision: 'stream-id-collision',
+      ConnectionBusy: 'connection-busy',
     });
   });
 });
@@ -688,6 +706,7 @@ describe('error() reserved-code guard', () => {
     expect(() => error('channel-not-found')).toThrow(/reserved/);
     expect(() => error('cross-instance-ref')).toThrow(/reserved/);
     expect(() => error('stream-aborted')).toThrow(/reserved/);
+    expect(() => error('connection-busy')).toThrow(/reserved/);
     expect(() => error(DurableStreamRequiresUser.code)).toThrow(/reserved/);
   });
 

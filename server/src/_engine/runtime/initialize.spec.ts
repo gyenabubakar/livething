@@ -13,7 +13,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { InternalError } from '@wskit/core';
+import { ConnectionBusy, InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
@@ -385,6 +385,11 @@ describe('engine declaredErrorCodes', () => {
   it('includes the internal-error fallback code', () => {
     const engine = buildEngine(tinyHandler);
     expect(engine.core.declaredErrorCodes.has(InternalError.code)).toBe(true);
+  });
+
+  it('includes built-in connection-busy errors', () => {
+    const engine = buildEngine(tinyHandler);
+    expect(engine.core.declaredErrorCodes.has(ConnectionBusy.code)).toBe(true);
   });
 });
 

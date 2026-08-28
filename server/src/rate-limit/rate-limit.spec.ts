@@ -15,7 +15,7 @@ describe('rateLimit primitive', () => {
     expect(typeof prim.handler).toBe('function');
   });
 
-  it('passes the first frame, then throws RateLimited with a positive retryAfter when max=1', async () => {
+  it('passes the first frame, then throws RateLimited with a positive retryAfterMs when max=1', async () => {
     const prim = rateLimit({
       scopeRules: new Map([
         ['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.id }],
@@ -33,6 +33,6 @@ describe('rateLimit primitive', () => {
       caught = err;
     }
     expect(RateLimited.matches(caught)).toBe(true);
-    expect(caught.detail.retryAfter).toBeGreaterThanOrEqual(1);
+    expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1);
   });
 });

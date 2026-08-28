@@ -75,11 +75,11 @@ export class RateLimitRuntime {
 
   /**
    * Resolve the rule that applies to this frame, then consume a token.
-   * Returns `null` to let the frame through, or `{ retryAfter }` (seconds)
-   * to reject. `retryAfter` is rounded up to the next whole second so a
-   * client backing off by it has at least one whole second of headroom.
+   * Returns `null` to let the frame through, or `{ retryAfterMs }` to reject.
+   * `retryAfterMs` is rounded up to the next whole millisecond so a client
+   * backing off by it has enough time for the next token to become available.
    */
-  check(ctx: any, event: string): { retryAfter: number } | null {
+  check(ctx: any, event: string): { retryAfterMs: number } | null {
     const scopeKey = resolveScopeKey(ctx);
 
     const overrideMap = this.plan.eventOverrides.get(scopeKey);
@@ -105,7 +105,7 @@ export class RateLimitRuntime {
     if (tokens < 1) {
       const msUntilOne = (1 - tokens) / refillRate;
       this.buckets.set(bucketKey, { tokens, lastRefillMs: now });
-      return { retryAfter: Math.max(1, Math.ceil(msUntilOne / 1000)) };
+      return { retryAfterMs: Math.max(1, Math.ceil(msUntilOne)) };
     }
 
     this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now });

@@ -2,6 +2,7 @@
 import type {
   ChannelNotFound,
   ChannelNotSubscribed,
+  ConnectionBusy,
   CrossInstanceRef,
   DurableStreamRequiresUser,
   ErrorDef,
@@ -84,6 +85,7 @@ type BuiltInErrorUnion =
   | typeof RejoinRejected
   | typeof InternalError
   | typeof RateLimited
+  | typeof ConnectionBusy
   | typeof RequestInvalidResponse
   | typeof RequestNoCorrelation
   | typeof RequestNoResponse

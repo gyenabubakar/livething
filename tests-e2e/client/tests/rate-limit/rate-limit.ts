@@ -15,7 +15,7 @@ export function setup(): void {
     <button data-testid="echo-req">echo-req</button>
     <span data-testid="status"></span>
     <span data-testid="error-code"></span>
-    <span data-testid="retry-after"></span>
+    <span data-testid="retry-after-ms"></span>
     <span data-testid="echo-outcome"></span>
   `);
 
@@ -28,9 +28,9 @@ export function setup(): void {
   socket.onServerError((err) => {
     if (!(err instanceof WSKitError)) return;
     el('error-code').textContent = errorCode(err);
-    const detail = err.detail as { retryAfter?: number } | undefined;
-    if (typeof detail?.retryAfter === 'number') {
-      el('retry-after').textContent = String(detail.retryAfter);
+    const detail = err.detail as { retryAfterMs?: number } | undefined;
+    if (typeof detail?.retryAfterMs === 'number') {
+      el('retry-after-ms').textContent = String(detail.retryAfterMs);
     }
   });
 

@@ -446,9 +446,10 @@ export interface RuntimeConnection {
   deferTimers?: Set<ReturnType<typeof setTimeout>>;
 }
 
-/** Pending ordered app work for one connection. */
+/** Admitted but unfinished ordered app work for one connection. */
 export interface ConnectionWorkQueue {
   tail: Promise<void>;
+  pending: number;
 }
 
 /**

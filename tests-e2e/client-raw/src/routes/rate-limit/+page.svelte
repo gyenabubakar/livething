@@ -5,7 +5,7 @@
 	let tockCount = $state(0);
 	let expensiveDoneCount = $state(0);
 	let rateLimitedCount = $state(0);
-	let lastRetryAfter = $state<number | null>(null);
+	let lastRetryAfterMs = $state<number | null>(null);
 	let lastErrorCode = $state<string | null>(null);
 	let inheritMsgCount = $state(0);
 	let noLimitMsgCount = $state(0);
@@ -55,7 +55,7 @@
 				lastErrorCode = data.payload?.code ?? null;
 				if (data.payload?.code === 'rate-limited') {
 					rateLimitedCount += 1;
-					lastRetryAfter = data.payload?.detail?.retryAfter ?? null;
+					lastRetryAfterMs = data.payload?.detail?.retryAfterMs ?? null;
 					if (cid) echoOutcomes = { ...echoOutcomes, [cid]: 'rate-limited' };
 				} else if (cid) {
 					echoOutcomes = { ...echoOutcomes, [cid]: 'other-error' };
@@ -136,7 +136,7 @@
 <span data-testid="tock-count">{tockCount}</span>
 <span data-testid="expensive-done-count">{expensiveDoneCount}</span>
 <span data-testid="rate-limited-count">{rateLimitedCount}</span>
-<span data-testid="last-retry-after">{lastRetryAfter ?? ''}</span>
+<span data-testid="last-retry-after-ms">{lastRetryAfterMs ?? ''}</span>
 <span data-testid="last-error-code">{lastErrorCode ?? ''}</span>
 <span data-testid="inherit-msg-count">{inheritMsgCount}</span>
 <span data-testid="no-limit-msg-count">{noLimitMsgCount}</span>

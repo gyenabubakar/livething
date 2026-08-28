@@ -3,6 +3,7 @@
 import {
   Block,
   CloseCodes,
+  ConnectionBusy,
   CrossInstanceRef,
   error,
   NudgeOverflow,
@@ -308,20 +309,46 @@ if (StreamIdCollision.matches(maybeSic)) {
 const _rlCode: 'rate-limited' = RateLimited.code;
 void _rlCode;
 
-const rlErr = RateLimited({ retryAfter: 5 });
+const rlErr = RateLimited({ retryAfterMs: 5_000 });
 const _rlErrCode: 'rate-limited' = rlErr.code;
-const _rlDetail: { retryAfter: number } = rlErr.detail;
+const _rlDetail: { retryAfterMs: number } = rlErr.detail;
 void [_rlErrCode, _rlDetail];
 
-// @ts-expect-error — missing retryAfter
+// @ts-expect-error — missing retryAfterMs
 RateLimited({});
 
 // @ts-expect-error — wrong shape
-RateLimited({ retryAfter: 'soon' });
+RateLimited({ retryAfterMs: 'soon' });
+
+// @ts-expect-error — old field name
+RateLimited({ retryAfter: 5_000 });
 
 declare const maybeRl: unknown;
 if (RateLimited.matches(maybeRl)) {
   const _rlmc: 'rate-limited' = maybeRl.code;
-  const _rlmd: { retryAfter: number } = maybeRl.detail;
+  const _rlmd: { retryAfterMs: number } = maybeRl.detail;
   void [_rlmc, _rlmd];
+}
+
+// ===========================================================================
+// 15. ConnectionBusy — built-in with parsed detail
+// ===========================================================================
+
+const _cbCode: 'connection-busy' = ConnectionBusy.code;
+const cbErr = ConnectionBusy({ retryAfterMs: 1_000 });
+const _cbErrCode: 'connection-busy' = cbErr.code;
+const _cbDetail: { retryAfterMs: number } = cbErr.detail;
+void [_cbCode, _cbErrCode, _cbDetail];
+
+// @ts-expect-error — missing retryAfterMs
+ConnectionBusy({});
+
+// @ts-expect-error — wrong shape
+ConnectionBusy({ retryAfterMs: 'soon' });
+
+declare const maybeCb: unknown;
+if (ConnectionBusy.matches(maybeCb)) {
+  const _cbmc: 'connection-busy' = maybeCb.code;
+  const _cbmd: { retryAfterMs: number } = maybeCb.detail;
+  void [_cbmc, _cbmd];
 }

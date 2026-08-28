@@ -1,6 +1,6 @@
 // Type-only checks for the socket error and contract utility types. tsc checks these;
 // vitest never runs them.
-import { RateLimited } from '@wskit/core';
+import { ConnectionBusy, RateLimited } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { expectTypeOf } from 'vitest';
@@ -46,7 +46,11 @@ socket.onError((error) => {
   // remains available as a utility type, but runtime narrowing uses the
   // matching error definition rather than assuming this callback is typed.
   if (RateLimited.matches(error)) {
-    expectTypeOf(error.detail).toEqualTypeOf<{ retryAfter: number }>();
+    expectTypeOf(error.detail).toEqualTypeOf<{ retryAfterMs: number }>();
+  }
+
+  if (ConnectionBusy.matches(error)) {
+    expectTypeOf(error.detail).toEqualTypeOf<{ retryAfterMs: number }>();
   }
 });
 

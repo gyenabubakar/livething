@@ -150,4 +150,10 @@ describe('RateLimitClient — builtin errors', () => {
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('channel-not-subscribed');
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('internal-error');
   });
+
+  it('types connection-busy retry hints in milliseconds', () => {
+    expectTypeOf<RateLimitClient['errors']['connection-busy']>().toEqualTypeOf<{
+      retryAfterMs: number;
+    }>();
+  });
 });

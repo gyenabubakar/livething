@@ -9,7 +9,9 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('top-level cap allows max then rejects with rate-limited + retryAfter', async ({ page }) => {
+  test('top-level cap allows max then rejects with rate-limited + retryAfterMs', async ({
+    page,
+  }) => {
     // Cap is max=3 in a fresh bucket.
     await page.getByTestId('tick').click();
     await page.getByTestId('tick').click();
@@ -24,7 +26,7 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('tock-count')).toHaveText('3');
     await expect(page.getByTestId('last-error-code')).toHaveText('rate-limited');
 
-    const retry = await page.getByTestId('last-retry-after').textContent();
+    const retry = await page.getByTestId('last-retry-after-ms').textContent();
     expect(Number(retry)).toBeGreaterThanOrEqual(1);
   });
 
