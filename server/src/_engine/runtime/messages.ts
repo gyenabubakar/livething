@@ -19,6 +19,7 @@ import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import { resolveChannel, routingFromWSKit } from './scope.ts';
+import { runConnectionWork } from './work-queue.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -426,21 +427,27 @@ export async function dispatchIncoming(
 
     if (incoming) {
       fromIncomingHandler = true;
-      await withConnectionContext(runtime.asyncContext, connection.id, () =>
-        incoming.handler(getCtx(), payloadValue),
-      );
+      await runConnectionWork(connection, incoming.allowInterleaving ?? false, () => {
+        if (connection.closing) return;
+        return withConnectionContext(runtime.asyncContext, connection.id, () =>
+          incoming.handler(getCtx(), payloadValue),
+        );
+      });
       return;
     }
 
     if (request) {
-      await runtime.requestDispatch?.(runtime, connection, {
-        connection,
-        ctx: getCtx(),
-        scope,
-        event,
-        request,
-        payload: payloadValue,
-        wskit,
+      await runConnectionWork(connection, request.allowInterleaving ?? true, () => {
+        if (connection.closing) return;
+        return runtime.requestDispatch?.(runtime, connection, {
+          connection,
+          ctx: getCtx(),
+          scope,
+          event,
+          request,
+          payload: payloadValue,
+          wskit,
+        });
       });
       return;
     }

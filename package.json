@@ -19,7 +19,7 @@
     "bench": "pnpm -r run bench",
     "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@wskit/website' run typecheck",
     "dup": "jscpd",
-    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src --config .dependency-cruiser.cjs",
+    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src server-adapters/node/src --config .dependency-cruiser.cjs",
     "bundle-check": "node scripts/bundle-check.mjs",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",

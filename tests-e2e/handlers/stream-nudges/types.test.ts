@@ -40,7 +40,9 @@ describe('StreamNudgesClient — outgoing (server incoming)', () => {
   });
 
   it('only pause in outgoing', () => {
-    expectTypeOf<keyof StreamNudgesClient['outgoing']>().toEqualTypeOf<'pause'>();
+    expectTypeOf<keyof StreamNudgesClient['outgoing']>().toEqualTypeOf<
+      'pause' | 'release-overflow'
+    >();
   });
 });
 

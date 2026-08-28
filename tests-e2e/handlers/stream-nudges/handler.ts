@@ -8,6 +8,7 @@ import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = t<{ token: string }>();
+const overflowGates = new Map<string, () => void>();
 
 // A typed error a nudge intercept can throw. The client must see nudge() reject
 // with this code while the stream keeps running (regression: a thrown nudge
@@ -46,6 +47,13 @@ const handlePause = base.on('pause', {
   },
 });
 
+const handleReleaseOverflow = base.on('release-overflow', {
+  input: v.object({}),
+  run(ctx) {
+    overflowGates.get(ctx.connection.id)?.();
+  },
+});
+
 const handleStartNudgeStream = base.stream('start-nudge-stream', {
   input: v.object({ prompt: v.string() }),
   chunk: Token,
@@ -54,6 +62,19 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
     'speed-up': v.object({ factor: v.number() }),
   },
   async *run(ctx, input) {
+    if (input.prompt === '__hold-overflow__') {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      overflowGates.set(ctx.connection.id, release);
+      try {
+        await gate;
+      } finally {
+        overflowGates.delete(ctx.connection.id);
+      }
+    }
+
     const words = input.prompt.split(' ');
     let delay = 50;
     for (const word of words) {
@@ -77,7 +98,7 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
 });
 
 export const streamNudgesHandler = base.assemble({
-  handlers: [handlePause, handleStartNudgeStream],
+  handlers: [handlePause, handleReleaseOverflow, handleStartNudgeStream],
 });
 
 export type StreamNudgesClient = InferClient<typeof streamNudgesHandler>;

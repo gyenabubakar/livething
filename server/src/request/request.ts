@@ -35,6 +35,8 @@ export interface RequestPrimitive<
   readonly event: TEvent;
   /** The function that handles the request and calls `ctx.respond()`. */
   readonly handler: RequestHandler<TCtx, TPayload, TResponse>;
+  /** Whether this handler may start without waiting for prior app work. */
+  readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
    * payload before calling `handler`. If validation fails, `onValidationError`
@@ -64,7 +66,11 @@ const REQUEST_KEY = Symbol('request');
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
-  options?: { validator?: Validator<TPayload>; responseSchema?: Validator<TResponse> },
+  options?: {
+    validator?: Validator<TPayload>;
+    responseSchema?: Validator<TResponse>;
+    allowInterleaving?: boolean;
+  },
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
   assertValidWSKitIdentifier(event, 'request() event name');
   return {
@@ -74,6 +80,7 @@ export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
     __requires: {},
     event,
     handler,
+    allowInterleaving: options?.allowInterleaving ?? true,
     validator: options?.validator,
     responseSchema: options?.responseSchema,
   };

@@ -5,7 +5,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const CountTokensPayload = v.object({});
+const CountTokensPayload = v.object({ hold: v.optional(v.boolean()) });
 const TokenChunk = t<{ idx: number }>();
 const PaginatePayload = v.object({});
 const RowChunk = t<{ row: number }>();
@@ -15,11 +15,19 @@ const BufferFullPayload = v.object({});
 const BufferChunk = t<{ n: number }>();
 const NumberChunk = t<number>();
 const StopPayload = v.object({});
+const overflowGates = new Map<string, () => void>();
 
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [recordedStream(), resumableStream()],
+});
+
+const handleReleaseOverflow = base.on('release-overflow', {
+  input: v.object({}),
+  run(ctx) {
+    overflowGates.get(ctx.connection.id)?.();
+  },
 });
 
 const handleCountTokens = base.recordedStream('count-tokens', {
@@ -114,7 +122,20 @@ const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
   maxChunks: 100,
   maxAgeMs: 60_000,
   retentionAfterEndMs: 30_000,
-  async *run(ctx) {
+  async *run(ctx, input) {
+    if (input.hold) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      overflowGates.set(ctx.connection.id, release);
+      try {
+        await gate;
+      } finally {
+        overflowGates.delete(ctx.connection.id);
+      }
+    }
+
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { idx: i });
       if (nudges.some((n) => n.event === 'stop')) return;
@@ -159,6 +180,7 @@ export const streamDurableHandler = base.assemble({
     handleCountTokensNudged,
     handlePaginateNudged,
     handleServerDrop,
+    handleReleaseOverflow,
   ],
 });
 

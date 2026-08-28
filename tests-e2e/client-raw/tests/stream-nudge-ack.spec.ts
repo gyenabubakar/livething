@@ -74,18 +74,18 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const streamId = 'ns-overflow-1';
     const a = await connect(page, { path: WS_PATH, username: 'alice', room });
 
-    // A long prompt keeps the stream running while we flood it with nudges.
+    // Hold the generator before its first yield so every nudge is buffered.
     await send(page, a, {
       event: 'start-nudge-stream',
-      payload: { prompt: Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ') },
+      payload: { prompt: '__hold-overflow__' },
       __wskit: { streamId },
     });
     await waitForFrame(page, a, {
       match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
     });
 
-    // Burst 300 valid nudges in a single tick — past the 256 cap, before the
-    // generator can drain. `factor: 1` keeps the stream's pace unchanged.
+    // Burst 300 valid nudges while the generator is held. This is past the
+    // 256-item cap and cannot depend on scheduling speed.
     await page.evaluate(
       ([id, sid]) => {
         for (let i = 0; i < 300; i++) {
@@ -106,6 +106,11 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     expect(over.__wskit?.streamTerminated).toBe(false);
     expect((over.payload as { detail?: { cap?: number } }).detail?.cap).toBe(256);
     expect(typeof over.__wskit?.streamNudgeId).toBe('string');
+
+    await send(page, a, {
+      event: 'release-overflow',
+      payload: {},
+    });
 
     // The overflow did NOT terminate the stream — no terminal error frame...
     const all = await frames(page, a);
@@ -131,14 +136,20 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     const streamId = 'durable-overflow-1';
     const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room });
 
-    // A recorded (durable) stream that drains nudges between yields.
-    await send(page, a, { event: 'count-tokens-nudged', payload: {}, __wskit: { streamId } });
+    // Hold the recorded stream before its first yield so every nudge is
+    // buffered while the overflow is produced.
+    await send(page, a, {
+      event: 'count-tokens-nudged',
+      payload: { hold: true },
+      __wskit: { streamId },
+    });
     const ok = await waitForFrame(page, a, {
       match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
     });
     expect(ok.__wskit?.streamKind).toBe('persistent'); // confirm it is durable
 
-    // Burst 300 'stop' nudges in one tick — past the 256 cap, before the generator drains.
+    // Burst 300 'stop' nudges while the generator is held. This is past the
+    // 256-item cap and cannot depend on scheduling speed.
     await page.evaluate(
       ([id, sid]) => {
         for (let i = 0; i < 300; i++) {
@@ -158,6 +169,11 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
     });
     expect(over.__wskit?.streamTerminated).toBe(false);
     expect((over.payload as { detail?: { cap?: number } }).detail?.cap).toBe(256);
+
+    await send(page, a, {
+      event: 'release-overflow',
+      payload: {},
+    });
 
     // The overflow did not terminate the stream — no terminal error frame...
     const all = await frames(page, a);

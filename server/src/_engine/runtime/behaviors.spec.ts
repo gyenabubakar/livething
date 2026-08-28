@@ -30,6 +30,14 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
   };
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 function baseCompiled() {
   return {
     outgoing: new Map(),
@@ -432,6 +440,193 @@ describe('Disconnect thrown from handler', () => {
 });
 
 describe('Block at dispatch', () => {
+  it('serializes ordinary incoming handlers on one connection', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    const events: string[] = [];
+    const handler = vi.fn(async (_ctx: unknown, payload: number) => {
+      events.push(`start:${payload}`);
+      if (payload === 1) await releaseFirst.promise;
+      events.push(`end:${payload}`);
+    });
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
+      } as any,
+    });
+
+    const first = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 1,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['start:1']);
+
+    const second = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 2,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['start:1']);
+
+    releaseFirst.resolve();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(['start:1', 'end:1', 'start:2', 'end:2']);
+  });
+
+  it('allows an incoming handler to opt into interleaved execution', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    const events: string[] = [];
+    const handler = vi.fn(async (_ctx: unknown, payload: number) => {
+      events.push(`start:${payload}`);
+      if (payload === 1) await releaseFirst.promise;
+      events.push(`end:${payload}`);
+    });
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([
+          ['work', { event: 'work', handler, validator: undefined, allowInterleaving: true }],
+        ]),
+      } as any,
+    });
+
+    const first = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 1,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+
+    const second = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: 2,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2']);
+
+    releaseFirst.resolve();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2', 'end:1']);
+  });
+
+  it('interleaves requests by default and can opt into ordered execution', async () => {
+    const connection = createConnection();
+    const releaseFirst = deferred();
+    let release = releaseFirst;
+    const events: string[] = [];
+    const requestDispatch = vi.fn(async (_runtime: unknown, _connection: unknown, options: any) => {
+      const payload = options.payload as number;
+      events.push(`start:${payload}`);
+      if (payload === 1) await release.promise;
+      events.push(`end:${payload}`);
+    });
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        requests: new Map([
+          ['default', { event: 'default', handler: vi.fn(), allowInterleaving: undefined }],
+          ['ordered', { event: 'ordered', handler: vi.fn(), allowInterleaving: false }],
+        ]),
+      } as any,
+      requestDispatch,
+    });
+
+    const firstDefault = dispatchIncoming(runtime, connection, {
+      event: 'default',
+      payload: 1,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+    const secondDefault = dispatchIncoming(runtime, connection, {
+      event: 'default',
+      payload: 2,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1', 'start:2', 'end:2']);
+    releaseFirst.resolve();
+    await Promise.all([firstDefault, secondDefault]);
+
+    events.length = 0;
+    release = deferred();
+    const firstOrdered = dispatchIncoming(runtime, connection, {
+      event: 'ordered',
+      payload: 1,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+    const secondOrdered = dispatchIncoming(runtime, connection, {
+      event: 'ordered',
+      payload: 2,
+      wskit: undefined,
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['start:1']);
+    release.resolve();
+    await Promise.all([firstOrdered, secondOrdered]);
+    expect(events).toEqual(['start:1', 'end:1', 'start:2', 'end:2']);
+  });
+
+  it('does not make stream starts wait for ordered app work', async () => {
+    const connection = createConnection();
+    const releaseIncoming = deferred();
+    const events: string[] = [];
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([
+          [
+            'work',
+            {
+              event: 'work',
+              handler: async () => {
+                events.push('incoming:start');
+                await releaseIncoming.promise;
+                events.push('incoming:end');
+              },
+              validator: undefined,
+            },
+          ],
+        ]),
+        streams: new Map([['feed', { event: 'feed', stream: { validator: undefined } }]]),
+      } as any,
+      streamTrigger: async () => {
+        events.push('stream:start');
+      },
+    });
+
+    const incoming = dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: {},
+      wskit: undefined,
+    });
+    await Promise.resolve();
+
+    const stream = dispatchIncoming(runtime, connection, {
+      event: 'feed',
+      payload: {},
+      wskit: undefined,
+    });
+    await stream;
+
+    expect(events).toEqual(['incoming:start', 'stream:start']);
+
+    releaseIncoming.resolve();
+    await incoming;
+    expect(events).toEqual(['incoming:start', 'stream:start', 'incoming:end']);
+  });
+
   it('silently swallows Block — no onError, no validation error', async () => {
     const connection = createConnection();
     const handler = vi.fn(async () => {

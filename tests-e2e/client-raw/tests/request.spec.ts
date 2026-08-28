@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+type ErrorFrame = {
+  event: string;
+  payload: {
+    code?: string;
+    detail?: { event?: string };
+  };
+};
+
 test.describe('request', () => {
   async function openPage(page: Page, room: string) {
     await page.goto(`/request?room=${room}`);
@@ -116,38 +124,49 @@ test.describe('request', () => {
     // open until the wrapper's own timeout fires.
     await openPage(page, `test-${testInfo.testId}`);
 
-    const errors = await page.evaluate(async () => {
+    const err = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
       const original = ws.onmessage;
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
-        if (typeof original === 'function') original.call(ws, ev);
-      };
-      ws.send(
-        JSON.stringify({
-          event: 'get-time',
-          payload: {},
-          __wskit: { correlationId: { reqId: 1 } },
-        }),
-      );
-      await new Promise((r) => setTimeout(r, 300));
-      ws.onmessage = original;
-      return got.filter((m) => m.event === '__error__');
+
+      return await new Promise<ErrorFrame>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          ws.onmessage = original;
+          reject(new Error('timed out waiting for the malformed correlationId error'));
+        }, 5_000);
+
+        ws.onmessage = (event) => {
+          if (typeof event.data === 'string') {
+            const frame = JSON.parse(event.data) as ErrorFrame;
+            const detail = frame.payload?.detail;
+            if (
+              frame.event === '__error__' &&
+              frame.payload?.code === 'validation-failed' &&
+              detail?.event === 'get-time'
+            ) {
+              window.clearTimeout(timer);
+              ws.onmessage = original;
+              resolve(frame);
+              return;
+            }
+          }
+          if (typeof original === 'function') original.call(ws, event);
+        };
+
+        ws.send(
+          JSON.stringify({
+            event: 'get-time',
+            payload: {},
+            __wskit: { correlationId: { reqId: 1 } },
+          }),
+        );
+      });
     });
 
-    // Match the validation error to OUR frame, not errors[0]: under load a
-    // stray __error__ (e.g. an internal-error from a teardown elsewhere) can
-    // land in the collection window first. The non-string correlationId fails
-    // the envelope schema, so the server can't echo it back — but the error's
-    // detail carries the event name, which ties it to this get-time frame.
-    const err = errors.find(
-      (e) =>
-        e.payload.code === 'validation-failed' &&
-        (e.payload.detail as { event?: string } | undefined)?.event === 'get-time',
-    );
-    expect(err, 'expected a validation-failed __error__ for the get-time frame').toBeDefined();
+    // The non-string correlationId fails the envelope schema, so the server
+    // cannot echo it back. The error detail carries the event name, which ties
+    // this response to the get-time frame.
+    expect(err.payload.code).toBe('validation-failed');
   });
 
   test('strict-object request schema accepts the payload with correlationId in __wskit', async ({
@@ -188,23 +207,35 @@ test.describe('request', () => {
     // dropping the reply on the floor.
     await openPage(page, `test-${testInfo.testId}`);
 
-    const errors = await page.evaluate(async () => {
+    const err = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
       const original = ws.onmessage;
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
-        if (typeof original === 'function') original.call(ws, ev);
-      };
-      ws.send(JSON.stringify({ event: 'get-time', payload: {} }));
-      await new Promise((r) => setTimeout(r, 300));
-      ws.onmessage = original;
-      return got.filter((m) => m.event === '__error__');
+
+      return await new Promise<ErrorFrame>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          ws.onmessage = original;
+          reject(new Error('timed out waiting for the missing correlationId error'));
+        }, 5_000);
+
+        ws.onmessage = (event) => {
+          if (typeof event.data === 'string') {
+            const frame = JSON.parse(event.data) as ErrorFrame;
+            if (frame.event === '__error__' && frame.payload?.code === 'request-no-correlation') {
+              window.clearTimeout(timer);
+              ws.onmessage = original;
+              resolve(frame);
+              return;
+            }
+          }
+          if (typeof original === 'function') original.call(ws, event);
+        };
+
+        ws.send(JSON.stringify({ event: 'get-time', payload: {} }));
+      });
     });
 
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]!.payload.code).toBe('request-no-correlation');
+    expect(err.payload.code).toBe('request-no-correlation');
 
     // Connection is alive — a properly correlated request still works.
     await page.getByTestId('get-time').click();

@@ -256,6 +256,8 @@ export type OnConfig<
 > = {
   /** Optional schema validating the incoming payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
+  /** Run this handler alongside earlier work on the same connection. Defaults to ordered execution. */
+  readonly allowInterleaving?: boolean;
   /** Runs each time the client sends this event, with the validated payload. */
   run(ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>, input: InferInput<TSchema>): void | Promise<void>;
 } & RateLimitField<TCaps>;
@@ -279,6 +281,8 @@ export type RequestConfig<
 > = {
   /** Optional schema validating the request payload. Omit to accept any payload (typed `unknown`). */
   readonly input?: TSchema;
+  /** Run this request alongside earlier work on the same connection. Defaults to interleaved execution. */
+  readonly allowInterleaving?: boolean;
   /** Runs the request and returns the reply. The reply type is inferred from the return. */
   run(
     ctx: AppCtx<TSlots, TEnv, TMeta, TCaps>,
@@ -1388,6 +1392,8 @@ export interface ChannelCoreMethods<
     event: TEvent,
     config: {
       input?: TInput;
+      /** Run this handler alongside earlier work on the same connection. Defaults to ordered execution. */
+      allowInterleaving?: boolean;
       run(
         ctx: ChannelCtx<
           TSlots,
@@ -1480,6 +1486,8 @@ export interface ChannelRequestMethods<
     event: TEvent,
     config: {
       input?: TInput;
+      /** Run this request alongside earlier work on the same connection. Defaults to interleaved execution. */
+      allowInterleaving?: boolean;
       run(
         ctx: ChannelCtx<
           TSlots,
@@ -2045,11 +2053,10 @@ export function define(config: any): any {
 
   const base = {
     on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
-      const primitive = incomingFactory(
-        event,
-        config.run as any,
-        config.input ? { validator: config.input } : undefined,
-      );
+      const primitive = incomingFactory(event, config.run as any, {
+        validator: config.input,
+        allowInterleaving: config.allowInterleaving,
+      });
       if (config.rateLimit) {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
       }
@@ -2059,13 +2066,18 @@ export function define(config: any): any {
       event: string,
       requestConfig: {
         input?: Validator;
+        allowInterleaving?: boolean;
         rateLimit?: RateLimitConfig;
         run: (ctx: any, input: any) => unknown;
       },
     ) {
       type Build = (
         e: string,
-        c: { input?: Validator; run: typeof requestConfig.run },
+        c: {
+          input?: Validator;
+          allowInterleaving?: boolean;
+          run: typeof requestConfig.run;
+        },
       ) => Primitive;
       let build: Build | undefined;
       for (const cap of config.capabilities ?? []) {
@@ -2077,7 +2089,11 @@ export function define(config: any): any {
           '[wskit] base.request() needs the requests() capability. Add requests() to capabilities.',
         );
       }
-      const primitive = build(event, { input: requestConfig.input, run: requestConfig.run });
+      const primitive = build(event, {
+        input: requestConfig.input,
+        allowInterleaving: requestConfig.allowInterleaving,
+        run: requestConfig.run,
+      });
       if (requestConfig.rateLimit) {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
       }

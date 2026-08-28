@@ -18,7 +18,9 @@ describe('StreamDurableClient — streams', () => {
   });
 
   it('count-tokens has correct payload and chunk', () => {
-    expectTypeOf<StreamDurableClient['streams']['count-tokens']['payload']>().toEqualTypeOf<{}>();
+    expectTypeOf<StreamDurableClient['streams']['count-tokens']['payload']>().toEqualTypeOf<{
+      hold?: boolean | undefined;
+    }>();
     expectTypeOf<StreamDurableClient['streams']['count-tokens']['chunk']>().toEqualTypeOf<{
       idx: number;
     }>();
@@ -104,8 +106,10 @@ describe('StreamDurableClient — empty slots', () => {
     expectTypeOf<keyof StreamDurableClient['incoming']>().toBeNever();
   });
 
-  it('outgoing has only the test-support server-drop event', () => {
-    expectTypeOf<keyof StreamDurableClient['outgoing']>().toEqualTypeOf<'server-drop'>();
+  it('outgoing has only the test-support events', () => {
+    expectTypeOf<keyof StreamDurableClient['outgoing']>().toEqualTypeOf<
+      'server-drop' | 'release-overflow'
+    >();
   });
 
   it('clientRequests is empty', () => {

@@ -13,6 +13,7 @@ import type { Validator } from '~/types.ts';
 /** The config a request builder accepts — an optional input schema and the run that returns the reply. */
 export interface RequestBuildConfig {
   readonly input?: Validator;
+  readonly allowInterleaving?: boolean;
   run(ctx: any, input: any): unknown;
 }
 
@@ -159,7 +160,10 @@ export const requests = withCapabilityKind(function requests<
         // correlated frame. Only a real value is forwarded as the response.
         if (result != null) ctx.respond(result);
       },
-      config.input ? { validator: config.input } : undefined,
+      {
+        validator: config.input,
+        allowInterleaving: config.allowInterleaving,
+      },
     );
   };
   return stampKind(cap, CAPABILITY_KIND.requests);

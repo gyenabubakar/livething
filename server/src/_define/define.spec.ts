@@ -63,6 +63,16 @@ describe('define() send/receive core', () => {
     expect(compiled.incoming.has('echo-anything')).toBe(true);
   });
 
+  it('uses ordered work for on handlers and interleaved work for requests by default', () => {
+    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const incoming = base.on('incoming', { run() {} });
+    const request = base.request('request', { run() {} });
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [incoming, request] }));
+
+    expect(compiled.incoming.get('incoming')?.allowInterleaving).toBe(false);
+    expect(compiled.requests.get('request')?.allowInterleaving).toBe(true);
+  });
+
   it('registers a single intercept', () => {
     const base = makeBase();
     base.intercept((_ctx, frame) => {

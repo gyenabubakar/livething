@@ -16,10 +16,12 @@
 // is absent. A new accidental import that drags an engine into the wrong bundle
 // makes a forbidden marker appear — and the check fails.
 //
-// Two suites run:
+// Three suites run:
 //   • @wskit/server — one bundle entry per feature; the split is fine-grained.
 //   • @wskit/client — one socket runtime plus a few light utility subpaths; the
 //     guarantee is that those utilities never pull the connection runtime.
+//   • @wskit/server-node — the public Node adapter entry; the check makes sure
+//     its runtime is present and no Cloudflare runtime is bundled into it.
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -180,6 +182,9 @@ function clientScenarios(f) {
   ];
 }
 
+const NODE_ADAPTER_DIST = resolve(repoRoot, 'server-adapters/node/dist');
+const NODE_ADAPTER_MARKER = '[wskit] Node server options need either server or port.';
+
 // ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
@@ -190,7 +195,7 @@ function importNamed(path, ...names) {
   return `import { ${names.join(', ')} } from ${JSON.stringify(path)};\nexport { ${names.join(', ')} };`;
 }
 
-async function bundle(source) {
+async function bundle(source, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'wskit-bundle-check-'));
   const entry = join(dir, 'entry.mjs');
   await writeFile(entry, source);
@@ -200,17 +205,63 @@ async function bundle(source) {
       bundle: true,
       write: false,
       format: 'esm',
-      platform: 'neutral',
+      platform: options.platform ?? 'neutral',
       minify: false,
       // @wskit/core is an external peer in the built packages; keep it external
       // here too so we only inspect each package's own code.
-      external: ['@wskit/core', '@wskit/core/*', '@standard-schema/*'],
+      external: ['@wskit/core', '@wskit/core/*', '@standard-schema/*', ...(options.external ?? [])],
       logLevel: 'silent',
     });
     return result.outputFiles.map((file) => file.text).join('\n');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+async function runNodeAdapterSuite() {
+  console.log('\n@wskit/server-node');
+  const failures = [];
+
+  await assertMarkersResolve(
+    NODE_ADAPTER_DIST,
+    { runtime: { marker: NODE_ADAPTER_MARKER, label: 'Node adapter runtime' } },
+    failures,
+  );
+
+  try {
+    const code = await bundle(importStar(join(NODE_ADAPTER_DIST, 'index.js')), {
+      platform: 'node',
+      external: [
+        'node:*',
+        '@wskit/server',
+        '@wskit/server/*',
+        '@fastify/*',
+        'better-sqlite3',
+        'ws',
+      ],
+    });
+
+    if (!code.includes(NODE_ADAPTER_MARKER)) {
+      failures.push(
+        `  [@wskit/server-node · index] expected Node adapter runtime marker ${JSON.stringify(NODE_ADAPTER_MARKER)} is absent`,
+      );
+    }
+
+    if (code.includes('cloudflare:workers')) {
+      failures.push(
+        '  [@wskit/server-node · index] Cloudflare runtime code leaked into the Node adapter bundle',
+      );
+    }
+
+    console.log(`  ${failures.length ? '✗' : '✓'} index (runtime)`);
+  } catch (error) {
+    failures.push(
+      `  [@wskit/server-node · index] could not bundle the public entry — ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.log('  ✗ index (runtime)');
+  }
+
+  return failures;
 }
 
 async function runSuite({ label, distDir, engines }, scenarios) {
@@ -307,6 +358,7 @@ async function main() {
       { label: '@wskit/client', distDir: CLIENT_DIST, engines: CLIENT_ENGINES },
       clientScenarios(withDir(CLIENT_DIST)),
     )),
+    ...(await runNodeAdapterSuite()),
   ];
 
   if (failures.length) {

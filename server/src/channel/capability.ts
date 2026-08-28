@@ -64,7 +64,10 @@ export interface ChannelDeps {
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
   /** Request builder, present only when the `requests()` capability is listed. */
-  readonly buildRequest?: (event: string, config: { input?: unknown; run: any }) => Primitive;
+  readonly buildRequest?: (
+    event: string,
+    config: { input?: unknown; allowInterleaving?: boolean; run: any },
+  ) => Primitive;
   /**
    * Merge a channel's own `outgoing.requests` declarations into the engine's
    * server→client request table. Present only when `requests()` is listed, so a
@@ -189,11 +192,10 @@ export class ChannelBuilder {
   on(event: string, config: any): ChannelHandlerValue {
     this.recordRateLimit(event, config);
     this.children.push(
-      incomingFactory(
-        event,
-        withChannelCtx(config.run) as any,
-        config.input ? { validator: config.input } : undefined,
-      ),
+      incomingFactory(event, withChannelCtx(config.run) as any, {
+        validator: config.input,
+        allowInterleaving: config.allowInterleaving,
+      }),
     );
     return this.handlerValue();
   }
@@ -211,6 +213,7 @@ export class ChannelBuilder {
     this.children.push(
       build(event, {
         input: config.input,
+        allowInterleaving: config.allowInterleaving,
         run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
       }),
     );

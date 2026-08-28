@@ -200,6 +200,22 @@ describe('channels() capability', () => {
     expect(respond).toHaveBeenCalledWith({ ok: true });
   });
 
+  it('carries handler scheduling options through channel compilation', () => {
+    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
+    const room = base.channel('room', {});
+    const ordered = room.on('ordered', { run() {} });
+    const interleaved = room.on('interleaved', { allowInterleaving: true, run() {} });
+    const request = room.request('request', { allowInterleaving: false, run() {} });
+    const compiled = compileHandlerDefinition(
+      base.assemble({ handlers: [ordered, interleaved, request] }),
+    );
+    const channel = compiled.channels.get('room')!;
+
+    expect(channel.incoming.get('ordered')?.allowInterleaving).toBe(false);
+    expect(channel.incoming.get('interleaved')?.allowInterleaving).toBe(true);
+    expect(channel.requests.get('request')?.allowInterleaving).toBe(false);
+  });
+
   it('runs a channel stream generator with both the stream and channel handles', async () => {
     const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
     const room = base.channel('room', {});

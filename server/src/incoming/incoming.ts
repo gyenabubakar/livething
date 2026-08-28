@@ -22,6 +22,8 @@ export interface IncomingPrimitive<
   readonly event: TEvent;
   /** The function to call when the event is received. */
   readonly handler: IncomingHandler<TCtx, TPayload>;
+  /** Whether this handler may start without waiting for prior app work. */
+  readonly allowInterleaving: boolean;
   /**
    * Optional schema validator. When present, the engine validates the raw
    * payload before calling `handler`. If validation fails, `onValidationError`
@@ -41,7 +43,7 @@ const INCOMING_KEY = Symbol('incoming');
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,
   handler: IncomingHandler<TCtx, TPayload>,
-  options?: { validator?: Validator<TPayload> },
+  options?: { validator?: Validator<TPayload>; allowInterleaving?: boolean },
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
   assertValidWSKitIdentifier(event, 'incoming() event name');
   return {
@@ -51,6 +53,7 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
     __requires: {},
     event,
     handler,
+    allowInterleaving: options?.allowInterleaving ?? false,
     validator: options?.validator,
   };
 }

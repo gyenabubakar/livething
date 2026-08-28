@@ -386,6 +386,9 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
+  /** Ordered app work waiting for this connection. */
+  workQueue?: ConnectionWorkQueue;
+
   /** Handle for the idle timer armed by `refreshConnectionIdleTimeout`. */
   keepaliveTimer?: unknown;
 
@@ -441,6 +444,11 @@ export interface RuntimeConnection {
    * unbounded timers, and cleared on close so none outlive the connection.
    */
   deferTimers?: Set<ReturnType<typeof setTimeout>>;
+}
+
+/** Pending ordered app work for one connection. */
+export interface ConnectionWorkQueue {
+  tail: Promise<void>;
 }
 
 /**
