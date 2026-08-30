@@ -66,10 +66,10 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
     if (input.prompt === '__hold-overflow__') {
       const signal = ctx.stream.signal;
       const gate = new Promise<void>((resolve) => {
-        const complete = () => {
+        function complete(): void {
           signal.removeEventListener('abort', complete);
           resolve();
-        };
+        }
         overflowGates.set(ctx.connection.id, complete);
         if (signal.aborted) {
           complete();
