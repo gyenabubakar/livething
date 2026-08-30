@@ -14,10 +14,13 @@ type AnyAdmin = Record<string, AnyAdminMethod>;
 interface Fixture {
   service: NodeServer<unknown, unknown>;
   transport: Server;
+  sockets: Set<Duplex>;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 const stateRoot = mkdtempSync(join(tmpdir(), 'wskit-node-e2e-'));
 const fixtures = new Map<string, Fixture>();
+const IDLE_FIXTURE_TIMEOUT_MS = 1_000;
 
 function fixtureKey(route: string, room: string): string {
   return `${route}\u0000${room}`;
@@ -26,6 +29,24 @@ function fixtureKey(route: string, room: string): string {
 function databasePath(route: string, room: string): string {
   const digest = createHash('sha256').update(fixtureKey(route, room)).digest('hex');
   return join(stateRoot, `${digest}.sqlite`);
+}
+
+function scheduleIdleFixtureShutdown(key: string, fixture: Fixture): void {
+  if (fixture.idleTimer) return;
+
+  fixture.idleTimer = setTimeout(() => {
+    fixture.idleTimer = undefined;
+    if (fixture.sockets.size === 0) void shutdownKnownFixture(key, fixture);
+  }, IDLE_FIXTURE_TIMEOUT_MS);
+  fixture.idleTimer.unref();
+}
+
+async function shutdownKnownFixture(key: string, fixture: Fixture): Promise<void> {
+  if (fixtures.get(key) !== fixture) return;
+
+  if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
+  fixtures.delete(key);
+  await fixture.service.shutdown();
 }
 
 function getFixture(route: string, room: string): Fixture {
@@ -43,8 +64,9 @@ function getFixture(route: string, room: string): Fixture {
     env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
     shutdownOnSignal: false,
   });
-  const fixture = { service, transport };
+  const fixture = { service, transport, sockets: new Set<Duplex>() };
   fixtures.set(key, fixture);
+  scheduleIdleFixtureShutdown(key, fixture);
   return fixture;
 }
 
@@ -54,9 +76,8 @@ async function adminOf(fixture: Fixture): Promise<AnyAdmin> {
 
 async function shutdownFixture(route: string, room: string): Promise<void> {
   const key = fixtureKey(route, room);
-  const fixture = getFixture(route, room);
-  fixtures.delete(key);
-  await fixture.service.shutdown();
+  const fixture = fixtures.get(key);
+  if (fixture) await shutdownKnownFixture(key, fixture);
 }
 
 interface AdminOpArgs {
@@ -340,7 +361,16 @@ function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): 
     return;
   }
 
-  const fixture = getFixture(url.pathname, roomFrom(url));
+  const room = roomFrom(url);
+  const key = fixtureKey(url.pathname, room);
+  const fixture = getFixture(url.pathname, room);
+  if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
+  fixture.idleTimer = undefined;
+  fixture.sockets.add(socket);
+  socket.once('close', () => {
+    fixture.sockets.delete(socket);
+    scheduleIdleFixtureShutdown(key, fixture);
+  });
   fixture.transport.emit('upgrade', request, socket, head);
 }
 
