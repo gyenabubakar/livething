@@ -14,6 +14,8 @@ export function setup(): void {
     <button data-testid="pause">pause</button>
     <button data-testid="malformed-pause">malformed-pause</button>
     <button data-testid="cancel">cancel</button>
+    <button data-testid="start-held">start held stream</button>
+    <button data-testid="cancel-held">cancel held stream</button>
     <button data-testid="start-break">start-break</button>
     <span data-testid="status"></span>
     <span data-testid="stream-id"></span>
@@ -23,15 +25,22 @@ export function setup(): void {
     <span data-testid="nudge-ok"></span>
     <span data-testid="nudge-error"></span>
     <span data-testid="break-end"></span>
+    <span data-testid="held-stream-id"></span>
+    <span data-testid="held-end"></span>
+    <span data-testid="held-server-released"></span>
   `);
 
   const socket = client<StreamNudgesClient>()(connect(wsUrl('stream-nudges')), stream());
 
   type Handle = Awaited<ReturnType<typeof socket.stream<'start-nudge-stream'>>>;
   let handle: Handle | null = null;
+  let heldHandle: Handle | null = null;
 
   socket.state.subscribe(() => {
     el('status').textContent = socket.state.get();
+  });
+  socket.on('held-stream-released', () => {
+    el('held-server-released').textContent = 'yes';
   });
 
   button('connect', () => socket.connect());
@@ -92,6 +101,22 @@ export function setup(): void {
 
   button('cancel', () => {
     handle?.cancel();
+  });
+
+  button('start-held', async () => {
+    const started = await socket.stream('start-nudge-stream', { prompt: '__hold-overflow__' });
+    heldHandle = started;
+    el('held-stream-id').textContent = started.streamId;
+    void (async () => {
+      for await (const _chunk of started) {
+        void _chunk;
+      }
+      el('held-end').textContent = 'yes';
+    })();
+  });
+
+  button('cancel-held', () => {
+    heldHandle?.cancel();
   });
 
   button('start-break', async () => {

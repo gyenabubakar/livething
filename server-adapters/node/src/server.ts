@@ -102,6 +102,7 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
     let shuttingDown = false;
     let shutdownPromise: Promise<void> | undefined;
     const pendingUpgrades = new Set<Promise<void>>();
+    const pendingUpgradeSockets = new Set<Duplex>();
     const signalHandlers = new Map<ShutdownSignal, () => void>();
 
     const engine = createEngine({
@@ -137,7 +138,11 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
 
       // Upgrades can arrive while startup is still running; shutdown waits for them here.
       pendingUpgrades.add(task);
-      void task.finally(() => pendingUpgrades.delete(task));
+      pendingUpgradeSockets.add(socket);
+      void task.finally(() => {
+        pendingUpgrades.delete(task);
+        pendingUpgradeSockets.delete(socket);
+      });
     }
 
     server.on('upgrade', handleUpgrade);
@@ -180,6 +185,7 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
         server.off('upgrade', handleUpgrade);
         shutdownPromise = (async () => {
           // Stop new upgrades, then drain the ones that already passed the listener.
+          for (const socket of pendingUpgradeSockets) socket.destroy();
           await Promise.all([...pendingUpgrades]);
 
           let startupError: unknown;

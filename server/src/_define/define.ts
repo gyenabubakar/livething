@@ -1817,7 +1817,7 @@ type PluginEnvCheck<TEnv, TCaps extends readonly AnyCapability[]> = [
   PluginEnvRequirements<TCaps>,
 ] extends [never]
   ? {}
-  : TEnv extends PluginEnvRequirements<TCaps>
+  : [TEnv] extends [PluginEnvRequirements<TCaps>]
     ? {}
     : {
         readonly __wskit_plugin_env_error: 'The host environment must satisfy every plugin environment requirement.';

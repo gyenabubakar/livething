@@ -29,12 +29,19 @@ export function normalizeCloseReason(reason?: string): string | undefined {
 export function normalizeConnectionDescriptor(
   descriptor: ConnectionDescriptor,
 ): ConnectionDescriptor {
-  const normalized = Object.assign(
-    Object.create(Object.getPrototypeOf(descriptor)) as ConnectionDescriptor,
-    descriptor,
-  );
-  normalized.close = (code, reason) => {
-    descriptor.close(code, normalizeCloseReason(reason));
+  return {
+    send(data) {
+      return descriptor.send(data);
+    },
+    close(code, reason) {
+      descriptor.close(code, normalizeCloseReason(reason));
+    },
+    bufferedAmount() {
+      return descriptor.bufferedAmount();
+    },
+    backpressureSupported: descriptor.backpressureSupported,
+    userId: descriptor.userId,
+    meta: descriptor.meta,
+    tags: descriptor.tags,
   };
-  return normalized;
 }

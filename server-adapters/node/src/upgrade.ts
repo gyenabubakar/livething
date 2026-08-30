@@ -62,10 +62,33 @@ export function createUpgradeHandler({
 
     try {
       await new Promise<void>((resolve, reject) => {
-        webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-          acceptedSocket = webSocket;
-          Promise.resolve(onAccepted(webSocket, request, decision)).then(resolve, reject);
-        });
+        let accepted = false;
+
+        function rejectClosedUpgrade(): void {
+          if (!accepted) reject(new Error('[wskit] WebSocket upgrade closed before acceptance'));
+        }
+
+        function detachUpgradeListeners(): void {
+          socket.off('close', rejectClosedUpgrade);
+          socket.off('error', rejectClosedUpgrade);
+        }
+
+        socket.once('close', rejectClosedUpgrade);
+        socket.once('error', rejectClosedUpgrade);
+
+        try {
+          webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+            accepted = true;
+            detachUpgradeListeners();
+            acceptedSocket = webSocket;
+            void Promise.resolve()
+              .then(() => onAccepted(webSocket, request, decision))
+              .then(resolve, reject);
+          });
+        } catch (error) {
+          detachUpgradeListeners();
+          reject(error);
+        }
       });
     } catch (error) {
       if (acceptedSocket) {

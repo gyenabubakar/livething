@@ -25,9 +25,13 @@ describe('StreamNudgesClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly two events in incoming', () => {
+  it('has held-stream-released', () => {
+    expectTypeOf<StreamNudgesClient['incoming']['held-stream-released']>().toEqualTypeOf<{}>();
+  });
+
+  it('has exactly the declared incoming events', () => {
     expectTypeOf<keyof StreamNudgesClient['incoming']>().toEqualTypeOf<
-      'pause-top-level-fired' | 'nudge-saw'
+      'held-stream-released' | 'pause-top-level-fired' | 'nudge-saw'
     >();
   });
 });

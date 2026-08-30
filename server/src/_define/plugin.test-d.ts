@@ -107,6 +107,12 @@ define({
   capabilities: [emits({ hostEvent: t<{ ok: boolean }>() }), EnvPlugin()],
 });
 
+// @ts-expect-error — every possible host env variant must satisfy the plugin requirement
+define({
+  env: t<PluginEnv | { region: string }>(),
+  capabilities: [EnvPlugin()],
+});
+
 // ---------------------------------------------------------------------------
 // Gap 2 — `api` return type is inferred (no annotation) and reaches the host
 // through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { normalizeCloseReason } from './close.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { normalizeCloseReason, normalizeConnectionDescriptor } from './close.ts';
 
 describe('normalizeCloseReason', () => {
   it('leaves a reason within the WebSocket limit unchanged', () => {
@@ -15,5 +15,30 @@ describe('normalizeCloseReason', () => {
 
   it('preserves an omitted reason', () => {
     expect(normalizeCloseReason()).toBeUndefined();
+  });
+
+  it('keeps custom descriptor methods bound to their original instance', () => {
+    class Descriptor {
+      #sent = 0;
+      readonly userId = 'user-1';
+      readonly close = vi.fn();
+
+      send(): void {
+        this.#sent += 1;
+      }
+
+      bufferedAmount(): number {
+        return this.#sent;
+      }
+    }
+
+    const original = new Descriptor();
+    const descriptor = normalizeConnectionDescriptor(original);
+
+    descriptor.send('frame');
+    descriptor.close(1000, '🙂'.repeat(100));
+
+    expect(descriptor.bufferedAmount()).toBe(1);
+    expect(original.close).toHaveBeenCalledWith(1000, '🙂'.repeat(30));
   });
 });

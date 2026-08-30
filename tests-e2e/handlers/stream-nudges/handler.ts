@@ -22,6 +22,7 @@ const base = define({
     dedup(),
     errors([NudgeRejected]),
     emits({
+      'held-stream-released': t<{}>(),
       'pause-top-level-fired': t<{ leak: string }>(),
       'nudge-saw': t<{ events: string[] }>(),
     }),
@@ -63,15 +64,24 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
   },
   async *run(ctx, input) {
     if (input.prompt === '__hold-overflow__') {
-      let release!: () => void;
+      const signal = ctx.stream.signal;
       const gate = new Promise<void>((resolve) => {
-        release = resolve;
+        const complete = () => {
+          signal.removeEventListener('abort', complete);
+          resolve();
+        };
+        overflowGates.set(ctx.connection.id, complete);
+        if (signal.aborted) {
+          complete();
+        } else {
+          signal.addEventListener('abort', complete, { once: true });
+        }
       });
-      overflowGates.set(ctx.connection.id, release);
       try {
         await gate;
       } finally {
         overflowGates.delete(ctx.connection.id);
+        ctx.send('held-stream-released', {});
       }
     }
 

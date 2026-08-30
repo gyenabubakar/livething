@@ -266,6 +266,26 @@ function sendRawUpgrade(port: number, target: string): Promise<string> {
   });
 }
 
+function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<typeof connect>> {
+  return new Promise<ReturnType<typeof connect>>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    socket.on('connect', () => {
+      socket.write(
+        [
+          `GET ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: not-websocket',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+      resolve(socket);
+    });
+    socket.once('error', reject);
+  });
+}
+
 function createCapturingWebSocketServer(): {
   server: NodeWebSocketServer;
   getAccepted(): WebSocket | undefined;
@@ -372,6 +392,20 @@ describe('Node server integration', () => {
     const response = await sendRawUpgrade(serverPort(service.server), '/\\evil.example/chat');
 
     expect(response).toContain('HTTP/1.1 400 Bad Request');
+  });
+
+  it('does not retain a malformed upgrade while shutting down', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    services.push(service);
+    await service.ready;
+
+    const malformedSocket = await sendMalformedUpgrade(serverPort(service.server), '/chat');
+    const malformedSocketClosed = new Promise<void>((resolve) =>
+      malformedSocket.once('close', resolve),
+    );
+    await expect(service.shutdown()).resolves.toBeUndefined();
+    await malformedSocketClosed;
   });
 
   it('limits an oversized WebSocket close reason over the real transport', async () => {

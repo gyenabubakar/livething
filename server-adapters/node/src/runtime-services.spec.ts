@@ -337,6 +337,49 @@ describe('createTimers', () => {
     }
   });
 
+  it('runs an alarm that started before timers stop', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(600_000);
+    const sql = createSql();
+    try {
+      const timers = createTimers(sql.provider);
+      const onAlarm = vi.fn(async () => {});
+      await timers.setAlarm(600_001);
+      await timers.start(onAlarm);
+
+      vi.advanceTimersByTime(1);
+      timers.stop();
+      await timers.drain();
+
+      expect(onAlarm).toHaveBeenCalledOnce();
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a re-armed timer before scheduling an alarm retry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(700_000);
+    const sql = createSql();
+    try {
+      const timers = createTimers(sql.provider);
+      await timers.setAlarm(700_001);
+      await timers.start(async () => {
+        await timers.setAlarm(800_000);
+        throw new Error('alarm failed');
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      timers.stop();
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('retries after a transient failure deleting a due alarm', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);

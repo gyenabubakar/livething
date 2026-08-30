@@ -104,6 +104,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     });
 
     if (started) {
+      clearTimeoutIfSet();
       timeout = setTimeout(() => {
         timeout = undefined;
         runAlarmInBackground();
@@ -112,7 +113,8 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   }
 
   function runAlarmInBackground(): void {
-    const task = runAlarm();
+    const callback = onAlarm;
+    const task = runAlarm(callback);
     inFlight.add(task);
     void task.then(
       () => {
@@ -125,8 +127,8 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     );
   }
 
-  async function runAlarm(): Promise<void> {
-    if (!started) return;
+  async function runAlarm(callback: (() => Promise<void>) | undefined): Promise<void> {
+    if (!started || callback === undefined) return;
 
     const deadline = await getAlarm();
     if (deadline === null) return;
@@ -142,7 +144,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       return;
     }
 
-    await onAlarm?.();
+    await callback();
   }
 
   function clearTimeoutIfSet(): void {

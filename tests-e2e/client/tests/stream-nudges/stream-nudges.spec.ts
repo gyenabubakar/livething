@@ -95,6 +95,18 @@ test.describe('stream-nudges (conformance)', () => {
     await expect(page.getByTestId('active')).toHaveText('false');
   });
 
+  test('cancelling a held stream releases its generator', async ({ page }, testInfo) => {
+    await open(page, `sn-held-cancel-${testInfo.testId}`);
+
+    await page.getByTestId('start-held').click();
+    await expect(page.getByTestId('held-stream-id')).not.toHaveText('');
+    await expect(page.getByTestId('held-end')).toHaveText('');
+
+    await page.getByTestId('cancel-held').click();
+    await expect(page.getByTestId('held-end')).toHaveText('yes');
+    await expect(page.getByTestId('held-server-released')).toHaveText('yes');
+  });
+
   test('breaking out of the for-await loop ends the stream', async ({ page }, testInfo) => {
     await open(page, `sn-break-${testInfo.testId}`);
 

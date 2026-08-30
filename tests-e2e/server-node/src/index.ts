@@ -16,10 +16,12 @@ interface Fixture {
   transport: Server;
   sockets: Set<Duplex>;
   idleTimer?: ReturnType<typeof setTimeout>;
+  shutdown?: Promise<void>;
 }
 
 const stateRoot = mkdtempSync(join(tmpdir(), 'wskit-node-e2e-'));
 const fixtures = new Map<string, Fixture>();
+const fixtureCreations = new Map<string, Promise<Fixture>>();
 const IDLE_FIXTURE_TIMEOUT_MS = 1_000;
 
 function fixtureKey(route: string, room: string): string {
@@ -43,31 +45,51 @@ function scheduleIdleFixtureShutdown(key: string, fixture: Fixture): void {
 
 async function shutdownKnownFixture(key: string, fixture: Fixture): Promise<void> {
   if (fixtures.get(key) !== fixture) return;
+  if (fixture.shutdown) return fixture.shutdown;
 
   if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
-  fixtures.delete(key);
-  await fixture.service.shutdown();
+  fixture.shutdown = fixture.service.shutdown().finally(() => {
+    if (fixtures.get(key) === fixture) fixtures.delete(key);
+  });
+  return fixture.shutdown;
 }
 
-function getFixture(route: string, room: string): Fixture {
+async function getFixture(route: string, room: string): Promise<Fixture> {
   const key = fixtureKey(route, room);
   const current = fixtures.get(key);
-  if (current) return current;
+  if (current) {
+    if (!current.shutdown) return current;
+  }
 
-  const spec = FEATURE_ROUTES[route];
-  if (!spec) throw new Error(`No Node fixture is registered for ${route}`);
+  const existingCreation = fixtureCreations.get(key);
+  if (existingCreation) return existingCreation;
 
-  const transport = createServer();
-  const service = spec.create({
-    server: transport,
-    sql: databasePath(route, room),
-    env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
-    shutdownOnSignal: false,
+  let creation: Promise<Fixture>;
+  creation = (async () => {
+    if (current?.shutdown) await current.shutdown;
+
+    const replacement = fixtures.get(key);
+    if (replacement && !replacement.shutdown) return replacement;
+
+    const spec = FEATURE_ROUTES[route];
+    if (!spec) throw new Error(`No Node fixture is registered for ${route}`);
+
+    const transport = createServer();
+    const service = spec.create({
+      server: transport,
+      sql: databasePath(route, room),
+      env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
+      shutdownOnSignal: false,
+    });
+    const fixture = { service, transport, sockets: new Set<Duplex>() };
+    fixtures.set(key, fixture);
+    scheduleIdleFixtureShutdown(key, fixture);
+    return fixture;
+  })().finally(() => {
+    if (fixtureCreations.get(key) === creation) fixtureCreations.delete(key);
   });
-  const fixture = { service, transport, sockets: new Set<Duplex>() };
-  fixtures.set(key, fixture);
-  scheduleIdleFixtureShutdown(key, fixture);
-  return fixture;
+  fixtureCreations.set(key, creation);
+  return creation;
 }
 
 async function adminOf(fixture: Fixture): Promise<AnyAdmin> {
@@ -217,7 +239,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/admin/purge' || url.pathname === '/ws/admin/announce') {
-      const fixture = getFixture('/ws/admin', room);
+      const fixture = await getFixture('/ws/admin', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       if (url.pathname.endsWith('/purge')) {
@@ -230,7 +252,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname.startsWith('/ws/admin/api/')) {
-      const fixture = getFixture('/ws/admin', room);
+      const fixture = await getFixture('/ws/admin', room);
       await fixture.service.ready;
       const result = await runAdminOp(
         await adminOf(fixture),
@@ -251,7 +273,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname.startsWith('/ws/admin/builtin/')) {
-      const fixture = getFixture('/ws/admin', room);
+      const fixture = await getFixture('/ws/admin', room);
       await fixture.service.ready;
       const result = await runAdminBuiltIn(
         await adminOf(fixture),
@@ -291,7 +313,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/seed-stale') {
-      const fixture = getFixture('/ws/receipts', room);
+      const fixture = await getFixture('/ws/receipts', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       await admin.seedStaleReceipt();
@@ -300,7 +322,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/stale-count') {
-      const fixture = getFixture('/ws/receipts', room);
+      const fixture = await getFixture('/ws/receipts', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       writeJson(response, 200, { count: await admin.staleReceiptCount() });
@@ -308,7 +330,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/drop-inbox') {
-      const fixture = getFixture('/ws/receipts', room);
+      const fixture = await getFixture('/ws/receipts', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       await admin.dropInboxTable();
@@ -317,7 +339,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/receivers') {
-      const fixture = getFixture('/ws/receipts', room);
+      const fixture = await getFixture('/ws/receipts', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       const users = await admin.receiptUsers(
@@ -329,7 +351,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/purge') {
-      const fixture = getFixture('/ws/receipts', room);
+      const fixture = await getFixture('/ws/receipts', room);
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       try {
@@ -353,7 +375,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 }
 
-function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+async function handleUpgrade(
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const spec = FEATURE_ROUTES[url.pathname];
   if (!spec) {
@@ -363,7 +389,7 @@ function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): 
 
   const room = roomFrom(url);
   const key = fixtureKey(url.pathname, room);
-  const fixture = getFixture(url.pathname, room);
+  const fixture = await getFixture(url.pathname, room);
   if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
   fixture.idleTimer = undefined;
   fixture.sockets.add(socket);
@@ -385,7 +411,9 @@ const root = createServer((request, response) => {
   void handleRequest(request, response);
 });
 
-root.on('upgrade', handleUpgrade);
+root.on('upgrade', (request, socket, head) => {
+  void handleUpgrade(request, socket, head).catch(() => socket.destroy());
+});
 process.once('SIGINT', () => void shutdownAll(root));
 process.once('SIGTERM', () => void shutdownAll(root));
 process.once('exit', () => rmSync(stateRoot, { recursive: true, force: true }));
