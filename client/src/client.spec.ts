@@ -1,3 +1,4 @@
+import { CloseCodes } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -64,6 +65,49 @@ describe('connection lifecycle', () => {
     socket.disconnect(4001, 'auth expired');
     expect(ws.readyState).toBe(3);
     expect(socket.state.get()).toBe('closed');
+  });
+
+  it('closes safely and reports an invalid disconnect code', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(4000.5, 'do not send this');
+
+    expect(ws.readyState).toBe(3);
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(socket.state.get()).toBe('closed');
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[wskit] invalid client close code: 4000.5' }),
+    );
+  });
+
+  it('safely closes when a server-only close code is passed to disconnect', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(CloseCodes.INTERNAL_ERROR, 'do not send this');
+
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[wskit] invalid client close code: 1011' }),
+    );
+  });
+
+  it('safely closes when the close reason is too large for the browser', () => {
+    const { socket, ws } = connected();
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.disconnect(CloseCodes.AUTH_EXPIRED, '🫠'.repeat(31));
+
+    expect(ws.closeCall).toEqual({ code: 1000, reason: '' });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '[wskit] invalid client close reason: exceeds 123 UTF-8 bytes',
+      }),
+    );
   });
 
   it('connect() is idempotent while open', () => {

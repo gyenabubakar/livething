@@ -98,8 +98,8 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     }, delay);
   }
 
-  function handleAlarmFailure(error: unknown): void {
-    logger?.error('[wskit] Node durable alarm failed', {
+  function retryAlarmDelivery(error: unknown): void {
+    logger?.error('[wskit] Node durable alarm delivery failed', {
       error: error instanceof Error ? error.message : String(error),
     });
 
@@ -122,7 +122,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       },
       (error: unknown) => {
         inFlight.delete(task);
-        handleAlarmFailure(error);
+        retryAlarmDelivery(error);
       },
     );
   }
@@ -144,7 +144,13 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       return;
     }
 
-    await callback();
+    try {
+      await callback();
+    } catch (error) {
+      logger?.error('[wskit] engine alarm callback failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function clearTimeoutIfSet(): void {

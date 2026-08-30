@@ -371,7 +371,9 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log('\nbundle-check: all entries clean — every engine is confined to its own bundle.');
+  console.log(
+    '\nbundle-check: all entries clean — optional feature code is only included where it is needed.',
+  );
 }
 
 main().catch((err) => {

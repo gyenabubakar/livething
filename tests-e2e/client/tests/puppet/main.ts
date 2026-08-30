@@ -167,6 +167,10 @@ if (!useLazy) {
 }
 
 (window as unknown as { __drop(): void }).__drop = () => socket.send('drop', {});
+(window as unknown as { __disconnect(code: number, reason: string): void }).__disconnect = (
+  code,
+  reason,
+) => socket.disconnect(code, reason);
 
 el('connect').addEventListener('click', () => socket.connect());
 el('disconnect').addEventListener('click', () => socket.disconnect());

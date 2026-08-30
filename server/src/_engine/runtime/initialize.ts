@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { rescheduleAlarm } from '~/_engine/alarm.ts';
 import { commonDeps } from '~/_engine/engine.deps.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
@@ -6,6 +7,8 @@ import { createInitContext } from '~/lifecycle/context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
+
+const ALARM_RETRY_DELAY_MS = 1_000;
 
 /** Throw if the adapter is missing something the handler said it needs. */
 function validateRequires(core: EngineCore): void {
@@ -141,26 +144,35 @@ export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps
       } catch (error) {
         // One capability's durable cleanup must not starve another capability
         // that shares the adapter's single alarm. Keep running every hook so
-        // successful sources can make progress; the failure is rethrown below
-        // so the adapter can apply its normal alarm retry policy.
+        // successful sources can make progress; the engine schedules retries.
         failures.push(error);
       }
     }
   } finally {
     // A source may have removed its due work, while another source may still
-    // have a future deadline. Always rebuild the shared alarm, even when one
-    // hook fails and the adapter retries the alarm invocation.
+    // have a future deadline. Always rebuild the shared alarm before deciding
+    // whether this engine invocation needs a retry.
     try {
-      accessDeps.rescheduleAlarm();
+      await rescheduleAlarm(core);
     } catch (error) {
       failures.push(error);
     }
   }
 
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, '[wskit] one or more durable alarm hooks failed');
+  if (failures.length > 0) {
+    const error =
+      failures.length === 1
+        ? failures[0]
+        : new AggregateError(failures, '[wskit] one or more durable alarm hooks failed');
+    core.logger.error('[wskit] durable alarm hook failed; retrying', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      await core.timers.setAlarm(Date.now() + ALARM_RETRY_DELAY_MS);
+    } catch (retryError) {
+      core.logger.error('[wskit] durable alarm retry could not be scheduled', {
+        error: retryError instanceof Error ? retryError.message : String(retryError),
+      });
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Block } from '@wskit/core';
+import { Block, CloseCodes } from '@wskit/core';
 import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { createStore } from '~/internal/store.ts';
@@ -63,6 +63,18 @@ function defaultSerialize(message: WireMessage): string {
   return message.__wskit
     ? JSON.stringify({ event: message.event, payload: message.payload, __wskit: message.__wskit })
     : JSON.stringify({ event: message.event, payload: message.payload });
+}
+
+function isValidCloseCode(code: unknown): code is number {
+  return (
+    typeof code === 'number' &&
+    Number.isInteger(code) &&
+    (code === CloseCodes.NORMAL || (code >= 3000 && code <= 4999))
+  );
+}
+
+function isValidCloseReason(reason: unknown): reason is string {
+  return typeof reason === 'string' && new TextEncoder().encode(reason).byteLength <= 123;
 }
 
 /**
@@ -212,6 +224,18 @@ export class WSKitSocket {
    * stay, so calling `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
+    const validCode = isValidCloseCode(code);
+    if (!validCode || !isValidCloseReason(reason)) {
+      this._teardown(CloseCodes.NORMAL, '', {
+        intentional: true,
+        suspended: false,
+      });
+      const error = !validCode
+        ? new RangeError(`[wskit] invalid client close code: ${String(code)}`)
+        : new RangeError('[wskit] invalid client close reason: exceeds 123 UTF-8 bytes');
+      this._reportError(error);
+      return;
+    }
     this._teardown(code, reason, { intentional: true, suspended: false });
   }
 

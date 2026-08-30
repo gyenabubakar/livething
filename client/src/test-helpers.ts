@@ -22,6 +22,7 @@ export class MockWebSocket {
   protocol = '';
   readyState = 0;
   sent: unknown[] = [];
+  closeCall?: { code: number; reason: string };
 
   onopen: ((ev: unknown) => void) | null = null;
   onclose: ((ev: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
@@ -39,6 +40,13 @@ export class MockWebSocket {
   }
 
   close(code = 1000, reason = ''): void {
+    if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) {
+      throw new DOMException('Invalid close code', 'InvalidAccessError');
+    }
+    if (new TextEncoder().encode(reason).byteLength > 123) {
+      throw new DOMException('Close reason is too long', 'SyntaxError');
+    }
+    this.closeCall = { code, reason };
     this.readyState = 3;
     this.onclose?.({ code, reason, wasClean: true });
   }

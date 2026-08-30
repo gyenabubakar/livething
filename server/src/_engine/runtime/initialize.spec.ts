@@ -35,7 +35,7 @@ import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import { insertTag } from '~/tags/storage.ts';
 import * as v from 'valibot';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -362,7 +362,7 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
 });
 
 describe('engine.handleAlarm — shared source failure does not starve later hooks', () => {
-  it('runs every alarm hook, then rethrows the failure for adapter retry', async () => {
+  it('runs every alarm hook, then schedules its own retry', async () => {
     const engine = buildEngine(tinyHandler);
     await engine.initialize();
 
@@ -376,8 +376,12 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
       events.push('scheduled');
     });
 
-    await expect(engine.handleAlarm()).rejects.toBe(failure);
+    const setAlarm = vi.spyOn(engine.core.timers, 'setAlarm');
+    const before = Date.now();
+    await expect(engine.handleAlarm()).resolves.toBeUndefined();
     expect(events).toEqual(['inbox', 'scheduled']);
+    expect(setAlarm).toHaveBeenCalledWith(expect.any(Number));
+    expect(setAlarm.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(before + 1_000);
   });
 });
 

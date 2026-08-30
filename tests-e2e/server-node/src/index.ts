@@ -15,6 +15,7 @@ interface Fixture {
   service: NodeServer<unknown, unknown>;
   transport: Server;
   sockets: Set<Duplex>;
+  activeHttpRequests: number;
   idleTimer?: ReturnType<typeof setTimeout>;
   shutdown?: Promise<void>;
 }
@@ -38,7 +39,9 @@ function scheduleIdleFixtureShutdown(key: string, fixture: Fixture): void {
 
   fixture.idleTimer = setTimeout(() => {
     fixture.idleTimer = undefined;
-    if (fixture.sockets.size === 0) void shutdownKnownFixture(key, fixture);
+    if (fixture.sockets.size === 0 && fixture.activeHttpRequests === 0) {
+      void shutdownKnownFixture(key, fixture);
+    }
   }, IDLE_FIXTURE_TIMEOUT_MS);
   fixture.idleTimer.unref();
 }
@@ -81,7 +84,7 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
       env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
       shutdownOnSignal: false,
     });
-    const fixture = { service, transport, sockets: new Set<Duplex>() };
+    const fixture = { service, transport, sockets: new Set<Duplex>(), activeHttpRequests: 0 };
     fixtures.set(key, fixture);
     scheduleIdleFixtureShutdown(key, fixture);
     return fixture;
@@ -90,6 +93,28 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
   });
   fixtureCreations.set(key, creation);
   return creation;
+}
+
+async function acquireHttpFixture(
+  route: string,
+  room: string,
+): Promise<{ fixture: Fixture; release(): void }> {
+  const key = fixtureKey(route, room);
+  const fixture = await getFixture(route, room);
+  if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
+  fixture.idleTimer = undefined;
+  fixture.activeHttpRequests += 1;
+
+  let released = false;
+  return {
+    fixture,
+    release() {
+      if (released) return;
+      released = true;
+      fixture.activeHttpRequests -= 1;
+      if (fixture.sockets.size === 0) scheduleIdleFixtureShutdown(key, fixture);
+    },
+  };
 }
 
 async function adminOf(fixture: Fixture): Promise<AnyAdmin> {
@@ -225,6 +250,13 @@ function roomFrom(url: URL): string {
 async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const room = roomFrom(url);
+  let releaseFixture: (() => void) | undefined;
+
+  async function getRequestFixture(route: string): Promise<Fixture> {
+    const lease = await acquireHttpFixture(route, room);
+    releaseFixture = lease.release;
+    return lease.fixture;
+  }
 
   try {
     if (url.pathname === '/__health') {
@@ -239,7 +271,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/admin/purge' || url.pathname === '/ws/admin/announce') {
-      const fixture = await getFixture('/ws/admin', room);
+      const fixture = await getRequestFixture('/ws/admin');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       if (url.pathname.endsWith('/purge')) {
@@ -252,7 +284,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname.startsWith('/ws/admin/api/')) {
-      const fixture = await getFixture('/ws/admin', room);
+      const fixture = await getRequestFixture('/ws/admin');
       await fixture.service.ready;
       const result = await runAdminOp(
         await adminOf(fixture),
@@ -273,7 +305,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname.startsWith('/ws/admin/builtin/')) {
-      const fixture = await getFixture('/ws/admin', room);
+      const fixture = await getRequestFixture('/ws/admin');
       await fixture.service.ready;
       const result = await runAdminBuiltIn(
         await adminOf(fixture),
@@ -313,7 +345,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/seed-stale') {
-      const fixture = await getFixture('/ws/receipts', room);
+      const fixture = await getRequestFixture('/ws/receipts');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       await admin.seedStaleReceipt();
@@ -322,7 +354,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/stale-count') {
-      const fixture = await getFixture('/ws/receipts', room);
+      const fixture = await getRequestFixture('/ws/receipts');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       writeJson(response, 200, { count: await admin.staleReceiptCount() });
@@ -330,7 +362,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/drop-inbox') {
-      const fixture = await getFixture('/ws/receipts', room);
+      const fixture = await getRequestFixture('/ws/receipts');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       await admin.dropInboxTable();
@@ -339,7 +371,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/receivers') {
-      const fixture = await getFixture('/ws/receipts', room);
+      const fixture = await getRequestFixture('/ws/receipts');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       const users = await admin.receiptUsers(
@@ -351,7 +383,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     if (url.pathname === '/ws/receipts/purge') {
-      const fixture = await getFixture('/ws/receipts', room);
+      const fixture = await getRequestFixture('/ws/receipts');
       await fixture.service.ready;
       const admin = await adminOf(fixture);
       try {
@@ -372,6 +404,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     writeText(response, 500, message);
+  } finally {
+    releaseFixture?.();
   }
 }
 

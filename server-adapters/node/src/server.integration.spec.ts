@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
+import type { RawData } from 'ws';
 import { server } from './server.ts';
 import type { NodeServer } from './server.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
@@ -31,6 +32,7 @@ function createHandler(state: IntegrationState) {
       const url = new URL(request.url);
       if (url.pathname === '/reject') throw RejectUpgrade(401, 'No token');
       if (url.pathname === '/reject-socket') throw RejectUpgrade(4001, 'No token');
+      if (url.pathname === '/reject-fractional') throw RejectUpgrade(4000.5, 'No token');
       if (url.pathname === '/reject-long-reason') {
         throw RejectUpgrade(CloseCodes.AUTH_INVALID, '🙂'.repeat(100));
       }
@@ -105,6 +107,12 @@ function createHandler(state: IntegrationState) {
     },
   });
 
+  const invalidClose = base.on('invalid-close', {
+    run(ctx) {
+      ctx.close(4000.5, 'do not expose this');
+    },
+  });
+
   const integrationTask = base.scheduled('integration-task', {
     run(ctx, data) {
       ctx.broadcast('scheduled', { text: data.text });
@@ -128,7 +136,7 @@ function createHandler(state: IntegrationState) {
   });
 
   return base.assemble({
-    handlers: [echo, store, schedule, buffered, integrationTask],
+    handlers: [echo, store, schedule, buffered, invalidClose, integrationTask],
     api: (ctx) => ({
       announce(text: string): number {
         ctx.broadcast('adminAnnouncement', { text });
@@ -206,6 +214,48 @@ function waitForJson<T>(socket: WebSocket): Promise<T> {
 
 function waitForMessage(socket: WebSocket): Promise<WireMessage> {
   return waitForJson<WireMessage>(socket);
+}
+
+function createMessageQueue(socket: WebSocket): {
+  next(): Promise<WireMessage>;
+  dispose(): void;
+} {
+  const messages: WireMessage[] = [];
+  const waiters: Array<{
+    resolve: (message: WireMessage) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+
+  function onMessage(data: RawData): void {
+    try {
+      const message = JSON.parse(data.toString()) as WireMessage;
+      const waiter = waiters.shift();
+      if (waiter) waiter.resolve(message);
+      else messages.push(message);
+    } catch (error) {
+      const waiter = waiters.shift();
+      if (waiter) waiter.reject(error);
+    }
+  }
+
+  function onError(error: Error): void {
+    for (const waiter of waiters.splice(0)) waiter.reject(error);
+  }
+
+  socket.on('message', onMessage);
+  socket.on('error', onError);
+
+  return {
+    next() {
+      const message = messages.shift();
+      if (message) return Promise.resolve(message);
+      return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
+    },
+    dispose() {
+      socket.off('message', onMessage);
+      socket.off('error', onError);
+    },
+  };
 }
 
 function expectNoMessage(socket: WebSocket, duration: number): Promise<void> {
@@ -389,6 +439,18 @@ describe('Node server integration', () => {
     expect(state.upgradeRequest).toBeDefined();
   });
 
+  it('turns an invalid upgrade close code into a safe HTTP rejection', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    services.push(service);
+    await service.ready;
+
+    const response = await sendRawUpgrade(serverPort(service.server), '/reject-fractional');
+
+    expect(response).toContain('HTTP/1.1 403 Forbidden');
+    expect(response).toContain('Upgrade rejected');
+  });
+
   it('rejects a real upgrade with a WebSocket close decision', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
@@ -449,6 +511,24 @@ describe('Node server integration', () => {
       code: CloseCodes.AUTH_INVALID,
       reason: '🙂'.repeat(30),
     });
+  });
+
+  it('turns an invalid application close code into a safe WebSocket close', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    services.push(service);
+    await service.ready;
+
+    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    clients.push(socket);
+    const connected = waitForMessage(socket);
+    const closed = waitForClose(socket);
+    await waitForOpen(socket);
+    await connected;
+
+    socket.send(JSON.stringify({ event: 'invalid-close', payload: {} }));
+
+    await expect(closed).resolves.toEqual({ code: 1011, reason: 'Internal error' });
   });
 
   it('rejects binary frames through the real bridge', async () => {
@@ -539,15 +619,20 @@ describe('Node server integration', () => {
       payload: { sql: 'persisted', kv: 'persisted' },
     });
 
-    socket.send(JSON.stringify({ event: 'schedule', payload: {} }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'scheduledQueued',
-      payload: { ok: true },
-    });
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      event: 'scheduled',
-      payload: { text: 'from alarm' },
-    });
+    const messages = createMessageQueue(socket);
+    try {
+      socket.send(JSON.stringify({ event: 'schedule', payload: {} }));
+      await expect(messages.next()).resolves.toMatchObject({
+        event: 'scheduledQueued',
+        payload: { ok: true },
+      });
+      await expect(messages.next()).resolves.toMatchObject({
+        event: 'scheduled',
+        payload: { text: 'from alarm' },
+      });
+    } finally {
+      messages.dispose();
+    }
   });
 
   it('exposes the live Node buffer amount through the engine context', async () => {

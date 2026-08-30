@@ -7,6 +7,7 @@ import {
 } from '@wskit/core';
 import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import { isValidCloseCode } from '~/_engine/close-code.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -678,7 +679,13 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  const normalizedDescriptor = normalizeConnectionDescriptor(descriptor);
+  const normalizedDescriptor = normalizeConnectionDescriptor(descriptor, {
+    onInvalidCloseCode: (code) => {
+      runtime.logger?.error('[wskit] invalid server close code; closing with internal error', {
+        code,
+      });
+    },
+  });
 
   assertUsableUserId(normalizedDescriptor.userId);
 
@@ -872,14 +879,23 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const rawDescriptor = normalizeConnectionDescriptor({
-    send: (data) => wsLike.send?.(data),
-    close: (code, reason) => wsLike.close?.(code, reason),
-    bufferedAmount: () => 0,
-    userId,
-    meta,
-    tags: ephemeralRefs,
-  });
+  const rawDescriptor = normalizeConnectionDescriptor(
+    {
+      send: (data) => wsLike.send?.(data),
+      close: (code, reason) => wsLike.close?.(code, reason),
+      bufferedAmount: () => 0,
+      userId,
+      meta,
+      tags: ephemeralRefs,
+    },
+    {
+      onInvalidCloseCode: (code) => {
+        runtime.logger?.error('[wskit] invalid server close code; closing with internal error', {
+          code,
+        });
+      },
+    },
+  );
   const translator = createTranslator(runtime, rawDescriptor);
   if (translator === null) {
     if (row) runtime.deleteConnectionState?.(row.connection_id);
@@ -1060,6 +1076,7 @@ export async function handleUpgrade(
      * which builds refs without going through the declaration-checked helper.
      */
     isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
+    logger?: Pick<PublicApi.Logger, 'error'>;
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
@@ -1142,10 +1159,21 @@ export async function handleUpgrade(
       typeof error === 'object' &&
       (error as { __wskit?: string }).__wskit === 'reject-upgrade'
     ) {
+      const code = (error as { code: number }).code;
+      if (isValidCloseCode(code) || isValidHttpUpgradeStatus(code)) {
+        return {
+          reject: true,
+          code,
+          reason: (error as { reason: string }).reason,
+        };
+      }
+      runtime.logger?.error('[wskit] invalid upgrade rejection code; rejecting with HTTP 403', {
+        code,
+      });
       return {
         reject: true,
-        code: (error as { code: number }).code,
-        reason: (error as { reason: string }).reason,
+        code: 403,
+        reason: 'Upgrade rejected',
       };
     }
 
@@ -1155,6 +1183,10 @@ export async function handleUpgrade(
       reason: 'Upgrade failed',
     };
   }
+}
+
+function isValidHttpUpgradeStatus(code: unknown): code is number {
+  return typeof code === 'number' && Number.isInteger(code) && code >= 400 && code <= 599;
 }
 
 /**

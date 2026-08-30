@@ -134,7 +134,7 @@ const buildServe = adapter<
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ): Response {
         // >= 1000 is a WS close code (HTTP statuses cap at 599); below that, an HTTP status.
-        if (result.code && result.code >= 1000) {
+        if (result.code !== undefined && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
           pair[1].close(result.code, normalizeCloseReason(result.reason ?? 'Upgrade rejected'));

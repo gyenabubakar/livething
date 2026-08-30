@@ -116,6 +116,7 @@ export class Engine<TApi = unknown> {
         pluginUpgradeHooks: this.core.hooks.pluginUpgrade,
         builderUpgradeHook: this.core.hooks.builderUpgrade,
         upgradeHelpers: this.buildUpgradeHelpers(),
+        logger: this.core.logger,
         isTagGroupDeclared: (kind, group) => this.core.isTagGroupDeclared(kind, group),
       },
       request,

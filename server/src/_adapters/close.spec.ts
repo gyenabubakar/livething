@@ -41,4 +41,18 @@ describe('normalizeCloseReason', () => {
     expect(descriptor.bufferedAmount()).toBe(1);
     expect(original.close).toHaveBeenCalledWith(1000, '🙂'.repeat(30));
   });
+
+  it('logs through its owner and closes safely for an invalid code', () => {
+    const close = vi.fn();
+    const onInvalidCloseCode = vi.fn();
+    const descriptor = normalizeConnectionDescriptor(
+      { send() {}, close, bufferedAmount: () => 0, userId: '' },
+      { onInvalidCloseCode },
+    );
+
+    descriptor.close(4000.5, 'do not expose this');
+
+    expect(onInvalidCloseCode).toHaveBeenCalledWith(4000.5);
+    expect(close).toHaveBeenCalledWith(1011, 'Internal error');
+  });
 });
