@@ -299,6 +299,44 @@ describe('createTimers', () => {
     }
   });
 
+  it('waits for an in-flight alarm before closing its storage', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(500_000);
+    const runtime = createRuntime({ server: {} as Server, env: {} });
+    let release!: () => void;
+    const alarmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let alarmFinished = false;
+
+    try {
+      await runtime.timers.setAlarm(500_001);
+      await runtime.timers.start(async () => {
+        await alarmGate;
+        runtime.storage.sql.exec('SELECT 1').one();
+        alarmFinished = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(alarmFinished).toBe(false);
+
+      let shutdownFinished = false;
+      const shutdown = runtime.close().then(() => {
+        shutdownFinished = true;
+      });
+
+      await Promise.resolve();
+      expect(shutdownFinished).toBe(false);
+
+      release();
+      await shutdown;
+      expect(alarmFinished).toBe(true);
+    } finally {
+      release?.();
+      vi.useRealTimers();
+    }
+  });
+
   it('retries after a transient failure deleting a due alarm', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);

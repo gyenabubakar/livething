@@ -5,6 +5,7 @@ import {
   StreamAborted,
   WSKitConfigError,
 } from '@wskit/core';
+import { normalizeConnectionDescriptor } from '~/_adapters/close.ts';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { addConnectionTag, removeConnectionFromTagIndex } from '~/_engine/runtime/tag-index.ts';
 import { assertUsableUserId, userKeyOf } from '~/_engine/runtime/user-key.ts';
@@ -260,7 +261,7 @@ function closeForTranslationFailure({
   connection,
   stage,
   error,
-  code = 1011,
+  code = CloseCodes.INTERNAL_ERROR,
 }: TranslationFailure): void {
   if (connection) connection.closing = true;
   runtime.logger?.error('[wskit] translator failed', {
@@ -276,13 +277,16 @@ function rethrowTranslatorConfigError(
   connection?: EngineRuntimeTypes.RuntimeConnection,
 ): void {
   if (!isWSKitConfigError(error)) return;
+
+  // A translator shape error is a developer configuration failure: close the
+  // affected connection, then rethrow so the host process can see the error.
   markTranslatorConfigError(error);
   if (connection?.closing) throw error;
   if (connection) {
     connection.closing = true;
     connection.preserveStateOnClose = true;
   }
-  descriptor.close(1011, '[wskit] translator configuration failed');
+  descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] translator configuration failed');
   throw error;
 }
 
@@ -417,7 +421,10 @@ function translateInbound(
       connection,
       stage: 'inbound',
       error,
-      code: error instanceof TranslationInputError ? 1002 : 1011,
+      code:
+        error instanceof TranslationInputError
+          ? CloseCodes.PROTOCOL_ERROR
+          : CloseCodes.INTERNAL_ERROR,
     });
     return undefined;
   }
@@ -671,20 +678,22 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  assertUsableUserId(descriptor.userId);
+  const normalizedDescriptor = normalizeConnectionDescriptor(descriptor);
 
-  const translator = createTranslator(runtime, descriptor);
+  assertUsableUserId(normalizedDescriptor.userId);
+
+  const translator = createTranslator(runtime, normalizedDescriptor);
   if (translator === null) return closedHandle();
 
   // A per-user connection cap only applies to identified users — an anonymous
   // connection has no user identity to count against.
   const usersPolicy = runtime.compiled.usersPolicy;
-  if (usersPolicy?.maxConnections !== undefined && descriptor.userId) {
-    const existing = runtime.usersByKey.get(descriptor.userId);
+  if (usersPolicy?.maxConnections !== undefined && normalizedDescriptor.userId) {
+    const existing = runtime.usersByKey.get(normalizedDescriptor.userId);
     const held = existing?.size ?? 0;
     if (held >= usersPolicy.maxConnections) {
       if (usersPolicy.onExceed === 'reject') {
-        descriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
+        normalizedDescriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
         return closedHandle();
       }
       // `replace`: evict the oldest connection(s) — set iteration is insertion
@@ -709,15 +718,15 @@ export function acceptConnection(
   let connection!: EngineRuntimeTypes.RuntimeConnection;
   connection = {
     id: runtime.generateId('conn'),
-    userId: descriptor.userId,
+    userId: normalizedDescriptor.userId,
     wsKey,
     descriptor: translatedDescriptor({
       runtime,
-      descriptor,
+      descriptor: normalizedDescriptor,
       translator,
       getConnection: () => connection,
     }),
-    meta: descriptor.meta ?? {},
+    meta: normalizedDescriptor.meta ?? {},
     ...(translator ? { translator } : {}),
 
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -727,7 +736,7 @@ export function acceptConnection(
     quality: 'good',
   };
 
-  for (const ref of descriptor.tags ?? []) {
+  for (const ref of normalizedDescriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
     addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
@@ -819,7 +828,7 @@ export function wakeHibernatedConnection(
       ? assertSynchronousResult(runtime.restoreAttachment(wsKey), 'adapter hibernation.restore')
       : undefined;
   } catch (error) {
-    wsLike.close?.(1011, '[wskit] hibernation restore failed');
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] hibernation restore failed');
     throw error;
   }
   const attachmentId =
@@ -846,7 +855,7 @@ export function wakeHibernatedConnection(
   const userId = row?.user_id ?? '';
   const meta = row?.meta ?? {};
   if (runtime.connections.has(id)) {
-    wsLike.close?.(1011, '[wskit] duplicate hibernation connection id');
+    wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] duplicate hibernation connection id');
     throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
   }
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
@@ -863,14 +872,14 @@ export function wakeHibernatedConnection(
   >();
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
-  const rawDescriptor: EngineAdapterTypes.ConnectionDescriptor = {
+  const rawDescriptor = normalizeConnectionDescriptor({
     send: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
     userId,
     meta,
     tags: ephemeralRefs,
-  };
+  });
   const translator = createTranslator(runtime, rawDescriptor);
   if (translator === null) {
     if (row) runtime.deleteConnectionState?.(row.connection_id);

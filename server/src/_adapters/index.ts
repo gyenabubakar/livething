@@ -1,4 +1,5 @@
 export { adapter } from './define.ts';
+export { normalizeCloseReason } from './close.ts';
 export type {
   AdapterConfig,
   ConnectionDescriptor,

@@ -24,6 +24,9 @@ import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
 
 const _normal: 1000 = CloseCodes.NORMAL;
 const _goingAway: 1001 = CloseCodes.GOING_AWAY;
+const _protocolError: 1002 = CloseCodes.PROTOCOL_ERROR;
+const _unsupportedData: 1003 = CloseCodes.UNSUPPORTED_DATA;
+const _internalError: 1011 = CloseCodes.INTERNAL_ERROR;
 const _authExpired: 4001 = CloseCodes.AUTH_EXPIRED;
 const _authInvalid: 4002 = CloseCodes.AUTH_INVALID;
 const _duplicate: 4003 = CloseCodes.DUPLICATE;
@@ -34,6 +37,9 @@ const _capacity: 4010 = CloseCodes.CAPACITY;
 void [
   _normal,
   _goingAway,
+  _protocolError,
+  _unsupportedData,
+  _internalError,
   _authExpired,
   _authInvalid,
   _duplicate,

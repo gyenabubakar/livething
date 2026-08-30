@@ -8,6 +8,7 @@ const ALARM_RETRY_DELAY_MS = 1_000;
 export interface NodeTimers extends TimerProvider {
   start(onAlarm: () => Promise<void>): Promise<void>;
   stop(): void;
+  drain(): Promise<void>;
 }
 
 /** Creates a durable alarm backed by the adapter's SQL provider. */
@@ -16,6 +17,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   let started = false;
   let onAlarm: (() => Promise<void>) | undefined;
   let timeout: NodeJS.Timeout | undefined;
+  const inFlight = new Set<Promise<void>>();
 
   async function ensureTable(): Promise<void> {
     if (tableReady) return;
@@ -75,6 +77,12 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     clearTimeoutIfSet();
   }
 
+  async function drain(): Promise<void> {
+    while (inFlight.size > 0) {
+      await Promise.allSettled([...inFlight]);
+    }
+  }
+
   async function armStoredAlarm(): Promise<void> {
     clearTimeoutIfSet();
 
@@ -86,10 +94,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
     timeout = setTimeout(() => {
       timeout = undefined;
-
-      void runAlarm().catch((error: unknown) => {
-        handleAlarmFailure(error);
-      });
+      runAlarmInBackground();
     }, delay);
   }
 
@@ -101,9 +106,23 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     if (started) {
       timeout = setTimeout(() => {
         timeout = undefined;
-        void runAlarm().catch(handleAlarmFailure);
+        runAlarmInBackground();
       }, ALARM_RETRY_DELAY_MS);
     }
+  }
+
+  function runAlarmInBackground(): void {
+    const task = runAlarm();
+    inFlight.add(task);
+    void task.then(
+      () => {
+        inFlight.delete(task);
+      },
+      (error: unknown) => {
+        inFlight.delete(task);
+        handleAlarmFailure(error);
+      },
+    );
   }
 
   async function runAlarm(): Promise<void> {
@@ -133,5 +152,5 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     }
   }
 
-  return { setAlarm, deleteAlarm, getAlarm, start, stop };
+  return { setAlarm, deleteAlarm, getAlarm, start, stop, drain };
 }

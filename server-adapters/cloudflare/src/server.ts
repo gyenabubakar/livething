@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '@wskit/server/adapters';
+import { adapter, normalizeCloseReason } from '@wskit/server/adapters';
+import { CloseCodes } from '@wskit/server/errors';
 import { DurableObject } from 'cloudflare:workers';
 import type {
   ApiOf,
@@ -136,7 +137,7 @@ const buildServe = adapter<
         if (result.code && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
-          pair[1].close(result.code, result.reason ?? 'Upgrade rejected');
+          pair[1].close(result.code, normalizeCloseReason(result.reason ?? 'Upgrade rejected'));
 
           return new Response(null, {
             status: 101,
@@ -176,8 +177,11 @@ const buildServe = adapter<
           } else {
             // Binary unsupported. A throw here is swallowed by event dispatch
             // (frame dropped, socket left open), so close loudly instead.
-            // 1003 = "unsupported data"; the close listener runs cleanup.
-            socket.close(1003, '[wskit] binary frames are not supported yet');
+            // CloseCodes.UNSUPPORTED_DATA tells the client why the socket is closing.
+            socket.close(
+              CloseCodes.UNSUPPORTED_DATA,
+              '[wskit] binary frames are not supported yet',
+            );
           }
         });
         socket.addEventListener('close', (event) => {
@@ -221,7 +225,7 @@ const buildServe = adapter<
         try {
           connection = this.engine.accept(server, descriptor);
         } catch (error) {
-          descriptor.close(1011, '[wskit] connection setup failed');
+          descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] connection setup failed');
           throw error;
         }
         this.liveConnections.set(server, connection);

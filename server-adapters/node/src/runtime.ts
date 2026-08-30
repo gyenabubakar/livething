@@ -49,6 +49,7 @@ export function createRuntime<Env>(options: NodeRuntimeOptions<Env>): NodeRuntim
     logger,
     async close() {
       timers.stop();
+      await timers.drain();
       await waitUntil.drain();
       storageRuntime.close();
     },

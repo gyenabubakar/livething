@@ -29,7 +29,7 @@ export default defineConfig({
             command: serverCommand,
             cwd: serverCwd,
             port: serverPort,
-            reuseExistingServer: !process.env.CI,
+            reuseExistingServer: false,
             timeout: 60_000,
           },
         ]
@@ -37,7 +37,7 @@ export default defineConfig({
     {
       command: 'pnpm run dev:ui',
       port: 4173,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
     },
   ],

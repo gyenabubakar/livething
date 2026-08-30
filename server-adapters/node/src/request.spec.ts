@@ -48,6 +48,23 @@ describe('requestToWebRequest', () => {
     expect(request.url).toBe('http://trusted.example//evil.example/chat');
   });
 
+  it.each(['/\\evil.example/chat', '/\\/evil.example/chat', 'http://evil.example/chat'])(
+    'rejects a request target that can replace the Host authority: %s',
+    (url) => {
+      expect(() => requestToWebRequest(incomingRequest({ url }))).toThrow();
+    },
+  );
+
+  it('accepts an absolute-form target when it matches Host', () => {
+    const request = requestToWebRequest(
+      incomingRequest({
+        url: 'http://example.test/chat',
+      }),
+    );
+
+    expect(request.url).toBe('http://example.test/chat');
+  });
+
   it('preserves the supplied abort signal', () => {
     const controller = new AbortController();
     const request = requestToWebRequest(incomingRequest(), { signal: controller.signal });

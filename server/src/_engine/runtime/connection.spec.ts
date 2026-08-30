@@ -27,6 +27,56 @@ function deferred() {
 }
 
 describe('connection runtime', () => {
+  it('limits close reasons before passing them to the adapter', () => {
+    const close = vi.fn();
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map(),
+      usersByKey: new Map(),
+      wsToConnectionId: new Map(),
+      channelMembers: new Map(),
+      tagMembers: new Map(),
+      generateId() {
+        return 'conn_close_reason';
+      },
+      persistAttachment() {},
+      buildConnectionContext() {
+        return {};
+      },
+      async runConnectionLifecycle() {},
+      async processTextMessage() {},
+      async handleConnectionClose() {},
+      async handleRuntimeError() {},
+    };
+
+    acceptConnection(runtime as never, Symbol('ws'), {
+      send() {},
+      close,
+      bufferedAmount() {
+        return 0;
+      },
+      userId: 'close-reason-test',
+    });
+
+    const connection = [...runtime.connections.values()][0] as EngineRuntimeTypes.RuntimeConnection;
+    connection.descriptor.close(CloseCodes.NORMAL, '🙂'.repeat(100));
+
+    expect(close).toHaveBeenCalledWith(CloseCodes.NORMAL, '🙂'.repeat(30));
+  });
+
   it('routes rejected message callbacks through engine error handling', async () => {
     const failure = new Error('message processing failed');
     const handledErrors: unknown[] = [];

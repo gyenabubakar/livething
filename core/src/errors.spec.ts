@@ -28,6 +28,9 @@ describe('CloseCodes', () => {
   it('has all expected codes', () => {
     expect(CloseCodes.NORMAL).toBe(1000);
     expect(CloseCodes.GOING_AWAY).toBe(1001);
+    expect(CloseCodes.PROTOCOL_ERROR).toBe(1002);
+    expect(CloseCodes.UNSUPPORTED_DATA).toBe(1003);
+    expect(CloseCodes.INTERNAL_ERROR).toBe(1011);
     expect(CloseCodes.AUTH_EXPIRED).toBe(4001);
     expect(CloseCodes.AUTH_INVALID).toBe(4002);
     expect(CloseCodes.DUPLICATE).toBe(4003);

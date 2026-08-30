@@ -342,6 +342,18 @@ describe('handleRejectedUpgrade', () => {
     expect(fake.calls.accept).toHaveLength(0);
   });
 
+  it('limits an oversized WebSocket close reason before closing the pair', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, code: 4002, reason: '🙂'.repeat(100) });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const server = pairs[0]![1];
+    expect(server.close).toHaveBeenCalledWith(4002, '🙂'.repeat(30));
+  });
+
   it('returns an HTTP response of the given status when 400 <= code <= 599', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();

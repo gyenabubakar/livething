@@ -147,4 +147,25 @@ describe('createUpgradeHandler', () => {
 
     expect(webSocket.close).not.toHaveBeenCalledWith(1004, 'Invalid close code');
   });
+
+  it('limits an oversized WebSocket close reason to the protocol byte limit', async () => {
+    const webSocket = { close: vi.fn() };
+    const reason = '🙂'.repeat(100);
+
+    await createUpgradeHandler({
+      engine: {
+        handleUpgrade: vi.fn(async () => ({
+          reject: true,
+          code: CloseCodes.AUTH_INVALID,
+          reason,
+        })),
+      },
+      onAccepted: vi.fn(),
+      webSocketServer: fakeWebSocketServer(webSocket),
+    })(incomingRequest(), fakeSocket(), Buffer.alloc(0));
+
+    const limitedReason = webSocket.close.mock.calls[0]?.[1] as string;
+    expect(Buffer.byteLength(limitedReason, 'utf8')).toBeLessThanOrEqual(123);
+    expect(limitedReason).toBe('🙂'.repeat(30));
+  });
 });

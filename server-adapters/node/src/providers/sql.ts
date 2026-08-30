@@ -68,8 +68,12 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     }
 
     if (statement.reader) {
-      const rows = statement.all(...(params as never[])) as TRow[];
-      return createResult(rows);
+      const columns = statement.columns().map(({ name }) => name);
+      const rawRows = statement.raw().all(...(params as never[])) as unknown[][];
+      const rows = rawRows.map((values) =>
+        Object.fromEntries(columns.map((name, index) => [name, values[index]])),
+      ) as TRow[];
+      return createResult(rows, rawRows);
     }
 
     statement.run(...(params as never[]));
@@ -86,7 +90,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
   };
 }
 
-function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
+function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<TRow> {
   let consumed: 'toArray' | 'one' | 'raw' | null = null;
 
   function claim(method: 'toArray' | 'one' | 'raw'): void {
@@ -117,7 +121,7 @@ function createResult<TRow>(rows: TRow[]): SqlResult<TRow> {
 
     raw() {
       claim('raw');
-      return rows.map((row) => Object.values(row as Record<string, unknown>));
+      return rawRows;
     },
   };
 }

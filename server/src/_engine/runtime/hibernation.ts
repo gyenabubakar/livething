@@ -1,4 +1,4 @@
-import { assertSynchronousResult, isWSKitConfigError } from '@wskit/core';
+import { assertSynchronousResult, CloseCodes, isWSKitConfigError } from '@wskit/core';
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -100,7 +100,7 @@ function flushConnectionState(
 function closeForTranslatorStateFailure(connection: RuntimeConnection, error: unknown): never {
   connection.preserveStateOnClose = true;
   connection.closing = true;
-  connection.descriptor.close(1011, '[wskit] translator configuration failed');
+  connection.descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] translator configuration failed');
   throw error;
 }
 
@@ -114,7 +114,10 @@ function closeForConnectionStateFailure(
     error: error instanceof Error ? error.message : String(error),
   });
   connection.closing = true;
-  connection.descriptor.close(1011, '[wskit] connection state could not be persisted');
+  connection.descriptor.close(
+    CloseCodes.INTERNAL_ERROR,
+    '[wskit] connection state could not be persisted',
+  );
   if (isWSKitConfigError(error)) throw error;
 }
 

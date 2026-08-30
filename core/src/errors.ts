@@ -28,6 +28,12 @@ export const CloseCodes = Object.freeze({
   NORMAL: 1000,
   /** Server going away — restart, deploy, or shutdown. Clients should reconnect. */
   GOING_AWAY: 1001,
+  /** Protocol error — the peer sent a frame that violates the WebSocket protocol. */
+  PROTOCOL_ERROR: 1002,
+  /** Unsupported data — the peer sent a frame type this server does not accept. */
+  UNSUPPORTED_DATA: 1003,
+  /** Internal error — the server could not complete an operation. */
+  INTERNAL_ERROR: 1011,
   /** Authentication token expired. Client should refresh and reconnect. */
   AUTH_EXPIRED: 4001,
   /** Authentication token invalid. Don't reconnect with the same token. */

@@ -1,6 +1,7 @@
+import { connect } from 'node:net';
 import process from 'node:process';
 import { define, emits, t, translator } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { CloseCodes, RejectUpgrade } from '@wskit/server/errors';
 import { scheduled } from '@wskit/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -30,6 +31,9 @@ function createHandler(state: IntegrationState) {
       const url = new URL(request.url);
       if (url.pathname === '/reject') throw RejectUpgrade(401, 'No token');
       if (url.pathname === '/reject-socket') throw RejectUpgrade(4001, 'No token');
+      if (url.pathname === '/reject-long-reason') {
+        throw RejectUpgrade(CloseCodes.AUTH_INVALID, '🙂'.repeat(100));
+      }
       return {
         userId: url.searchParams.get('user') ?? 'anonymous',
         meta: { role: request.headers.get('x-role') ?? 'guest' },
@@ -234,6 +238,34 @@ function closeClient(socket: WebSocket): Promise<void> {
   });
 }
 
+function sendRawUpgrade(port: number, target: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let response = '';
+
+    socket.setEncoding('utf8');
+    socket.on('connect', () => {
+      socket.end(
+        [
+          `GET ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+    });
+    socket.once('end', () => resolve(response));
+    socket.once('error', reject);
+  });
+}
+
 function createCapturingWebSocketServer(): {
   server: NodeWebSocketServer;
   getAccepted(): WebSocket | undefined;
@@ -329,6 +361,34 @@ describe('Node server integration', () => {
 
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+  });
+
+  it('rejects an authority-changing request target over the real HTTP boundary', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    services.push(service);
+    await service.ready;
+
+    const response = await sendRawUpgrade(serverPort(service.server), '/\\evil.example/chat');
+
+    expect(response).toContain('HTTP/1.1 400 Bad Request');
+  });
+
+  it('limits an oversized WebSocket close reason over the real transport', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    services.push(service);
+    await service.ready;
+
+    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/reject-long-reason`);
+    clients.push(socket);
+    const closed = waitForClose(socket);
+
+    await waitForOpen(socket);
+    await expect(closed).resolves.toEqual({
+      code: CloseCodes.AUTH_INVALID,
+      reason: '🙂'.repeat(30),
+    });
   });
 
   it('rejects binary frames through the real bridge', async () => {

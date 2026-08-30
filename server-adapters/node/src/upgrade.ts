@@ -1,10 +1,12 @@
 import { STATUS_CODES } from 'node:http';
+import { CloseCodes } from '@wskit/server/errors';
 import { WebSocketServer } from 'ws';
 import type { Engine, UpgradeDecision } from '@wskit/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { WebSocket } from 'ws';
 import { createClientIpResolver } from './client-ip.ts';
+import { closeWebSocket } from './close.ts';
 import { requestToWebRequest } from './request.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 
@@ -66,7 +68,13 @@ export function createUpgradeHandler({
         });
       });
     } catch (error) {
-      acceptedSocket?.close(1011, '[wskit] connection setup failed');
+      if (acceptedSocket) {
+        closeWebSocket(
+          acceptedSocket,
+          CloseCodes.INTERNAL_ERROR,
+          '[wskit] connection setup failed',
+        );
+      }
       throw error;
     }
   };
@@ -84,7 +92,7 @@ async function rejectUpgrade({
       try {
         webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
           try {
-            webSocket.close(decision.code, decision.reason ?? 'Upgrade rejected');
+            closeWebSocket(webSocket, decision.code, decision.reason ?? 'Upgrade rejected');
             resolve();
           } catch (error) {
             reject(error);

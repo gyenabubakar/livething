@@ -15,8 +15,17 @@ export function requestToWebRequest(
   const protocol = encrypted ? 'https' : 'http';
   const host = request.headers.host ?? 'localhost';
   const target = request.url ?? '/';
-  const base = `${protocol}://${host}`;
-  const url = new URL(target.startsWith('//') ? `${base}${target}` : target, base);
+  const base = new URL(`${protocol}://${host}`);
+
+  // WHATWG URL parsing treats backslashes as authority separators in special URLs.
+  if (target.includes('\\')) {
+    throw new TypeError('[wskit] request target contains a backslash');
+  }
+
+  const url = new URL(target.startsWith('//') ? `${base.origin}${target}` : target, base);
+  if (url.origin !== base.origin) {
+    throw new TypeError('[wskit] request target authority does not match Host');
+  }
   const headers = new Headers();
 
   for (const [name, value] of Object.entries(request.headers)) {
