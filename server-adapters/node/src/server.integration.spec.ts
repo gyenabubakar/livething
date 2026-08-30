@@ -275,7 +275,9 @@ function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<
           `GET ${target} HTTP/1.1`,
           'Host: 127.0.0.1',
           'Connection: Upgrade',
-          'Upgrade: not-websocket',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: invalid',
           '',
           '',
         ].join('\r\n'),
@@ -284,6 +286,24 @@ function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<
     });
     socket.once('error', reject);
   });
+}
+
+function createObservedWebSocketServer(): {
+  server: NodeWebSocketServer;
+  enteredHandleUpgrade: Promise<void>;
+} {
+  const webSocketServer = new WebSocketServer({ noServer: true });
+  let markHandleUpgrade!: () => void;
+  const enteredHandleUpgrade = new Promise<void>((resolve) => {
+    markHandleUpgrade = resolve;
+  });
+  const server: NodeWebSocketServer = {
+    handleUpgrade(...args: Parameters<NodeWebSocketServer['handleUpgrade']>) {
+      markHandleUpgrade();
+      webSocketServer.handleUpgrade(...args);
+    },
+  };
+  return { server, enteredHandleUpgrade };
 }
 
 function createCapturingWebSocketServer(): {
@@ -396,16 +416,22 @@ describe('Node server integration', () => {
 
   it('does not retain a malformed upgrade while shutting down', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const observed = createObservedWebSocketServer();
+    const service = server(createHandler(state), {
+      port: 0,
+      webSocketServer: observed.server,
+      shutdownOnSignal: false,
+    });
     services.push(service);
     await service.ready;
 
     const malformedSocket = await sendMalformedUpgrade(serverPort(service.server), '/chat');
-    const malformedSocketClosed = new Promise<void>((resolve) =>
-      malformedSocket.once('close', resolve),
-    );
-    await expect(service.shutdown()).resolves.toBeUndefined();
-    await malformedSocketClosed;
+    try {
+      await observed.enteredHandleUpgrade;
+      await expect(service.shutdown()).resolves.toBeUndefined();
+    } finally {
+      malformedSocket.destroy();
+    }
   });
 
   it('limits an oversized WebSocket close reason over the real transport', async () => {
