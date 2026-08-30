@@ -1,13 +1,13 @@
 import { define, emits, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
-import { observeHost } from '@wskit/server/plugin';
+import { observeHost } from '@wskit/server/plugins';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
 import type { ServerContract } from '@wskit/server/adapters';
-import type { PluginCapability } from '@wskit/server/plugin';
+import type { PluginCapability } from '@wskit/server/plugins';
 
 export interface PluginsEnv {
   PLUGIN_LABEL: string;

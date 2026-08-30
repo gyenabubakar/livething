@@ -49,7 +49,7 @@ import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
-// Keep every value import off `./plugin.ts` — it is a package entry, so a
+// Keep every value import off `./plugins.ts` — it is a package entry, so a
 // bundler keeps it whole and one binding drags the plugin runtime into apps
 // that list no plugins. Type imports are free.
 import {
@@ -77,7 +77,7 @@ import type {
   SlotsOf,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
-import type { GrantableCapability, PluginEnvRequirements } from './plugin.ts';
+import type { GrantableCapability, PluginEnvRequirements } from './plugins.ts';
 
 /**
  * What an `upgrade(...)` function returns to accept a connection. Return a

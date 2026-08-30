@@ -40,7 +40,7 @@ export default defineConfig({
         channels: resolve(__dirname, 'src/channel/index.ts'),
         tags: resolve(__dirname, 'src/tags/capability.ts'),
         intercepts: resolve(__dirname, 'src/intercept/index.ts'),
-        plugin: resolve(__dirname, 'src/_define/plugin.ts'),
+        plugins: resolve(__dirname, 'src/_define/plugins.ts'),
       },
       formats: ['es'],
     },

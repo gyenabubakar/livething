@@ -1,6 +1,6 @@
 import { define, emits, error, errors, t } from '@wskit/server';
 import { intercepts } from '@wskit/server/intercepts';
-import { plugin } from '@wskit/server/plugin';
+import { plugin } from '@wskit/server/plugins';
 import { scheduled } from '@wskit/server/scheduled';
 import * as v from 'valibot';
 import type { Platform } from '@wskit/server-node';

@@ -2,7 +2,7 @@ import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
-import { plugin } from '@wskit/server/plugin';
+import { plugin } from '@wskit/server/plugins';
 import { replay } from '@wskit/server/replay';
 import { requests } from '@wskit/server/requests';
 import { sequence } from '@wskit/server/sequence';

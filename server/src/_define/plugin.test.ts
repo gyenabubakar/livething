@@ -11,7 +11,7 @@ import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
-import { observeHost, plugin } from './plugin.ts';
+import { observeHost, plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;

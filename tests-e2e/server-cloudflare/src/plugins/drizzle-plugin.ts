@@ -1,6 +1,6 @@
 import { define, emits, error, errors, t } from '@wskit/server';
 import { intercepts } from '@wskit/server/intercepts';
-import { plugin } from '@wskit/server/plugin';
+import { plugin } from '@wskit/server/plugins';
 import { scheduled } from '@wskit/server/scheduled';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';

@@ -13,7 +13,7 @@
  */
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
@@ -23,7 +23,7 @@ import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
 import type { DefineConfig, ScopedDefineConfig } from '~/_define/define.ts';
-import type { InferPluginClient } from '~/_define/plugin.ts';
+import type { InferPluginClient } from '~/_define/plugins.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 interface PluginEnv {

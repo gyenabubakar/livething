@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { channelRuntime, dispatchRuntime } from '~/_engine/engine.deps.ts';
 import { processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createTestStorage } from '~/_test/sql.ts';

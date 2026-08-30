@@ -18,7 +18,7 @@ import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { observeHost, plugin } from './plugin.ts';
+import { observeHost, plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;

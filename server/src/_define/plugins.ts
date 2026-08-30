@@ -322,7 +322,7 @@ function assertSupported(id: string, primitive: Primitive): void {
  * @example
  * ```ts
  * import { define, emits, t } from '@wskit/server';
- * import { plugin } from '@wskit/server/plugin';
+ * import { plugin } from '@wskit/server/plugins';
  * import * as v from 'valibot';
  *
  * const h = define({
@@ -429,7 +429,7 @@ export function plugin<
  *
  * @example
  * ```ts
- * import { observeHost } from '@wskit/server/plugin';
+ * import { observeHost } from '@wskit/server/plugins';
  * define({ capabilities: [observeHost(Metrics())] });
  * ```
  */

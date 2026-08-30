@@ -69,7 +69,7 @@ const SERVER_ENGINES = {
   dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
   request: { marker: '__wskit: "request"', label: 'request engine' },
   rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
-  // `plugin.ts` is a bundle entry, so a bundler keeps the module whole: one
+  // `plugins.ts` is a bundle entry, so a bundler keeps the module whole: one
   // value import of anything it exports drags the wire-namespacing pass and the
   // plugin-scoped context in with it. This marker is the canary for that edge.
   plugin: { marker: '__wskit: "pluginSurface"', label: 'plugin runtime' },
@@ -148,7 +148,7 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'intercepts', source: importStar(f('intercepts.js')), owns: null, alsoPulls: [] },
-    { name: 'plugin', source: importStar(f('plugin.js')), owns: 'plugin', alsoPulls: [] },
+    { name: 'plugins', source: importStar(f('plugins.js')), owns: 'plugin', alsoPulls: [] },
   ];
 }
 

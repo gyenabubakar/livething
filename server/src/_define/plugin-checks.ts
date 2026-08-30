@@ -1,8 +1,8 @@
 /**
  * The build-time checks `assemble()` runs over a host's listed capabilities.
  *
- * They live apart from `plugin.ts` because that module is a package entry
- * (`@wskit/server/plugin`), so a bundler keeps it whole: importing one function
+ * They live apart from `plugins.ts` because that module is a package entry
+ * (`@wskit/server/plugins`), so a bundler keeps it whole: importing one function
  * from it would pull the plugin factory, the wire-namespacing pass, and the
  * plugin-scoped context into every app, plugins or not.
  */
@@ -11,7 +11,7 @@ import {
   CHANNEL_ONLY_CAPABILITY_KINDS,
 } from '~/_define/capability-kinds.ts';
 import type { AnyCapability } from '~/_define/capability.ts';
-import type { PluginCapability } from '~/_define/plugin.ts';
+import type { PluginCapability } from '~/_define/plugins.ts';
 
 /**
  * Verify that every plugin listed in a host's `capabilities[]` has its

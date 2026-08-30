@@ -9,7 +9,7 @@ import { error, t } from '~/index.ts';
 import { sendThroughPipeline } from '~/outgoing/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { plugin } from './plugin.ts';
+import { plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;

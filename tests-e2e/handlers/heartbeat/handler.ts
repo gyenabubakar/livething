@@ -1,5 +1,5 @@
 import { define, emits, t } from '@wskit/server';
-import { plugin } from '@wskit/server/plugin';
+import { plugin } from '@wskit/server/plugins';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 

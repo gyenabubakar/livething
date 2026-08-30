@@ -8,7 +8,7 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { plugin } from './plugin.ts';
+import { plugin } from './plugins.ts';
 
 function makeStorage() {
   const sql = {

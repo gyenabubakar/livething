@@ -1,6 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';

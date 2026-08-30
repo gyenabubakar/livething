@@ -10,7 +10,7 @@
  */
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
-import { plugin } from '~/_define/plugin.ts';
+import { plugin } from '~/_define/plugins.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';

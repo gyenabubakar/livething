@@ -2,7 +2,7 @@ import { define, emits, errors, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { error } from '@wskit/server/errors';
 import { inbox } from '@wskit/server/inbox';
-import { plugin } from '@wskit/server/plugin';
+import { plugin } from '@wskit/server/plugins';
 import { requests } from '@wskit/server/requests';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
