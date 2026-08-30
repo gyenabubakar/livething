@@ -173,6 +173,7 @@ export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps
       core.logger.error('[wskit] durable alarm retry could not be scheduled', {
         error: retryError instanceof Error ? retryError.message : String(retryError),
       });
+      throw retryError;
     }
   }
 }

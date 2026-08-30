@@ -383,6 +383,19 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
     expect(setAlarm).toHaveBeenCalledWith(expect.any(Number));
     expect(setAlarm.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(before + 1_000);
   });
+
+  it('rejects when the retry deadline cannot be persisted', async () => {
+    const engine = buildEngine(tinyHandler);
+    await engine.initialize();
+
+    engine.core.hooks.alarm.push(async () => {
+      throw new Error('scheduled work failed');
+    });
+    const retryFailure = new Error('retry write failed');
+    vi.spyOn(engine.core.timers, 'setAlarm').mockRejectedValueOnce(retryFailure);
+
+    await expect(engine.handleAlarm()).rejects.toBe(retryFailure);
+  });
 });
 
 describe('engine declaredErrorCodes', () => {

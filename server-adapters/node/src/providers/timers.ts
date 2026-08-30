@@ -4,6 +4,11 @@ const ALARM_TABLE = '__wskit_node_alarm';
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const ALARM_RETRY_DELAY_MS = 1_000;
 
+interface AlarmRecord {
+  timeMs: number;
+  generation: number;
+}
+
 /** Timer provider plus the lifecycle controls used by the Node server. */
 export interface NodeTimers extends TimerProvider {
   start(onAlarm: () => Promise<void>): Promise<void>;
@@ -25,9 +30,16 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     sql.exec(
       `CREATE TABLE IF NOT EXISTS ${ALARM_TABLE} (
         id INTEGER PRIMARY KEY CHECK (id = 1),
-        time_ms INTEGER NOT NULL
+        time_ms INTEGER NOT NULL,
+        generation INTEGER NOT NULL DEFAULT 0
       )`,
     );
+
+    const columns = sql.exec<{ name: string }>(`PRAGMA table_info(${ALARM_TABLE})`).toArray();
+
+    if (!columns.some((column) => column.name === 'generation')) {
+      sql.exec(`ALTER TABLE ${ALARM_TABLE} ADD COLUMN generation INTEGER NOT NULL DEFAULT 0`);
+    }
 
     tableReady = true;
   }
@@ -40,8 +52,10 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
     await ensureTable();
 
     sql.exec(
-      `INSERT INTO ${ALARM_TABLE} (id, time_ms) VALUES (1, ?)
-       ON CONFLICT(id) DO UPDATE SET time_ms = excluded.time_ms`,
+      `INSERT INTO ${ALARM_TABLE} (id, time_ms, generation) VALUES (1, ?, 1)
+       ON CONFLICT(id) DO UPDATE SET
+         time_ms = excluded.time_ms,
+         generation = generation + 1`,
       timeMs,
     );
 
@@ -55,13 +69,15 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   }
 
   async function getAlarm(): Promise<number | null> {
+    return (await getAlarmRecord())?.timeMs ?? null;
+  }
+
+  async function getAlarmRecord(): Promise<AlarmRecord | null> {
     await ensureTable();
 
-    const row = sql
-      .exec<{ timeMs: number }>(`SELECT time_ms AS timeMs FROM ${ALARM_TABLE} WHERE id = 1`)
+    return sql
+      .exec<AlarmRecord>(`SELECT time_ms AS timeMs, generation FROM ${ALARM_TABLE} WHERE id = 1`)
       .one();
-
-    return row?.timeMs ?? null;
   }
 
   async function start(callback: () => Promise<void>): Promise<void> {
@@ -130,26 +146,26 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   async function runAlarm(callback: (() => Promise<void>) | undefined): Promise<void> {
     if (!started || callback === undefined) return;
 
-    const deadline = await getAlarm();
-    if (deadline === null) return;
+    const alarm = await getAlarmRecord();
+    if (alarm === null) return;
 
-    if (deadline > Date.now()) {
+    if (alarm.timeMs > Date.now()) {
       await armStoredAlarm();
       return;
     }
 
-    sql.exec(`DELETE FROM ${ALARM_TABLE} WHERE id = 1 AND time_ms = ?`, deadline);
-    if ((await getAlarm()) !== null) {
-      await armStoredAlarm();
-      return;
-    }
+    await callback();
 
-    try {
-      await callback();
-    } catch (error) {
-      logger?.error('[wskit] engine alarm callback failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    const delivered = sql
+      .exec<{ generation: number }>(
+        `DELETE FROM ${ALARM_TABLE}
+         WHERE id = 1 AND generation = ?
+         RETURNING generation`,
+        alarm.generation,
+      )
+      .one();
+    if (delivered === null) {
+      await armStoredAlarm();
     }
   }
 

@@ -278,6 +278,32 @@ describe('createTimers', () => {
     }
   });
 
+  it('restores alarms written before delivery generations were added', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(350_000);
+    const sql = createSql();
+    try {
+      sql.database!.exec(`
+        CREATE TABLE __wskit_node_alarm (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          time_ms INTEGER NOT NULL
+        );
+        INSERT INTO __wskit_node_alarm (id, time_ms) VALUES (1, 351000)
+      `);
+      const timers = createTimers(sql.provider);
+      const onAlarm = vi.fn(async () => {});
+
+      await timers.start(onAlarm);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(onAlarm).toHaveBeenCalledOnce();
+      expect(await timers.getAlarm()).toBeNull();
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('stops an armed alarm without deleting its persisted deadline', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(400_000);
@@ -380,7 +406,7 @@ describe('createTimers', () => {
     }
   });
 
-  it('retries after a transient failure deleting a due alarm', async () => {
+  it('retries after a transient failure acknowledging a due alarm', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
     const sql = createSql();
@@ -409,25 +435,27 @@ describe('createTimers', () => {
       expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm delivery failed', {
         error: 'temporary alarm delete failure',
       });
+      expect(onAlarm).toHaveBeenCalledOnce();
       expect(await timers.getAlarm()).toBe(101_000);
 
       sql.database!.prepare('UPDATE alarm_failure_control SET fail = 0').run();
       await vi.runOnlyPendingTimersAsync();
 
-      expect(onAlarm).toHaveBeenCalledOnce();
+      expect(onAlarm).toHaveBeenCalledTimes(2);
     } finally {
       sql.close();
       vi.useRealTimers();
     }
   });
 
-  it('does not retry an engine alarm callback after it fails', async () => {
+  it('keeps a due alarm durable and retries when engine delivery rejects', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(200_000);
     const sql = createSql();
     const logger = createMockLogger();
+    let failures = 1;
     const callback = vi.fn(async () => {
-      throw new Error('engine handles retry policy');
+      if (failures-- > 0) throw new Error('retry was not persisted');
     });
 
     try {
@@ -436,12 +464,39 @@ describe('createTimers', () => {
       await timers.start(callback);
 
       await vi.advanceTimersByTimeAsync(1);
+      expect(callback).toHaveBeenCalledOnce();
+      expect(await timers.getAlarm()).toBe(200_001);
+
       await vi.advanceTimersByTimeAsync(1_000);
 
-      expect(callback).toHaveBeenCalledOnce();
-      expect(logger.error).toHaveBeenCalledWith('[wskit] engine alarm callback failed', {
-        error: 'engine handles retry policy',
+      expect(callback).toHaveBeenCalledTimes(2);
+      expect(await timers.getAlarm()).toBeNull();
+      expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm delivery failed', {
+        error: 'retry was not persisted',
       });
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not acknowledge an alarm replacement written during delivery', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(300_000);
+    const sql = createSql();
+    try {
+      const timers = createTimers(sql.provider);
+      const onAlarm = vi.fn(async () => {
+        await timers.setAlarm(300_001);
+        timers.stop();
+      });
+
+      await timers.setAlarm(300_001);
+      await timers.start(onAlarm);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(onAlarm).toHaveBeenCalledOnce();
+      expect(await timers.getAlarm()).toBe(300_001);
     } finally {
       sql.close();
       vi.useRealTimers();
