@@ -13,8 +13,18 @@ describe('ScheduledClient — no-any guard', () => {
 });
 
 describe('ScheduledClient — incoming (server outgoing)', () => {
+  it('has cleanup-scheduled with empty payload', () => {
+    expectTypeOf<ScheduledClient['incoming']['cleanup-scheduled']>().toEqualTypeOf<{}>();
+  });
+
   it('has cleanup-done', () => {
     expectTypeOf<ScheduledClient['incoming']['cleanup-done']>().toEqualTypeOf<{ at: number }>();
+  });
+
+  it('has cleanup-history-result', () => {
+    expectTypeOf<ScheduledClient['incoming']['cleanup-history-result']>().toEqualTypeOf<{
+      ranAt: number | null;
+    }>();
   });
 
   it('has cleanup-cancelled with empty payload', () => {
@@ -115,6 +125,10 @@ describe('ScheduledClient — outgoing (server incoming)', () => {
 
   it('has cancel-cleanup with empty payload', () => {
     expectTypeOf<ScheduledClient['outgoing']['cancel-cleanup']>().toEqualTypeOf<{}>();
+  });
+
+  it('has query-cleanup-history with empty payload', () => {
+    expectTypeOf<ScheduledClient['outgoing']['query-cleanup-history']>().toEqualTypeOf<{}>();
   });
 
   it('has start-heartbeat with empty payload', () => {

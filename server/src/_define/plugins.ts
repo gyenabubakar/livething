@@ -228,7 +228,14 @@ type RequiredPluginEnvOf<TCapability> = TCapability extends {
     : TEnv
   : never;
 
-/** The combined environment requirement of all plugin capabilities in a host. */
+/**
+ * The combined environment requirement of all plugin capabilities in a host.
+ *
+ * Callers must keep `capabilities` as an inferred tuple: write it inline in
+ * `define(...)`, or use `as const` for a reusable list. Widening the list to
+ * `AnyCapability[]` erases each plugin's environment type before WSKit sees it,
+ * so TypeScript cannot recover or check that requirement here.
+ */
 export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = TCaps extends readonly [
   infer THead extends AnyCapability,
   ...infer TTail extends AnyCapability[],

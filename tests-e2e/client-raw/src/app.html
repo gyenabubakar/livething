@@ -7,6 +7,46 @@
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
+    <script>
+      (() => {
+        const nativeWebSocket = window.WebSocket;
+        const lease = crypto.randomUUID();
+        const fetchLater =
+          globalThis.fetchLater ??
+          ((url, init) => {
+            function sendWhenHidden() {
+              if (document.visibilityState !== 'hidden') return;
+              document.removeEventListener('visibilitychange', sendWhenHidden);
+              void fetch(url, { ...init, keepalive: true }).catch(() => {});
+            }
+
+            document.addEventListener('visibilitychange', sendWhenHidden);
+          });
+
+        window.__wskitFixtureLeaseInstalled = true;
+        window.WebSocket = new Proxy(nativeWebSocket, {
+          construct(target, args) {
+            const url = new URL(String(args[0]), location.href);
+            if (url.host === location.host && url.pathname.startsWith('/ws/')) {
+              url.searchParams.set('__wskitFixtureLease', lease);
+              args[0] = url.toString();
+
+              const releaseUrl = new URL('/ws/__fixtures/release', location.origin);
+              releaseUrl.searchParams.set('route', url.pathname);
+              releaseUrl.searchParams.set('room', url.searchParams.get('room') ?? 'default');
+              releaseUrl.searchParams.set('lease', lease);
+              try {
+                fetchLater(releaseUrl.toString(), { method: 'POST', activateAfter: 120_000 });
+              } catch {
+                // The final test-server shutdown still clears every fixture.
+              }
+            }
+
+            return Reflect.construct(target, args);
+          },
+        });
+      })();
+    </script>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

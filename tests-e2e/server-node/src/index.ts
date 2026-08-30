@@ -15,6 +15,7 @@ interface Fixture {
   service: NodeServer<unknown, unknown>;
   transport: Server;
   sockets: Set<Duplex>;
+  leases: Set<string>;
   activeHttpRequests: number;
   idleTimer?: ReturnType<typeof setTimeout>;
   shutdown?: Promise<void>;
@@ -39,7 +40,11 @@ function scheduleIdleFixtureShutdown(key: string, fixture: Fixture): void {
 
   fixture.idleTimer = setTimeout(() => {
     fixture.idleTimer = undefined;
-    if (fixture.sockets.size === 0 && fixture.activeHttpRequests === 0) {
+    if (
+      fixture.sockets.size === 0 &&
+      fixture.leases.size === 0 &&
+      fixture.activeHttpRequests === 0
+    ) {
       void shutdownKnownFixture(key, fixture);
     }
   }, IDLE_FIXTURE_TIMEOUT_MS);
@@ -84,7 +89,13 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
       env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
       shutdownOnSignal: false,
     });
-    const fixture = { service, transport, sockets: new Set<Duplex>(), activeHttpRequests: 0 };
+    const fixture = {
+      service,
+      transport,
+      sockets: new Set<Duplex>(),
+      leases: new Set<string>(),
+      activeHttpRequests: 0,
+    };
     fixtures.set(key, fixture);
     scheduleIdleFixtureShutdown(key, fixture);
     return fixture;
@@ -112,9 +123,22 @@ async function acquireHttpFixture(
       if (released) return;
       released = true;
       fixture.activeHttpRequests -= 1;
-      if (fixture.sockets.size === 0) scheduleIdleFixtureShutdown(key, fixture);
+      if (fixture.sockets.size === 0 && fixture.leases.size === 0) {
+        scheduleIdleFixtureShutdown(key, fixture);
+      }
     },
   };
+}
+
+function releaseFixtureLease(route: string, room: string, lease: string): void {
+  const key = fixtureKey(route, room);
+  const fixture = fixtures.get(key);
+  if (!fixture) return;
+
+  fixture.leases.delete(lease);
+  if (fixture.sockets.size === 0 && fixture.leases.size === 0 && fixture.activeHttpRequests === 0) {
+    scheduleIdleFixtureShutdown(key, fixture);
+  }
 }
 
 async function adminOf(fixture: Fixture): Promise<AnyAdmin> {
@@ -261,6 +285,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   try {
     if (url.pathname === '/__health') {
       writeText(response, 200, 'ok');
+      return;
+    }
+
+    if (url.pathname === '/ws/__fixtures/release') {
+      const route = url.searchParams.get('route') ?? '';
+      const lease = url.searchParams.get('lease') ?? '';
+      if (FEATURE_ROUTES[route] && lease) releaseFixtureLease(route, room, lease);
+      writeText(response, 204, '');
       return;
     }
 
@@ -427,9 +459,13 @@ async function handleUpgrade(
   if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
   fixture.idleTimer = undefined;
   fixture.sockets.add(socket);
+  const lease = url.searchParams.get('__wskitFixtureLease');
+  if (lease) fixture.leases.add(lease);
   socket.once('close', () => {
     fixture.sockets.delete(socket);
-    scheduleIdleFixtureShutdown(key, fixture);
+    if (fixture.leases.size === 0 && fixture.activeHttpRequests === 0) {
+      scheduleIdleFixtureShutdown(key, fixture);
+    }
   });
   fixture.transport.emit('upgrade', request, socket, head);
 }

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('scheduled', () => {
   async function openPage(page: Page, room: string, username = 'testuser') {
@@ -266,5 +266,30 @@ test.describe('scheduled', () => {
       match: (f) => f.event === 'cleanup-done',
       timeoutMs: 8000,
     });
+  });
+
+  test('socketless fixture stays alive while a scheduled task is pending', async ({
+    page,
+  }, testInfo) => {
+    const room = `sched-idle-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    await send(page, a, { event: 'schedule-cleanup', payload: { delayMs: 1500 } });
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-scheduled' });
+    await closeSocket(page, a);
+
+    await page.waitForTimeout(2200);
+    const reconnectStartedAt = Date.now();
+    const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
+    await send(page, b, { event: 'query-cleanup-history', payload: {} });
+    const result = await waitForFrame(page, b, {
+      match: (f) => f.event === 'cleanup-history-result',
+    });
+
+    const ranAt = result.payload.ranAt;
+    expect(typeof ranAt).toBe('number');
+    expect(ranAt as number).toBeLessThan(reconnectStartedAt - 250);
   });
 });

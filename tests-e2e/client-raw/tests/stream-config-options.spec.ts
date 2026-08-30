@@ -74,9 +74,10 @@ test.describe('stream config options', () => {
     );
 
     await closeSocket(page, a);
-    // Generator yield cadence is 80ms; wait long enough that several more
-    // chunks have landed in the buffer while we were offline.
-    await page.waitForTimeout(800);
+    // Generator yield cadence is 80ms. Stay offline past the Node fixture's
+    // former one-second idle-eviction window and past the generator's full
+    // run, proving socketless background work is not stopped by the harness.
+    await page.waitForTimeout(1_900);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
@@ -85,14 +86,12 @@ test.describe('stream config options', () => {
       __wskit: { streamId },
     });
 
-    // Wait for the resume to deliver at least the chunks produced while we
-    // were offline. Don't run to completion — the test only needs to prove
-    // the catch-up window worked.
+    // Every chunk must have been produced while the client was offline.
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
           (f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number',
-        ).length >= 5,
+        ).length === 20,
       [b],
     );
 
@@ -101,6 +100,7 @@ test.describe('stream config options', () => {
       .map((f) => f.payload.idx as number);
     // Buffer replay carries the seq numbers from before the disconnect.
     expect(indices[0]).toBe(1);
+    expect(indices.at(-1)).toBe(20);
     expect(indices).toEqual([...indices].sort((x, y) => x - y));
   });
 

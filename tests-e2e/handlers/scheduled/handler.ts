@@ -27,7 +27,9 @@ const base = define({
       'send-to-tag-task': null,
     }),
     emits({
+      'cleanup-scheduled': t<{}>(),
       'cleanup-done': t<{ at: number }>(),
+      'cleanup-history-result': t<{ ranAt: number | null }>(),
       'cleanup-cancelled': t<{}>(),
       'heartbeat-tick': t<{ count: number }>(),
       'flaky-task-result': t<{ attempts: number }>(),
@@ -47,9 +49,17 @@ const base = define({
   ],
 });
 
+base.onInit((ctx) => {
+  ctx.sql.exec(
+    'CREATE TABLE IF NOT EXISTS _cleanup_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ranAt INTEGER NOT NULL)',
+  );
+});
+
 const handleCleanupTask = base.scheduled('cleanup', {
   run(ctx) {
-    ctx.broadcast('cleanup-done', { at: Date.now() });
+    const ranAt = Date.now();
+    ctx.sql.exec('INSERT INTO _cleanup_log (ranAt) VALUES (?)', ranAt);
+    ctx.broadcast('cleanup-done', { at: ranAt });
   },
 });
 
@@ -137,6 +147,17 @@ const handleScheduleCleanup = base.on('schedule-cleanup', {
   input: v.object({ delayMs: v.number() }),
   run(ctx, input) {
     ctx.schedule('cleanup', { time: Date.now() + input.delayMs });
+    ctx.send('cleanup-scheduled', {});
+  },
+});
+
+const handleQueryCleanupHistory = base.on('query-cleanup-history', {
+  input: v.object({}),
+  run(ctx) {
+    const row = ctx.sql
+      .exec<{ ranAt: number }>('SELECT ranAt FROM _cleanup_log ORDER BY id DESC LIMIT 1')
+      .one();
+    ctx.send('cleanup-history-result', { ranAt: row ? Number(row.ranAt) : null });
   },
 });
 
@@ -359,6 +380,7 @@ export const scheduledHandler = base.assemble({
     handleBroadcastTask,
     handleSendToTagTask,
     handleScheduleCleanup,
+    handleQueryCleanupHistory,
     handleCancelCleanup,
     handleStartHeartbeat,
     handleCancelHeartbeat,
