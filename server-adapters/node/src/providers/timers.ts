@@ -22,6 +22,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   let started = false;
   let onAlarm: (() => Promise<void>) | undefined;
   let timeout: NodeJS.Timeout | undefined;
+  let deliveryActive = false;
   const inFlight = new Set<Promise<void>>();
 
   async function ensureTable(): Promise<void> {
@@ -102,8 +103,10 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   async function armStoredAlarm(): Promise<void> {
     clearTimeoutIfSet();
 
+    if (deliveryActive) return;
+
     const deadline = await getAlarm();
-    if (!started || deadline === null) return;
+    if (!started || deliveryActive || deadline === null) return;
 
     // Node timers cannot represent delays larger than a signed 32-bit integer.
     const delay = Math.max(0, Math.min(MAX_TIMEOUT_MS, deadline - Date.now()));
@@ -129,18 +132,27 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   }
 
   function runAlarmInBackground(): void {
-    const callback = onAlarm;
-    const task = runAlarm(callback);
+    if (deliveryActive) return;
+
+    deliveryActive = true;
+
+    const task = deliverAlarm(onAlarm);
     inFlight.add(task);
-    void task.then(
-      () => {
-        inFlight.delete(task);
-      },
-      (error: unknown) => {
-        inFlight.delete(task);
-        retryAlarmDelivery(error);
-      },
-    );
+
+    void task.finally(() => {
+      inFlight.delete(task);
+    });
+  }
+
+  async function deliverAlarm(callback: (() => Promise<void>) | undefined): Promise<void> {
+    try {
+      await runAlarm(callback);
+      deliveryActive = false;
+      if (started) await armStoredAlarm();
+    } catch (error) {
+      deliveryActive = false;
+      retryAlarmDelivery(error);
+    }
   }
 
   async function runAlarm(callback: (() => Promise<void>) | undefined): Promise<void> {
@@ -156,17 +168,11 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
 
     await callback();
 
-    const delivered = sql
-      .exec<{ generation: number }>(
-        `DELETE FROM ${ALARM_TABLE}
-         WHERE id = 1 AND generation = ?
-         RETURNING generation`,
-        alarm.generation,
-      )
-      .one();
-    if (delivered === null) {
-      await armStoredAlarm();
-    }
+    sql.exec(
+      `DELETE FROM ${ALARM_TABLE}
+       WHERE id = 1 AND generation = ?`,
+      alarm.generation,
+    );
   }
 
   function clearTimeoutIfSet(): void {

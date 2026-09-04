@@ -17,7 +17,7 @@ import { ConnectionBusy, InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { registerAlarmSource, rescheduleAlarm } from '~/_engine/alarm.ts';
+import { beginAlarmDelivery, registerAlarmSource, rescheduleAlarm } from '~/_engine/alarm.ts';
 import { connectionRuntime } from '~/_engine/engine.deps.ts';
 import { tagRefIndexKey } from '~/_engine/runtime/tag-index.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -29,6 +29,7 @@ import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { replay } from '~/replay/capability.ts';
 import { requests } from '~/request/capability.ts';
+import { scheduled } from '~/scheduled/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -123,6 +124,14 @@ const tinyBase = define({
 });
 const tinyHandler = tinyBase.assemble({
   handlers: [tinyBase.on('noop', { input: Empty, run() {} })],
+});
+
+const alarmBase = define({
+  env: t<Record<string, unknown>>(),
+  capabilities: [scheduled({ noop: null })],
+});
+const alarmHandler = alarmBase.assemble({
+  handlers: [alarmBase.scheduled('noop', { run() {} })],
 });
 
 const mediumBase = define({
@@ -280,7 +289,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler);
-    if (execCount !== 13) {
+    if (execCount !== 15) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy cold] sql.exec calls:\n' +
@@ -289,13 +298,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Breakdown:
     //   1. sentinel SELECT (throws — no table yet)
-    //   2-7. six schema hooks: channel membership, connections (hibernation),
-    //        sequence, replay, durable streams, scheduled
-    //   8. translator-state column check for hibernation migrations
-    //   9. mark sentinel (bundled CREATE meta + INSERT)
-    //   10. channel membership reconcile (cleanup SELECT)
-    //   11-12. scheduled bootstrap loads queued runs + dlq
-    //   13. scheduled persist-after-restore — one INSERT for the new recurring
+    //   2-8. seven schema hooks: alarm retries, channel membership, connections
+    //        (hibernation), sequence, replay, durable streams, scheduled
+    //   9. translator-state column check for hibernation migrations
+    //   10. mark sentinel (bundled CREATE meta + INSERT)
+    //   11. load any durable framework alarm retry
+    //   12. channel membership reconcile (cleanup SELECT)
+    //   13-14. scheduled bootstrap loads queued runs + dlq
+    //   15. scheduled persist-after-restore — one INSERT for the new recurring
     //       run added by ensureRecurringRuns. The diff-based persist only
     //       writes genuine new rows, so the empty-load case costs zero extra
     //       writes.
@@ -309,14 +319,14 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // The resumableStream()/recordedStream() capabilities install an internal
     // recurring '__wskit:stream-durable-sweep' task whenever a server declares a
     // durable stream. That task boots the scheduled engine, which adds the schema
-    // hook (#7), the bootstrap loads (#11-12), and the one persist-after-restore
-    // INSERT (#13) — so a durable-stream server pays 13 round trips on a cold boot.
-    expect(execCount).toBe(13);
+    // hook (#8), the bootstrap loads (#13-14), and the one persist-after-restore
+    // INSERT (#15) — so a durable-stream server pays 15 round trips on a cold boot.
+    expect(execCount).toBe(15);
   });
 
   it('heavy: WARM boot re-runs every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
-    if (execCount !== 11) {
+    if (execCount !== 13) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
@@ -325,11 +335,12 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     }
     // Breakdown:
     //   1. marker SELECT (returns a row, so the marker write is skipped)
-    //   2-7. every schema hook: connections, sequence, replay, foreign keys,
-    //        channel membership, scheduled
-    //   8. translator-state column check for hibernation migrations
-    //   9. channel membership reconcile (cleanup SELECT)
-    //   10-11. scheduled bootstrap loads queued runs + dlq
+    //   2-8. every schema hook: alarm retries, connections, sequence, replay,
+    //        foreign keys, channel membership, scheduled
+    //   9. translator-state column check for hibernation migrations
+    //   10. load any durable framework alarm retry
+    //   11. channel membership reconcile (cleanup SELECT)
+    //   12-13. scheduled bootstrap loads queued runs + dlq
     //
     // The schema hooks run on every boot rather than being skipped by a
     // warm-boot gate, so a capability added after this storage was first
@@ -338,7 +349,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // declares a durable stream) was already persisted during the cold boot
     // that seeded this storage, so the bootstrap finds it in the loaded rows
     // and issues no extra persist write.
-    expect(execCount).toBe(11);
+    expect(execCount).toBe(13);
   });
 });
 
@@ -363,6 +374,37 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
 });
 
 describe('engine.handleAlarm — shared source failure does not starve later hooks', () => {
+  it('restores a failed alarm cycle retry after restarting during delivery', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(40_000);
+    const storage = createTestStorage();
+    const timers = createTestTimers();
+
+    try {
+      const first = buildEngine(alarmHandler);
+      first.core.storage = storage;
+      first.core.timers = timers;
+      await first.initialize();
+      first.core.hooks.alarm.push(async () => {
+        throw new Error('plugin alarm failed');
+      });
+
+      await first.handleAlarm();
+      expect(await timers.getAlarm()).toBe(41_000);
+      beginAlarmDelivery(first.core);
+
+      const restarted = buildEngine(alarmHandler);
+      restarted.core.storage = storage;
+      restarted.core.timers = timers;
+      await restarted.initialize();
+
+      expect(await timers.getAlarm()).toBe(41_000);
+    } finally {
+      storage.db.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps an earlier source deadline when a failed hook requests a later retry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

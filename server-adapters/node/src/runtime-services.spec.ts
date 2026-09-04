@@ -502,6 +502,54 @@ describe('createTimers', () => {
       vi.useRealTimers();
     }
   });
+
+  it('does not run a replacement alarm while the current callback is still running', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(400_000);
+    const sql = createSql();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    try {
+      const timers = createTimers(sql.provider);
+      let active = 0;
+      let maxActive = 0;
+      let replacementWritten = false;
+      const onAlarm = vi.fn(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (onAlarm.mock.calls.length === 1) {
+          await timers.setAlarm(Date.now());
+          replacementWritten = true;
+          await gate;
+        }
+        active -= 1;
+      });
+
+      await timers.setAlarm(400_001);
+      await timers.start(onAlarm);
+      await vi.advanceTimersByTimeAsync(1);
+      while (!replacementWritten) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(onAlarm).toHaveBeenCalledOnce();
+      expect(maxActive).toBe(1);
+
+      release();
+      await timers.drain();
+      await vi.runOnlyPendingTimersAsync();
+      await timers.drain();
+
+      expect(onAlarm).toHaveBeenCalledTimes(2);
+      expect(maxActive).toBe(1);
+    } finally {
+      release?.();
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('createWaitUntil', () => {
