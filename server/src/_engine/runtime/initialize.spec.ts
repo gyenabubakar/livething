@@ -17,6 +17,7 @@ import { ConnectionBusy, InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
+import { registerAlarmSource, rescheduleAlarm } from '~/_engine/alarm.ts';
 import { connectionRuntime } from '~/_engine/engine.deps.ts';
 import { tagRefIndexKey } from '~/_engine/runtime/tag-index.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -362,6 +363,80 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
 });
 
 describe('engine.handleAlarm — shared source failure does not starve later hooks', () => {
+  it('keeps an earlier source deadline when a failed hook requests a later retry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const engine = buildEngine(tinyHandler);
+
+    try {
+      await engine.initialize();
+
+      const scheduledDeadline = 10_250;
+      registerAlarmSource(engine.core, Symbol('scheduled'), () => scheduledDeadline);
+      engine.core.hooks.alarm.push(async () => {
+        throw new Error('inbox cleanup failed');
+      });
+
+      await engine.handleAlarm();
+
+      expect(await engine.core.timers.getAlarm()).toBe(scheduledDeadline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('backs off an overdue failed source instead of immediately rearming it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20_000);
+    const engine = buildEngine(tinyHandler);
+
+    try {
+      await engine.initialize();
+
+      registerAlarmSource(engine.core, Symbol('overdue'), () => 19_900);
+      engine.core.hooks.alarm.push(async () => {
+        throw new Error('scheduled storage failed');
+      });
+
+      await engine.handleAlarm();
+
+      expect(await engine.core.timers.getAlarm()).toBe(21_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not rearm a consumed retry when a successful hook reschedules', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(30_000);
+    const engine = buildEngine(tinyHandler);
+
+    try {
+      await engine.initialize();
+
+      let shouldFail = true;
+      engine.core.hooks.alarm.push(async () => {
+        if (shouldFail) throw new Error('cleanup failed');
+        await rescheduleAlarm(engine.core);
+      });
+
+      await engine.handleAlarm();
+      expect(await engine.core.timers.getAlarm()).toBe(31_000);
+
+      shouldFail = false;
+      vi.setSystemTime(31_000);
+      const setAlarm = vi.spyOn(engine.core.timers, 'setAlarm');
+      setAlarm.mockClear();
+
+      await engine.handleAlarm();
+
+      expect(setAlarm).not.toHaveBeenCalled();
+      expect(await engine.core.timers.getAlarm()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('runs every alarm hook, then schedules its own retry', async () => {
     const engine = buildEngine(tinyHandler);
     await engine.initialize();

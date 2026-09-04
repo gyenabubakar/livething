@@ -6,6 +6,8 @@ export type AlarmSource = () => number | null;
 type AlarmDeadline = number | null;
 
 interface AlarmSyncState {
+  /** Do not retry a failed alarm cycle before this time. */
+  retryAt: AlarmDeadline;
   /** The newest desired deadline; `undefined` means no write is queued. */
   desired: AlarmDeadline | undefined;
   /** The in-flight provider operation, if one is applying the desired state. */
@@ -27,25 +29,39 @@ export function registerAlarmSource(
   core.alarmSources.set(key, source);
 }
 
+/** Mark the coordinator's current retry wake-up as consumed before alarm hooks run. */
+export function beginAlarmDelivery(core: object): void {
+  const state = alarmSyncStates.get(core);
+  if (state) state.retryAt = null;
+}
+
 /**
  * Arm the adapter's single durable alarm for the earliest framework deadline.
  * A source returning `null` has no pending work. Invalid deadlines are ignored
  * so one optional feature cannot corrupt the shared alarm with `NaN`, an unsafe
  * integer, or a non-positive value.
  */
-export function rescheduleAlarm(core: Pick<EngineCore, 'alarmSources' | 'timers'>): Promise<void> {
-  let next: number | null = null;
+export function rescheduleAlarm(
+  core: Pick<EngineCore, 'alarmSources' | 'timers'>,
+  options: { retryAt?: AlarmDeadline } = {},
+): Promise<void> {
+  let state = alarmSyncStates.get(core);
+  if (!state) {
+    state = { retryAt: null, desired: undefined, pending: undefined };
+    alarmSyncStates.set(core, state);
+  }
+  if ('retryAt' in options) state.retryAt = options.retryAt ?? null;
+
+  const retryAt = state.retryAt;
+  const now = Date.now();
+  let next: number | null = retryAt;
   for (const source of core.alarmSources.values()) {
     const candidate = source();
     if (candidate === null || !Number.isSafeInteger(candidate) || candidate <= 0) continue;
-    if (next === null || candidate < next) next = candidate;
+    const effective = retryAt !== null && candidate <= now ? retryAt : candidate;
+    if (next === null || effective < next) next = effective;
   }
 
-  let state = alarmSyncStates.get(core);
-  if (!state) {
-    state = { desired: undefined, pending: undefined };
-    alarmSyncStates.set(core, state);
-  }
   state.desired = next;
   if (state.pending) return state.pending;
 
