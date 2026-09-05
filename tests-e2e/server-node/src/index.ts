@@ -86,7 +86,11 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
     const service = spec.create({
       server: transport,
       sql: databasePath(route, room),
-      env: { NODE_ENV: 'test', PLUGIN_LABEL: 'node' },
+      env: {
+        NODE_ENV: 'test',
+        PLUGIN_LABEL: 'node',
+        ADMIN_SERVER: 'node-test-placeholder',
+      },
       shutdownOnSignal: false,
     });
     const fixture = {

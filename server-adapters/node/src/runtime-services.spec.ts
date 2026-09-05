@@ -439,7 +439,7 @@ describe('createTimers', () => {
       expect(await timers.getAlarm()).toBe(101_000);
 
       sql.database!.prepare('UPDATE alarm_failure_control SET fail = 0').run();
-      await vi.runOnlyPendingTimersAsync();
+      await vi.advanceTimersByTimeAsync(2_000);
 
       expect(onAlarm).toHaveBeenCalledTimes(2);
     } finally {
@@ -467,13 +467,42 @@ describe('createTimers', () => {
       expect(callback).toHaveBeenCalledOnce();
       expect(await timers.getAlarm()).toBe(200_001);
 
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(2_000);
 
       expect(callback).toHaveBeenCalledTimes(2);
       expect(await timers.getAlarm()).toBeNull();
       expect(logger.error).toHaveBeenCalledWith('[wskit] Node durable alarm delivery failed', {
         error: 'retry was not persisted',
       });
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed alarm at most six times with exponential backoff', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(250_000);
+    const sql = createSql();
+    const callback = vi.fn(async () => {
+      throw new Error('alarm keeps failing');
+    });
+
+    try {
+      const timers = createTimers(sql.provider);
+      await timers.setAlarm(250_001);
+      await timers.start(callback);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(callback).toHaveBeenCalledOnce();
+
+      for (const delay of [2_000, 4_000, 8_000, 16_000, 32_000, 64_000]) {
+        await vi.advanceTimersByTimeAsync(delay);
+      }
+
+      expect(callback).toHaveBeenCalledTimes(7);
+      expect(await timers.getAlarm()).toBe(250_001);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       sql.close();
       vi.useRealTimers();

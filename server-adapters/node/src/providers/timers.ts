@@ -2,7 +2,8 @@ import type { Logger, SQLProvider, TimerProvider } from '@wskit/server/adapters'
 
 const ALARM_TABLE = '__wskit_node_alarm';
 const MAX_TIMEOUT_MS = 2_147_483_647;
-const ALARM_RETRY_DELAY_MS = 1_000;
+const ALARM_RETRY_BASE_DELAY_MS = 2_000;
+const MAX_ALARM_RETRIES = 6;
 
 interface AlarmRecord {
   timeMs: number;
@@ -23,6 +24,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   let onAlarm: (() => Promise<void>) | undefined;
   let timeout: NodeJS.Timeout | undefined;
   let deliveryActive = false;
+  let alarmRetryCount = 0;
   const inFlight = new Set<Promise<void>>();
 
   async function ensureTable(): Promise<void> {
@@ -122,13 +124,15 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       error: error instanceof Error ? error.message : String(error),
     });
 
-    if (started) {
-      clearTimeoutIfSet();
-      timeout = setTimeout(() => {
-        timeout = undefined;
-        runAlarmInBackground();
-      }, ALARM_RETRY_DELAY_MS);
-    }
+    if (!started || alarmRetryCount >= MAX_ALARM_RETRIES) return;
+
+    const delay = Math.min(MAX_TIMEOUT_MS, ALARM_RETRY_BASE_DELAY_MS * 2 ** alarmRetryCount);
+    alarmRetryCount += 1;
+    clearTimeoutIfSet();
+    timeout = setTimeout(() => {
+      timeout = undefined;
+      runAlarmInBackground();
+    }, delay);
   }
 
   function runAlarmInBackground(): void {
@@ -147,6 +151,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   async function deliverAlarm(callback: (() => Promise<void>) | undefined): Promise<void> {
     try {
       await runAlarm(callback);
+      alarmRetryCount = 0;
       deliveryActive = false;
       if (started) await armStoredAlarm();
     } catch (error) {
