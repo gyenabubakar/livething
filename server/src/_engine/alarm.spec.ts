@@ -183,6 +183,39 @@ describe('framework alarm multiplexer', () => {
     }
   });
 
+  it('retries locally when storing a provider retry deadline fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const storage = createTestStorage();
+    const setAlarm = vi.fn(async () => {
+      throw new Error('timer provider unavailable');
+    });
+    const core = {
+      alarmSources: new Map<symbol, () => number | null>(),
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      storage,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    };
+    ensureAlarmCoordinatorSchema(core);
+    restoreAlarmCoordinator(core);
+    storage.sql = {
+      ...storage.sql,
+      exec: vi.fn(() => {
+        throw new Error('SQLite unavailable');
+      }),
+    };
+    registerAlarmSource(core, Symbol('retryable-source'), () => 20_000);
+
+    try {
+      await expect(rescheduleAlarm(core)).rejects.toThrow('timer provider unavailable');
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(setAlarm).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retries a provider write that failed while an alarm callback was active', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

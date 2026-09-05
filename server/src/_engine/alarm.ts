@@ -177,11 +177,13 @@ export async function stopAlarmCoordinator(core: object): Promise<void> {
 }
 
 function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: AlarmDeadline): void {
-  state.retryAt = retryAt;
-  if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
-    state.providerRetryAt = null;
+  if (!state.durableReady || state.persistedRetryAt === retryAt) {
+    state.retryAt = retryAt;
+    if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
+      state.providerRetryAt = null;
+    }
+    return;
   }
-  if (!state.durableReady || state.persistedRetryAt === retryAt) return;
 
   if (retryAt === null) {
     core.storage!.sql.exec(`DELETE FROM ${ALARM_STATE_TABLE} WHERE id = 1`);
@@ -192,16 +194,29 @@ function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: Alarm
       retryAt,
     );
   }
+  state.retryAt = retryAt;
   state.persistedRetryAt = retryAt;
+  if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
+    state.providerRetryAt = null;
+  }
 }
 
 function setProviderRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: number): void {
-  setRetryDeadline(core, state, retryAt);
+  try {
+    setRetryDeadline(core, state, retryAt);
+  } catch (error) {
+    core.logger?.error('[wskit] durable alarm retry could not be stored; retrying locally', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   state.providerRetryAt = retryAt;
 }
 
 function clearProviderRetryAfterSuccessfulWrite(core: AlarmCore, state: AlarmSyncState): void {
-  if (state.providerRetryAt === null || state.retryAt !== state.providerRetryAt) return;
+  const providerRetryAt = state.providerRetryAt;
+  if (providerRetryAt === null) return;
+  state.providerRetryAt = null;
+  if (state.retryAt !== providerRetryAt) return;
   setRetryDeadline(core, state, null);
 }
 
