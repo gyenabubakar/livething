@@ -32,7 +32,6 @@ function buildEngine(handler: ServerDefinition, storage = createTestStorage()): 
         env: {},
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

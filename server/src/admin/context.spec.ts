@@ -19,7 +19,6 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
     env: {},
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => ({}) as never,
     getStorageView: () => ({}) as never,
     broadcastToConnections: vi.fn(),

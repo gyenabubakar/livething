@@ -336,9 +336,6 @@ export function createEngineAccess(
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
-    waitUntil: (promise) => {
-      core.waitUntilImpl(promise);
-    },
     rawSend: (connectionId, event, payload) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;

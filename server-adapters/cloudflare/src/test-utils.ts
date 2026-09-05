@@ -146,6 +146,7 @@ export interface FakeEngine {
     handleHibernationWake: unknown[];
     handleAlarm: number;
     handleShutdown: number;
+    handleShutdownOptions: unknown[][];
     reconcileConnections: Array<ReadonlySet<string>>;
     restoreHibernatedConnections: unknown[][];
   };
@@ -182,6 +183,7 @@ export function makeFakeEngine(): FakeEngine {
     handleHibernationWake: [],
     handleAlarm: 0,
     handleShutdown: 0,
+    handleShutdownOptions: [],
     reconcileConnections: [],
     restoreHibernatedConnections: [],
   };
@@ -262,8 +264,9 @@ export function makeFakeEngine(): FakeEngine {
     handleAlarm: vi.fn(async () => {
       calls.handleAlarm += 1;
     }),
-    handleShutdown: vi.fn(async () => {
+    handleShutdown: vi.fn(async (...options: unknown[]) => {
       calls.handleShutdown += 1;
+      calls.handleShutdownOptions.push(options);
     }),
     reconcileConnections: vi.fn((surviving: ReadonlySet<string>) => {
       calls.reconcileConnections.push(surviving);

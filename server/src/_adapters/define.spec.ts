@@ -44,7 +44,6 @@ describe('adapter', () => {
       env: { KEY: 'value' },
       platform: { kind: 'test' },
       timers,
-      waitUntil: vi.fn(),
       logger,
     };
   }

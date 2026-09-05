@@ -174,7 +174,6 @@ describe('plugin() — scoped handler + manifest', () => {
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
-      waitUntil() {},
       generateId: () => 'id_1',
       toConnectionInfo() {
         throw new Error('unused');

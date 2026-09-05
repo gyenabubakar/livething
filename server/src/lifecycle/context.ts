@@ -60,7 +60,6 @@ export function createShutdownContext(
     users: buildUsersManager(deps),
     env: deps.env,
     log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
 }

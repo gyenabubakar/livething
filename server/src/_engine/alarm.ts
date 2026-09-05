@@ -5,7 +5,7 @@ export type AlarmSource = () => number | null;
 
 type AlarmDeadline = number | null;
 type AlarmCore = Pick<EngineCore, 'alarmSources' | 'timers'> &
-  Partial<Pick<EngineCore, 'logger' | 'storage' | 'waitUntilImpl'>>;
+  Partial<Pick<EngineCore, 'logger' | 'storage'>>;
 
 const ALARM_STATE_TABLE = '__wskit_alarm_state';
 
@@ -23,7 +23,11 @@ interface AlarmSyncState {
   /** True while the adapter is delivering an alarm callback. */
   delivering: boolean;
   /** A local retry waiting to repeat a failed provider write. */
-  providerRetry: Promise<void> | undefined;
+  providerRetry: ReturnType<typeof setTimeout> | undefined;
+  /** The durable retry row created solely because a provider write failed. */
+  providerRetryAt: AlarmDeadline;
+  /** True after engine shutdown starts. No more adapter writes may begin. */
+  stopped: boolean;
 }
 
 // TimerProvider methods are asynchronous, but most engine call sites are
@@ -43,6 +47,8 @@ function stateFor(core: object): AlarmSyncState {
       durableReady: false,
       delivering: false,
       providerRetry: undefined,
+      providerRetryAt: null,
+      stopped: false,
     };
     alarmSyncStates.set(core, state);
   }
@@ -68,6 +74,7 @@ export function restoreAlarmCoordinator(core: Pick<EngineCore, 'storage'>): void
   const state = stateFor(core);
   state.retryAt = retryAt;
   state.persistedRetryAt = retryAt;
+  state.providerRetryAt = null;
   state.durableReady = true;
 }
 
@@ -103,6 +110,7 @@ export function rescheduleAlarm(
   options: { retryAt?: AlarmDeadline } = {},
 ): Promise<void> {
   const state = stateFor(core);
+  if (state.stopped) return Promise.resolve();
   if ('retryAt' in options) setRetryDeadline(core, state, options.retryAt ?? null);
 
   const now = Date.now();
@@ -153,8 +161,24 @@ export function rescheduleAlarm(
   return pending;
 }
 
+/** Stop local alarm retries and wait for a provider write already in progress. */
+export async function stopAlarmCoordinator(core: object): Promise<void> {
+  const state = alarmSyncStates.get(core);
+  if (!state) return;
+
+  state.stopped = true;
+  if (state.providerRetry !== undefined) {
+    clearTimeout(state.providerRetry);
+    state.providerRetry = undefined;
+  }
+  await state.pending?.catch(() => {});
+}
+
 function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: AlarmDeadline): void {
   state.retryAt = retryAt;
+  if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
+    state.providerRetryAt = null;
+  }
   if (!state.durableReady || state.persistedRetryAt === retryAt) return;
 
   if (retryAt === null) {
@@ -169,6 +193,16 @@ function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: Alarm
   state.persistedRetryAt = retryAt;
 }
 
+function setProviderRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: number): void {
+  setRetryDeadline(core, state, retryAt);
+  state.providerRetryAt = retryAt;
+}
+
+function clearProviderRetryAfterSuccessfulWrite(core: AlarmCore, state: AlarmSyncState): void {
+  if (state.providerRetryAt === null || state.retryAt !== state.providerRetryAt) return;
+  setRetryDeadline(core, state, null);
+}
+
 function observeProviderWrite(
   core: AlarmCore,
   state: AlarmSyncState,
@@ -179,33 +213,32 @@ function observeProviderWrite(
     core.logger?.error('[wskit] durable alarm reschedule failed', {
       error: error instanceof Error ? error.message : String(error),
     });
-    if (!state.delivering) scheduleProviderRetry(core, state);
+    if (!state.stopped) {
+      const retryAt = Date.now() + 1_000;
+      if (state.retryAt === null || retryAt < state.retryAt) {
+        setProviderRetryDeadline(core, state, retryAt);
+      }
+      if (!state.delivering) scheduleProviderRetry(core, state);
+    }
   });
 }
 
 function scheduleProviderRetry(core: AlarmCore, state: AlarmSyncState): void {
-  if (state.providerRetry) return;
+  if (state.providerRetry !== undefined || state.stopped) return;
 
-  const retry = new Promise<void>((resolve) => {
-    setTimeout(() => {
-      state.providerRetry = undefined;
-      if (state.pending || state.desired === undefined) {
-        resolve();
-        return;
-      }
+  state.providerRetry = setTimeout(() => {
+    state.providerRetry = undefined;
+    if (state.stopped || state.pending || state.desired === undefined) return;
 
-      const pending = flushAlarm(core, state);
-      state.pending = pending;
-      observeProviderWrite(core, state, pending);
-      void pending.then(resolve, resolve);
-    }, 1_000);
-  });
-  state.providerRetry = retry;
-  core.waitUntilImpl?.(retry);
+    const pending = flushAlarm(core, state);
+    state.pending = pending;
+    observeProviderWrite(core, state, pending);
+  }, 1_000);
 }
 
-async function flushAlarm(core: Pick<EngineCore, 'timers'>, state: AlarmSyncState): Promise<void> {
+async function flushAlarm(core: AlarmCore, state: AlarmSyncState): Promise<void> {
   while (state.desired !== undefined) {
+    if (state.stopped) return;
     const desired = state.desired;
     state.desired = undefined;
     try {
@@ -221,5 +254,6 @@ async function flushAlarm(core: Pick<EngineCore, 'timers'>, state: AlarmSyncStat
       throw error;
     }
   }
+  clearProviderRetryAfterSuccessfulWrite(core, state);
   state.pending = undefined;
 }

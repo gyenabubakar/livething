@@ -37,7 +37,6 @@ function createRuntime(): Parameters<typeof broadcastToConnections>[0] {
     generateId: () => 'id',
     logger: undefined,
     outgoingHooks: [],
-    waitUntil: () => {},
     wskitStampHooks: [],
   } as unknown as Parameters<typeof broadcastToConnections>[0];
 }

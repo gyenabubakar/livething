@@ -68,7 +68,6 @@ function baseDispatchRuntime(
     beforeSendHooks: [],
     afterSendHooks: [],
     errorHooks: [],
-    waitUntil() {},
     logger: { warn: vi.fn(), error: vi.fn() },
     generateId() {
       return 'id_1';
@@ -1065,7 +1064,6 @@ describe('onAfterSend async rejection', () => {
 
     const connection = createConnection();
     const error = vi.fn();
-    const waitUntilTasks: Promise<unknown>[] = [];
 
     sendThroughPipeline(
       {
@@ -1077,9 +1075,6 @@ describe('onAfterSend async rejection', () => {
         beforeSendHooks: [],
         wskitStampHooks: [],
         afterSendHooks: [() => Promise.reject(new Error('persist failed'))],
-        waitUntil(promise) {
-          waitUntilTasks.push(promise);
-        },
         logger: { warn: vi.fn(), error },
         generateId() {
           return 'id_1';
@@ -1089,8 +1084,7 @@ describe('onAfterSend async rejection', () => {
       { routing: undefined, event: 'tick', payload: { n: 1 } },
     );
 
-    expect(waitUntilTasks).toHaveLength(1);
-    await waitUntilTasks[0];
+    await Promise.resolve();
     expect(error).toHaveBeenCalledWith('[wskit] after-send hook failed', expect.any(Object));
   });
 });

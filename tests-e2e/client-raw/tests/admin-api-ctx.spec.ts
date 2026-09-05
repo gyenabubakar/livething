@@ -277,7 +277,7 @@ test.describe('api(ctx) members over the stub', () => {
     expect(after).not.toContain('cancelled-task');
   });
 
-  test('sql round-trips a row, and waitUntil work lands too', async ({ page }, testInfo) => {
+  test('sql round-trips a row', async ({ page }, testInfo) => {
     const room = `admin-ctx-sql-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
@@ -285,12 +285,6 @@ test.describe('api(ctx) members over the stub', () => {
 
     await callApi(page, 'write-note', { room, text: 'note-one' });
     expect(await callApi(page, 'read-notes', { room })).toEqual(['note-one']);
-
-    await callApi(page, 'defer-note', { room, text: 'deferred' });
-    await page.evaluate(() => window.__settle(600));
-    expect(await callApi(page, 'read-notes', { room })).toEqual(
-      expect.arrayContaining(['note-one', 'deferred']),
-    );
   });
 
   test('kv round-trips a value', async ({ page }, testInfo) => {

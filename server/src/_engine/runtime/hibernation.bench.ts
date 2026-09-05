@@ -47,7 +47,6 @@ async function makeEngine(): Promise<Engine> {
         env: {},
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

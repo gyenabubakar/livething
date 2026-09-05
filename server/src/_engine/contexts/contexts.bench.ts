@@ -30,7 +30,6 @@ async function makeEngine(handler: AnyServerDefinition): Promise<Engine> {
         env: {},
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

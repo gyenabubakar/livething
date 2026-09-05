@@ -111,7 +111,6 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
-      waitUntil: runtime.waitUntil.waitUntil,
     });
 
     const upgrade = createUpgradeHandler({
@@ -196,7 +195,11 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
           }
 
           try {
-            if (startupError === undefined) await engine.handleShutdown();
+            if (startupError === undefined) {
+              runtime.timers.stop();
+              await runtime.timers.drain();
+              await engine.handleShutdown({ terminal: true });
+            }
           } finally {
             await runtime.close();
             if (ownsServer) await closeServer(server);

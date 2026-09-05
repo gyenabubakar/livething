@@ -48,7 +48,6 @@ function buildEngine(
           },
           getAlarm: async () => alarm,
         },
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

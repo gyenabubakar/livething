@@ -131,8 +131,6 @@ async function runAdminOp(
       return admin.envKeys();
     case 'log-something':
       return admin.logSomething(text) ?? null;
-    case 'defer-note':
-      return admin.deferNote(text) ?? null;
     case 'has-platform':
       return admin.hasPlatform();
     default:

@@ -76,7 +76,6 @@ function buildEngine(options: ServerOptions = {}): Engine {
         timers: createTestTimers(),
         env: {},
         platform: { kind: 'test' },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};

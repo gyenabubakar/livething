@@ -58,7 +58,6 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
     getTimers: () => createTestTimers(),

@@ -74,7 +74,6 @@ function createRuntime(
     wskitStampHooks: withStamper ? [() => ({ seq: seq++ })] : [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn() {}, error() {} },
     generateId: () => 'id',
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),

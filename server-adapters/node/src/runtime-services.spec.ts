@@ -13,7 +13,6 @@ import { createSql } from './providers/sql.ts';
 import { createStorage } from './providers/storage.ts';
 import { createTimers } from './providers/timers.ts';
 import { createRuntime } from './runtime.ts';
-import { createWaitUntil } from './wait-until.ts';
 
 describe('createAsyncContext', () => {
   it('keeps the active store across an awaited callback', async () => {
@@ -608,35 +607,6 @@ describe('createTimers', () => {
       sql.close();
       vi.useRealTimers();
     }
-  });
-});
-
-describe('createWaitUntil', () => {
-  it('waits for tracked background work and logs rejected work', async () => {
-    let resolveTask!: () => void;
-    const task = new Promise<void>((resolve) => {
-      resolveTask = resolve;
-    });
-    const logger = createMockLogger();
-    const waitUntil = createWaitUntil(logger);
-
-    waitUntil.waitUntil(task);
-    let drained = false;
-    const drain = waitUntil.drain().then(() => {
-      drained = true;
-    });
-    await Promise.resolve();
-    expect(drained).toBe(false);
-
-    resolveTask();
-    await drain;
-    expect(drained).toBe(true);
-
-    waitUntil.waitUntil(Promise.reject(new Error('background failed')));
-    await waitUntil.drain();
-    expect(logger.error).toHaveBeenCalledWith('[wskit] waitUntil task failed', {
-      error: 'background failed',
-    });
   });
 });
 

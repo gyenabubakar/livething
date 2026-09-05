@@ -29,6 +29,8 @@ app.assemble({
     ctx.id;
     // @ts-expect-error — no current connection on the admin ctx
     ctx.meta;
+    // @ts-expect-error — background work is not a cross-platform WSKit context API.
+    ctx.waitUntil;
 
     // @ts-expect-error — `channels` is owned by the channels() capability
     ctx.channels;

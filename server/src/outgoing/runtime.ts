@@ -31,7 +31,8 @@ export interface OutgoingRuntime {
     message: EngineRuntimeTypes.WireOutgoingMessage,
   ) => void | Promise<void>)[];
 
-  waitUntil(promise: Promise<unknown>): void;
+  /** @internal Tracks engine-owned work that must finish before adapter shutdown. */
+  trackBackgroundWork?: (work: Promise<void>) => void;
 
   logger: Pick<PublicApi.Logger, 'warn' | 'error'>;
 
@@ -149,22 +150,22 @@ function applyWSKitStampers(
   }
 }
 
-/** Fan out after-send hooks, forwarding async rejections through the engine's waitUntil + logger. */
+/** Fan out after-send hooks and log asynchronous failures. */
 function invokeAfterSendHooks(
-  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'waitUntil' | 'logger'>,
+  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'logger' | 'trackBackgroundWork'>,
   wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
 ): void {
-  const { afterSendHooks, waitUntil, logger } = runtime;
+  const { afterSendHooks, logger } = runtime;
   for (const hook of afterSendHooks) {
     try {
       const result = hook(wireMessage);
 
       if (result && typeof (result as Promise<unknown>).then === 'function') {
-        waitUntil(
-          Promise.resolve(result).catch((error) => {
-            logger.error('[wskit] after-send hook failed', { error });
-          }),
-        );
+        const work = Promise.resolve(result);
+        runtime.trackBackgroundWork?.(work);
+        void work.catch((error) => {
+          logger.error('[wskit] after-send hook failed', { error });
+        });
       }
     } catch (error) {
       logger.error('[wskit] after-send hook failed', { error });
@@ -265,13 +266,7 @@ interface PreparedBroadcast {
 
 type BroadcastRuntime = Pick<
   OutgoingRuntime,
-  | 'afterSendHooks'
-  | 'beforeSendHooks'
-  | 'compiled'
-  | 'logger'
-  | 'outgoingHooks'
-  | 'waitUntil'
-  | 'wskitStampHooks'
+  'afterSendHooks' | 'beforeSendHooks' | 'compiled' | 'logger' | 'outgoingHooks' | 'wskitStampHooks'
 >;
 
 /**
@@ -410,7 +405,6 @@ export function broadcastToConnections(
     | 'generateId'
     | 'logger'
     | 'outgoingHooks'
-    | 'waitUntil'
     | 'wskitStampHooks'
   >,
   connections: Iterable<EngineRuntimeTypes.RuntimeConnection>,
@@ -494,7 +488,6 @@ export function broadcastToChannel(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
       | 'wskitStampHooks'
     > & {
       /**

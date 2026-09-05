@@ -39,7 +39,6 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     wskitStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn() {}, error() {} },
     generateId: () => 'id_1',
     ...overrides,

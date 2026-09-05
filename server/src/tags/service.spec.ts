@@ -20,7 +20,6 @@ function buildEngine(handler: ServerDefinition): Engine {
         env: {},
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

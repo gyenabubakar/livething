@@ -89,7 +89,6 @@ export function createAdminContext(
     cancelScheduled,
     env: deps.env,
     log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
 }
@@ -118,7 +117,6 @@ export const ADMIN_CONTEXT_MEMBER_NAMES = [
   'cancelScheduled',
   'env',
   'log',
-  'waitUntil',
   'platform',
 ] as const satisfies readonly AdminContextMember[];
 

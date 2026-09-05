@@ -257,8 +257,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   readonly kv: KVProvider;
   /** Engine logger — `info` / `warn` / `error`. */
   readonly log: Logger;
-  /** Keep a promise running past the end of the handler (for example Cloudflare `waitUntil`). */
-  waitUntil(promise: Promise<unknown>): void;
   /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with

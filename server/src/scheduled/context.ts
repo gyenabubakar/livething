@@ -35,7 +35,6 @@ export function createTaskContext(
     },
     env: deps.env,
     log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
 

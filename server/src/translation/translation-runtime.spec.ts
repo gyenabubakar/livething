@@ -43,7 +43,6 @@ function runtime(overrides: Record<string, unknown> = {}) {
     wskitStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn: vi.fn(), error: vi.fn() },
     ...overrides,
   };

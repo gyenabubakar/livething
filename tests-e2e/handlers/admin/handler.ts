@@ -146,16 +146,6 @@ export const adminHandler = base.assemble({
       ctx.log.info('[e2e] admin log', { text });
     },
 
-    // Proves waitUntil by its observable effect: the awaited work lands in sql.
-    deferNote(text: string): void {
-      ctx.waitUntil(
-        Promise.resolve().then(() => {
-          ctx.sql.exec('CREATE TABLE IF NOT EXISTS admin_notes (text TEXT)');
-          ctx.sql.exec('INSERT INTO admin_notes (text) VALUES (?)', text);
-        }),
-      );
-    },
-
     hasPlatform(): boolean {
       return ctx.platform !== undefined && ctx.platform !== null;
     },

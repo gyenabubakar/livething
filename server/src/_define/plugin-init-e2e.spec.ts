@@ -25,7 +25,6 @@ function buildEngine(handler: ServerDefinition, env: Record<string, unknown> = {
         env,
         platform: {},
         timers: createTestTimers(),
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

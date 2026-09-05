@@ -22,7 +22,6 @@ function makeCore(): EngineCore {
           deleteAlarm: async () => {},
           getAlarm: async () => null,
         },
-        waitUntil: () => {},
         logger: {
           info() {},
           warn() {},

@@ -72,7 +72,6 @@ async function buildEngine(
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });
       return {};

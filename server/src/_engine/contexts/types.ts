@@ -44,8 +44,6 @@ export interface ContextCommonDeps {
 
   platform: unknown;
 
-  waitUntilImpl: (promise: Promise<unknown>) => void;
-
   /**
    * The engine's instance id, or `undefined` when running single-instance.
    * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.connection`.

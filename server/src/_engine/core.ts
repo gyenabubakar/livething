@@ -60,7 +60,6 @@ export class EngineCore {
   env: Record<string, unknown>;
   timers: PublicApi.TimerProvider;
   platform: unknown;
-  waitUntilImpl: (promise: Promise<unknown>) => void;
   logger: PublicApi.Logger;
 
   /**
@@ -214,6 +213,8 @@ export class EngineCore {
   /** Framework-owned alarm sources. The adapter exposes one durable alarm. */
   readonly alarmSources = new Map<symbol, () => number | null>();
   readonly installedFeatures = new Set<symbol>();
+  /** Background work started by the engine that must settle before storage closes. */
+  readonly backgroundWork = new Set<Promise<void>>();
 
   /**
    * Every persisted connection row, read in one query for the duration of the
@@ -243,9 +244,6 @@ export class EngineCore {
     if (options.platform === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
     }
-    if (options.waitUntil === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide waitUntil.`);
-    }
     if (options.logger === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide logger.`);
     }
@@ -264,7 +262,6 @@ export class EngineCore {
     this.env = options.env;
     this.timers = options.timers;
     this.platform = options.platform;
-    this.waitUntilImpl = options.waitUntil;
     this.logger = options.logger;
     this.asyncContext = createAsyncContext(options.asyncContextFactory);
     this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
@@ -287,6 +284,22 @@ export class EngineCore {
   generateId(prefix = 'id'): string {
     this.idCounter += 1;
     return `${prefix}_${this.instanceNonce}_${this.idCounter}`;
+  }
+
+  /** @internal */
+  trackBackgroundWork(work: Promise<void>): void {
+    this.backgroundWork.add(work);
+    void work.then(
+      () => this.backgroundWork.delete(work),
+      () => this.backgroundWork.delete(work),
+    );
+  }
+
+  /** @internal */
+  async drainBackgroundWork(): Promise<void> {
+    while (this.backgroundWork.size > 0) {
+      await Promise.allSettled([...this.backgroundWork]);
+    }
   }
 
   usesHibernation(): boolean {

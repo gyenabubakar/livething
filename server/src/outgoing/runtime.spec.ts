@@ -48,7 +48,6 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     wskitStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: {
       warn() {},
       error() {},
@@ -166,6 +165,30 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
     );
     expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
+  });
+
+  it('registers asynchronous after-send work for engine shutdown', () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const trackBackgroundWork = vi.fn();
+    const runtime = createRuntime({ afterSendHooks: [() => pending] }) as OutgoingRuntime & {
+      trackBackgroundWork?: (work: Promise<void>) => void;
+    };
+    runtime.trackBackgroundWork = trackBackgroundWork;
+
+    try {
+      sendThroughPipeline(runtime, createConnection(), {
+        routing: undefined,
+        event: 'foo',
+        payload: {},
+      });
+
+      expect(trackBackgroundWork).toHaveBeenCalledWith(pending);
+    } finally {
+      finish();
+    }
   });
 
   it('sends a void request-response acknowledgement with no payload key at all', () => {

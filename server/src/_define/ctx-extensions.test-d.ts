@@ -93,6 +93,8 @@ ownerBase.onOutgoing((ctx, frame) => {
 const bareBase = define({ env: t<{}>(), capabilities: [emits({ e: t<{}>() })] });
 bareBase.on('bare', {
   run(ctx) {
+    // @ts-expect-error — background work is not a cross-platform WSKit context API.
+    ctx.waitUntil;
     // @ts-expect-error — `request` needs requests()
     ctx.request('x', {});
     // @ts-expect-error — `broadcastRequest` needs requests()

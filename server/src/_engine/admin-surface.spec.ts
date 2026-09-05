@@ -46,7 +46,6 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
           deleteAlarm: vi.fn(async () => {}),
           getAlarm: vi.fn(async () => null),
         },
-        waitUntil: () => {},
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       }) as Engine<object>;
       return {};

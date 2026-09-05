@@ -41,7 +41,6 @@ function engineWithApi(makeApi: (ctx: unknown) => object) {
           deleteAlarm: async () => {},
           getAlarm: async () => null,
         },
-        waitUntil: () => {},
         logger: { info: () => {}, warn: () => {}, error: () => {} },
       });
       return created;

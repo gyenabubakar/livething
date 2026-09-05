@@ -4,10 +4,8 @@ import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import { createWaitUntil } from './wait-until.ts';
 import type { NodeStorageOptions } from './providers/storage.ts';
 import type { NodeTimers } from './providers/timers.ts';
-import type { NodeWaitUntil } from './wait-until.ts';
 
 /** Runtime dependencies assembled by the public Node server. */
 export interface NodeRuntimeOptions<Env> extends Omit<NodeStorageOptions, 'logger'> {
@@ -23,12 +21,11 @@ export interface NodeRuntime<Env> {
   storage: StorageProvider;
   timers: NodeTimers;
   asyncContextFactory: typeof createAsyncContext;
-  waitUntil: NodeWaitUntil;
   logger: Logger;
   close(): Promise<void>;
 }
 
-/** Creates storage, timers, async context, logging, and background-work services. */
+/** Creates storage, timers, async context, and logging services. */
 export function createRuntime<Env>(options: NodeRuntimeOptions<Env>): NodeRuntime<Env> {
   const logger = options.logger ?? createLogger();
   const storageRuntime = createStorage({
@@ -37,7 +34,6 @@ export function createRuntime<Env>(options: NodeRuntimeOptions<Env>): NodeRuntim
     logger,
   });
   const timers = createTimers(storageRuntime.storage.sql, logger);
-  const waitUntil = createWaitUntil(logger);
 
   return {
     env: (options.env ?? {}) as Record<string, unknown>,
@@ -45,12 +41,10 @@ export function createRuntime<Env>(options: NodeRuntimeOptions<Env>): NodeRuntim
     storage: storageRuntime.storage,
     timers,
     asyncContextFactory: createAsyncContext,
-    waitUntil,
     logger,
     async close() {
       timers.stop();
       await timers.drain();
-      await waitUntil.drain();
       storageRuntime.close();
     },
   };

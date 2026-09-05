@@ -826,7 +826,7 @@ export interface ChannelsManager<
  * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
- *   `env`, `log`, `platform`, `waitUntil`
+ *   `env`, `log`, `platform`
  */
 export interface ConnectionContext<
   Env = Record<string, unknown>,
@@ -942,9 +942,6 @@ export interface ConnectionContext<
 
   /** Structured logger. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
@@ -1086,9 +1083,6 @@ export interface ShutdownContext<
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
-
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
 }
@@ -1141,9 +1135,6 @@ export interface TaskContext<
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
@@ -1270,9 +1261,6 @@ export interface AdminContext<
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
-
-  /** Keep the platform runtime alive until the promise resolves. */
-  waitUntil(promise: Promise<unknown>): void;
 
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;

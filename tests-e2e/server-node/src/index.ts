@@ -205,8 +205,6 @@ async function runAdminOp(admin: AnyAdmin, op: string, args: AdminOpArgs): Promi
       return admin.envKeys();
     case 'log-something':
       return admin.logSomething(text) ?? null;
-    case 'defer-note':
-      return admin.deferNote(text) ?? null;
     case 'has-platform':
       return admin.hasPlatform();
     default:

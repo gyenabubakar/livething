@@ -137,9 +137,6 @@ interface BaseCustomReplayContext {
 
   /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
   readonly platform: unknown;
-
-  /** Schedule a promise to run after the handler returns. */
-  waitUntil(promise: Promise<unknown>): void;
 }
 
 /**
@@ -315,7 +312,6 @@ function createTopLevelReplayContext(
     env: (baseCtx.env as Record<string, unknown>) ?? {},
     log: baseCtx.log as Logger,
     platform: baseCtx.platform,
-    waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     request,
     sendReplay(event, payload, wire) {
       engine.assertReplaySendContract(event, payload, {
@@ -358,7 +354,6 @@ function createChannelReplayContext(
     env: (baseCtx.env as Record<string, unknown>) ?? {},
     log: baseCtx.log as Logger,
     platform: baseCtx.platform,
-    waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     sendReplay(event, payload, wire) {
       engine.assertReplaySendContract(event, payload, {
         channel: channelName,

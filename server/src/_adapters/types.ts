@@ -125,9 +125,6 @@ export interface EngineRuntimeOptions {
   /** Adapter-provided durable alarm implementation. Every adapter provides this. */
   timers: TimerProvider;
 
-  /** Platform hook for background work that may outlive the current callback. */
-  waitUntil: (promise: Promise<unknown>) => void;
-
   /** Structured logger exposed as `ctx.log`. */
   logger: Logger;
 }

@@ -155,7 +155,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
-      waitUntil: expect.any(Function),
     });
   });
 
@@ -449,6 +448,7 @@ describe('alarm() and shutdown() RPCs', () => {
 
     await instance.shutdown();
     expect(fake.calls.handleShutdown).toBe(1);
+    expect(fake.calls.handleShutdownOptions).toEqual([[]]);
   });
 
   it('shutdown() under hibernation wakes every Cloudflare-managed socket before draining', async () => {
@@ -484,7 +484,7 @@ describe('engine wiring in the constructor', () => {
     installWebSocketPair();
   });
 
-  it('provides env, storage, platform, timers, and waitUntil to the engine', () => {
+  it('provides env, storage, platform, and timers to the engine', () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     const env = { KEY: 'value' };
@@ -497,18 +497,12 @@ describe('engine wiring in the constructor', () => {
     expect(engineOptions.storage).toBeDefined();
     expect(engineOptions.platform).toBeDefined();
     expect(engineOptions.timers).toBeDefined();
-    expect(engineOptions.waitUntil).toBeTypeOf('function');
     expect(engineOptions.logger).toBeDefined();
 
     const adapterLogger = engineOptions.logger as Record<string, unknown>;
     expect(typeof adapterLogger.info).toBe('function');
     expect(typeof adapterLogger.warn).toBe('function');
     expect(typeof adapterLogger.error).toBe('function');
-
-    const wrapper = engineOptions.waitUntil as (p: Promise<unknown>) => void;
-    const p = Promise.resolve();
-    wrapper(p);
-    expect(state.waitUntil).toHaveBeenCalledWith(p);
   });
 
   it('restores every surviving socket at boot under hibernation so live delivery reaches them', async () => {
@@ -695,7 +689,7 @@ describe('WSKitDurableObject admin()', () => {
 
   it('leaves the context plumbing off the stub surface', async () => {
     const { admin } = await adminOf();
-    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'waitUntil', 'schedule']) {
+    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'schedule']) {
       expect(admin).not.toHaveProperty(plumbing);
     }
   });

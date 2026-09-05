@@ -37,7 +37,6 @@ function buildEngine(handler: ServerDefinition): Engine {
         env: {},
         platform: {},
         timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
-        waitUntil: () => {},
         logger: { info() {}, warn() {}, error() {} },
       });
       return {};

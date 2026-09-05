@@ -116,7 +116,6 @@ describe('message runtime', () => {
       beforeSendHooks: [],
       wskitStampHooks: [],
       afterSendHooks: [],
-      waitUntil() {},
       logger: {
         warn() {},
         error() {},
@@ -203,7 +202,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -298,7 +296,6 @@ describe('message runtime', () => {
       },
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -363,7 +360,6 @@ describe('message runtime', () => {
       handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -431,7 +427,6 @@ describe('message runtime', () => {
       handleValidationError,
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -528,7 +523,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -601,7 +595,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -677,7 +670,6 @@ describe('message runtime', () => {
       async handleUnsubscribe() {},
       sendThroughPipeline: () => true,
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -772,7 +764,6 @@ describe('message runtime', () => {
       async handleSubscribe() {},
       async handleUnsubscribe() {},
       requestDispatch: requestDispatchForSpec,
-      waitUntil() {},
       logger: { warn() {}, error() {} },
       generateId() {
         return 'id_1';
@@ -862,7 +853,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -936,7 +926,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1009,7 +998,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1076,7 +1064,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       handleSubscribe,
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1140,7 +1127,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       handleUnsubscribe,
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1203,7 +1189,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1269,7 +1254,6 @@ describe('message runtime', () => {
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
-      waitUntil() {},
       generateId() {
         return 'id_1';
       },
@@ -1345,7 +1329,6 @@ function makeNudgeRuntime(
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    waitUntil() {},
     generateId() {
       return 'id_1';
     },
@@ -1615,7 +1598,6 @@ describe('Defer retry hook isolation', () => {
         async handleValidationError() {},
         async handleSubscribe() {},
         async handleUnsubscribe() {},
-        waitUntil() {},
         generateId() {
           return 'id_1';
         },
@@ -1715,7 +1697,6 @@ describe('Defer retry hook isolation', () => {
         async handleSubscribe() {},
         async handleUnsubscribe() {},
         sendThroughPipeline: () => true,
-        waitUntil() {},
         generateId() {
           return 'id_1';
         },

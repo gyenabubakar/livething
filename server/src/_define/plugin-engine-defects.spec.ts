@@ -23,7 +23,6 @@ function outgoingRuntime(compiled: any) {
     wskitStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
-    waitUntil() {},
     logger: { warn() {}, error() {} },
     generateId: () => 'id_1',
   } as any;

@@ -711,13 +711,6 @@ export interface EngineAccess {
   ): asserts payload is Record<string, unknown>;
 
   /**
-   * Let a background task continue even after the current callback returns.
-   *
-   * Adapters can map this to a platform primitive such as `waitUntil`.
-   */
-  waitUntil(promise: Promise<unknown>): void;
-
-  /**
    * Recompute the next scheduled callback from the current scheduled-run table.
    */
   rescheduleAlarm(): void;

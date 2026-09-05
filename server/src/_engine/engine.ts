@@ -1,4 +1,5 @@
 import { CloseCodes, WSKitConfigError } from '@wskit/core';
+import { stopAlarmCoordinator } from '~/_engine/alarm.ts';
 import { EngineCore } from '~/_engine/core.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
@@ -97,7 +98,7 @@ export class Engine<TApi = unknown> {
   // Wrap each callback so any state changes the handler triggers collect into
   // one row write at the end of the handler instead of one row write per
   // change. Only covers what runs (and is awaited) inside the callback —
-  // work scheduled via waitUntil, a setTimeout, or a paused generator runs
+  // work scheduled with a setTimeout or a paused generator runs
   // after the callback returns, outside the scope, and writes right away.
   private wrapHandle(handle: ConnectionHandle): ConnectionHandle {
     return {
@@ -123,32 +124,43 @@ export class Engine<TApi = unknown> {
     );
   }
 
-  /** Shut down the engine and every connection or plugin it owns. */
-  async handleShutdown(): Promise<void> {
+  /**
+   * Shut down the engine and every connection or plugin it owns.
+   *
+   * Set `terminal` only when the adapter is about to close the timer or storage
+   * bindings it supplied. A non-terminal drain leaves alarm retries available
+   * for runtimes such as Durable Objects that can receive more work later.
+   */
+  async handleShutdown(options: { terminal?: boolean } = {}): Promise<void> {
     const core = this.core;
-    return EngineConnectionRuntime.handleShutdown({
-      connections: core.connections,
-      activeStreams: core.activeStreams,
-      shutdownHooks: core.hooks.shutdown,
-      pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
+    if (options.terminal) await stopAlarmCoordinator(core);
+    try {
+      await EngineConnectionRuntime.handleShutdown({
+        connections: core.connections,
+        activeStreams: core.activeStreams,
+        shutdownHooks: core.hooks.shutdown,
+        pluginShutdownHooks: core.hooks.pluginLifecycle.shutdown,
 
-      createShutdownContext: () => this.createShutdownContext(),
+        createShutdownContext: () => this.createShutdownContext(),
 
-      cancelActiveStreamsForConnection: (connectionId) =>
-        EngineConnectionRuntime.cancelActiveStreamsForConnection(
-          { activeStreams: core.activeStreams },
-          connectionId,
-        ),
+        cancelActiveStreamsForConnection: (connectionId) =>
+          EngineConnectionRuntime.cancelActiveStreamsForConnection(
+            { activeStreams: core.activeStreams },
+            connectionId,
+          ),
 
-      handleConnectionClose: (connection) =>
-        EngineDeps.handleConnectionClose(core, {
-          connection,
-          code: CloseCodes.GOING_AWAY,
-          reason: 'Server shutting down',
-        }),
+        handleConnectionClose: (connection) =>
+          EngineDeps.handleConnectionClose(core, {
+            connection,
+            code: CloseCodes.GOING_AWAY,
+            reason: 'Server shutting down',
+          }),
 
-      logger: core.logger,
-    });
+        logger: core.logger,
+      });
+    } finally {
+      if (options.terminal) await core.drainBackgroundWork();
+    }
   }
 
   /** Run scheduled hooks after a timer wake-up. Scheduled tasks drain via this path. */

@@ -102,9 +102,6 @@ const buildServe = adapter<
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),
-          waitUntil: (promise: Promise<unknown>) => {
-            ctx.waitUntil?.(promise);
-          },
         });
         // Durable Object refs can be passed through application code and must
         // carry the stable DO id so a ref from another DO cannot match a local

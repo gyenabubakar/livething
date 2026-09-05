@@ -37,7 +37,6 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => ({
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },

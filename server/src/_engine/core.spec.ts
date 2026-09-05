@@ -30,7 +30,6 @@ function validOptions(): EngineAdapterTypes.EngineOptions {
         getStore: () => current,
       };
     },
-    waitUntil: () => {},
     logger: { info() {}, warn() {}, error() {} },
   };
 }

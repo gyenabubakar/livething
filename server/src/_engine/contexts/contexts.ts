@@ -324,7 +324,6 @@ export function buildConnectionContext(
   base.kv = kv;
   base.env = deps.env;
   base.log = deps.logger;
-  base.waitUntil = deps.waitUntilImpl;
   base.platform = deps.platform;
 
   base.provide = <T>(key: LocalKey<T>, value: T): void => {

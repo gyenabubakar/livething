@@ -78,7 +78,6 @@ export function kickChannelMembers(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
       | 'wskitStampHooks'
     > & {
       leaveChannel(
@@ -104,7 +103,6 @@ export async function handleSubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
       | 'wskitStampHooks'
     >,
   connection: EngineRuntimeTypes.RuntimeConnection,
@@ -147,7 +145,6 @@ export async function subscribeFromServer(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
       | 'wskitStampHooks'
     > & { instanceId: string | undefined },
   ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string },
@@ -203,7 +200,6 @@ export async function handleUnsubscribe(
       | 'generateId'
       | 'logger'
       | 'outgoingHooks'
-      | 'waitUntil'
       | 'wskitStampHooks'
     > & {
       leaveChannel(

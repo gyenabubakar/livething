@@ -133,7 +133,6 @@ describe('server()', () => {
       env: {},
       storage: expect.any(Object),
       timers: expect.any(Object),
-      waitUntil: expect.any(Function),
     });
 
     await service.shutdown();
@@ -201,6 +200,40 @@ describe('server()', () => {
 
     await service.shutdown();
     expect(fake.handleShutdown).toHaveBeenCalledOnce();
+    expect(fake.handleShutdown).toHaveBeenCalledWith({ terminal: true });
+  });
+
+  it('waits for an active alarm before running engine shutdown hooks', async () => {
+    vi.useFakeTimers();
+    const httpServer = new FakeHttpServer();
+    let releaseAlarm: (() => void) | undefined;
+    const alarmRunning = new Promise<void>((resolve) => {
+      releaseAlarm = resolve;
+    });
+    fake.handleAlarm.mockImplementation(() => alarmRunning);
+    const service = server({} as never, { server: httpServer as unknown as Server });
+
+    try {
+      await service.ready;
+      const runtime = createOptions[0] as { timers: { setAlarm(time: number): Promise<void> } };
+      await runtime.timers.setAlarm(Date.now());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.handleAlarm).toHaveBeenCalledOnce();
+
+      const shutdown = service.shutdown();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(fake.handleShutdown).not.toHaveBeenCalled();
+
+      releaseAlarm?.();
+      await shutdown;
+      expect(fake.handleShutdown).toHaveBeenCalledOnce();
+    } finally {
+      releaseAlarm?.();
+      await service.shutdown();
+    }
   });
 
   it('reports a hibernation configuration failure through ready and shutdown', async () => {

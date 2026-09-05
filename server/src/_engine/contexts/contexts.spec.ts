@@ -58,7 +58,6 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
-    waitUntilImpl: vi.fn(),
     getStorage: () => baseStorage(),
     getStorageView: () => baseStorage(),
     getTimers: () => createTestTimers(),
@@ -372,23 +371,6 @@ describe('ctx.connections.get(ref).send', () => {
         engineInstance: 'engine-a',
       });
     }
-  });
-});
-
-describe('ctx.waitUntil', () => {
-  it('delegates to the adapter-provided waitUntil implementation', () => {
-    const waitUntilImpl = vi.fn();
-    const connection = createConnection('c1');
-    const deps = baseDeps({
-      connections: new Map([[connection.id, connection]]),
-      waitUntilImpl,
-    });
-
-    const ctx = buildConnectionContext(deps, connection);
-    const task = Promise.resolve('done');
-    ctx.waitUntil(task);
-
-    expect(waitUntilImpl).toHaveBeenCalledWith(task);
   });
 });
 
@@ -782,7 +764,6 @@ describe('storage view in init/shutdown/task contexts', () => {
       env: {},
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
-      waitUntilImpl: vi.fn(),
       getStorage,
       getStorageView: getStorage,
       getTimers: () => createTestTimers(),
