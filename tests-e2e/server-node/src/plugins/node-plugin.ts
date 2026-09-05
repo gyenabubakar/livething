@@ -207,13 +207,13 @@ const triggerTaskWithData = h.on('trigger-plugin-task-with-data', {
   },
 });
 
-const vacuum = h.scheduled('drizzle-vacuum', {
+h.scheduled('drizzle-vacuum', {
   run(ctx) {
     ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
   },
 });
 
-const everyTick = h.scheduled('drizzle-every-tick', {
+h.scheduled('drizzle-every-tick', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.everyTickCount++;
@@ -221,7 +221,7 @@ const everyTick = h.scheduled('drizzle-every-tick', {
   },
 });
 
-const flaky = h.scheduled('drizzle-flaky', {
+h.scheduled('drizzle-flaky', {
   run(ctx) {
     const state = getState(ctx.platform as Platform);
     state.flakyAttempts++;
@@ -231,13 +231,13 @@ const flaky = h.scheduled('drizzle-flaky', {
   },
 });
 
-const alwaysFail = h.scheduled('drizzle-module-always-fail', {
+h.scheduled('drizzle-module-always-fail', {
   run() {
     throw new Error('module permanent failure');
   },
 });
 
-const queryDlq = h.scheduled('drizzle-query-dlq', {
+h.scheduled('drizzle-query-dlq', {
   run(ctx) {
     const rows = ctx.sql
       .exec<{
@@ -258,7 +258,7 @@ const queryDlq = h.scheduled('drizzle-query-dlq', {
   },
 });
 
-const taskWithData = h.scheduled('drizzle-task-with-data', {
+h.scheduled('drizzle-task-with-data', {
   run(ctx, data) {
     ctx.broadcast('plugin-task-data-result', {
       result: `validated-data-received:${data.value}`,
@@ -288,12 +288,6 @@ export const NodePlugin = plugin('e2e:drizzle', {
       triggerAlwaysFail,
       triggerQueryDlq,
       triggerTaskWithData,
-      vacuum,
-      everyTick,
-      flaky,
-      alwaysFail,
-      queryDlq,
-      taskWithData,
     ],
     api: (ctx) => {
       const state = getState(ctx.platform as Platform);

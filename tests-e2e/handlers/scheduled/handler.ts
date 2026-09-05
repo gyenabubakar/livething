@@ -55,7 +55,7 @@ base.onInit((ctx) => {
   );
 });
 
-const handleCleanupTask = base.scheduled('cleanup', {
+base.scheduled('cleanup', {
   run(ctx) {
     const ranAt = Date.now();
     ctx.sql.exec('INSERT INTO _cleanup_log (ranAt) VALUES (?)', ranAt);
@@ -63,13 +63,13 @@ const handleCleanupTask = base.scheduled('cleanup', {
   },
 });
 
-const handleHeartbeatTask = base.scheduled('heartbeat-tick', {
+base.scheduled('heartbeat-tick', {
   run(ctx) {
     ctx.broadcast('heartbeat-tick', { count: Date.now() });
   },
 });
 
-const handleFlakyTask = base.scheduled('flaky-task', {
+base.scheduled('flaky-task', {
   run(ctx) {
     flakyAttempts += 1;
     if (flakyAttempts < 3) throw new Error('flaky');
@@ -78,7 +78,7 @@ const handleFlakyTask = base.scheduled('flaky-task', {
   },
 });
 
-const handleDefaultRetryTask = base.scheduled('default-retry-task', {
+base.scheduled('default-retry-task', {
   run(ctx) {
     defaultRetryAttempts += 1;
     if (defaultRetryAttempts < 2) throw new Error('retry-once');
@@ -87,26 +87,26 @@ const handleDefaultRetryTask = base.scheduled('default-retry-task', {
   },
 });
 
-const handleAlwaysFailTask = base.scheduled('always-fail-task', {
+base.scheduled('always-fail-task', {
   run() {
     throw new Error('permanent failure');
   },
 });
 
-const handleBigintThrowTask = base.scheduled('bigint-throw-task', {
+base.scheduled('bigint-throw-task', {
   run() {
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     throw 1n;
   },
 });
 
-const handleFilteredCleanupTask = base.scheduled('filtered-cleanup', {
+base.scheduled('filtered-cleanup', {
   run(ctx, data) {
     ctx.broadcast('filtered-task-result', { label: data.label });
   },
 });
 
-const handleSendToConnTask = base.scheduled('send-to-conn-task', {
+base.scheduled('send-to-conn-task', {
   run(ctx, data) {
     const target = ctx.connections.all().find((info) => info.id === data.connectionId);
     const delivered = target
@@ -121,19 +121,19 @@ const handleSendToConnTask = base.scheduled('send-to-conn-task', {
   },
 });
 
-const handleEmptyBackoffTask = base.scheduled('empty-backoff-task', {
+base.scheduled('empty-backoff-task', {
   run() {
     throw new Error('always fails with no retry');
   },
 });
 
-const handleBroadcastTask = base.scheduled('broadcast-task', {
+base.scheduled('broadcast-task', {
   run(ctx) {
     ctx.broadcast('broadcast-result', { text: 'from-task' });
   },
 });
 
-const handleSendToTagTask = base.scheduled('send-to-tag-task', {
+base.scheduled('send-to-tag-task', {
   run(ctx) {
     for (const conn of ctx.connections.all()) {
       if (conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')) {
@@ -368,17 +368,6 @@ const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task'
 
 export const scheduledHandler = base.assemble({
   handlers: [
-    handleCleanupTask,
-    handleHeartbeatTask,
-    handleFlakyTask,
-    handleDefaultRetryTask,
-    handleAlwaysFailTask,
-    handleBigintThrowTask,
-    handleFilteredCleanupTask,
-    handleSendToConnTask,
-    handleEmptyBackoffTask,
-    handleBroadcastTask,
-    handleSendToTagTask,
     handleScheduleCleanup,
     handleQueryCleanupHistory,
     handleCancelCleanup,

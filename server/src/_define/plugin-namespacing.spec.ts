@@ -66,8 +66,8 @@ describe('plugin namespacing — channels', () => {
 describe('plugin namespacing — scheduled', () => {
   it('registers a plugin task under __<id>::<task> and prefixes ctx.schedule', () => {
     const h = define({ scope: 'plugin', capabilities: [scheduled({ sweep: { every: 1000 } })] });
-    const sweep = h.scheduled('sweep', { run() {} });
-    const Plug = plugin('acme:presence', { handler: h.assemble({ handlers: [sweep] }) });
+    h.scheduled('sweep', { run() {} });
+    const Plug = plugin('acme:presence', { handler: h.assemble({ handlers: [] }) });
     const base = define({ env: t<Env>(), capabilities: [Plug()] });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.scheduled.has('__acme:presence::sweep')).toBe(true);
@@ -78,7 +78,7 @@ describe('plugin namespacing — scheduled', () => {
       scope: 'plugin',
       capabilities: [emits({ done: t<{}>() }), scheduled({ sweep: { every: 1000 } })],
     });
-    const sweep = h.scheduled('sweep', { run() {} });
+    h.scheduled('sweep', { run() {} });
     const trigger = h.on('go', {
       input: v.object({}),
       run(ctx) {
@@ -86,7 +86,7 @@ describe('plugin namespacing — scheduled', () => {
       },
     });
     const { __primitives } = plugin('acme:presence', {
-      handler: h.assemble({ handlers: [trigger, sweep] }),
+      handler: h.assemble({ handlers: [trigger] }),
     })();
     const incoming = __primitives.find(
       (p: any) => p.__wskit === 'incoming' && p.event === '__acme:presence::go',

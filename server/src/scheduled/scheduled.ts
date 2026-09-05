@@ -220,10 +220,9 @@ export class ScheduledBuilder<
 }
 
 /**
- * Internal factory that builds the scheduled-task primitive from a fluent
- * builder callback. Called by `assemble(...)` when compiling a `ScheduledDef`.
- * Most apps interact with scheduled tasks through the `scheduled({...})`
- * capability and `base.scheduled(id, { run })`.
+ * Internal factory that builds a scheduled-task primitive from a fluent
+ * builder callback. Durable stream capabilities use it for their internal
+ * recurring work.
  */
 export function scheduled<
   TTaskId extends string,

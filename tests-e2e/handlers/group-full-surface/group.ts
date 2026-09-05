@@ -204,7 +204,7 @@ export const handleTokens = base.recordedStream('tokens', {
   },
 });
 
-export const handleTick = base.scheduled('tick', {
+base.scheduled('tick', {
   run(ctx) {
     ctx.sql.exec('INSERT INTO _scheduled_log (t) VALUES (?)', Date.now());
   },

@@ -30,7 +30,7 @@ base.onShutdown((ctx) => {
   ctx.setAlarm(Date.now());
 });
 
-const alarmApiTask = base.scheduled('alarm-api-task', {
+base.scheduled('alarm-api-task', {
   run(ctx) {
     // @ts-expect-error Product scheduled handlers cannot call the platform alarm API.
     ctx.setAlarm(Date.now());
@@ -38,7 +38,7 @@ const alarmApiTask = base.scheduled('alarm-api-task', {
 });
 
 export const alarmApiHandler = base.assemble({
-  handlers: [alarmApiEvent, alarmApiTask],
+  handlers: [alarmApiEvent],
   api: (ctx) => ({
     attemptPlatformAlarm() {
       // @ts-expect-error Product admin operations cannot call the platform alarm API.

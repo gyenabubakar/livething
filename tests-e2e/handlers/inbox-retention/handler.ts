@@ -75,7 +75,7 @@ export const handleSendCountMsg = countChat.on('send-room-msg', {
   },
 });
 
-const handleRetentionHeartbeat = base.scheduled('retention-heartbeat', {
+base.scheduled('retention-heartbeat', {
   run(ctx) {
     ctx.broadcast('retention-heartbeat', { at: Date.now() });
   },
@@ -113,14 +113,7 @@ export const handleRetentionProbe = base.on('probe-retention', {
 });
 
 export const inboxRetentionHandler = base.assemble({
-  handlers: [
-    handleSendRoomMsg,
-    handleSendCountMsg,
-    handleRetentionHeartbeat,
-    handleRetentionProbe,
-    chat,
-    countChat,
-  ],
+  handlers: [handleSendRoomMsg, handleSendCountMsg, handleRetentionProbe, chat, countChat],
 });
 
 export type InboxRetentionClient = InferClient<typeof inboxRetentionHandler>;

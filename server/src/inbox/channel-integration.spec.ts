@@ -223,8 +223,8 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       const chat = base.channel('chat', {
         capabilities: [inbox({ retention: { maxAgeMs: 20 } })],
       });
-      const tick = base.scheduled('tick', { run() {} });
-      const handler = base.assemble({ handlers: [chat, tick] });
+      base.scheduled('tick', { run() {} });
+      const handler = base.assemble({ handlers: [chat] });
       const { engine, getAlarm } = buildEngine(handler);
       await engine.initialize();
 

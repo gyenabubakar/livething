@@ -6,7 +6,6 @@ export {
   recordedStream,
   request,
   resumableStream,
-  scheduled,
   stream,
   t,
 } from './definitions.ts';
@@ -29,7 +28,6 @@ export type {
   RecordedStreamDef,
   RequestDef,
   ResumableStreamDef,
-  ScheduledDef,
   StreamDef,
   TypeMarker,
 } from './definitions.ts';

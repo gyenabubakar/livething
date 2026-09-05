@@ -129,8 +129,9 @@ const alarmBase = define({
   env: t<Record<string, unknown>>(),
   capabilities: [scheduled({ noop: null })],
 });
+alarmBase.scheduled('noop', { run() {} });
 const alarmHandler = alarmBase.assemble({
-  handlers: [alarmBase.scheduled('noop', { run() {} })],
+  handlers: [],
 });
 
 const mediumBase = define({

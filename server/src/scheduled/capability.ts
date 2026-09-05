@@ -127,7 +127,7 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  *   ],
  * });
  *
- * export const handleReport = base.scheduled('report', {
+ * base.scheduled('report', {
  *   run(ctx, data) {
  *     // data: { userId: string }
  *   },

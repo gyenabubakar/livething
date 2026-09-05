@@ -34,7 +34,7 @@ export const lobby = base.channel('lobby', {
 
 const handleJoinLobby = lobby.on('join-lobby', { input: v.object({}), run() {} });
 
-const handleAnnounceTask = base.scheduled('admin-announce', {
+base.scheduled('admin-announce', {
   run(ctx, data) {
     ctx.broadcast('announced', { text: data.text });
   },
@@ -51,7 +51,7 @@ const handleAnnounceTask = base.scheduled('admin-announce', {
  * the listed capabilities own.
  */
 export const adminHandler = base.assemble({
-  handlers: [noop, handleJoinLobby, handleAnnounceTask, lobby],
+  handlers: [noop, handleJoinLobby, lobby],
   api: (ctx) => ({
     announce(text: string) {
       ctx.broadcast('announced', { text });

@@ -113,7 +113,7 @@ function createHandler(state: IntegrationState) {
     },
   });
 
-  const integrationTask = base.scheduled('integration-task', {
+  base.scheduled('integration-task', {
     run(ctx, data) {
       ctx.broadcast('scheduled', { text: data.text });
     },
@@ -136,7 +136,7 @@ function createHandler(state: IntegrationState) {
   });
 
   return base.assemble({
-    handlers: [echo, store, schedule, buffered, invalidClose, integrationTask],
+    handlers: [echo, store, schedule, buffered, invalidClose],
     api: (ctx) => ({
       announce(text: string): number {
         ctx.broadcast('adminAnnouncement', { text });

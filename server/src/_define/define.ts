@@ -310,16 +310,6 @@ export interface RequestMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
 /** The scheduled-task map (task id → payload type), read off the merged contract slots. */
 type ScheduledMap<TSlots> = SlotOr<TSlots, 'scheduled'>;
 
-/** The value `base.scheduled(...)` returns — a carrier matched to its declaration at assembly. */
-export interface ScheduledHandlerValue<TTaskId extends string> extends Contribution<{}> {
-  /** Marks this value as a scheduled-task body for `assemble(...)` to merge. @internal */
-  readonly __wskitScheduledHandler: true;
-  /** The task id this body runs. @internal */
-  readonly taskId: TTaskId;
-  /** The task body. @internal */
-  readonly run: (ctx: TaskContext, data?: unknown) => void | Promise<void>;
-}
-
 /** Configuration object for `base.scheduled(...)`. */
 export interface ScheduledConfig<TEnv, TMeta, TData> {
   /** Runs when the task fires. Receives the typed payload for tasks that declare one. */
@@ -338,7 +328,7 @@ export interface ScheduledMethods<TSlots, TEnv, TMeta> {
   scheduled<TTaskId extends keyof ScheduledMap<TSlots> & string>(
     taskId: TTaskId,
     config: ScheduledConfig<TEnv, TMeta, ScheduledMap<TSlots>[TTaskId]>,
-  ): ScheduledHandlerValue<TTaskId>;
+  ): void;
 }
 
 /** A stream's nudge map: event name → schema, or `null` for a no-payload nudge. */
@@ -1777,11 +1767,11 @@ export interface CoreBase<
   ): void;
 
   /**
-   * Collect every handler into the final server the platform adapter runs. Pass
-   * the handlers as `{ handlers: [...] }` — each `base.on(...)` (and, with their
-   * capabilities, `request` / `stream` / `channel` / `scheduled`) value. The
-   * upgrade hook, the lifecycle hooks, the intercept, and the listed capabilities
-   * are folded in automatically.
+   * Collect every routed handler into the final server the platform adapter runs.
+   * Pass them as `{ handlers: [...] }` — each `base.on(...)` (and, with their
+   * capabilities, `request` / `stream` / `channel`) value. Scheduled task bodies,
+   * lifecycle hooks, the upgrade hook, the intercept, and listed capabilities are
+   * folded in automatically.
    *
    * A scoped plugin handler (`define({ scope: 'plugin' })`) may also pass `api` —
    * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
@@ -1805,7 +1795,7 @@ export interface CoreBase<
   >;
 }
 
-/** A value `assemble(...)` accepts — a handler, never a capability. */
+/** A value `assemble(...)` accepts — a routed handler or channel, never a capability. */
 export type AssembleInput = Contribution & { readonly __wskitCapability?: never };
 
 /**
@@ -1827,10 +1817,6 @@ interface ChannelRateLimitSource {
   readonly __key: string;
   readonly __rateLimit?: RateLimitConfig;
   readonly __rateLimitOverrides?: ReadonlyMap<string, RateLimitConfig>;
-}
-
-function isScheduledCarrier(value: Contribution): value is ScheduledHandlerValue<string> {
-  return (value as { __wskitScheduledHandler?: unknown }).__wskitScheduledHandler === true;
 }
 
 /**
@@ -1903,8 +1889,8 @@ function mergeScheduled(
     const body = bodies.get(taskId);
     if (!body) {
       throw new Error(
-        `[wskit] No handler for scheduled task '${taskId}'. ` +
-          `Add base.scheduled('${taskId}', ...) and pass it to assemble().`,
+        `[wskit] No body for scheduled task '${taskId}'. ` +
+          `Register it with base.scheduled('${taskId}', ...).`,
       );
     }
     primitives.push(build!(taskId, declaration, body));
@@ -2021,6 +2007,10 @@ export function define<
 export function define(config: any): any {
   const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];
+  const scheduledBodies = new Map<
+    string,
+    (ctx: TaskContext, data?: unknown) => void | Promise<void>
+  >();
   const seen = new Set<string>();
 
   function registerOnce(slot: string, primitive: Primitive): void {
@@ -2099,11 +2089,13 @@ export function define(config: any): any {
       return primitive;
     },
     scheduled(taskId: string, config: { run: (ctx: any, data?: unknown) => void | Promise<void> }) {
-      return {
-        __wskitScheduledHandler: true as const,
-        taskId,
-        run: config.run,
-      };
+      if (scheduledBodies.has(taskId)) {
+        throw new Error(
+          `[wskit] Duplicate scheduled task '${taskId}' on this server. ` +
+            'A task can only be registered once.',
+        );
+      }
+      scheduledBodies.set(taskId, config.run);
     },
     stream(event: string, streamConfig: unknown) {
       return streamBuilder('plain', 'stream', 'stream()')(event, streamConfig);
@@ -2224,10 +2216,6 @@ export function define(config: any): any {
       assertPluginDependencies(config.capabilities ?? []);
       assertNoChannelOnlyCapabilities(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
-      const scheduledBodies = new Map<
-        string,
-        (ctx: TaskContext, data?: unknown) => void | Promise<void>
-      >();
       const channelObjects = new Set<{ __build(): Primitive }>();
       for (const item of items) {
         if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
@@ -2239,16 +2227,6 @@ export function define(config: any): any {
         const channel = (item as { __channel?: { __build(): Primitive } }).__channel;
         if (channel) {
           channelObjects.add(channel);
-          continue;
-        }
-        if (isScheduledCarrier(item)) {
-          if (scheduledBodies.has(item.taskId)) {
-            throw new Error(
-              `[wskit] Duplicate scheduled handler for '${item.taskId}' passed to assemble(). ` +
-                'A task can only be bound once — drop the duplicate.',
-            );
-          }
-          scheduledBodies.set(item.taskId, item.run);
           continue;
         }
         handlerPrimitives.push(item as Primitive);

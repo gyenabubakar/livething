@@ -6,7 +6,6 @@ import type { ErrorContractDef } from '~/errors/definition.ts';
 import type { IncomingDef } from '~/incoming/definition.ts';
 import type { OutgoingDef } from '~/outgoing/definition.ts';
 import type { RequestDef } from '~/request/definition.ts';
-import type { ScheduledDef } from '~/scheduled/definition.ts';
 import type { RecordedStreamDef } from '~/stream-recorded/definition.ts';
 import type { ResumableStreamDef } from '~/stream-resumable/definition.ts';
 import type { NudgeDef, StreamDef } from '~/stream/definition.ts';
@@ -20,7 +19,6 @@ export type {
   RecordedStreamDef,
   RequestDef,
   ResumableStreamDef,
-  ScheduledDef,
   StreamDef,
 };
 
@@ -29,7 +27,6 @@ export { recordedStream } from '~/stream-recorded/definition.ts';
 export { resumableStream } from '~/stream-resumable/definition.ts';
 export { outgoing } from '~/outgoing/definition.ts';
 export { request } from '~/request/definition.ts';
-export { scheduled } from '~/scheduled/definition.ts';
 export { nudge, stream } from '~/stream/definition.ts';
 
 /**
@@ -53,7 +50,6 @@ export type Definition =
   | StreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ResumableStreamDef<string, unknown, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
-  | ScheduledDef<string, any>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>;
 
 export { error } from '@wskit/core';

@@ -13,7 +13,6 @@ import {
   handlePaginate,
   handleRoomSendMsg,
   handleStartTick,
-  handleTick,
   handleTokens,
 } from './group.ts';
 
@@ -31,7 +30,6 @@ export const groupFullSurfaceHandler = base.assemble({
     handleFeed,
     handlePaginate,
     handleTokens,
-    handleTick,
     handleRoomSendMsg,
   ],
 });

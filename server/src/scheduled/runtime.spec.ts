@@ -649,7 +649,7 @@ describe('scheduled/runtime — through the real engine', () => {
       env: t<Record<string, never>>(),
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
-    const processRefund = base.scheduled('processRefund', {
+    base.scheduled('processRefund', {
       run(ctx) {
         ctx.schedule('sendReceipt', { time: Date.now() + 5000 });
         rowsDuringHandler.push(
@@ -657,9 +657,9 @@ describe('scheduled/runtime — through the real engine', () => {
         );
       },
     });
-    const sendReceipt = base.scheduled('sendReceipt', { run() {} });
+    base.scheduled('sendReceipt', { run() {} });
 
-    const { engine } = await buildEngine(base.assemble({ handlers: [processRefund, sendReceipt] }));
+    const { engine } = await buildEngine(base.assemble({ handlers: [] }));
 
     scheduleTask(engine.core, () => ({}), {
       taskId: 'processRefund',
