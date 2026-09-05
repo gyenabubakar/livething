@@ -95,8 +95,10 @@ export function beginAlarmDelivery(core: object): void {
 }
 
 /** Mark the adapter's current alarm callback as complete. */
-export function endAlarmDelivery(core: object): void {
-  stateFor(core).delivering = false;
+export function endAlarmDelivery(core: AlarmCore): void {
+  const state = stateFor(core);
+  state.delivering = false;
+  if (state.providerRetryAt !== null) scheduleProviderRetry(core, state);
 }
 
 /**

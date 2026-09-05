@@ -230,7 +230,6 @@ export function makeFakeEngine(): FakeEngine {
     env: {},
     log: {},
     platform: {},
-    waitUntil: vi.fn(),
     schedule: vi.fn(),
     cancelScheduled: vi.fn(),
   };

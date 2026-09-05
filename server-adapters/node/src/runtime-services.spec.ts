@@ -574,13 +574,16 @@ describe('createTimers', () => {
       const timers = createTimers(sql.provider);
       let active = 0;
       let maxActive = 0;
-      let replacementWritten = false;
+      let markReplacementWritten!: () => void;
+      const replacementWritten = new Promise<void>((resolve) => {
+        markReplacementWritten = resolve;
+      });
       const onAlarm = vi.fn(async () => {
         active += 1;
         maxActive = Math.max(maxActive, active);
         if (onAlarm.mock.calls.length === 1) {
           await timers.setAlarm(Date.now());
-          replacementWritten = true;
+          markReplacementWritten();
           await gate;
         }
         active -= 1;
@@ -589,7 +592,7 @@ describe('createTimers', () => {
       await timers.setAlarm(400_001);
       await timers.start(onAlarm);
       await vi.advanceTimersByTimeAsync(1);
-      while (!replacementWritten) await Promise.resolve();
+      await replacementWritten;
       await vi.advanceTimersByTimeAsync(1);
 
       expect(onAlarm).toHaveBeenCalledOnce();

@@ -1,6 +1,8 @@
 import { createTestStorage } from '~/_test/sql.ts';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  beginAlarmDelivery,
+  endAlarmDelivery,
   ensureAlarmCoordinatorSchema,
   registerAlarmSource,
   rescheduleAlarm,
@@ -172,6 +174,33 @@ describe('framework alarm multiplexer', () => {
     try {
       await expect(rescheduleAlarm(core)).rejects.toThrow('temporary alarm failure');
       expect(setAlarm).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(setAlarm).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a provider write that failed while an alarm callback was active', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    let failures = 1;
+    const setAlarm = vi.fn(async () => {
+      if (failures-- > 0) throw new Error('temporary alarm failure');
+    });
+    const core = {
+      alarmSources: new Map<symbol, () => number | null>(),
+      timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    };
+    registerAlarmSource(core, Symbol('retryable-source'), () => 20_000);
+
+    try {
+      beginAlarmDelivery(core);
+      await expect(rescheduleAlarm(core)).rejects.toThrow('temporary alarm failure');
+      endAlarmDelivery(core);
 
       await vi.advanceTimersByTimeAsync(1_000);
 
