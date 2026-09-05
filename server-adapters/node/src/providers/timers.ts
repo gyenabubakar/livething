@@ -61,6 +61,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
          generation = generation + 1`,
       timeMs,
     );
+    alarmRetryCount = 0;
 
     if (started) await armStoredAlarm();
   }

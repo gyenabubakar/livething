@@ -509,6 +509,36 @@ describe('createTimers', () => {
     }
   });
 
+  it('starts a fresh delivery retry budget for a replacement alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(275_000);
+    const sql = createSql();
+    const callback = vi.fn(async () => {
+      throw new Error('alarm keeps failing');
+    });
+
+    try {
+      const timers = createTimers(sql.provider);
+      await timers.setAlarm(275_001);
+      await timers.start(callback);
+
+      await vi.advanceTimersByTimeAsync(1);
+      for (const delay of [2_000, 4_000, 8_000, 16_000, 32_000, 64_000]) {
+        await vi.advanceTimersByTimeAsync(delay);
+      }
+      expect(callback).toHaveBeenCalledTimes(7);
+
+      await timers.setAlarm(Date.now() + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(callback).toHaveBeenCalledTimes(9);
+    } finally {
+      sql.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('does not acknowledge an alarm replacement written during delivery', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(300_000);
