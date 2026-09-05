@@ -53,7 +53,6 @@ import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // bundler keeps it whole and one binding drags the plugin runtime into apps
 // that list no plugins. Type imports are free.
 import {
-  assertHostObservationGranted,
   assertNoChannelOnlyCapabilities,
   assertPluginDependencies,
   assertUniquePluginIds,
@@ -77,7 +76,7 @@ import type {
   SlotsOf,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
-import type { GrantableCapability, PluginEnvRequirements } from './plugins.ts';
+import type { PluginEnvRequirements } from './plugins.ts';
 
 /**
  * What an `upgrade(...)` function returns to accept a connection. Return a
@@ -1999,7 +1998,7 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
 export function define<
   TEnv = unknown,
   TMeta = unknown,
-  const TCaps extends readonly (GrantableCapability & TopLevelCapability)[] = readonly [],
+  const TCaps extends readonly (AnyCapability & TopLevelCapability)[] = readonly [],
 >(
   config: DefineConfig<TEnv, TMeta, TCaps> & PluginEnvCheck<TEnv, TCaps>,
 ): Base<MergeSlots<SlotsOf<TCaps[number]>>, TEnv, TMeta, TCaps>;
@@ -2223,7 +2222,6 @@ export function define(config: any): any {
       const api = assembleConfig.api;
       assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
-      assertHostObservationGranted(config.capabilities ?? []);
       assertNoChannelOnlyCapabilities(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
       const scheduledBodies = new Map<

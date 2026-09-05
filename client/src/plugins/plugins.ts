@@ -95,7 +95,6 @@ function ownsFrame(message: WireMessage): boolean {
 function createPluginRuntime<P extends SocketContract, TApi>(
   def: PluginDef<P, TApi>,
   helpers: PrimitiveHelpers,
-  observing: boolean,
 ): PrimitiveRuntime {
   const id = def.id;
   const handlers = new Map<string, Set<(data: unknown) => void>>();
@@ -269,18 +268,6 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     return frames.map((frame) => ({ ...frame, event: namespacedName(id, frame.event) }));
   }
 
-  // Whether a frame belongs to this plugin's namespace: a `__<id>::` event, or an
-  // error frame whose code is namespaced. Raw handlers see only these unless the
-  // plugin was granted host observation.
-  function inNamespace(message: WireMessage): boolean {
-    if (message.event.startsWith(ownPrefix)) return true;
-    if (message.event === '__error__') {
-      const code = (message.payload as { code?: unknown } | null)?.code;
-      return typeof code === 'string' && code.startsWith(ownPrefix);
-    }
-    return false;
-  }
-
   function dispatchError(error: WSKitError): boolean {
     const matching = [...errorHandlers].filter(
       ({ code }) => code === undefined || code === error.code,
@@ -340,7 +327,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     onIncoming(message) {
       let current = message;
-      if (userIncoming && (observing || inNamespace(current))) {
+      if (userIncoming) {
         const result = runMessageHook(userIncoming, current, report);
         if (result === null) return null;
         current = result;
@@ -354,7 +341,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
     },
 
     onOutgoing(message) {
-      if (!userOutgoing || !(observing || inNamespace(message))) return message;
+      if (!userOutgoing) return message;
       return runMessageHook(userOutgoing, message, report);
     },
 
@@ -443,16 +430,11 @@ function createPluginRuntime<P extends SocketContract, TApi>(
  * ```
  */
 export function plugin<P extends SocketContract = {}, TApi = void>() {
-  return function define<
-    const TId extends string,
-    const TObservesHost extends boolean = false,
-    TSetupApi = TApi,
-  >(
-    def: PluginDef<P, TSetupApi> & { id: TId; observesHostTraffic?: TObservesHost },
-  ): PluginFactory<TSetupApi, TId, P, TObservesHost> {
+  return function define<const TId extends string, TSetupApi = TApi>(
+    def: PluginDef<P, TSetupApi> & { id: TId },
+  ): PluginFactory<TSetupApi, TId, P> {
     const dependencies = def.dependencies?.map(resolveTag);
     const id = def.id;
-    const observesHostTraffic = def.observesHostTraffic === true;
 
     // `::` separates the id from the name on the wire, so an id that contains it
     // would make one plugin's prefix a prefix of another's — and swallow its
@@ -465,20 +447,11 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
 
     const factory = Object.assign(
       () => {
-        // Build the spec first so `setup` can read the grant flag that
-        // observeHost(...) sets on this exact object, before buildSocket runs it.
         const spec = {
           _tag: id,
           _plugin: { id },
-          __observesHostTraffic: observesHostTraffic,
           dependencies,
-          setup: (helpers: PrimitiveHelpers) =>
-            createPluginRuntime(
-              def,
-              helpers,
-              observesHostTraffic &&
-                (spec as { __hostObservationGranted?: boolean }).__hostObservationGranted === true,
-            ),
+          setup: (helpers: PrimitiveHelpers) => createPluginRuntime(def, helpers),
         };
         return spec;
       },
@@ -486,30 +459,8 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
         id,
         use: (socket: object): TSetupApi => usePlugin(socket, id) as TSetupApi,
       },
-    ) as unknown as PluginFactory<TSetupApi, TId, P, TObservesHost>;
+    ) as unknown as PluginFactory<TSetupApi, TId, P>;
 
     return factory;
-  };
-}
-
-/**
- * Grant a plugin that declared `observesHostTraffic: true` the right to see the
- * whole app's frames in its `onIncoming`/`onOutgoing` handlers. Wrap the registered
- * plugin where you pass it to `client()`:
- *
- * ```ts
- * client<AppContract>()(connect('wss://...'), observeHost(Logger()));
- * ```
- *
- * Without the wrap, registering such a plugin is a type error — the grant is
- * explicit so host-wide observation is always visible at the call site. A plugin
- * that does not observe host traffic never needs this.
- */
-export function observeHost<TSpec extends { readonly _plugin: { readonly id: string } }>(
-  granted: TSpec,
-): Omit<TSpec, '__requiresHostGrant'> & { readonly __hostObservationGranted: true } {
-  (granted as { __hostObservationGranted?: boolean }).__hostObservationGranted = true;
-  return granted as unknown as Omit<TSpec, '__requiresHostGrant'> & {
-    readonly __hostObservationGranted: true;
   };
 }

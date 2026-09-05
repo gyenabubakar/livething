@@ -999,19 +999,21 @@ describe('outgoing authoring hook (outgoingHooks)', () => {
   });
 });
 
-describe('outgoing hook scoping by owner', () => {
-  function pluginOwner(id: string, observesHost: boolean) {
-    return { owner: { kind: 'plugin' as const, id }, observesHost };
+describe('outgoing hooks from plugins', () => {
+  function pluginOwner(id: string) {
+    return { kind: 'plugin' as const, id };
   }
 
   // A correlationId bypasses the declaration check, so a hook's firing — not the
   // declaration — is what these tests observe.
   const requestRouting = { correlationId: 'corr-1' };
 
-  it('does NOT run a plugin hook for an app frame by default', () => {
-    let fired = false;
+  it('runs a plugin hook for app and sibling plugin frames', () => {
+    const seen: string[] = [];
     const runtime = createRuntime({
-      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', false) }],
+      outgoingHooks: [
+        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p') },
+      ],
     });
 
     sendThroughPipeline(runtime, createConnection(), {
@@ -1020,29 +1022,20 @@ describe('outgoing hook scoping by owner', () => {
       payload: { a: 1 },
     });
 
-    expect(fired).toBe(false);
-  });
-
-  it('does NOT run a plugin hook for a sibling plugin frame', () => {
-    let fired = false;
-    const runtime = createRuntime({
-      outgoingHooks: [{ handler: () => void (fired = true), owner: pluginOwner('a:p', true) }],
-    });
-
     sendThroughPipeline(runtime, createConnection(), {
       routing: requestRouting,
       event: '__b:q::beat',
       payload: { a: 1 },
     });
 
-    expect(fired).toBe(false);
+    expect(seen).toEqual(['foo', '__b:q::beat']);
   });
 
   it('runs a plugin hook for its own frame with the SHORT declared name', () => {
     const seen: string[] = [];
     const runtime = createRuntime({
       outgoingHooks: [
-        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p', false) },
+        { handler: (frame) => void seen.push(frame.event), owner: pluginOwner('a:p') },
       ],
     });
 
@@ -1055,7 +1048,7 @@ describe('outgoing hook scoping by owner', () => {
     expect(seen).toEqual(['beat']);
   });
 
-  it('runs a host-observing plugin hook for an app frame, owner = app', () => {
+  it('keeps the owner for app and plugin frames', () => {
     const owners: OutgoingFrame['owner'][] = [];
     const events: string[] = [];
     const runtime = createRuntime({
@@ -1065,7 +1058,7 @@ describe('outgoing hook scoping by owner', () => {
             owners.push(frame.owner);
             events.push(frame.event);
           },
-          owner: pluginOwner('a:p', true),
+          owner: pluginOwner('a:p'),
         },
       ],
     });

@@ -2,7 +2,7 @@ import { WSKitError } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { environment } from '~/environment.ts';
-import { observeHost, plugin } from '~/plugins/plugins.ts';
+import { plugin } from '~/plugins/plugins.ts';
 import { channels } from '~/primitives/channels/channels.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { platform } from '~/primitives/platform.ts';
@@ -999,29 +999,7 @@ describe('scoped errors — onServerError()', () => {
 });
 
 describe('generic message handlers and lifecycle', () => {
-  it('a host-observing plugin sees every frame, including other namespaces', () => {
-    const events: string[] = [];
-    const Watcher = plugin()({
-      id: 'acme:watcher',
-      observesHostTraffic: true,
-      setup(socket) {
-        socket.onIncoming((frame) => {
-          events.push(frame.event);
-          return frame;
-        });
-        return {};
-      },
-    });
-
-    const { ws } = build(observeHost(Watcher()));
-    ws.emit({ event: 'welcome', payload: { name: 'a' } });
-    ws.emit({ event: '__other:plugin::ping', payload: {} });
-
-    expect(events).toContain('welcome');
-    expect(events).toContain('__other:plugin::ping');
-  });
-
-  it('a plain plugin only sees its own namespace', () => {
+  it('a plugin sees every frame, including other namespaces', () => {
     const events: string[] = [];
     const Watcher = plugin()({
       id: 'acme:watcher',
@@ -1039,8 +1017,7 @@ describe('generic message handlers and lifecycle', () => {
     ws.emit({ event: '__other:plugin::ping', payload: {} });
     ws.emit({ event: '__acme:watcher::tick', payload: {} });
 
-    // Only its own frame; the app's and another plugin's are invisible to it.
-    expect(events).toEqual(['__acme:watcher::tick']);
+    expect(events).toEqual(['welcome', '__other:plugin::ping', '__acme:watcher::tick']);
   });
 
   it('onOpen frames are sent on connect, stamped with the plugin namespace', () => {

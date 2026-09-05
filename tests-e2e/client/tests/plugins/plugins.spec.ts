@@ -2,10 +2,9 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @wskit/client against the real `plugins` handler. Proves the
-// plugin model reaches the typed client — host traffic is typed and the
-// host-observing plugin acts on it visibly, the plugin's own emit arrives under
-// the `__<id>::` wire prefix, and a plugin-backed stream flows. Adapter-
-// oblivious — it talks to whatever server the run booted over the /ws proxy.
+// plugin model reaches the typed client, the plugin's own emit arrives under the
+// `__<id>::` wire prefix, and a plugin-backed stream flows. Adapter-oblivious —
+// it talks to whatever server the run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/plugins/index.html?room=${room}&username=alice`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
@@ -24,7 +23,7 @@ test.describe('plugins (conformance)', () => {
     await expect(page.getByTestId('drizzle-hooked')).toHaveText('yes');
   });
 
-  test('host traffic is typed and round-trips through the plugin', async ({ page }, testInfo) => {
+  test('a plugin hook acts on a typed frame', async ({ page }, testInfo) => {
     await open(page, `plg-host-${testInfo.testId}`);
     await page.getByTestId('insert').click();
     await expect.poll(() => page.getByTestId('inserted-id').textContent()).not.toBe('');
@@ -39,7 +38,7 @@ test.describe('plugins (conformance)', () => {
     await expect(page.getByTestId('rewrite-result')).toHaveText('rewritten:hello|true');
   });
 
-  test('the host-observing plugin counts host traffic in and out', async ({ page }, testInfo) => {
+  test('the plugin counts inbound and outbound frames', async ({ page }, testInfo) => {
     await open(page, `plg-count-${testInfo.testId}`);
     await page.getByTestId('msg-count').click();
     await expect

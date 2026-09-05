@@ -56,7 +56,7 @@ describe('Plugin.use — not registered', () => {
     expect(() => Chat.use(socket)).toThrow(/not registered on this socket/);
   });
 
-  it('throws for an observe-only plugin that exposes no API', () => {
+  it('throws for a hook-only plugin that exposes no API', () => {
     const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 
     const socket = buildSocket(Watcher());

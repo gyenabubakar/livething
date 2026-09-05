@@ -4,7 +4,7 @@
 // namespace. tsc checks these; vitest never runs them.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { observeHost, plugin } from '~/plugins/plugins.ts';
+import { plugin } from '~/plugins/plugins.ts';
 import { clientRequests } from '~/primitives/client-requests/index.ts';
 import { expectTypeOf } from 'vitest';
 
@@ -98,16 +98,9 @@ client<NoChatContract>()(connect('wss://example.com'), clientRequests(), Chat())
 // A contract that DOES declare the namespace accepts it.
 client<HostContract>()(connect('wss://example.com'), clientRequests(), Chat());
 
-// An observe-only plugin (no contract) requires nothing and registers anywhere.
+// A hook-only plugin (no contract) requires nothing and registers anywhere.
 const Watcher = plugin()({ id: 'acme:watcher', setup: () => ({}) });
 client<NoChatContract>()(connect('wss://example.com'), Watcher());
-
-// A host-observing plugin can't be registered bare — it must be granted.
-const Logger = plugin()({ id: 'acme:logger', observesHostTraffic: true, setup: () => ({}) });
-// @ts-expect-error — observesHostTraffic: true needs observeHost(...) to register
-client<NoChatContract>()(connect('wss://example.com'), Logger());
-// Wrapping it in observeHost(...) grants the privilege and it registers.
-client<NoChatContract>()(connect('wss://example.com'), observeHost(Logger()));
 
 // The API type comes from what `setup` returns, so a plugin only needs its
 // contract type argument. `use()` still gives the full API.

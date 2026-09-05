@@ -11,8 +11,7 @@ export type { InterceptFn };
  *
  * Plugins run before intercepts, so a frame a plugin claims in its namespace is
  * already consumed and never reaches here — an `intercept()` used as a global
- * logger won't see plugin traffic. A plugin that must observe host-wide traffic
- * uses `observeHost(...)` instead.
+ * logger won't see plugin traffic.
  *
  * ```ts
  * intercept((message) => {

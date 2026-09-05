@@ -3,7 +3,6 @@ import { rethrowIfConfigError } from '@wskit/core';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { hookRunsForFrame } from '~/intercept/intercept.ts';
 import { frameOwner, parsePluginWireName } from '~/plugin-scope.ts';
 import { isTranslatorConfigError } from '~/translation/error.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -96,12 +95,11 @@ function runOutgoingHooks(
 
   // Owner is derived from the event name, which the hooks cannot rewrite.
   const owner = frameOwner(current.event);
-  // A plugin's own-frame hook sees the short name it declared; an app hook (and
-  // an observed app frame) sees the event unchanged.
+  // A plugin sees its own frames with the short name it declared.
   const parsed = parsePluginWireName(current.event);
   for (const { handler, owner: hookOwner } of outgoingHooks) {
-    if (!hookRunsForFrame(hookOwner, owner)) continue;
-    const ownFrame = hookOwner.owner.kind === 'plugin' && owner.kind === 'plugin';
+    const ownFrame =
+      hookOwner.kind === 'plugin' && owner.kind === 'plugin' && hookOwner.id === owner.id;
     const event = ownFrame && parsed ? parsed.name : current.event;
     const next = handler({ event, payload: current.payload, owner });
     if (next !== undefined) current = { event: current.event, payload: next };

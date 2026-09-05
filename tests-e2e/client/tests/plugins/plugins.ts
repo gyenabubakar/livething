@@ -13,10 +13,8 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 // directly here, matching the real wire shapes the handler exposes.
 //
 // Two things are proven:
-//  1. Host traffic is typed and the observeHost plugin acts on it visibly: the
-//     plugin's intercept rewrites `plugin-rewrite-probe`, its counters tick on
-//     host messages, and its outgoing hook stamps the plugin-owned event.
-//  2. A plugin-OWNED event reaches the client under its `__<id>::` prefix.
+//  1. Plugin hooks rewrite frames, count messages, and stamp plugin-owned events.
+//  2. A plugin-owned event reaches the client under its `__<id>::` prefix.
 interface Contract extends SocketContract {
   incoming: {
     'record-inserted': { id: number };
@@ -104,8 +102,7 @@ export function setup(): void {
   });
 
   // Plugin-owned event under the `__<id>::` prefix. The outgoing hook stamps
-  // `hooked: true`, so its presence proves the host-observing plugin's outgoing
-  // hook ran on the plugin's own emit.
+  // `hooked: true` on the plugin's own emit.
   socket.on('__e2e:drizzle::drizzle-ready', (data) => {
     el('drizzle-ready').textContent = data.tables.join(',');
     el('drizzle-hooked').textContent = data.hooked ? 'yes' : 'no';

@@ -362,5 +362,4 @@ export const NodePlugin = plugin('e2e:drizzle', {
       };
     },
   }),
-  observesHostTraffic: true,
 });

@@ -18,7 +18,7 @@ import { requests } from '~/request/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { observeHost, plugin } from './plugins.ts';
+import { plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;
@@ -283,75 +283,23 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 });
 
-describe('plugin() — host-traffic observation', () => {
-  /** A plugin with one intercept and one outgoing hook; `observes` opts into host traffic. */
-  function buildObserver(observes: boolean) {
+describe('plugin() — hook ownership', () => {
+  function buildHookPlugin() {
     const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() }), intercepts()] });
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
     h.onOutgoing(() => {});
-    return plugin('acme:obs', {
-      handler: h.assemble({ handlers: [beat] }),
-      observesHostTraffic: observes,
-    });
+    return plugin('acme:obs', { handler: h.assemble({ handlers: [beat] }) });
   }
 
-  it('stamps a plugin intercept/outgoing hook with its owner and observesHost flag', () => {
-    const cap = buildObserver(true)();
+  it('stamps a plugin intercept and outgoing hook with its owner', () => {
+    const cap = buildHookPlugin()();
     const primitives = cap.__primitives as readonly any[];
     const intercept = primitives.find((p) => p.__wskit === 'intercept');
     const outgoing = primitives.find((p) => p.__wskit === 'outgoingHook');
 
     expect(intercept.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
-    expect(intercept.__observesHost).toBe(true);
     expect(outgoing.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
-    expect(outgoing.__observesHost).toBe(true);
-  });
-
-  it('defaults a plugin hook to observesHost = false (own-frame only)', () => {
-    const cap = buildObserver(false)();
-    const intercept = (cap.__primitives as readonly any[]).find((p) => p.__wskit === 'intercept');
-    expect(intercept.__observesHost).toBe(false);
-  });
-
-  it('assemble() throws if an observing plugin is listed without observeHost(...)', () => {
-    const Obs = buildObserver(true);
-    const base = define({ env: t<Env>(), capabilities: [Obs()] });
-    expect(() => base.assemble({ handlers: [] })).toThrowError(/observeHost/);
-  });
-
-  it('assemble() passes and warns once when wrapped in observeHost(...)', () => {
-    const Obs = buildObserver(true);
-    const warn = vi.fn();
-    // The audit log goes to console.warn at assemble; spy on it.
-    const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
-    try {
-      const base = define({ env: t<Env>(), capabilities: [observeHost(Obs())] });
-      expect(() => base.assemble({ handlers: [] })).not.toThrow();
-    } finally {
-      spy.mockRestore();
-    }
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain('acme:obs');
-    expect(warn.mock.calls[0]![0]).toContain('host-traffic observation');
-  });
-
-  it('observeHost(...) marks the grant on the capability', () => {
-    const granted = observeHost(buildObserver(true)());
-    expect((granted as any).__hostObservationGranted).toBe(true);
-  });
-
-  it('a non-observing plugin needs no grant and never warns', () => {
-    const Plain = buildObserver(false);
-    const warn = vi.fn();
-    const spy = vi.spyOn(console, 'warn').mockImplementation(warn);
-    try {
-      const base = define({ env: t<Env>(), capabilities: [Plain()] });
-      expect(() => base.assemble({ handlers: [] })).not.toThrow();
-    } finally {
-      spy.mockRestore();
-    }
-    expect(warn).not.toHaveBeenCalled();
   });
 });
 

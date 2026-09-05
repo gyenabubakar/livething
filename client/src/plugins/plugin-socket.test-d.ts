@@ -84,7 +84,7 @@ expectTypeOf<ChatSocket['hasPrimitive']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['get']>().toBeFunction();
 expectTypeOf<ChatSocket['state']['subscribe']>().toBeFunction();
 
-// A plugin with no contract (observe-only) has the message handlers and tools but none of the
+// A plugin with no contract (hook-only) has the message handlers and tools but none of the
 // typed verbs.
 type PlainSocket = PluginSocket;
 expectTypeOf<PlainSocket['onIncoming']>().toBeFunction();

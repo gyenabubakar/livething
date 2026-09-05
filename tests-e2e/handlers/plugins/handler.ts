@@ -1,6 +1,5 @@
 import { define, emits, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
-import { observeHost } from '@wskit/server/plugins';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import { Feed } from '@wskit/tests-e2e-handlers/_shared/feed-plugin';
@@ -31,16 +30,14 @@ export interface DrizzlePluginApi {
 type DrizzleCapability<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
-  TObservesHost extends boolean,
   TEnv,
-> = PluginCapability<'e2e:drizzle', TContract, TApi, TObservesHost, TEnv>;
+> = PluginCapability<'e2e:drizzle', TContract, TApi, TEnv>;
 
 export function createPluginsHandler<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
-  TObservesHost extends boolean,
   TEnv,
->(drizzle: () => DrizzleCapability<TContract, TApi, TObservesHost, TEnv>) {
+>(drizzle: () => DrizzleCapability<TContract, TApi, TEnv>) {
   const InsertRecord = v.object({ name: v.string(), value: v.string() });
   const GetAllRecords = v.object({});
   const GetRecord = v.object({ id: v.number() });
@@ -72,7 +69,7 @@ export function createPluginsHandler<
       sequence({ persist: true }),
       dedup(),
       Feed(),
-      observeHost(drizzleCapability),
+      drizzleCapability,
       emits({
         'record-inserted': t<{ id: number }>(),
         'record-list': t<{ records: unknown[] }>(),

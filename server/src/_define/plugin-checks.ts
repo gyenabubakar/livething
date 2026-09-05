@@ -49,34 +49,6 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
 }
 
 /**
- * Backstop the compile gate at `assemble()`: a plugin that opted into host
- * observation but was listed without `observeHost(...)` throws a clear build
- * error. Covers the dynamic case where `observesHostTraffic` is a non-literal
- * boolean (the type widens, so the brand never fires). When a grant is present,
- * warn once that the plugin can see the app's frames.
- */
-export function assertHostObservationGranted(
-  capabilities: readonly AnyCapability[],
-  logger: Pick<Console, 'warn'> = console,
-): void {
-  for (const cap of capabilities) {
-    const pluginCap = cap as Partial<PluginCapability>;
-    if (!pluginCap.__pluginId || !pluginCap.__observesHostTraffic) continue;
-    if (!pluginCap.__hostObservationGranted) {
-      throw new Error(
-        `[wskit] plugin('${pluginCap.__pluginId}') observes host traffic but was listed without ` +
-          'observeHost(...). Wrap it as observeHost(' +
-          `${pluginCap.__pluginId}()) in define({ capabilities: [...] }) to grant the privilege.`,
-      );
-    }
-    logger.warn(
-      `[wskit] plugin "${pluginCap.__pluginId}" is granted host-traffic observation ` +
-        "(its intercept/outgoing see the app's frames)",
-    );
-  }
-}
-
-/**
  * Backstop the compile gate on `DefineConfig.capabilities` /
  * `ScopedDefineConfig.capabilities`: a channel-only capability (`inbox()`,
  * `readReceipts()`) listed at the host or plugin top level throws a clear

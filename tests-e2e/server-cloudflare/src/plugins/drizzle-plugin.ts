@@ -370,5 +370,4 @@ export const Drizzle = plugin('e2e:drizzle', {
       };
     },
   }),
-  observesHostTraffic: true,
 });

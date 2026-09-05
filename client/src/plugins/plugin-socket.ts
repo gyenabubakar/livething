@@ -48,21 +48,19 @@ type PluginChannels<P extends SocketContract> =
 
 /**
  * The parts of the plugin socket that are always there, whatever the plugin's
- * contract. Two groups: raw message handlers that see every frame (for
- * cross-cutting work), and small tools that read state or ask the socket to act now.
+ * contract. Two groups: raw message handlers and small tools that read state or
+ * ask the socket to act now.
  */
 export interface PluginBase {
   /**
-   * See incoming frames in this plugin's namespace. Return one (maybe changed) to
-   * pass it on; throw `Block` to drop it. Wrap the plugin in `observeHost(...)` to
-   * see the whole app's frames instead of only its own.
+   * See incoming frames. Return one (maybe changed) to pass it on; throw `Block`
+   * to drop it.
    */
   onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
 
   /**
-   * See outgoing frames in this plugin's namespace. Return one (maybe changed) to
-   * send it; throw `Block` to cancel it. Wrap the plugin in `observeHost(...)` to
-   * see the whole app's frames instead of only its own.
+   * See outgoing frames. Return one (maybe changed) to send it; throw `Block`
+   * to cancel it.
    */
   onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
 

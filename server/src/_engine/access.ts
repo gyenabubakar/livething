@@ -127,7 +127,7 @@ export interface EngineAccess {
    */
   onOutgoing(
     handler: (ctx: unknown, frame: InterceptPrimitive.OutgoingFrame) => unknown | void,
-    owner?: InterceptPrimitive.HookOwner,
+    owner?: InterceptPrimitive.FrameOwner,
   ): void;
 
   /**

@@ -11,7 +11,7 @@ import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
-import { observeHost, plugin } from './plugins.ts';
+import { plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;
@@ -125,26 +125,5 @@ describe('plugin typing', () => {
       scope: 'plugin',
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
-  });
-});
-
-describe('plugin host-observation compile gate', () => {
-  const obsHandler = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
-  const beat = obsHandler.on('tick', { input: v.object({}), run() {} });
-  const Observer = plugin('acme:obs', {
-    handler: obsHandler.assemble({ handlers: [beat] }),
-    observesHostTraffic: true,
-  });
-
-  it('rejects a bare literal-true observing plugin in capabilities', () => {
-    // @ts-expect-error observesHostTraffic: true — must be wrapped in observeHost(...)
-    define({
-      env: t<Env>(),
-      capabilities: [Observer()],
-    });
-  });
-
-  it('accepts the same plugin when wrapped in observeHost(...)', () => {
-    define({ env: t<Env>(), capabilities: [observeHost(Observer())] });
   });
 });

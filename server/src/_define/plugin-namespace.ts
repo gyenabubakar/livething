@@ -215,7 +215,6 @@ function renamedServerRequests(
 export function namespacePluginPrimitives(
   id: string,
   primitives: readonly Primitive[],
-  observesHost = false,
 ): Primitive[] {
   const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
   const serverRequests = renamedServerRequests(id, primitives);
@@ -229,12 +228,11 @@ export function namespacePluginPrimitives(
     const lifecycleKind = LIFECYCLE_KINDS[primitive.__wskit];
     if (lifecycleKind) return namespaceLifecycle(scope, lifecycleKind, primitive);
     if (primitive.__wskit === 'scheduled') return namespaceScheduled(scope, primitive);
-    if (primitive.__wskit === 'channel') return namespaceChannel(scope, primitive, observesHost);
+    if (primitive.__wskit === 'channel') return namespaceChannel(scope, primitive);
     if (primitive.__wskit === 'tag-groups') return namespaceTagGroups(id, primitive);
     if (primitive.__wskit === 'errors') return namespaceErrors(id, primitive);
-    if (primitive.__wskit === 'intercept') return ownHook(scope, primitive, observesHost);
-    if (primitive.__wskit === 'outgoingHook')
-      return ownOutgoingHook(scope, primitive, observesHost);
+    if (primitive.__wskit === 'intercept') return ownHook(scope, primitive);
+    if (primitive.__wskit === 'outgoingHook') return ownOutgoingHook(scope, primitive);
     return namespaceOne(scope, primitive);
   });
 }
@@ -252,16 +250,10 @@ function scopeHookCtx(id: string, ctx: any): any {
 
 /**
  * Stamp an intercept with its plugin owner and run it against a plugin-scoped
- * ctx. An intercept observes traffic — it declares no event — so its event is
- * not rewritten; the owner is recorded so the runtime scopes it to the plugin's
- * own frames (plus the app's when host observation is granted), and its ctx is
- * namespaced so a hook can emit the plugin's own events and write its own kv.
+ * ctx. An intercept declares no event, so its event is not rewritten; its ctx
+ * is namespaced so a hook can emit the plugin's own events and write its own kv.
  */
-function ownHook(
-  { id, shortCodes }: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function ownHook({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
   const handler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown }).handler;
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
@@ -269,30 +261,24 @@ function ownHook(
       handler(scopeHookCtx(id, ctx), frame),
     ),
     __owner: { kind: 'plugin', id },
-    __observesHost: observesHost,
   } as unknown as Primitive;
 }
 
 /**
  * Stamp an outgoing hook with its plugin owner, run it against a plugin-scoped
  * ctx, and rebuild its `__setup` so it registers with that owner. Like an
- * intercept, it observes rather than declares, so its event is not rewritten.
+ * intercept, it declares no event, so its event is not rewritten.
  */
-function ownOutgoingHook(
-  { id, shortCodes }: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function ownOutgoingHook({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
   const origHandler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown })
     .handler;
   const handler = scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
     origHandler(scopeHookCtx(id, ctx), frame),
   );
-  const owner = { owner: { kind: 'plugin' as const, id }, observesHost };
+  const owner = { kind: 'plugin' as const, id };
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __owner: { kind: 'plugin', id },
-    __observesHost: observesHost,
     __setup(engine: EngineAccess) {
       engine.onOutgoing(handler, owner);
     },
@@ -362,11 +348,7 @@ function namespaceErrors(id: string, primitive: Primitive): Primitive {
  * channel and its events carry the provenance marker so the compile
  * reserved-name and `::` guards permit the framework-namespaced form.
  */
-function namespaceChannel(
-  scope: PluginScope,
-  primitive: Primitive,
-  observesHost: boolean,
-): Primitive {
+function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
   const { id } = scope;
   const channel = primitive as unknown as {
     pattern: string | ScopeDeclaration<string>;
@@ -391,12 +373,12 @@ function namespaceChannel(
     pattern,
     __identity: [key, identityTail],
     __plugin: id,
-    // A channel intercept/outgoing hook routes through the same owner-stamp +
-    // ctx-scope path as a top-level one, so it is attributed to the plugin and
-    // can emit the channel's namespaced events / throw its declared errors.
+    // A channel intercept/outgoing hook routes through the same ctx-scope path
+    // as a top-level one, so it can emit the channel's namespaced events and
+    // throw its declared errors.
     primitives: channel.primitives.map((child) => {
-      if (child.__wskit === 'intercept') return ownHook(scope, child, observesHost);
-      if (child.__wskit === 'outgoingHook') return ownOutgoingHook(scope, child, observesHost);
+      if (child.__wskit === 'intercept') return ownHook(scope, child);
+      if (child.__wskit === 'outgoingHook') return ownOutgoingHook(scope, child);
       if (CHANNEL_LIFECYCLE_REGISTER[child.__wskit]) return scopeChannelLifecycle(scope, child);
       return namespaceOne(scope, child);
     }),

@@ -47,7 +47,7 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'onUpgrade',
   'onPing',
   'onPong',
-  // Observers that ride along stamped with their owner, not namespaced events.
+  // Hooks that ride along stamped with their owner, not namespaced events.
   'intercept',
   'outgoingHook',
   // Internal carriers that ride along but need no namespacing.
@@ -155,15 +155,6 @@ export interface PluginManifest<
    * factories don't carry (they would always fail the check at runtime).
    */
   readonly dependsOn?: readonly HostCapabilityFactory[];
-  /**
-   * Opt the plugin's `intercept`/`outgoing` hooks into seeing the host app's
-   * frames, not just the plugin's own. Off by default (least privilege): a
-   * plugin observes only its own namespaced traffic. When this is the literal
-   * `true`, listing the produced capability bare is a type error — wrap it in
-   * `observeHost(...)` to grant the privilege explicitly. A plugin never sees
-   * another plugin's frames.
-   */
-  readonly observesHostTraffic?: boolean;
 }
 
 /**
@@ -188,7 +179,6 @@ export interface PluginCapability<
   TId extends string = string,
   TContract extends ServerContract = ServerContract,
   TApi = unknown,
-  TObservesHost extends boolean = false,
   TEnv = unknown,
 > extends Capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never> {
   /** Type-only environment requirement inherited from the plugin's scoped definition. */
@@ -203,19 +193,6 @@ export interface PluginCapability<
    * capabilities. Checked at the host's `assemble()`. @internal
    */
   readonly __pluginRequiredKinds: readonly string[];
-  /** Whether the plugin opted its hooks into observing host traffic. @internal */
-  readonly __observesHostTraffic: boolean;
-  /** Set once `observeHost(...)` wraps this capability; the runtime grant gate reads it. @internal */
-  readonly __hostObservationGranted?: boolean;
-  /**
-   * Phantom brand present only when `observesHostTraffic` is the literal `true`
-   * and the capability has not been wrapped by `observeHost(...)`. The app's
-   * `define({ capabilities })` element type rejects it, so a bare listing is a
-   * compile error; `observeHost(...)` strips it. Never set at runtime. @internal
-   */
-  readonly __requiresHostGrant?: [TObservesHost] extends [true]
-    ? 'This plugin observes host traffic — wrap it in observeHost(...) to grant the privilege.'
-    : never;
 }
 
 /** The environment requirement carried by one capability, or `never` when absent. */
@@ -248,16 +225,6 @@ export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = TCap
   : never;
 
 /**
- * A capability the app's `define({ capabilities })` accepts: any capability,
- * except one still carrying the `__requiresHostGrant` brand of an ungranted
- * host-observing plugin. Wrapping that plugin in `observeHost(...)` strips the
- * brand and makes it assignable.
- */
-export type GrantableCapability = AnyCapability & {
-  readonly __requiresHostGrant?: never;
-};
-
-/**
  * The client-side contract for a server plugin — its own events, requests,
  * streams, and channels flipped into the client's perspective, with plain names.
  * A client plugin author passes this to `plugin<...>()` instead of hand-writing
@@ -287,10 +254,10 @@ export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
   string,
   infer TContract,
   unknown,
-  boolean
+  unknown
 >
   ? ClientPluginContract<TContract>
-  : TPlugin extends PluginCapability<string, infer TContract, unknown, boolean>
+  : TPlugin extends PluginCapability<string, infer TContract, unknown>
     ? ClientPluginContract<TContract>
     : never;
 
@@ -357,20 +324,11 @@ export function plugin<
   const TId extends string,
   TContract extends ServerContract,
   TApi = unknown,
-  const TObservesHost extends boolean = false,
   TScopedCtx = unknown,
 >(
   id: TId,
-  manifest: PluginManifest<TContract, TApi, TScopedCtx> & {
-    readonly observesHostTraffic?: TObservesHost;
-  },
-): () => PluginCapability<
-  TId,
-  TContract,
-  TApi,
-  [TObservesHost] extends [true] ? true : false,
-  EnvOfScopedContext<TScopedCtx>
-> {
+  manifest: PluginManifest<TContract, TApi, TScopedCtx>,
+): () => PluginCapability<TId, TContract, TApi, EnvOfScopedContext<TScopedCtx>> {
   if (!PLUGIN_ID.test(id)) {
     throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
   }
@@ -383,12 +341,7 @@ export function plugin<
 
   for (const primitive of manifest.handler.primitives) assertSupported(id, primitive);
 
-  const observesHostTraffic = manifest.observesHostTraffic ?? false;
-  const namespaced = namespacePluginPrimitives(
-    id,
-    manifest.handler.primitives,
-    observesHostTraffic,
-  );
+  const namespaced = namespacePluginPrimitives(id, manifest.handler.primitives);
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
   const apiFactory = (manifest.handler as { __apiFactory?: (ctx: unknown) => unknown })
     .__apiFactory;
@@ -396,18 +349,11 @@ export function plugin<
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(
     primitives,
-  ) as PluginCapability<
-    TId,
-    TContract,
-    TApi,
-    [TObservesHost] extends [true] ? true : false,
-    EnvOfScopedContext<TScopedCtx>
-  >;
+  ) as PluginCapability<TId, TContract, TApi, EnvOfScopedContext<TScopedCtx>>;
   const writable = cap as {
     __pluginId: string;
     __pluginDependsOn: readonly CapabilityFactory[];
     __pluginRequiredKinds: readonly string[];
-    __observesHostTraffic: boolean;
   };
   writable.__pluginId = id;
   writable.__pluginDependsOn = manifest.dependsOn ?? [];
@@ -419,32 +365,5 @@ export function plugin<
   const autoKinds =
     (manifest.handler as { __hostDependencies?: readonly string[] }).__hostDependencies ?? [];
   writable.__pluginRequiredKinds = [...new Set([...explicitKinds, ...autoKinds])];
-  writable.__observesHostTraffic = observesHostTraffic;
-  // A fresh capability is returned each call, so wrapping one in observeHost(...)
-  // never mutates another listing of the same plugin.
   return () => ({ ...cap }) as typeof cap;
-}
-
-/**
- * Grant a host-observing plugin permission to see the host app's frames. Wrap
- * the called plugin capability — `observeHost(Metrics())` — and list the result
- * in `define({ capabilities: [...] })`.
- *
- * A plugin built with `observesHostTraffic: true` (literal) is a type error when
- * listed bare; `observeHost(...)` strips the brand and marks the grant so the
- * runtime gate at `assemble()` is satisfied.
- *
- * @example
- * ```ts
- * import { observeHost } from '@wskit/server/plugins';
- * define({ capabilities: [observeHost(Metrics())] });
- * ```
- */
-export function observeHost<TCap extends { readonly __pluginId: string }>(
-  granted: TCap,
-): Omit<TCap, '__requiresHostGrant'> & { readonly __hostObservationGranted: true } {
-  (granted as unknown as { __hostObservationGranted: boolean }).__hostObservationGranted = true;
-  return granted as unknown as Omit<TCap, '__requiresHostGrant'> & {
-    readonly __hostObservationGranted: true;
-  };
 }

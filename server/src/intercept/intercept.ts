@@ -12,30 +12,8 @@ export type FrameOwner<TId extends string = string> =
   | { readonly kind: 'app' }
   | { readonly kind: 'plugin'; readonly id: TId };
 
-/**
- * Who registered a hook (intercept or outgoing) and whether it was granted
- * host-traffic observation. The app sees every frame; a plugin sees only its
- * own frames, plus the app's frames when `observesHost` is true.
- */
-export interface HookOwner {
-  readonly owner: FrameOwner;
-  readonly observesHost: boolean;
-}
-
-/** A hook registered by the app sees every frame and grants no host observation. */
-export const APP_HOOK_OWNER: HookOwner = { owner: { kind: 'app' }, observesHost: false };
-
-/**
- * Decide whether a hook runs for a frame under least-privilege scoping:
- * - an app hook runs for every frame (the host sees all);
- * - a plugin hook runs for its own frames, plus the app's frames when it was
- *   granted host observation, and never for another plugin's frames.
- */
-export function hookRunsForFrame(hook: HookOwner, frame: FrameOwner): boolean {
-  if (hook.owner.kind === 'app') return true;
-  if (frame.kind === 'plugin') return frame.id === hook.owner.id;
-  return hook.observesHost;
-}
+/** The app owns hooks registered outside a plugin. */
+export const APP_HOOK_OWNER: FrameOwner = { kind: 'app' };
 
 /**
  * The shape of a message as it travels through the intercept pipeline.
@@ -116,8 +94,6 @@ export interface InterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
   readonly handler: InterceptHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this intercept; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
-  /** Whether the owning plugin was granted host-traffic observation. @internal */
-  readonly __observesHost?: boolean;
 }
 
 /**
@@ -198,8 +174,6 @@ export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHo
   readonly handler: OutgoingHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this hook; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
-  /** Whether the owning plugin was granted host-traffic observation. @internal */
-  readonly __observesHost?: boolean;
 }
 
 /** Unique symbol. One outgoing hook per scope, mirroring `intercept`. */

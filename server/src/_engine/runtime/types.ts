@@ -100,13 +100,10 @@ export interface PluginUpgradeEntry {
     | Promise<{ userId?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }>;
 }
 
-/**
- * One registered outgoing hook plus its owner, so the pipeline can scope it to
- * the frames its owner is allowed to see.
- */
+/** One registered outgoing hook and its owner. */
 export interface OutgoingHookEntry {
   handler: (frame: InterceptPrimitive.OutgoingFrame) => unknown | void;
-  owner: InterceptPrimitive.HookOwner;
+  owner: InterceptPrimitive.FrameOwner;
 }
 
 /**
@@ -177,9 +174,8 @@ export interface RegisteredEngineHooks {
 
   /**
    * Runs before wire serialization — can observe or rewrite the payload (event
-   * is locked). Each entry carries its owner so the pipeline runs it only for
-   * the frames that owner is allowed to see (the app sees all; a plugin sees its
-   * own frames, plus the app's when granted host observation).
+   * is locked). Each entry carries its owner so its own event names can be
+   * presented in short form.
    */
   outgoing: OutgoingHookEntry[];
 
