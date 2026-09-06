@@ -1,6 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -32,7 +32,7 @@ describe('rateLimit() capability', () => {
   it('collects a per-handler override from a request as well as an on handler', () => {
     const base = define({
       env: t<Record<string, never>>(),
-      capabilities: [rateLimit(), requests()],
+      capabilities: [rateLimit(), clientRequests()],
     });
     const ask = base.request('ask', {
       input: v.object({}),

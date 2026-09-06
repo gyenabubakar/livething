@@ -1,7 +1,7 @@
 import { define, emits, localKey, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { intercepts } from '@wskit/server/intercepts';
-import { requests } from '@wskit/server/requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -15,7 +15,12 @@ export const ChannelKey = localKey<{ tag: string }>('channel');
 const base = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [emits({ echoed: t<{ text: string }>() }), requests(), channels(), intercepts()],
+  capabilities: [
+    emits({ echoed: t<{ text: string }>() }),
+    clientRequests(),
+    channels(),
+    intercepts(),
+  ],
 });
 
 base.intercept((ctx) => {
@@ -41,9 +46,7 @@ const handleLookup = base.request('lookup', {
 });
 
 const room = base.channel('room', {
-  outgoing: {
-    emits: { echoed: t<{ text: string }>() },
-  },
+  capabilities: [emits({ echoed: t<{ text: string }>() })],
 });
 
 room.intercept((ctx) => {

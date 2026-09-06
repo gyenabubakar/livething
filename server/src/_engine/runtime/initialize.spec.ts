@@ -28,7 +28,7 @@ import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
@@ -137,12 +137,17 @@ const alarmHandler = alarmBase.assemble({
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
-  capabilities: [requests(), stream(), channels(), emits({ notify: EmptyOut, joined: EmptyOut })],
+  capabilities: [
+    clientRequests(),
+    stream(),
+    channels(),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
+  ],
 });
-const mediumLobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
+const mediumLobby = mediumBase.channel('lobby', { capabilities: [emits({ said: TextOut })] });
 mediumLobby.on('say', { input: Text, run() {} });
 const mediumRooms = mediumBase.channel(['rooms', 'room:{id}'], {
-  outgoing: { emits: { posted: TextOut } },
+  capabilities: [emits({ posted: TextOut })],
 });
 mediumRooms.on('post', { input: Text, run() {} });
 const mediumHandler = mediumBase.assemble({
@@ -182,7 +187,7 @@ const heavyBase = define({
     dedup(),
     sequence({ persist: true }),
     replay.history(),
-    requests(),
+    clientRequests(),
     stream(),
     resumableStream(),
     recordedStream(),
@@ -235,14 +240,14 @@ heavyHandlers.push(
   }),
 );
 for (const n of [1, 2, 3, 4, 5]) {
-  const ch = heavyBase.channel(`chan-${n}`, { outgoing: { emits: channelEmits(`c${n}`) } });
+  const ch = heavyBase.channel(`chan-${n}`, { capabilities: [emits(channelEmits(`c${n}`))] });
   ch.on(`c${n}-send`, { input: Text, run() {} });
   ch.on(`c${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
-    outgoing: { emits: channelEmits(`r${n}`) },
+    capabilities: [emits(channelEmits(`r${n}`))],
   });
   ch.on(`r${n}-send`, { input: Text, run() {} });
   ch.on(`r${n}-edit`, { input: Text, run() {} });
@@ -528,7 +533,7 @@ describe('engine declaredErrorCodes', () => {
 });
 
 describe('revalidate requires a persistent channel', () => {
-  const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
+  const channelCapabilities = { capabilities: [emits({ said: TextOut })] };
 
   it("throws at boot when a `membership: 'ephemeral'` channel has a .revalidate() hook", async () => {
     const base = define({
@@ -536,7 +541,7 @@ describe('revalidate requires a persistent channel', () => {
       capabilities: [channels()],
     });
     const room = base.channel('room', {
-      ...channelOutgoing,
+      ...channelCapabilities,
       membership: 'ephemeral',
       revalidate() {},
     });
@@ -552,7 +557,7 @@ describe('revalidate requires a persistent channel', () => {
       env: t<Record<string, unknown>>(),
       capabilities: [channels()],
     });
-    const room = base.channel('room', { ...channelOutgoing, revalidate() {} });
+    const room = base.channel('room', { ...channelCapabilities, revalidate() {} });
     const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
@@ -560,7 +565,7 @@ describe('revalidate requires a persistent channel', () => {
 });
 
 describe('inbox requires a persistent channel', () => {
-  const channelOutgoing = { outgoing: { emits: { said: TextOut } } };
+  const channelOutgoing = { capabilities: [emits({ said: TextOut })] };
 
   it("throws at boot when a `membership: 'ephemeral'` channel has inbox()", async () => {
     const base = define({
@@ -584,7 +589,7 @@ describe('inbox requires a persistent channel', () => {
       env: t<Record<string, unknown>>(),
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
-    const room = base.channel('room', { ...channelOutgoing, capabilities: [inbox()] });
+    const room = base.channel('room', { capabilities: [emits({ said: TextOut }), inbox()] });
     const handler = base.assemble({ handlers: [room] });
 
     await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
@@ -645,7 +650,7 @@ describe('tags() restores persistent tags on reconnect', () => {
         channels(),
       ],
     });
-    const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
+    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     const handler = base.assemble({ handlers: [room] });
     const engine = await bootWarm(handler);
 
@@ -698,7 +703,7 @@ describe('a capability added after storage was already initialized', () => {
       capabilities: [channels()],
     });
     const firstRoom = firstBase.channel('room', {
-      outgoing: { emits: { said: t<{ text: string }>() } },
+      capabilities: [emits({ said: t<{ text: string }>() })],
     });
     const firstHandler = firstBase.assemble({ handlers: [firstRoom] });
     const firstEngine = buildEngine(firstHandler);
@@ -713,7 +718,7 @@ describe('a capability added after storage was already initialized', () => {
       ],
     });
     const secondRoom = secondBase.channel('room', {
-      outgoing: { emits: { said: t<{ text: string }>() } },
+      capabilities: [emits({ said: t<{ text: string }>() })],
     });
     const secondHandler = secondBase.assemble({ handlers: [secondRoom] });
     const secondEngine = buildEngine(secondHandler);

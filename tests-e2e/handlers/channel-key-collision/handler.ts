@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -19,11 +19,11 @@ const base = define({
 });
 
 const rooms = base.channel(['rooms', 'private-{id}'], {
-  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
+  capabilities: [emits({ hello: t<{ family: string; text: string }>() })],
 });
 
 const roomsPrivate = base.channel(['rooms-private', '{id}'], {
-  outgoing: { emits: { hello: t<{ family: string; text: string }>() } },
+  capabilities: [emits({ hello: t<{ family: string; text: string }>() })],
 });
 
 const handleBroadcastA = base.on('broadcast-a', {

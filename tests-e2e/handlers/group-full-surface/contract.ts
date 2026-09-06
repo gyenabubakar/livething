@@ -1,10 +1,10 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { dedup } from '@wskit/server/dedup';
 import { intercepts } from '@wskit/server/intercepts';
 import { rateLimit } from '@wskit/server/rate-limit';
 import { replay } from '@wskit/server/replay';
-import { requests } from '@wskit/server/requests';
 import { scheduled } from '@wskit/server/scheduled';
 import { sequence } from '@wskit/server/sequence';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
@@ -34,7 +34,7 @@ export const base = define({
     sequence({ persist: true }),
     dedup(),
     rateLimit(),
-    requests(),
+    clientRequests(),
     channels(),
     scheduled({ tick: null }),
     stream(),

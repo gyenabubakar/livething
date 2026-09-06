@@ -6,7 +6,8 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -64,7 +65,11 @@ describe('plugin typing', () => {
   it('folds a plugin surface into the top-level client maps under __id:: names', () => {
     const ph = define({
       scope: 'plugin',
-      capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
+      capabilities: [
+        emits({ 'user-online': t<{ id: string }>() }),
+        clientRequests(),
+        serverRequests(),
+      ],
     });
     const beat = ph.on('heartbeat', { input: v.object({}), run() {} });
     const who = ph.request('who-is-here', {
@@ -94,7 +99,7 @@ describe('plugin typing', () => {
       capabilities: [stream(), channels(), errors([Denied])],
     });
     const ticks = ph.stream('ticks', { input: v.object({}), async *run() {} });
-    const room = ph.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
+    const room = ph.channel('room', { capabilities: [emits({ msg: t<{ text: string }>() })] });
     room.on('say', { input: v.object({}), run() {} });
     const P = plugin('acme:feed', { handler: ph.assemble({ handlers: [ticks, room] }) });
     const app = define({ env: t<Env>(), capabilities: [P()] });

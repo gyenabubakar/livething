@@ -80,7 +80,7 @@ export interface EngineAccess {
    * Each incoming user-event frame carrying a `correlationId` is offered to the
    * registered hooks; a hook returns `true` when the id matches a pending
    * server-initiated request it owns, which stops routing. Used by the
-   * `requests()` capability so the engine never imports its pending map.
+   * `serverRequests()` capability so the engine never imports its pending map.
    *
    * @internal
    */
@@ -101,7 +101,7 @@ export interface EngineAccess {
    * Routes through the normal outgoing pipeline with the given `correlationId`
    * (and optional channel family) so plugin stampers and `onBeforeSend`/
    * `onAfterSend` hooks still run. Returns `false` when the connection is no
-   * longer live on this instance. Used by the `requests()` capability for
+   * longer live on this instance. Used by the `serverRequests()` capability for
    * `ctx.request(...)` and friends.
    *
    * @internal
@@ -777,7 +777,7 @@ export interface EngineAccess {
 
   /**
    * Register the request dispatcher so the hub can run a matched `request(...)`
-   * without importing its runtime. Set by the `requests()` capability.
+   * without importing its runtime. Set by the `serverRequests()` capability.
    *
    * @internal
    */

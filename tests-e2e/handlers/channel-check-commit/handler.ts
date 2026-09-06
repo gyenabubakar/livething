@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { Disconnect } from '@wskit/server/errors';
 import * as v from 'valibot';
@@ -22,12 +22,12 @@ const base = define({
 
 // Uses both check and commit: check validates the token, commit enforces the capacity.
 const room = base.channel('room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       message: t<{ from: string; text: string }>(),
       joined: t<{ username: string }>(),
-    },
-  },
+    }),
+  ],
   subscribe: v.object({ token: v.string() }),
   async check(_ctx, input) {
     // `input` is the validated subscribe payload, typed from the channel's subscribe schema.
@@ -59,7 +59,7 @@ const handleRoomSend = room.on('send', {
 
 // Uses only check — shows that commit is optional.
 const checkOnly = base.channel('check-only', {
-  outgoing: { emits: { joined: t<{ username: string }>() } },
+  capabilities: [emits({ joined: t<{ username: string }>() })],
   async check(ctx) {
     await new Promise((r) => setTimeout(r, 5));
     if (ctx.meta.username === 'no-access') throw new Error('no-access user is not allowed');
@@ -72,7 +72,7 @@ checkOnly.subscribe((ctx) => {
 
 // Uses only commit — shows that check is optional.
 const commitOnly = base.channel('commit-only', {
-  outgoing: { emits: { joined: t<{ username: string }>() } },
+  capabilities: [emits({ joined: t<{ username: string }>() })],
   commit(ctx) {
     if (ctx.channel.members().length >= 1)
       throw new Error('commit-only room allows one subscriber');
@@ -86,7 +86,7 @@ commitOnly.subscribe((ctx) => {
 // Misuse: an async commit. commit() must be synchronous; the engine rejects
 // a returned Promise. This fixture exists to pin the wire behavior.
 const asyncCommit = base.channel('async-commit', {
-  outgoing: { emits: { joined: t<{ username: string }>() } },
+  capabilities: [emits({ joined: t<{ username: string }>() })],
   commit: (async () => {
     await new Promise((r) => setTimeout(r, 1));
   }) as unknown as () => void,
@@ -100,7 +100,7 @@ const asyncCommit = base.channel('async-commit', {
 // `revalidate`.
 const nonceRoom = base.channel('nonce-room', {
   membership: 'ephemeral',
-  outgoing: { emits: { joined: t<{ username: string }>() } },
+  capabilities: [emits({ joined: t<{ username: string }>() })],
   subscribe: v.object({ token: v.string() }),
   async check(ctx, input) {
     // Reject a token that's been used before. A stale snapshot resent on

@@ -47,15 +47,11 @@ const base = define({
 });
 
 const publicRooms = base.channel(['publicRooms', 'room:{id}'], {
-  outgoing: {
-    emits: { 'room-message': t<{ family: string; name: string; text: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ family: string; name: string; text: string }>() })],
 });
 
 const privateRooms = base.channel(['privateRooms', 'room:{id}'], {
-  outgoing: {
-    emits: { 'private-message': t<{ family: string; name: string; text: string }>() },
-  },
+  capabilities: [emits({ 'private-message': t<{ family: string; name: string; text: string }>() })],
 });
 
 const handlePublicMembers = base.on('public-members', {

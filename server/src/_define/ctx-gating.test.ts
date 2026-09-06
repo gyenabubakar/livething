@@ -4,7 +4,7 @@ import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -34,20 +34,20 @@ describe('capability-owned, TS-gated ctx extensions', () => {
         ctx.channels;
         // @ts-expect-error ctx.plugin needs a plugin listed
         ctx.plugin;
-        // @ts-expect-error ctx.request needs the requests() capability
+        // @ts-expect-error ctx.request needs the serverRequests() capability
         ctx.request;
-        // @ts-expect-error ctx.broadcastRequest needs the requests() capability
+        // @ts-expect-error ctx.broadcastRequest needs the serverRequests() capability
         ctx.broadcastRequest;
         expectTypeOf(ctx.connection.id).toEqualTypeOf<string>();
       },
     });
   });
 
-  it('adds ctx.request and the connection-handle request arm only with requests()', () => {
+  it('adds ctx.request and the connection-handle request arm only with serverRequests()', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [
-        requests({
+        serverRequests({
           'ask-permission': {
             out: t<{ action: string }>(),
             in: v.object({ allowed: v.boolean() }),
@@ -78,7 +78,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [
-        requests({
+        serverRequests({
           'ask-permission': {
             out: t<{ action: string }>(),
             in: v.object({ allowed: v.boolean() }),
@@ -118,16 +118,16 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
-  it('omits broadcastRequest on channel/tag handles without requests()', () => {
+  it('omits broadcastRequest on channel/tag handles without serverRequests()', () => {
     const base = define({
       env: t<Env>(),
       capabilities: [channels(), tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     base.on('x', {
       run(ctx) {
-        // @ts-expect-error broadcastRequest needs the requests() capability
+        // @ts-expect-error broadcastRequest needs the serverRequests() capability
         ctx.channels.get('lobby').broadcastRequest;
-        // @ts-expect-error broadcastRequest needs the requests() capability
+        // @ts-expect-error broadcastRequest needs the serverRequests() capability
         ctx.tags.ephemeral('role').broadcastRequest;
       },
     });

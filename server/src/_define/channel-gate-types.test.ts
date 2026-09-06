@@ -2,8 +2,9 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -66,7 +67,7 @@ describe('channel check -> commit inference', () => {
 describe('channel handler ctx typing', () => {
   it('typed channel send, members, params not any', () => {
     const room = base.channel(['rooms', 'rooms/:roomId'], {
-      outgoing: { emits: { message: t<{ text: string }>() } },
+      capabilities: [emits({ message: t<{ text: string }>() })],
     });
     room.on('send', {
       input: v.object({ text: v.string() }),
@@ -101,7 +102,7 @@ describe('channel gate surface typing', () => {
       env: t<Env>(),
       capabilities: [
         channels(),
-        requests({
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
         tags((ephemeral) => [ephemeral('role', t<string>())]),
@@ -109,11 +110,11 @@ describe('channel gate surface typing', () => {
     });
 
     requestGateBase.channel('request-gated', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
+        }),
+      ],
       check(ctx) {
         // The request map belongs to this same config object, so it is not
         // available while the gate callbacks are being contextually typed.
@@ -146,11 +147,11 @@ describe('channel gate surface typing', () => {
     });
 
     const normal = requestGateBase.channel('request-normal', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
+        }),
+      ],
     });
     normal.on('message', {
       run(ctx) {

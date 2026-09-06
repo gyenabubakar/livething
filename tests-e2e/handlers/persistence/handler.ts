@@ -1,7 +1,7 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { Disconnect } from '@wskit/server/errors';
-import { requests } from '@wskit/server/requests';
 import { resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -24,7 +24,7 @@ const base = define({
       : requireUsername(request),
   capabilities: [
     channels(),
-    requests(),
+    clientRequests(),
     resumableStream(),
     emits({
       'true-leave': t<v.InferOutput<typeof TrueLeavePayload>>(),
@@ -94,12 +94,12 @@ const handleAnonStream = base.resumableStream('anon-stream', {
 });
 
 const archiveRoom = base.channel('archive-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<v.InferOutput<typeof RoomMessagePayload>>(),
       'session-ended': t<v.InferOutput<typeof SessionEndedPayload>>(),
-    },
-  },
+    }),
+  ],
   // First-subscribe gate.
   async check(ctx) {
     if (await ctx.kv.get(`ban:${ctx.meta.username}`)) {
@@ -152,18 +152,14 @@ archiveRoom.sessionEnd((ctx) => {
 
 const typingIndicator = base.channel('typing-indicator', {
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
-  },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
 });
 
 // Persistent channel with a capacity commit gate (one live member). Proves
 // commit is NOT re-run on auto-rejoin: a returning member keeps its seat even
 // when another live member now fills the cap.
 const capacityRoom = base.channel('capacity-room', {
-  outgoing: {
-    emits: { 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() },
-  },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessagePayload>>() })],
   commit(ctx) {
     // Excludes self (membership is not written yet), so the first member sees 0.
     if (ctx.channel.members().length >= 1) {

@@ -4,6 +4,7 @@ import { define } from '~/_define/define.ts';
 import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -56,7 +57,7 @@ function buildEngine(
     capabilities: [channels()],
   });
   const room = base.channel('room', {
-    outgoing: { emits: { 'room-message': t<{ text: string }>() } },
+    capabilities: [emits({ 'room-message': t<{ text: string }>() })],
   });
   const shout = room.on('shout', {
     input: v.object({ text: v.string() }),

@@ -1,6 +1,6 @@
 import { define, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { requests } from '@wskit/server/requests';
+import { clientRequests } from '@wskit/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -8,7 +8,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 export const requestContract = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
-  capabilities: [requests(), channels()],
+  capabilities: [clientRequests(), channels()],
 });
 
 const handleGetTime = requestContract.request('get-time', {

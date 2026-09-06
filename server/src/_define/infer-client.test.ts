@@ -2,7 +2,7 @@ import { t } from '~/_api/definitions.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
@@ -18,7 +18,7 @@ const base = define({
     emits({ welcome: t<{ username: string }>() }),
     emits({ goodbye: t<{ username: string }>() }),
     errors([NotFound, Forbidden]),
-    requests(),
+    clientRequests(),
   ],
 });
 
@@ -77,8 +77,8 @@ describe('InferClient for define()', () => {
 
   it('rejects a builder method whose capability was not listed', () => {
     const bare = define({ env: t<{ SECRET: string }>() });
-    // `requests()` is not in capabilities, so `base.request` does not exist.
-    // @ts-expect-error base.request requires the requests() capability
+    // `clientRequests()` is not in capabilities, so `base.request` does not exist.
+    // @ts-expect-error base.request requires the clientRequests() capability
     bare.request;
   });
 

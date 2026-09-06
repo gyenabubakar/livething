@@ -118,11 +118,11 @@ const handleKickByTag = base.on('kick-by-tag', {
 });
 
 const room = base.channel('room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<{ text: string; from: string }>(),
-    },
-  },
+    }),
+  ],
 });
 
 const handleSendInRoom = room.on('send-in-room', {

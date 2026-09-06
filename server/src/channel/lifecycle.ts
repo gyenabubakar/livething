@@ -236,7 +236,7 @@ export function commit<TCtx, TCheck = unknown>(
  * @example
  * ```ts
  * const notifications = base.channel('notifications', {
- *   outgoing: { emits: { notifications: t<Item[]>() } },
+ *   capabilities: [emits({ notifications: t<Item[]>() })],
  * });
  * notifications.subscribe(async (ctx) => {
  *   const items = await db.getUnread(ctx.meta.userId);

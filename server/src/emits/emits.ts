@@ -14,7 +14,7 @@ type EmitPayload<T> = T extends TypeMarker<infer U> ? U : unknown;
 export type EmitDefs = Record<string, TypeMarker<any>>;
 
 /** The contract slot `emits(...)` declares — server→client events the client receives. */
-type EmitSlot<TDefs extends EmitDefs> = {
+export type EmitSlot<TDefs extends EmitDefs> = {
   outgoing: { [K in keyof TDefs & string]: EmitPayload<TDefs[K]> };
 };
 
@@ -40,9 +40,20 @@ type EmitSlot<TDefs extends EmitDefs> = {
  * });
  * ```
  */
+export type EmitsCapability<TDefs extends EmitDefs> = Capability<
+  EmitSlot<TDefs>,
+  never,
+  'emits'
+> & {
+  readonly __channelEmits: TDefs;
+};
+
 export const emits = withCapabilityKind(function emits<const TDefs extends EmitDefs>(
   defs: TDefs,
-): Capability<EmitSlot<TDefs>> {
+): EmitsCapability<TDefs> {
   const primitives = Object.keys(defs).map((name) => outgoingFactory(name));
-  return stampKind(capability<EmitSlot<TDefs>>(primitives), CAPABILITY_KIND.emits);
+  return stampKind(
+    capability<EmitSlot<TDefs>>(primitives, [], { __channelEmits: defs }),
+    CAPABILITY_KIND.emits,
+  ) as EmitsCapability<TDefs>;
 }, CAPABILITY_KIND.emits);

@@ -57,7 +57,7 @@ export interface ServerContract {
 
   /**
    * Server→client request/response pairs the client answers (declared with
-   * `requests({...})`). From the client's perspective these are the requests the
+   * `serverRequests({...})`). From the client's perspective these are the requests the
    * server asks it, answered via `socket.onRequest(...)`.
    */
   readonly serverRequests?: Record<string, any>;

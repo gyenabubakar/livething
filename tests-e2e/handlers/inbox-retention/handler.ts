@@ -43,22 +43,20 @@ const chat = base.channel('chat', {
       onDelivered: 'retain',
       retention: { maxAgeMs: RETENTION_MS },
     }),
-  ],
-  outgoing: {
-    emits: {
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 const countChat = base.channel('count', {
   membership: 'persistent',
-  capabilities: [inbox({ onDelivered: 'retain', retention: { maxMessages: 2 } })],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox({ onDelivered: 'retain', retention: { maxMessages: 2 } }),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = chat.on('send-room-msg', {

@@ -4,7 +4,8 @@ import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -167,16 +168,16 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects request and emit names ending with __', () => {
-    const requestBase = define({ env: t<Env>(), capabilities: [requests()] });
+    const requestBase = define({ env: t<Env>(), capabilities: [clientRequests()] });
     expect(() => requestBase.request('ask__', { run() {} })).toThrow(/reserved '__' suffix/);
-    expect(() => requests({ answer__: { out: t<{}>() } })).toThrow(/reserved '__' suffix/);
+    expect(() => serverRequests({ answer__: { out: t<{}>() } })).toThrow(/reserved '__' suffix/);
     expect(() => emits({ update__: t<{}>() })).toThrow(/reserved '__' suffix/);
   });
 
   it('rejects channel outgoing requests and scheduled task ids ending with __', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), serverRequests()] });
     expect(() =>
-      base.channel('room', { outgoing: { requests: { answer__: { out: t<{}>() } } } }),
+      base.channel('room', { capabilities: [serverRequests({ answer__: { out: t<{}>() } })] }),
     ).toThrow(/reserved '__' suffix/);
     expect(() => scheduled({ cleanup__: null })).toThrow(/reserved '__' suffix/);
   });

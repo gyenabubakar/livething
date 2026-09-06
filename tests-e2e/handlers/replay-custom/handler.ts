@@ -171,13 +171,13 @@ const handleGetConfirmedCount = base.on('get-confirmed-count', {
 });
 
 const customRoom = base.channel('custom-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-note': t<v.InferOutput<typeof RoomNote>>(),
       'room-confirmed-count': t<v.InferOutput<typeof RoomConfirmedCount>>(),
       'room-replay-events': t<v.InferOutput<typeof RoomReplayEvents>>(),
-    },
-  },
+    }),
+  ],
 });
 
 customRoom.replay({

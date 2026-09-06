@@ -57,12 +57,13 @@ export const handleAddFavorite = base.on('add-favorite', {
 
 const rooms = base.channel(['rooms', 'room:{id}'], {
   membership: 'persistent',
-  capabilities: [inbox(), readReceipts()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    readReceipts(),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = rooms.on('send-room-msg', {

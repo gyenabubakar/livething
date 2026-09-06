@@ -837,7 +837,7 @@ export async function processTextMessage(
     // would reject it as a validation error — and never reach the answer-frame
     // settle hooks, leaving the server's pending ctx.request(...) promise to hang
     // to timeout. Offer a correlated `__error__` to those hooks first; if none own
-    // it (no requests() capability, or the request already settled/timed out), drop
+    // it (no serverRequests() capability, or the request already settled/timed out), drop
     // it rather than emit a spurious protocol-validation error back to the client.
     if (event === '__error__') {
       const declineWskit = (parsed as { __wskit?: Protocol.WSKitProtocol }).__wskit;

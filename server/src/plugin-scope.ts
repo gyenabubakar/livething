@@ -53,7 +53,7 @@ const SCOPED_SENDS: Record<string, SendPosition> = {
   broadcast: 'event-first',
   // request/broadcastRequest/sendWithAck all take the event/request name first,
   // so a plugin's `ctx.request('confirm', ...)` goes out as `__<id>::confirm`
-  // to match its namespaced `requests({...})` declaration.
+  // to match its namespaced `serverRequests({...})` declaration.
   request: 'event-first',
   broadcastRequest: 'event-first',
   // sendReplay re-sends a stored message by event name; namespace it so a

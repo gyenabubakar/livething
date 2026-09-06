@@ -3,7 +3,7 @@ import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { requests } from './capability.ts';
+import { clientRequests } from './client-requests.ts';
 import type { RequestPrimitive } from './request.ts';
 
 interface Env {
@@ -16,9 +16,17 @@ function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPr
   return found as unknown as RequestPrimitive;
 }
 
-describe('requests() capability — client to server', () => {
+describe('clientRequests() capability', () => {
+  it('registers client-to-server handlers with clientRequests()', () => {
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
+    const handler = base.request('save', { run: () => ({ ok: true }) });
+    expect(
+      compileHandlerDefinition(base.assemble({ handlers: [handler] })).requests.has('save'),
+    ).toBe(true);
+  });
+
   it('registers a request handler that boots and responds with the return value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const handleGetTime = base.request('get-time', {
       input: v.object({}),
       run() {
@@ -35,7 +43,7 @@ describe('requests() capability — client to server', () => {
   });
 
   it('does not respond when the handler returns nothing', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const handleNoReply = base.request('no-reply', {
       run() {},
     });
@@ -48,7 +56,7 @@ describe('requests() capability — client to server', () => {
   });
 
   it('responds with falsy non-null values', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const handleCount = base.request('count', {
       run() {
         return 0;
@@ -63,7 +71,7 @@ describe('requests() capability — client to server', () => {
   });
 
   it('treats an explicit null as a void ack, not a response value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const handleFind = base.request('find', {
       run() {
         return null;
@@ -79,13 +87,13 @@ describe('requests() capability — client to server', () => {
     expect(respond).not.toHaveBeenCalled();
   });
 
-  it('throws when base.request is used without the requests() capability', () => {
+  it('throws when base.request is used without the clientRequests() capability', () => {
     const base = define({ env: t<Env>() });
     const escapeHatch = base as unknown as {
       request(event: string, config: { run: () => unknown }): unknown;
     };
     expect(() => escapeHatch.request('get-time', { run: () => ({}) })).toThrow(
-      /base\.request\(\) needs the requests\(\) capability/,
+      /base\.request\(\) needs clientRequests\(\)/,
     );
   });
 });

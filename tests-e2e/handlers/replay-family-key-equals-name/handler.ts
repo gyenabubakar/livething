@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -22,7 +22,7 @@ const rooms = base.channel(['rooms', 'rooms'], {
   // relying on auto-rejoin — it needs a real subscribe/ack cycle to run.
   membership: 'ephemeral',
   replay: true,
-  outgoing: { emits: { 'room-message': t<v.InferOutput<typeof RoomMessage>>() } },
+  capabilities: [emits({ 'room-message': t<v.InferOutput<typeof RoomMessage>>() })],
 });
 
 const handleSendBatch = rooms.on('send-batch', {

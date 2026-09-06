@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -82,7 +82,7 @@ base.replay({
 });
 
 const lobby = base.channel('lobby', {
-  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
+  capabilities: [emits({ note: t<v.InferOutput<typeof Note>>() })],
 });
 
 const handleLobbySendNote = lobby.on('send-note', {
@@ -94,7 +94,7 @@ const handleLobbySendNote = lobby.on('send-note', {
 });
 
 const room = base.channel(['rooms', 'room-{id}'], {
-  outgoing: { emits: { note: t<v.InferOutput<typeof Note>>() } },
+  capabilities: [emits({ note: t<v.InferOutput<typeof Note>>() })],
 });
 
 const handleRoomSendNote = room.on('send-note', {

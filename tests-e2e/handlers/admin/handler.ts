@@ -29,7 +29,7 @@ const noop = base.on('noop', { input: v.object({}), run() {} });
 
 export const lobby = base.channel('lobby', {
   membership: 'persistent',
-  outgoing: { emits: { 'room-notice': t<{ text: string }>() } },
+  capabilities: [emits({ 'room-notice': t<{ text: string }>() })],
 });
 
 const handleJoinLobby = lobby.on('join-lobby', { input: v.object({}), run() {} });

@@ -1,4 +1,4 @@
-import { localKey, t } from '@wskit/server';
+import { emits, localKey, t } from '@wskit/server';
 import * as v from 'valibot';
 import {
   BadPayload,
@@ -211,9 +211,7 @@ base.scheduled('tick', {
 });
 
 const rooms = base.channel('rooms', {
-  outgoing: {
-    emits: { 'room-msg': t<v.InferOutput<typeof RoomMsgPayload>>() },
-  },
+  capabilities: [emits({ 'room-msg': t<v.InferOutput<typeof RoomMsgPayload>>() })],
 });
 
 export const handleRoomSendMsg = rooms.on('send-msg', {

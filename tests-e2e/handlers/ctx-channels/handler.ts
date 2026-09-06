@@ -19,11 +19,11 @@ const base = define({
 });
 
 const room = base.channel('room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<{ text: string; from: string }>(),
-    },
-  },
+    }),
+  ],
 });
 
 const handleGetMembers = base.on('get-members', {

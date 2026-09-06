@@ -12,7 +12,7 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { UpgradeHandler, UpgradeResult } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ResolvedServerRequest } from '~/request/capability.ts';
+import type { ResolvedServerRequest } from '~/request/server-requests.ts';
 
 /** The primitive kinds that route or declare by a plain `event` field. */
 const EVENT_KINDS = new Set([
@@ -170,7 +170,7 @@ function channelBareKey(primitive: Primitive): string {
 /**
  * Re-key a plugin's server→client request declarations to their `__<id>::` wire
  * names. The requests builder files each declaration under the bare event (and,
- * for a channel's `outgoing.requests`, the bare channel key) at build time —
+ * for a channel's `serverRequests(...)`, the bare channel key) at build time —
  * before namespacing — so the runtime, which resolves a plugin request by its
  * prefixed event / prefixed channel key, would miss the entry: a broadcast
  * request is wrongly rejected and a targeted one skips response validation. We
@@ -181,29 +181,33 @@ function channelBareKey(primitive: Primitive): string {
 function renamedServerRequests(
   id: string,
   primitives: readonly Primitive[],
-): Map<string, ResolvedServerRequest> | null {
-  const carrier = primitives.find((p) => p.__wskit === 'server-requests') as
-    | { __serverRequests?: Map<string, ResolvedServerRequest> }
-    | undefined;
-  const map = carrier?.__serverRequests;
-  if (!map || map.size === 0) return null;
+): ReadonlyMap<Primitive, Map<string, ResolvedServerRequest>> {
+  const renamed = new Map<Primitive, Map<string, ResolvedServerRequest>>();
 
   const pluginChannelKeys = new Set(
     primitives.filter((p) => p.__wskit === 'channel').map(channelBareKey),
   );
 
-  // Build a fresh map; never mutate the carrier in `manifest.handler.primitives`
-  // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
-  const next = new Map<string, ResolvedServerRequest>();
-  for (const [key, value] of map.entries()) {
-    const [channelKey, event] = JSON.parse(key) as [string | null, string];
-    const nextChannelKey =
-      channelKey !== null && pluginChannelKeys.has(channelKey)
-        ? pluginWireName(id, channelKey)
-        : channelKey;
-    next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+  for (const primitive of primitives) {
+    if (primitive.__wskit !== 'server-requests') continue;
+    const map = (primitive as { __serverRequests?: ReadonlyMap<string, ResolvedServerRequest> })
+      .__serverRequests;
+    if (!map || map.size === 0) continue;
+
+    // Build a fresh map; never mutate the carrier in `manifest.handler.primitives`
+    // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
+    const next = new Map<string, ResolvedServerRequest>();
+    for (const [key, value] of map) {
+      const [channelKey, event] = JSON.parse(key) as [string | null, string];
+      const nextChannelKey =
+        channelKey !== null && pluginChannelKeys.has(channelKey)
+          ? pluginWireName(id, channelKey)
+          : channelKey;
+      next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
+    }
+    renamed.set(primitive, next);
   }
-  return next;
+  return renamed;
 }
 
 /**
@@ -219,8 +223,13 @@ export function namespacePluginPrimitives(
   const scope: PluginScope = { id, shortCodes: collectShortErrorCodes(primitives) };
   const serverRequests = renamedServerRequests(id, primitives);
   return primitives.map((primitive) => {
-    if (primitive.__wskit === 'server-requests' && serverRequests) {
-      return { ...primitive, __serverRequests: serverRequests } as Primitive;
+    const declarations = serverRequests.get(primitive);
+    if (primitive.__wskit === 'server-requests' && declarations) {
+      return (
+        primitive as Primitive & {
+          __withServerRequests: (requests: ReadonlyMap<string, ResolvedServerRequest>) => Primitive;
+        }
+      ).__withServerRequests(declarations);
     }
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);

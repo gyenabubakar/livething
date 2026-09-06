@@ -34,6 +34,7 @@ import type {
   TaskContext,
   UserRef,
 } from '~/context.ts';
+import type { EmitDefs, EmitsCapability } from '~/emits/emits.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptFrame, OutgoingFrame } from '~/intercept/intercept.ts';
@@ -42,8 +43,8 @@ import type { Primitive } from '~/primitive.ts';
 import type { RateLimitCapability } from '~/rate-limit/capability.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayHooks, ReplayCustomCapability } from '~/replay/capability.ts';
-import type { ServerRequestDeclaration } from '~/request/capability.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { ResolvedServerRequest, ServerRequestsCapability } from '~/request/server-requests.ts';
 import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
@@ -289,7 +290,7 @@ export type RequestConfig<
   ): TResponse | Promise<TResponse>;
 } & RateLimitField<TCaps>;
 
-/** Builder method granted by the `requests()` capability. */
+/** Builder method granted by the `clientRequests()` capability. */
 export interface RequestMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
    * Register a handler for one client→server request. Like `base.on`, but the
@@ -569,30 +570,25 @@ export interface RecordedStreamMethods<
   >;
 }
 
-/** The payload type one channel emit declaration carries. */
-type EmitPayloadOf<T> =
-  T extends TypeMarker<infer U> ? U : T extends Validator<infer U> ? U : unknown;
+type ChannelCapability =
+  | ChannelOnlyCapability<{}, never, string>
+  | EmitsCapability<EmitDefs>
+  | ServerRequestsCapability;
 
-/** The map of a channel's emit declarations → payload types. */
-type EmitMap<TEmits> = { [K in keyof TEmits & string]: EmitPayloadOf<TEmits[K]> };
-
-/** The `out` (server→client payload) type one channel request declaration carries. */
-type ServerRequestPayloadOf<TDeclaration> = TDeclaration extends { out: TypeMarker<infer U> }
-  ? U
-  : unknown;
-
-/** The `in` (client→server answer) type one channel request declaration carries; `void` for an acknowledgement. */
-type ServerRequestResponseOf<TDeclaration> = TDeclaration extends { in: Validator<infer U> }
-  ? U
-  : void;
-
-/** The channel's `serverRequests` contract slot, built from its `outgoing.requests` declarations. */
-type ServerRequestMap<TDeclarations> = {
-  [K in keyof TDeclarations & string]: {
-    payload: ServerRequestPayloadOf<TDeclarations[K]>;
-    response: ServerRequestResponseOf<TDeclarations[K]>;
-  };
-};
+type ChannelCapabilitySlots<TCaps extends readonly ChannelCapability[]> = MergeSlots<
+  SlotsOf<TCaps[number]>
+>;
+type ChannelOutgoing<TCaps extends readonly ChannelCapability[]> =
+  SlotOr<ChannelCapabilitySlots<TCaps>, 'outgoing'> extends infer TOutgoing extends Record<
+    string,
+    unknown
+  >
+    ? TOutgoing
+    : {};
+type ChannelServerRequests<TCaps extends readonly ChannelCapability[]> = SlotOr<
+  ChannelCapabilitySlots<TCaps>,
+  'serverRequests'
+>;
 
 /** The subscribe-payload type for a channel's `subscribe` schema, or `never` when absent. */
 type SubscribePayloadOf<TSubscribe> = TSubscribe extends Validator<infer U> ? U : never;
@@ -658,33 +654,34 @@ type ChannelBroadcastRequests<TServerRequests> = BroadcastServerRequests<{
 }>;
 
 /**
- * The `request`/`broadcastRequest` arms added to `ctx.channel` when `requests()`
- * is listed. They resolve the CHANNEL's own `outgoing.requests` declarations
- * (short names), not the top-level `requests({...})` ones.
+ * The `request`/`broadcastRequest` arms added to `ctx.channel` when that channel
+ * lists `serverRequests(...)`. They resolve the channel's own declarations.
  */
-type ChannelRequestArm<TServerRequests, TCaps extends readonly AnyCapability[]> =
-  'requests' extends BrandsOf<TCaps>
-    ? [keyof TServerRequests] extends [never]
-      ? {}
-      : {
-          /**
-           * Ask a server→client request this channel declared and resolve its
-           * typed answer. Targets the calling connection by default; pass `{ to }`
-           * to ask a specific member instead — a `ConnectionRef`, or a
-           * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
-           * answer from a matching member wins.
-           */
-          request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
-            event: E,
-            payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
-              ? P
-              : never,
-            options?: { timeout?: number; to?: ChannelRecipient },
-          ): Promise<
-            ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
-          >;
-        } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
-    : {};
+type ChannelRequestArm<
+  TServerRequests,
+  TChannelBrand extends string,
+> = 'serverRequests' extends TChannelBrand
+  ? [keyof TServerRequests] extends [never]
+    ? {}
+    : {
+        /**
+         * Ask a server→client request this channel declared and resolve its
+         * typed answer. Targets the calling connection by default; pass `{ to }`
+         * to ask a specific member instead — a `ConnectionRef`, or a
+         * `UserRef`/`TagRef`/`TagGroupHandle`, in which case the first valid
+         * answer from a matching member wins.
+         */
+        request<E extends keyof ChannelTargetedRequests<TServerRequests> & string>(
+          event: E,
+          payload: ChannelTargetedRequests<TServerRequests>[E] extends { payload: infer P }
+            ? P
+            : never,
+          options?: { timeout?: number; to?: ChannelRecipient },
+        ): Promise<
+          ChannelTargetedRequests<TServerRequests>[E] extends { response: infer R } ? R : never
+        >;
+      } & BroadcastRequestArm<ChannelBroadcastRequests<TServerRequests>>
+  : {};
 
 /**
  * The `inbox`/`readReceipts` arms added to `ctx.channel` when this channel's OWN
@@ -724,7 +721,7 @@ export type ChannelCtx<
   TChannelBrand extends string = never,
 > = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps>, 'sendReplay'> & {
   readonly channel: ChannelHandle<TParams, TOutgoing, TMeta> &
-    ChannelRequestArm<TServerRequests, TCaps> &
+    ChannelRequestArm<TServerRequests, TChannelBrand> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
@@ -745,7 +742,7 @@ export type ChannelGateCtx<
   TServerRequests = {},
 > = Omit<AppCtx<TSlots, TEnv, TMeta, TCaps, TIsSubscribeGate>, 'sendReplay'> & {
   readonly channel: ChannelHandle<Record<string, string>, Record<string, unknown>, TMeta> &
-    ChannelRequestArm<TServerRequests, TCaps> &
+    ChannelRequestArm<TServerRequests, TChannelBrand> &
     ChannelCapabilityArm<TChannelBrand, TOutgoing>;
 };
 
@@ -763,19 +760,6 @@ type ChannelRateLimitField<TCaps extends readonly AnyCapability[]> =
       }
     : {};
 
-/**
- * The constraint on a channel's inferred `outgoing.requests` map. With the
- * `requests()` capability listed it is the normal declaration map; without it, every
- * value must be `never`, so declaring any channel request without `requests()`
- * is a compile error (the inferred map fails this constraint). Gating the
- * constraint — rather than the field — is what enforces it through the `const
- * TRequests` inference position. The runtime also throws as a backstop.
- */
-type RequestsDeclarationConstraint<TCaps extends readonly AnyCapability[]> =
-  'requests' extends BrandsOf<TCaps>
-    ? Record<string, ServerRequestDeclaration>
-    : Record<string, never>;
-
 /** Configuration object for `base.channel(...)`. */
 export type ChannelConfig<
   TSlots,
@@ -785,24 +769,14 @@ export type ChannelConfig<
   TSubscribe extends Validator | undefined = Validator | undefined,
   TCheckResult = unknown,
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
+  TCapabilities extends readonly ChannelCapability[] = readonly ChannelCapability[],
 > = {
-  /** Server→client events and requests this channel declares. */
-  readonly outgoing?: {
-    readonly emits?: Record<string, TypeMarker<any>>;
-    /**
-     * Server→client requests this channel asks its members. Same `{ out, in? }`
-     * shape as the top-level `requests({...})`. Declaring these needs
-     * the `requests()` capability listed; the channel overloads gate it at
-     * compile time and the runtime throws as a backstop.
-     */
-    readonly requests?: Record<string, ServerRequestDeclaration>;
-  };
   /** Schema validating the payload a client sends on subscribe. */
   readonly subscribe?: TSubscribe;
   /**
    * Async gate before the subscriber is counted. Return a value forwarded to
    * `commit`; throw to reject. Written inside this same config object, before
-   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` / `broadcastRequest` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
@@ -815,7 +789,7 @@ export type ChannelConfig<
   /**
    * Sync gate after the subscriber is counted (members include the joiner).
    * Throw to reject. Written inside this same config object, before
-   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` / `broadcastRequest` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
@@ -828,7 +802,7 @@ export type ChannelConfig<
   /**
    * Re-authorize on auto-rejoin after reconnect (persistent memberships).
    * Throw to drop. Written inside this same config object, before
-   * `capabilities` and channel-owned `outgoing.requests` can be read back, so
+   * `capabilities` and channel-owned `serverRequests(...)` can be read back, so
    * `ctx.channel.inbox`, `ctx.channel.readReceipts`, and
    * `ctx.channel.request` / `broadcastRequest` are not available here — read
    * channel-only surfaces in `subscribe`, `unsubscribe`, or `sessionEnd`
@@ -850,7 +824,7 @@ export type ChannelConfig<
    * channel) for the read cursor. Unlike the host's `capabilities`, this list
    * is scoped to the one channel.
    */
-  readonly capabilities?: readonly ChannelOnlyCapability<{}, never, string>[];
+  readonly capabilities?: TCapabilities;
 } & ChannelRateLimitField<TCaps>;
 
 /**
@@ -1343,7 +1317,7 @@ export type ChannelObjectCore<
     TServerRequests,
     TChannelBrand
   > &
-  ('requests' extends BrandsOf<TCaps>
+  ('clientRequests' extends BrandsOf<TCaps>
     ? ChannelRequestMethods<
         TSlots,
         TEnv,
@@ -1452,7 +1426,7 @@ export interface ChannelCoreMethods<
   replay(hooks: CustomReplayHooks): void;
 }
 
-/** Channel `request(...)`, granted by the `requests()` capability. */
+/** Channel `request(...)`, granted by the `clientRequests()` capability. */
 export interface ChannelRequestMethods<
   TSlots,
   TEnv,
@@ -1540,25 +1514,36 @@ export interface ChannelInterceptMethods<
  * same way: the accepted element brand collapses to `never`, and the widened
  * array fails to satisfy it at the call site.
  */
-type ValidChannelCapabilities<T extends readonly ChannelOnlyCapability<{}, never, string>[]> =
+type ValidChannelCapabilities<
+  T extends readonly ChannelCapability[],
+  THostCaps extends readonly AnyCapability[],
+> =
   BrandIsWidened<NonNullable<T[number]['__brand']>> extends true
     ? readonly ChannelOnlyCapability<{}, never, never>[]
     : 'readReceipts' extends BrandsOf<T>
       ? 'inbox' extends BrandsOf<T>
-        ? T
+        ? ValidChannelServerRequests<T, THostCaps>
         : readonly ChannelOnlyCapability<{}, never, Exclude<BrandsOf<T>, 'readReceipts'>>[]
-      : T;
+      : ValidChannelServerRequests<T, THostCaps>;
+
+type ValidChannelServerRequests<
+  T extends readonly ChannelCapability[],
+  THostCaps extends readonly AnyCapability[],
+> =
+  'serverRequests' extends BrandsOf<T>
+    ? 'serverRequests' extends BrandsOf<THostCaps>
+      ? T
+      : readonly Exclude<T[number], ServerRequestsCapability>[]
+    : T;
 
 /** Builder method granted by the `channels()` capability. */
 export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /** Declare a static channel. */
   channel<
     TName extends string,
-    const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
-    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
+    const TCapabilities extends readonly ChannelCapability[] = readonly [],
   >(
     name: TName,
     config?: ChannelConfig<
@@ -1568,13 +1553,10 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
       TCaps,
       TSubscribe,
       TCheckResult,
-      EmitMap<TEmits>
+      ChannelOutgoing<TCapabilities>,
+      TCapabilities
     > & {
-      readonly outgoing?: {
-        readonly emits?: TEmits;
-        readonly requests?: TRequests;
-      };
-      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities, TCaps>;
     },
   ): ChannelObject<
     TSlots,
@@ -1582,11 +1564,11 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TMeta,
     TName,
     {},
-    EmitMap<TEmits>,
+    ChannelOutgoing<TCapabilities>,
     'static',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>,
+    ChannelServerRequests<TCapabilities>,
     BrandsOf<TCapabilities>
   > &
     ChannelFlagsContribution<TName, BrandsOf<TCapabilities>>;
@@ -1594,11 +1576,9 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
   channel<
     TFamily extends string,
     TPattern extends string,
-    const TEmits extends Record<string, TypeMarker<any> | Validator> = {},
-    const TRequests extends RequestsDeclarationConstraint<TCaps> = {},
     TSubscribe extends Validator | undefined = undefined,
     TCheckResult = unknown,
-    const TCapabilities extends readonly ChannelOnlyCapability<{}, never, string>[] = readonly [],
+    const TCapabilities extends readonly ChannelCapability[] = readonly [],
   >(
     pattern: readonly [TFamily, TPattern],
     config?: ChannelConfig<
@@ -1608,13 +1588,10 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
       TCaps,
       TSubscribe,
       TCheckResult,
-      EmitMap<TEmits>
+      ChannelOutgoing<TCapabilities>,
+      TCapabilities
     > & {
-      readonly outgoing?: {
-        readonly emits?: TEmits;
-        readonly requests?: TRequests;
-      };
-      readonly capabilities?: ValidChannelCapabilities<TCapabilities>;
+      readonly capabilities?: ValidChannelCapabilities<TCapabilities, TCaps>;
     },
   ): ChannelObject<
     TSlots,
@@ -1622,11 +1599,11 @@ export interface ChannelMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyC
     TMeta,
     TFamily,
     ExtractParams<TPattern>,
-    EmitMap<TEmits>,
+    ChannelOutgoing<TCapabilities>,
     'dynamic',
     SubscribePayloadOf<TSubscribe>,
     TCaps,
-    ServerRequestMap<TRequests>,
+    ChannelServerRequests<TCapabilities>,
     BrandsOf<TCapabilities>
   > &
     ChannelFlagsContribution<TFamily, BrandsOf<TCapabilities>>;
@@ -1652,7 +1629,7 @@ export type CapabilityMethods<
   TMeta,
   TBrand extends string,
   TCaps extends readonly AnyCapability[],
-> = ('requests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
+> = ('clientRequests' extends TBrand ? RequestMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
   ('scheduled' extends TBrand ? ScheduledMethods<TSlots, TEnv, TMeta> : {}) &
   ('replay-custom' extends TBrand ? ReplayMethods : {}) &
   ('intercepts' extends TBrand ? InterceptMethods<TSlots, TEnv, TMeta, TCaps> : {}) &
@@ -1874,6 +1851,42 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
   }
 }
 
+interface ServerRequestsPrimitive extends Primitive {
+  readonly __wskit: 'server-requests';
+  readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
+  readonly __withServerRequests: (
+    declarations: ReadonlyMap<string, ResolvedServerRequest>,
+  ) => Primitive;
+}
+
+/** Install one server-request runtime containing every host and plugin declaration. */
+function mergeServerRequestPrimitives(primitives: Primitive[]): void {
+  const carriers = primitives.flatMap((primitive, index) =>
+    primitive.__wskit === 'server-requests'
+      ? ([[index, primitive as ServerRequestsPrimitive]] as const)
+      : [],
+  );
+  if (carriers.length < 2) return;
+
+  const declarations = new Map<string, ResolvedServerRequest>();
+  for (const [, carrier] of carriers) {
+    for (const [key, declaration] of carrier.__serverRequests) {
+      if (declarations.has(key)) {
+        throw new Error(
+          `[wskit] duplicate serverRequests() declaration for '${key}'. ` +
+            'Each request can only be declared once per scope.',
+        );
+      }
+      declarations.set(key, declaration);
+    }
+  }
+
+  const [firstIndex, firstCarrier] = carriers[0]!;
+  const rest = carriers.slice(1);
+  primitives[firstIndex] = firstCarrier.__withServerRequests(declarations);
+  for (const [index] of rest.reverse()) primitives.splice(index, 1);
+}
+
 /**
  * Pair every declared scheduled task with its body and build the task
  * primitives. A declared task with no body, or a body with no declaration, is a
@@ -2070,12 +2083,12 @@ export function define(config: any): any {
       ) => Primitive;
       let build: Build | undefined;
       for (const cap of config.capabilities ?? []) {
-        const candidate = (cap as { __buildRequest?: Build }).__buildRequest;
+        const candidate = (cap as { __buildClientRequest?: Build }).__buildClientRequest;
         if (candidate) build = candidate;
       }
       if (!build) {
         throw new Error(
-          '[wskit] base.request() needs the requests() capability. Add requests() to capabilities.',
+          '[wskit] base.request() needs clientRequests(). Add clientRequests() to capabilities.',
         );
       }
       const primitive = build(event, {
@@ -2115,7 +2128,7 @@ export function define(config: any): any {
       const streamBuilders: Record<string, unknown> = {};
       let buildCustomReplay: unknown;
       let buildBuiltinReplay: unknown;
-      let buildRequest: unknown;
+      let buildClientRequest: unknown;
       let registerServerRequests: unknown;
       for (const cap of config.capabilities ?? []) {
         const candidate = (
@@ -2129,8 +2142,8 @@ export function define(config: any): any {
         if (customReplay) buildCustomReplay = customReplay;
         const builtinReplay = (cap as { __buildBuiltinReplay?: unknown }).__buildBuiltinReplay;
         if (builtinReplay) buildBuiltinReplay = builtinReplay;
-        const request = (cap as { __buildRequest?: unknown }).__buildRequest;
-        if (request) buildRequest = request;
+        const request = (cap as { __buildClientRequest?: unknown }).__buildClientRequest;
+        if (request) buildClientRequest = request;
         const registerSR = (cap as { __registerServerRequests?: unknown }).__registerServerRequests;
         if (registerSR) registerServerRequests = registerSR;
       }
@@ -2143,7 +2156,7 @@ export function define(config: any): any {
         streamBuilders,
         buildCustomReplay,
         buildBuiltinReplay,
-        buildRequest,
+        buildClientRequest,
         registerServerRequests,
       });
     },
@@ -2317,6 +2330,7 @@ export function define(config: any): any {
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
       primitives.push(...channelPrimitives);
+      mergeServerRequestPrimitives(primitives);
 
       const declaredErrors = primitives
         .filter((p): p is ErrorsPrimitive => p.__wskit === 'errors')

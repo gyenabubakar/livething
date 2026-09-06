@@ -32,9 +32,7 @@ const handleSendBeacon = base.on('send-beacon', {
 });
 
 const privateChannel = base.channel('private', {
-  outgoing: {
-    emits: { secret: t<v.InferOutput<typeof Secret>>() },
-  },
+  capabilities: [emits({ secret: t<v.InferOutput<typeof Secret>>() })],
 });
 
 const handleSendSecret = privateChannel.on('send-secret', {

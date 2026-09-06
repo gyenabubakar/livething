@@ -2,8 +2,10 @@
 import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import { requests } from '~/request/capability.ts';
+import { emits } from '~/emits/emits.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequestKey } from '~/request/outgoing-runtime.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -20,10 +22,27 @@ function channelPrimitive(primitives: readonly { __wskit: string }[]): any {
 }
 
 describe('channels() capability', () => {
+  it('registers events and outbound requests from channel capabilities', () => {
+    const base = define({
+      env: t<Env>(),
+      capabilities: [channels(), serverRequests()],
+    });
+    const room = base.channel('room', {
+      capabilities: [
+        emits({ joined: t<{ id: string }>() }),
+        serverRequests({
+          confirm: { out: t<{ id: string }>(), in: v.object({ ok: v.boolean() }) },
+        }),
+      ],
+    });
+    const compiled = compileHandlerDefinition(base.assemble({ handlers: [room] }));
+    expect(compiled.channels.get('room')?.outgoing.has('joined')).toBe(true);
+  });
+
   it('registers a static channel with its emits and handler', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const lobby = base.channel('lobby', {
-      outgoing: { emits: { joined: t<{ id: string }>() } },
+      capabilities: [emits({ joined: t<{ id: string }>() })],
     });
     const handleChat = lobby.on('chat', { input: v.object({ text: v.string() }), run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleChat] }));
@@ -35,7 +54,7 @@ describe('channels() capability', () => {
   it('registers a dynamic channel family', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
-      outgoing: { emits: { said: t<{ text: string }>() } },
+      capabilities: [emits({ said: t<{ text: string }>() })],
     });
     const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleSay] }));
@@ -78,7 +97,7 @@ describe('channels() capability', () => {
 
   it('pulls in the whole channel — gates and lifecycle — from one handler', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
-    const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
+    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     room.subscribe(() => {});
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
@@ -90,7 +109,7 @@ describe('channels() capability', () => {
   it('assembles a handler-less channel passed directly', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const presence = base.channel('presence', {
-      outgoing: { emits: { tick: t<{}>() } },
+      capabilities: [emits({ tick: t<{}>() })],
     });
     presence.subscribe(() => {});
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [presence] }));
@@ -99,7 +118,7 @@ describe('channels() capability', () => {
 
   it('dedupes a channel passed both directly and via a handler', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
-    const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
+    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const channelCount = base
       .assemble({ handlers: [room, handleSay] })
@@ -109,7 +128,7 @@ describe('channels() capability', () => {
 
   it('exposes the family key as ctx.channel.family at runtime', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
-    const room = base.channel('room', { outgoing: { emits: { said: t<{ text: string }>() } } });
+    const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     let seenFamily: unknown;
     room.on('say', {
       input: v.object({}),
@@ -130,7 +149,7 @@ describe('channels() capability', () => {
     let seenCheck: unknown;
     let seenCommit: unknown;
     const room = base.channel('room', {
-      outgoing: { emits: { said: t<{ text: string }>() } },
+      capabilities: [emits({ said: t<{ text: string }>() })],
       subscribe: v.object({ token: v.string() }),
       check(_ctx, input) {
         seenCheck = input;
@@ -183,7 +202,7 @@ describe('channels() capability', () => {
   });
 
   it('responds to a channel request with the return value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), clientRequests()] });
     const room = base.channel('room', {});
     room.request('info', {
       input: v.object({}),
@@ -201,7 +220,7 @@ describe('channels() capability', () => {
   });
 
   it('carries handler scheduling options through channel compilation', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), requests()] });
+    const base = define({ env: t<Env>(), capabilities: [channels(), clientRequests()] });
     const room = base.channel('room', {});
     const ordered = room.on('ordered', { run() {} });
     const interleaved = room.on('interleaved', { allowInterleaving: true, run() {} });
@@ -246,42 +265,42 @@ describe('channels() capability', () => {
     expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
   });
 
-  it('throws when a channel request is used without the requests() capability', () => {
+  it('throws when a channel request is used without the clientRequests() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', {}) as unknown as {
       request(event: string, config: { input?: unknown; run: () => unknown }): unknown;
     };
     expect(() => room.request('info', { input: v.object({}), run: () => ({}) })).toThrow(
-      /uses request\(\) but the requests\(\) capability is not/,
+      /uses request\(\) but clientRequests\(\) is not/,
     );
   });
 
-  it('throws when a channel declares outgoing.requests without the requests() capability', () => {
+  it('throws when a channel declares serverRequests without the root runtime', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const escapeHatch = base as unknown as {
       channel(name: string, config?: any): unknown;
     };
     expect(() =>
       escapeHatch.channel('room', {
-        outgoing: {
-          requests: {
+        capabilities: [
+          serverRequests({
             'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
-          },
-        },
+          }),
+        ],
       }),
-    ).toThrow(/declares outgoing\.requests but the requests\(\) capability is not listed/);
+    ).toThrow(/declares serverRequests\(\.\.\.\) but serverRequests\(\) is not listed/);
   });
 
-  it('registers channel outgoing.requests with the requests() capability', () => {
-    const reqCap = requests();
+  it('registers channel serverRequests with the root runtime', () => {
+    const reqCap = serverRequests();
     const base = define({ env: t<Env>(), capabilities: [reqCap, channels()] });
     base.channel('room', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
           vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
-        },
-      },
+        }),
+      ],
     });
     const declarations = (reqCap as unknown as { __serverRequests: ReadonlyMap<string, any> })
       .__serverRequests;

@@ -164,7 +164,7 @@ export interface RegisteredEngineHooks {
    * `correlationId` is offered to each hook before normal routing; a hook
    * returns `true` when the id matches a pending server-initiated request it
    * owns (validating the answer and resolving/rejecting the server promise),
-   * which stops routing. Owned by the `requests()` capability so the core never
+   * which stops routing. Owned by the `serverRequests()` capability so the core never
    * imports the pending-request map.
    */
   answerFrame: ((

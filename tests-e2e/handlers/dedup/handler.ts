@@ -19,7 +19,7 @@ const handleDoEcho = base.on('do-echo', {
 });
 
 const room = base.channel('room', {
-  outgoing: { emits: {} },
+  capabilities: [emits({})],
 });
 
 export const dedupHandler = base.assemble({ handlers: [handleDoEcho, room] });

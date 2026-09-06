@@ -2,6 +2,7 @@ import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
+import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 
@@ -11,13 +12,13 @@ const base = define({
 });
 
 const chat = base.channel('chat', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       message: t<{ text: string }>(),
       count: t<{ value: number }>(),
-    },
-  },
-  capabilities: [inbox()],
+    }),
+    inbox(),
+  ],
 });
 
 export const handleConnectionClose = base.on('close', {

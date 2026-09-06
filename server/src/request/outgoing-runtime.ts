@@ -86,8 +86,8 @@ interface BroadcastRequestOptions extends RequestOptions {
 
 /**
  * Compose the lookup key for one server→client request declaration. Keyed by
- * `[channelKey, event]` (channelKey is `null` for a top-level `requests({...})`
- * declaration, or the channel's family key / static name for an `outgoing.requests`
+ * `[channelKey, event]` (channelKey is `null` for a top-level `serverRequests({...})`
+ * declaration, or the channel's family key / static name for a channel `serverRequests(...)`
  * declaration), JSON-encoded so two channels can declare the same event name — and a
  * channel can reuse a top-level name — without clobbering each other. JSON keeps
  * the key unambiguous for any name without relying on a reserved separator.
@@ -98,8 +98,8 @@ export function serverRequestKey(channelKey: string | null, event: string): stri
 
 /**
  * The channel-definition key for a runtime channel handle: its family key for a
- * dynamic channel, its static name otherwise — matching how `requests()` keys
- * the channel's own `outgoing.requests` declarations. Top-level surfaces pass `null`.
+ * dynamic channel, its static name otherwise — matching how `serverRequests()` keys
+ * the channel's own `serverRequests(...)` declarations. Top-level surfaces pass `null`.
  */
 function channelDeclarationKey(handle: { name?: string; family?: unknown }): string {
   return typeof handle.family === 'string' ? handle.family : (handle.name ?? '');
@@ -436,14 +436,14 @@ function toRejection(payload: unknown): unknown {
 }
 
 /**
- * The runtime primitive the `requests({...})` capability contributes. Its
+ * The runtime primitive the `serverRequests({...})` capability contributes. Its
  * `__setup` installs the server→client request surfaces (`ctx.request`,
  * `ctx.connections.get(ref).request`, `ctx.channel.request`) and the inbound
  * answer-frame + disconnect seams. Channel-owned request verbs stay off
  * subscribe-gate contexts because those callbacks cannot infer the channel's
  * own request declaration map. The pending-request map lives in this module,
  * so the engine core never imports any of it (tree-shaking: a server without
- * `requests()` pulls none of this).
+ * `serverRequests()` pulls none of this).
  */
 export function makeServerRequestsPrimitive(
   serverRequests: ReadonlyMap<string, ResolvedServerRequest>,
@@ -454,6 +454,9 @@ export function makeServerRequestsPrimitive(
     __identity: [SERVER_REQUESTS_KEY],
     __requires: {},
     __serverRequests: serverRequests,
+    __withServerRequests(next: ReadonlyMap<string, ResolvedServerRequest>): Primitive {
+      return makeServerRequestsPrimitive(next);
+    },
     __setup(engine: EngineAccess): void {
       const runtime = createOutgoingRequestRuntime(engine, serverRequests);
 

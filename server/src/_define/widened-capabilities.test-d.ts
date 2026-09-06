@@ -12,7 +12,7 @@ import { keepalive } from '~/keepalive/capability.ts';
 import { lastSeen } from '~/last-seen/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -33,9 +33,7 @@ base.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
 // @ts-expect-error — channels() is not confirmed listed, so base.channel is absent.
 base.channel('room2', {
-  outgoing: {
-    requests: { ask: { out: t<{}>(), in: v.object({}) } },
-  },
+  capabilities: [serverRequests({ ask: { out: t<{}>(), in: v.object({}) } })],
 });
 
 base.on('ping', {
@@ -69,12 +67,10 @@ rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
 const requestsBase = define({
   env: t<Record<string, never>>(),
-  capabilities: [channels(), requests()],
+  capabilities: [channels(), serverRequests()],
 });
 requestsBase.channel('room2', {
-  outgoing: {
-    requests: { ask: { out: t<{}>(), in: v.object({}) } },
-  },
+  capabilities: [serverRequests({ ask: { out: t<{}>(), in: v.object({}) } })],
 });
 
 const channelsBase = define({

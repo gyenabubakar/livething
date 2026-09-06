@@ -124,7 +124,7 @@ const handleSlowStream = base.stream('start-slow-stream', {
 });
 
 const room = base.channel('room', {
-  outgoing: { emits: { 'room-message': t<{ text: string }>() } },
+  capabilities: [emits({ 'room-message': t<{ text: string }>() })],
 });
 
 const handleBroadcastToRoom = room.on('broadcast-to-room', {

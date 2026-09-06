@@ -57,12 +57,12 @@ const room = base.channel(['room', 'room:{id}'], {
   // Ephemeral: the leave test drops a connection and expects the
   // onUnsubscribe system broadcast, which needs a true leave on disconnect.
   membership: 'ephemeral',
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-message': t<{ channel: string; text: string; from: string; kind: string }>(),
       'name-result': t<{ name: string; suffix: string }>(),
-    },
-  },
+    }),
+  ],
   async check(ctx) {
     if (ctx.meta.username === 'banned-user') {
       throw new Error('banned-user may not subscribe');

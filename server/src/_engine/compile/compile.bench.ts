@@ -15,7 +15,7 @@ import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -42,12 +42,17 @@ const tinyHandler = tinyBase.assemble({
 const mediumBase = define({
   env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
-  capabilities: [requests(), stream(), channels(), emits({ notify: EmptyOut, joined: EmptyOut })],
+  capabilities: [
+    clientRequests(),
+    stream(),
+    channels(),
+    emits({ notify: EmptyOut, joined: EmptyOut }),
+  ],
 });
-const lobby = mediumBase.channel('lobby', { outgoing: { emits: { said: TextOut } } });
+const lobby = mediumBase.channel('lobby', { capabilities: [emits({ said: TextOut })] });
 lobby.on('say', { input: Text, run() {} });
 const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
-  outgoing: { emits: { posted: TextOut } },
+  capabilities: [emits({ posted: TextOut })],
 });
 rooms.on('post', { input: Text, run() {} });
 const mediumHandler = mediumBase.assemble({
@@ -87,7 +92,7 @@ const heavyBase = define({
     dedup(),
     sequence({ persist: true }),
     replay.history(),
-    requests(),
+    clientRequests(),
     stream(),
     resumableStream(),
     recordedStream(),
@@ -140,14 +145,14 @@ heavyHandlers.push(
   }),
 );
 for (const n of [1, 2, 3, 4, 5]) {
-  const ch = heavyBase.channel(`chan-${n}`, { outgoing: { emits: channelEmits(`c${n}`) } });
+  const ch = heavyBase.channel(`chan-${n}`, { capabilities: [emits(channelEmits(`c${n}`))] });
   ch.on(`c${n}-send`, { input: Text, run() {} });
   ch.on(`c${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
-    outgoing: { emits: channelEmits(`r${n}`) },
+    capabilities: [emits(channelEmits(`r${n}`))],
   });
   ch.on(`r${n}-send`, { input: Text, run() {} });
   ch.on(`r${n}-edit`, { input: Text, run() {} });

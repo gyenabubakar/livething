@@ -11,7 +11,7 @@ import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -26,7 +26,7 @@ import type { InferClient } from '~/infer-client.ts';
 const reqBase = define({
   env: t<{}>(),
   capabilities: [
-    requests({
+    serverRequests({
       ask: { out: t<{ a: string }>(), in: v.object({ ok: v.boolean() }) },
       vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
     }),
@@ -35,13 +35,13 @@ const reqBase = define({
 });
 
 const reqChannel = reqBase.channel(['room', 'room:{id}'], {
-  outgoing: {
-    emits: { tick: t<{ n: number }>() },
-    requests: {
+  capabilities: [
+    emits({ tick: t<{ n: number }>() }),
+    serverRequests({
       'confirm-kick': { out: t<{ target: string }>(), in: v.object({ ok: v.boolean() }) },
       vol: { out: t<{}>(), in: v.object({ r: v.boolean() }) },
-    },
-  },
+    }),
+  ],
 });
 const reqChannelHandler = reqChannel.on('ping', { run() {} });
 
@@ -121,8 +121,7 @@ const flagsBase = define({
 });
 
 const flaggedChannel = flagsBase.channel('flagged', {
-  capabilities: [inbox(), readReceipts()],
-  outgoing: { emits: { joined: t<{ id: string }>() } },
+  capabilities: [inbox(), readReceipts(), emits({ joined: t<{ id: string }>() })],
 });
 const flaggedChannelHandler = flaggedChannel.on('join', {
   input: v.object({ id: v.string() }),

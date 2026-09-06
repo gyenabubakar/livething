@@ -469,7 +469,7 @@ export interface UserHandle<Meta = Record<string, unknown>> {
   /**
    * Ask this user a question and await the first valid answer from any of
    * their live connections. Present only when the contract declares
-   * `requests({...})`.
+   * `serverRequests({...})`.
    */
   request?(
     event: string,

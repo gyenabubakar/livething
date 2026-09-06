@@ -1,6 +1,6 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
-import { requests } from '@wskit/server/requests';
+import { serverRequests } from '@wskit/server/server-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -17,7 +17,7 @@ export const broadcastRequestContract = define({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
-    requests(),
+    serverRequests(),
     emits({
       outcome: t<{ from: string; ready: boolean }>(),
       'error-outcome': t<{ code: string }>(),
@@ -32,12 +32,12 @@ function describeError(error: unknown): string {
 }
 
 const lobby = broadcastRequestContract.channel('lobby', {
-  outgoing: {
-    emits: {},
-    requests: {
+  capabilities: [
+    emits({}),
+    serverRequests({
       volunteer: { out: t<{ turn: number }>(), in: v.object({ ready: v.boolean() }) },
-    },
-  },
+    }),
+  ],
 });
 
 const handleTrigger = broadcastRequestContract.on('trigger', {

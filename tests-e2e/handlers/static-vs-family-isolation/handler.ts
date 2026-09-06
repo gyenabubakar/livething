@@ -97,9 +97,7 @@ const handleKickFamily = base.on('kick-family', {
 });
 
 const general = base.channel('general', {
-  outgoing: {
-    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
-  },
+  capabilities: [emits({ msg: t<v.InferOutput<typeof MsgPayload>>() })],
 });
 
 const handleSendInGeneral = general.on('send-in-general', {
@@ -110,9 +108,7 @@ const handleSendInGeneral = general.on('send-in-general', {
 });
 
 const room = base.channel(['rooms', 'room:{id}'], {
-  outgoing: {
-    emits: { msg: t<v.InferOutput<typeof MsgPayload>>() },
-  },
+  capabilities: [emits({ msg: t<v.InferOutput<typeof MsgPayload>>() })],
 });
 
 const handleSendInRoom = room.on('send-in-room', {

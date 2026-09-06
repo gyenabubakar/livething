@@ -24,7 +24,7 @@ import type { AnyCapability, BrandsOf, FeaturesOf, SlotOr } from './capability.t
  *
  * The handle is the seam for addressing one socket. It carries `send` and
  * `close` always;
- * the `requests()` capability adds the `request` arm (see `ConnectionRequestHandle`).
+ * the `serverRequests()` capability adds the `request` arm (see `ConnectionRequestHandle`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`.
  */
@@ -72,7 +72,7 @@ export interface BroadcastAnswer<R> {
 }
 
 /**
- * The `broadcastRequest` arm a `requests()` server adds to every fan-out
+ * The `broadcastRequest` arm a `serverRequests()` server adds to every fan-out
  * surface. Every declared server→client request is callable here — the verb
  * decides fan-out vs targeted, not the declaration. Resolves with the first
  * valid answer and its `from` ref, or rejects with `timeout` when nobody
@@ -89,7 +89,7 @@ export interface BroadcastRequestArm<SR> {
 }
 
 /**
- * The `request` arm a `requests()` server adds to a `ctx.connections.get(ref)`
+ * The `request` arm a `serverRequests()` server adds to a `ctx.connections.get(ref)`
  * handle. The server asks one specific connection a declared server→client
  * request and awaits its typed answer.
  */
@@ -109,7 +109,7 @@ export interface ConnectionRequestHandle<TSlots> extends ConnectionHandle<TSlots
 
 /**
  * The `ctx.request` / `ctx.connections.get(ref).request` surface — owned by the
- * `requests()` capability. Server→client targeted requests: ask one connection
+ * `serverRequests()` capability. Server→client targeted requests: ask one connection
  * and await its typed answer.
  */
 export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
@@ -133,11 +133,13 @@ export interface ServerRequestCtx<TSlots> extends BroadcastRequestArm<
 
 /**
  * The handle `ctx.connections.get(ref)` returns. It always carries the typed
- * `send`; with `requests()` listed it also carries the typed `request(...)`,
+ * `send`; with `serverRequests()` listed it also carries the typed `request(...)`,
  * gated on `TCaps` so the arm is a compile error otherwise.
  */
 type ConnectionGetHandle<TSlots, TCaps extends readonly AnyCapability[]> =
-  'requests' extends BrandsOf<TCaps> ? ConnectionRequestHandle<TSlots> : ConnectionHandle<TSlots>;
+  'serverRequests' extends BrandsOf<TCaps>
+    ? ConnectionRequestHandle<TSlots>
+    : ConnectionHandle<TSlots>;
 
 /**
  * `ctx.connections`, always present. Reach one specific socket by ref with
@@ -147,7 +149,7 @@ export interface ConnectionsCtx<TSlots, TMeta, TCaps extends readonly AnyCapabil
   connections: {
     /**
      * Address one specific connection by ref. The handle always carries `send`;
-     * with `requests()` listed it also carries `request(...)`.
+     * with `serverRequests()` listed it also carries `request(...)`.
      */
     get(ref: ConnectionRef): ConnectionGetHandle<TSlots, TCaps>;
     /** Snapshot of every connection currently open on this server instance. */
@@ -156,7 +158,7 @@ export interface ConnectionsCtx<TSlots, TMeta, TCaps extends readonly AnyCapabil
 }
 
 /**
- * The `request` arm a `requests()` server adds to a `UserHandle`. Asks every
+ * The `request` arm a `serverRequests()` server adds to a `UserHandle`. Asks every
  * live socket the user holds and settles on the first valid answer, reporting
  * which connection gave it via `from`.
  */
@@ -190,12 +192,12 @@ export interface UserHandleBase<TSlots, TMeta> {
   info(): UserInfo<TMeta> | null;
 }
 
-/** A `UserHandle`, plus the `request` arm when `requests()` is listed. */
+/** A `UserHandle`, plus the `request` arm when `serverRequests()` is listed. */
 type UserHandleCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = UserHandleBase<
   TSlots,
   TMeta
 > &
-  ('requests' extends BrandsOf<TCaps> ? UserRequestArm<TSlots> : {});
+  ('serverRequests' extends BrandsOf<TCaps> ? UserRequestArm<TSlots> : {});
 
 /**
  * `ctx.user` (the current connection's user) and `ctx.users` (reach any user by
@@ -306,7 +308,7 @@ type ChannelPayload<
 
 /** The request payload for a channel-scoped key, when the event is a channel request. */
 type ChannelRequestPayload<TChannel, TEvent extends string> = TChannel extends {
-  requests: infer R;
+  clientRequests: infer R;
 }
   ? TEvent extends keyof R
     ? R[TEvent] extends { payload: infer P }
@@ -395,21 +397,23 @@ export interface ScheduleCtx<TSlots> {
   ): void;
 }
 
-/** A tag ref handle, plus the broadcast arm when `requests()` is listed. */
+/** A tag ref handle, plus the broadcast arm when `serverRequests()` is listed. */
 type TagRefWithBroadcast<
   TSlots,
   TMeta,
   TCaps extends readonly AnyCapability[],
 > = TagRefHandle<TMeta> &
-  ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
+  ('serverRequests' extends BrandsOf<TCaps>
+    ? BroadcastRequestArm<BroadcastServerRequests<TSlots>>
+    : {});
 
-/** A tag group handle, plus the broadcast arm (group + ref) when `requests()` is listed. */
+/** A tag group handle, plus the broadcast arm (group + ref) when `serverRequests()` is listed. */
 type TagGroupWithBroadcast<TSlots, TMeta, TCaps extends readonly AnyCapability[]> = Omit<
   TagGroupHandle<TMeta>,
   'ref'
 > & {
   ref(key: string): TagRefWithBroadcast<TSlots, TMeta, TCaps>;
-} & ('requests' extends BrandsOf<TCaps>
+} & ('serverRequests' extends BrandsOf<TCaps>
     ? BroadcastRequestArm<BroadcastServerRequests<TSlots>>
     : {});
 
@@ -418,7 +422,7 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
   /**
    * Tag groups for this connection. `ephemeral(group)` / `persistent(group)`
    * return a handle to add, remove, count, and address connections by tag; only
-   * groups declared by the `tags(...)` capability are accepted. With `requests()`
+   * groups declared by the `tags(...)` capability are accepted. With `serverRequests()`
    * listed, the group and ref handles also carry `broadcastRequest(...)`.
    */
   readonly tags: Omit<
@@ -435,7 +439,7 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
 }
 
 /**
- * A `ctx.channels.get(...)` handle, plus the broadcast arm when `requests()` is
+ * A `ctx.channels.get(...)` handle, plus the broadcast arm when `serverRequests()` is
  * listed. The arm resolves TOP-LEVEL broadcast requests (addressed to the named
  * channel's members): a top-level handler is typed from define-time slots and so
  * cannot see a channel's own request types — those exist only on the active
@@ -455,12 +459,14 @@ type ChannelsGetHandle<
   TCaps extends readonly AnyCapability[],
   TGate extends boolean,
 > = ChannelHandleForContext<Record<string, unknown>, TMeta, TGate> &
-  ('requests' extends BrandsOf<TCaps> ? BroadcastRequestArm<BroadcastServerRequests<TSlots>> : {});
+  ('serverRequests' extends BrandsOf<TCaps>
+    ? BroadcastRequestArm<BroadcastServerRequests<TSlots>>
+    : {});
 
 /**
  * The fully-typed `ctx.channels.get(ref)` handle. `send`/`broadcast` are typed to
  * the referenced channel's emits, and `broadcastRequest` to its broadcast requests
- * when `requests()` is listed. The channel handle has no current connection, so
+ * when `serverRequests()` is listed. The channel handle has no current connection, so
  * only the broadcast verb is added (not the targeted `request`).
  */
 type TypedChannelsGetHandle<
@@ -471,7 +477,7 @@ type TypedChannelsGetHandle<
 > =
   R extends ChannelRef<infer TOutgoing extends Record<string, unknown>, infer TServerRequests>
     ? ChannelHandleForContext<TOutgoing, TMeta, TGate> &
-        ('requests' extends BrandsOf<TCaps>
+        ('serverRequests' extends BrandsOf<TCaps>
           ? BroadcastRequestArm<BroadcastServerRequests<{ serverRequests: TServerRequests }>>
           : {})
     : never;
@@ -533,7 +539,7 @@ export type CtxExtensionsOf<
   TGate extends boolean = false,
 > = ('keepalive' extends FeaturesOf<TCaps> ? KeepaliveCtx : {}) &
   ('last-seen' extends FeaturesOf<TCaps> ? LastSeenCtx : {}) &
-  ('requests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
+  ('serverRequests' extends BrandsOf<TCaps> ? ServerRequestCtx<TSlots> : {}) &
   ('replay' extends FeaturesOf<TCaps>
     ? SendReplayCtx<TSlots>
     : 'replay-custom' extends BrandsOf<TCaps>

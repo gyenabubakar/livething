@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -31,12 +31,12 @@ export const handleServerDrop = base.on('server-drop', {
 });
 
 const chat = base.channel('chat', {
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = chat.on('send-room-msg', {

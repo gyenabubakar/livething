@@ -50,11 +50,11 @@ export const handleServerDrop = base.on('server-drop', {
 });
 
 const gapRoom = base.channel('gap-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = gapRoom.on('send-room-msg', {

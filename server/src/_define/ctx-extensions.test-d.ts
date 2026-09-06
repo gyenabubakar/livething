@@ -15,7 +15,7 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -93,9 +93,9 @@ ownerBase.onOutgoing((ctx, frame) => {
 const bareBase = define({ env: t<{}>(), capabilities: [emits({ e: t<{}>() })] });
 bareBase.on('bare', {
   run(ctx) {
-    // @ts-expect-error — `request` needs requests()
+    // @ts-expect-error — `request` needs serverRequests()
     ctx.request('x', {});
-    // @ts-expect-error — `broadcastRequest` needs requests()
+    // @ts-expect-error — `broadcastRequest` needs serverRequests()
     ctx.broadcastRequest('x', {});
     // @ts-expect-error — `tags` needs tags()
     ctx.tags;
@@ -117,7 +117,7 @@ const fullBase = define({
   env: t<{}>(),
   capabilities: [
     emits({ e: t<{}>() }),
-    requests({
+    serverRequests({
       r: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
       br: { out: t<{}>(), in: v.object({ ok: v.boolean() }) },
     }),

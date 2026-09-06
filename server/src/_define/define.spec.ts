@@ -4,7 +4,7 @@ import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import { intercepts } from '~/intercept/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -64,7 +64,7 @@ describe('define() send/receive core', () => {
   });
 
   it('uses ordered work for on handlers and interleaved work for requests by default', () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const incoming = base.on('incoming', { run() {} });
     const request = base.request('request', { run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [incoming, request] }));
@@ -155,7 +155,7 @@ describe('define() send/receive core', () => {
   });
 
   it('throws when one event name is bound by both an on and a request handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [requests()] });
+    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     const asRequest = base.request('shared', { input: v.object({}), run() {} });
     expect(() => base.assemble({ handlers: [asEvent, asRequest] })).toThrow(

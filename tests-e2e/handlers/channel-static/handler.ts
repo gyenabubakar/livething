@@ -62,9 +62,7 @@ const room = base.channel('room', {
   // (onUnsubscribe fires, __memberLeave__ broadcasts), which only holds when
   // membership does not survive a reconnect.
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
   check(ctx) {
     if (ctx.meta.username === 'blocked-user') {
       throw new Error('blocked-user may not subscribe');
@@ -136,9 +134,7 @@ const room2 = base.channel('room2', {
   // drop a connection that is a member of both and expect a true leave on
   // this channel too.
   membership: 'ephemeral',
-  outgoing: {
-    emits: { 'room-message': t<{ text: string; from: string; kind: string }>() },
-  },
+  capabilities: [emits({ 'room-message': t<{ text: string; from: string; kind: string }>() })],
 });
 
 const handleRoom2SendMessage = room2.on('send-message', {

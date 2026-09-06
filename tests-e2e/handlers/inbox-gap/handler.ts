@@ -40,12 +40,12 @@ export const handleServerDrop = base.on('server-drop', {
 
 const chat = base.channel('chat', {
   membership: 'persistent',
-  capabilities: [inbox({ retention: { maxMessages: 1 }, broadcastReceipts: true })],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox({ retention: { maxMessages: 1 }, broadcastReceipts: true }),
+    emits({
       'room-msg': t<RoomMsg>(),
-    },
-  },
+    }),
+  ],
 });
 
 const delayedRaceLeaves = new Map<string, () => void>();

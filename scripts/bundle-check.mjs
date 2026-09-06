@@ -68,6 +68,7 @@ const SERVER_ENGINES = {
   keepalive: { marker: '__wskit: "keepalive"', label: 'keepalive capability' },
   dedup: { marker: '__wskit: "dedup"', label: 'dedup capability' },
   request: { marker: '__wskit: "request"', label: 'request engine' },
+  serverRequest: { marker: 'request-not-declared', label: 'server-request engine' },
   rateLimit: { marker: ' at scope ', label: 'rate-limit engine' },
   // `plugins.ts` is a bundle entry, so a bundler keeps the module whole: one
   // value import of anything it exports drags the wire-namespacing pass and the
@@ -84,13 +85,17 @@ function serverScenarios(f) {
       alsoPulls: [],
     },
     { name: 'errors', source: importStar(f('errors.js')), owns: null, alsoPulls: [] },
-    // Requests can target a channel's members (server→client requests are
-    // channel-scoped), so the request engine pulls the channel runtime.
     {
-      name: 'requests',
-      source: importStar(f('requests.js')),
+      name: 'client requests only',
+      source: importStar(f('client-requests.js')),
       owns: 'request',
       alsoPulls: ['channel'],
+    },
+    {
+      name: 'server requests only',
+      source: importStar(f('server-requests.js')),
+      owns: 'serverRequest',
+      alsoPulls: [],
     },
     { name: 'scheduled', source: importStar(f('scheduled.js')), owns: 'scheduled', alsoPulls: [] },
     { name: 'dedup', source: importStar(f('dedup.js')), owns: 'dedup', alsoPulls: [] },

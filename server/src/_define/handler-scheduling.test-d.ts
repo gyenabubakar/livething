@@ -2,12 +2,12 @@
 import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
 import { recordedStream, resumableStream, stream } from '~/streams.ts';
 
 const base = define({
   env: t<{}>(),
-  capabilities: [channels(), requests(), stream(), resumableStream(), recordedStream()],
+  capabilities: [channels(), clientRequests(), stream(), resumableStream(), recordedStream()],
 });
 
 base.on('ordered', {

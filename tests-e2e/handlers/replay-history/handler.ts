@@ -1,10 +1,10 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
 import { plugin } from '@wskit/server/plugins';
 import { replay } from '@wskit/server/replay';
-import { requests } from '@wskit/server/requests';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -62,7 +62,7 @@ const base = define({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
       'replay-guard-error': t<v.InferOutput<typeof ReplayGuardError>>(),
     }),
-    requests(),
+    clientRequests(),
     dedup(),
     sequence({ persist: true }),
     replay.history({
@@ -181,11 +181,11 @@ export const handleStartTinyStream = base.stream('start-tiny-stream', {
 });
 
 const replayRoom = base.channel('replay-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleSendRoomMsg = replayRoom.on('send-room-msg', {
@@ -214,11 +214,11 @@ export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
 });
 
 const fams = base.channel(['fams', 'fam-{id}'], {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
@@ -232,11 +232,11 @@ export const handleFamsSendRoomMsg = fams.on('send-room-msg', {
 
 const optoutRoom = base.channel('optout-room', {
   replay: false,
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-msg': t<v.InferOutput<typeof RoomMsg>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {

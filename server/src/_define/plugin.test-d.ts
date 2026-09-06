@@ -18,7 +18,8 @@ import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -212,13 +213,15 @@ expectTypeOf<LeakClient>().not.toHaveProperty('plugins');
 // prefixed `__<id>::family` name, flipped into the client view. The channel's
 // inner events stay scoped to it and are NOT prefixed.
 // ---------------------------------------------------------------------------
-const chScoped = define({ scope: 'plugin', capabilities: [channels(), requests()] });
+const chScoped = define({ scope: 'plugin', capabilities: [channels(), serverRequests()] });
 const chFam = chScoped.channel(['fam', 'fam:{id}'], {
   subscribe: v.object({ token: v.string() }),
-  outgoing: {
-    emits: { 'fam-tick': t<{ n: number }>() },
-    requests: { 'fam-confirm': { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } },
-  },
+  capabilities: [
+    emits({ 'fam-tick': t<{ n: number }>() }),
+    serverRequests({
+      'fam-confirm': { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) },
+    }),
+  ],
 });
 const chFamHandler = chFam.on('fam-ping', { input: v.object({ p: v.boolean() }), run() {} });
 const ChPlugin = plugin('acme:chan', {
@@ -293,8 +296,8 @@ plugin('acme:ok', {
 });
 plugin('acme:behavior', {
   handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),
-  // @ts-expect-error — requests is a behavior capability a plugin owns itself, not a dependsOn target.
-  dependsOn: [requests],
+  // @ts-expect-error — behavior capabilities a plugin owns itself are not dependsOn targets.
+  dependsOn: [clientRequests],
 });
 plugin('acme:bad', {
   handler: depHost.assemble({ handlers: [depHost.on('noop', { run() {} })] }),

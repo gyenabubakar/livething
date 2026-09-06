@@ -1,8 +1,8 @@
 import { define, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { Block } from '@wskit/server/errors';
 import { intercepts } from '@wskit/server/intercepts';
-import { requests } from '@wskit/server/requests';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -16,7 +16,7 @@ const base = define({
     // Top-level client→server request — used to verify the intercept pipeline
     // runs for frame.kind === 'request' and can rewrite the payload before the
     // request handler (and validator) see it.
-    requests(),
+    clientRequests(),
     stream(),
     channels(),
     intercepts(),
@@ -84,7 +84,7 @@ const handleInterceptReq = base.request('intercept-req', {
 });
 
 const room = base.channel('room', {
-  outgoing: { emits: { echoed: t<{ text: string }>() } },
+  capabilities: [emits({ echoed: t<{ text: string }>() })],
 });
 
 room.intercept((_ctx, frame) => {
@@ -125,7 +125,7 @@ const handleChNudgeStream = room.stream('ch-nudge-stream', {
 });
 
 const rooms = base.channel(['rooms', 'room:{id}'], {
-  outgoing: { emits: { echoed: t<{ text: string }>() } },
+  capabilities: [emits({ echoed: t<{ text: string }>() })],
 });
 
 rooms.intercept((_ctx, frame) => {

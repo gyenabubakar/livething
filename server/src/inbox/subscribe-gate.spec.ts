@@ -12,7 +12,7 @@ import { removeChannelMembership } from '~/channel/runtime.ts';
 import * as ChannelRuntime from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { replay } from '~/replay/capability.ts';
-import { requests } from '~/request/capability.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
@@ -96,7 +96,7 @@ function buildHandler() {
       sequence({ persist: true }),
       dedup(),
       replay.history(),
-      requests(),
+      serverRequests(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
   });
@@ -136,12 +136,11 @@ function buildHandler() {
   }
 
   const chat = base.channel('chat', {
-    outgoing: {
-      requests: {
-        ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-      },
-    },
-    capabilities: [inbox(), readReceipts()],
+    capabilities: [
+      serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
+      inbox(),
+      readReceipts(),
+    ],
     check(ctx) {
       record('check', ctx);
     },
@@ -180,18 +179,17 @@ function buildDynamicHandler() {
       sequence({ persist: true }),
       dedup(),
       replay.history(),
-      requests(),
+      serverRequests(),
       tags((ephemeral) => [ephemeral('role', t<string>())]),
     ],
   });
 
   const rooms = base.channel(['rooms', 'room:{id}'], {
-    outgoing: {
-      requests: {
-        ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-      },
-    },
-    capabilities: [inbox(), readReceipts()],
+    capabilities: [
+      serverRequests({ ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) } }),
+      inbox(),
+      readReceipts(),
+    ],
     check(ctx) {
       recordDynamic('check', ctx, state);
     },
@@ -465,7 +463,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       scope: 'plugin',
       capabilities: [
         channels(),
-        requests({
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
         }),
       ],
@@ -504,13 +502,13 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       };
     }
     const room = pluginBase.channel('chat', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           ask: { out: t<{ prompt: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
-      // Reverse the capability order to exercise registration order too.
-      capabilities: [readReceipts(), inbox()],
+        }),
+        readReceipts(),
+        inbox(),
+      ],
       check(ctx) {
         recordPlugin('check', ctx);
       },

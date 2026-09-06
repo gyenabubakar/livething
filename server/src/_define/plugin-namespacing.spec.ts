@@ -7,7 +7,8 @@ import { errors } from '~/errors/capability.ts';
 import { error, t } from '~/index.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { scopeUpgradeHelpers } from '~/plugin-scope.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import { tags } from '~/tags/capability.ts';
@@ -51,7 +52,7 @@ describe('plugin namespacing — streams', () => {
 describe('plugin namespacing — channels', () => {
   it('namespaces the channel name and its child events', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
-    const room = h.channel('room', { outgoing: { emits: { msg: t<{ text: string }>() } } });
+    const room = h.channel('room', { capabilities: [emits({ msg: t<{ text: string }>() })] });
     const onSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
     const Plug = plugin('acme:room', { handler: h.assemble({ handlers: [onSay] }) });
     const base = define({ env: t<Env>(), capabilities: [Plug()] });
@@ -160,12 +161,61 @@ describe('plugin namespacing — durable kinds', () => {
 });
 
 describe('plugin namespacing — server→client requests', () => {
+  it('prefixes clientRequests event names', () => {
+    const h = define({ scope: 'plugin', capabilities: [clientRequests()] });
+    const ask = h.request('ask', { input: v.object({}), run() {} });
+    const { __primitives } = plugin('acme:ask', { handler: h.assemble({ handlers: [ask] }) })();
+    const request = __primitives.find((p: any) => p.__wskit === 'request') as any;
+
+    expect(request.event).toBe('__acme:ask::ask');
+  });
+
+  it('merges and namespaces every serverRequests() capability in a plugin', () => {
+    const h = define({
+      scope: 'plugin',
+      capabilities: [
+        serverRequests({ first: { out: t<{}>() } }),
+        serverRequests({ second: { out: t<{}>() } }),
+      ],
+    });
+    const { __primitives } = plugin('acme:ask', { handler: h.assemble({ handlers: [] }) })();
+    const carriers = __primitives.filter((p: any) => p.__wskit === 'server-requests') as any[];
+
+    expect(carriers).toHaveLength(1);
+    expect(carriers[0].__serverRequests.has(JSON.stringify([null, '__acme:ask::first']))).toBe(
+      true,
+    );
+    expect(carriers[0].__serverRequests.has(JSON.stringify([null, '__acme:ask::second']))).toBe(
+      true,
+    );
+  });
+
+  it('merges host and plugin server request declarations into one runtime', () => {
+    const h = define({
+      scope: 'plugin',
+      capabilities: [serverRequests({ pluginRequest: { out: t<{}>() } })],
+    });
+    const Plug = plugin('acme:ask', { handler: h.assemble({ handlers: [] }) });
+    const base = define({
+      env: t<Env>(),
+      capabilities: [serverRequests({ hostRequest: { out: t<{}>() } }), Plug()],
+    });
+    const { primitives } = base.assemble({ handlers: [] });
+    const carriers = primitives.filter((p: any) => p.__wskit === 'server-requests') as any[];
+
+    expect(carriers).toHaveLength(1);
+    expect(carriers[0].__serverRequests.has(JSON.stringify([null, 'hostRequest']))).toBe(true);
+    expect(
+      carriers[0].__serverRequests.has(JSON.stringify([null, '__acme:ask::pluginRequest'])),
+    ).toBe(true);
+  });
+
   it('prefixes ctx.request / ctx.broadcastRequest event names', () => {
     const h = define({
       scope: 'plugin',
       capabilities: [
         emits({ done: t<{}>() }),
-        requests({
+        serverRequests({
           confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) },
           poll: { out: t<{}>(), in: v.object({ v: v.number() }) },
         }),
@@ -194,7 +244,7 @@ describe('plugin namespacing — server→client requests', () => {
       scope: 'plugin',
       capabilities: [
         emits({ done: t<{}>() }),
-        requests({ confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } }),
+        serverRequests({ confirm: { out: t<{ q: string }>(), in: v.object({ ok: v.boolean() }) } }),
       ],
     });
     const trigger = h.on('go', {
@@ -274,7 +324,7 @@ describe('plugin namespacing — kv keys', () => {
 describe('plugin namespacing — channel runtime sends', () => {
   it('prefixes ctx.channel.send / broadcast event names from a plugin channel handler', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
-    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    const room = h.channel('room', { capabilities: [emits({ roster: t<{ who: string }>() })] });
     room.on('say', {
       input: v.object({}),
       run(ctx: any) {
@@ -300,7 +350,7 @@ describe('plugin namespacing — channel runtime sends', () => {
 describe('plugin namespacing — ctx.channels.get is scoped (#8)', () => {
   it('namespaces the get target and the resolved handle event names', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
-    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    const room = h.channel('room', { capabilities: [emits({ roster: t<{ who: string }>() })] });
     room.on('say', { input: v.object({}), run() {} });
     const trigger = h.on('go', {
       input: v.object({}),
@@ -385,15 +435,15 @@ describe('plugin namespacing — upgrade seeds tags into the plugin namespace (#
   });
 });
 
-describe('plugin namespacing — channel outgoing.requests are reachable (#10)', () => {
+describe('plugin namespacing — channel serverRequests are reachable (#10)', () => {
   it('re-registers a channel server-request under the namespaced channel key + event', () => {
-    const h = define({ scope: 'plugin', capabilities: [channels(), requests({})] });
+    const h = define({ scope: 'plugin', capabilities: [channels(), serverRequests({})] });
     const room = h.channel('room', {
-      outgoing: {
-        requests: {
+      capabilities: [
+        serverRequests({
           'confirm-kick': { out: t<{ who: string }>(), in: v.object({ ok: v.boolean() }) },
-        },
-      },
+        }),
+      ],
     });
     room.on('say', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:room', { handler: h.assemble({ handlers: [room] }) })();
@@ -409,7 +459,9 @@ describe('plugin namespacing — channel outgoing.requests are reachable (#10)',
   it('re-registers a top-level plugin server-request under its namespaced event', () => {
     const h = define({
       scope: 'plugin',
-      capabilities: [requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } })],
+      capabilities: [
+        serverRequests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } }),
+      ],
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:ask', { handler: h.assemble({ handlers: [go] }) })();
@@ -423,7 +475,9 @@ describe('plugin namespacing — channel outgoing.requests are reachable (#10)',
   it('does not mutate the assembled handler server-request carrier (pure namespacing)', () => {
     const h = define({
       scope: 'plugin',
-      capabilities: [requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } })],
+      capabilities: [
+        serverRequests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } }),
+      ],
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const handler = h.assemble({ handlers: [go] });
@@ -497,7 +551,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
 describe('plugin namespacing — channel hook is owned and scoped (Major 5)', () => {
   it('owner-stamps and scopes a plugin channel intercept child', () => {
     const h = define({ scope: 'plugin', capabilities: [channels(), intercepts()] });
-    const room = h.channel('room', { outgoing: { emits: { roster: t<{ who: string }>() } } });
+    const room = h.channel('room', { capabilities: [emits({ roster: t<{ who: string }>() })] });
     room.intercept((ctx: any) => {
       ctx.channel.send('roster', { who: 'a' });
     });
@@ -516,7 +570,7 @@ describe('plugin namespacing — channel hook is owned and scoped (Major 5)', ()
 
   it('a plugin channel name does not collide with an app channel of the same name', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
-    const pGames = h.channel('games', { outgoing: { emits: { tick: t<{}>() } } });
+    const pGames = h.channel('games', { capabilities: [emits({ tick: t<{}>() })] });
     pGames.on('play', { input: v.object({}), run() {} });
     const base = define({
       env: t<Env>(),
@@ -525,7 +579,7 @@ describe('plugin namespacing — channel hook is owned and scoped (Major 5)', ()
         plugin('acme:arcade', { handler: h.assemble({ handlers: [pGames] }) })(),
       ],
     });
-    const appGames = base.channel('games', { outgoing: { emits: { tock: t<{}>() } } });
+    const appGames = base.channel('games', { capabilities: [emits({ tock: t<{}>() })] });
     appGames.on('move', { input: v.object({}), run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [appGames] }));
 
@@ -542,7 +596,7 @@ describe('plugin namespacing — app ctx is untouched', () => {
       env: t<Env>(),
       capabilities: [
         emits({ done: t<{}>() }),
-        requests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } }),
+        serverRequests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } }),
       ],
     });
     const send = vi.fn();

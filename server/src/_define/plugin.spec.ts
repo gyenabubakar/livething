@@ -14,7 +14,8 @@ import { intercepts } from '~/intercept/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { replay } from '~/replay/replay.ts';
-import { requests } from '~/request/capability.ts';
+import { clientRequests } from '~/request/client-requests.ts';
+import { serverRequests } from '~/request/server-requests.ts';
 import { sequence } from '~/sequence/capability.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,7 +35,11 @@ function findPrimitive(primitives: readonly any[], wskit: string, event?: string
 function buildPresence() {
   const h = define({
     scope: 'plugin',
-    capabilities: [emits({ 'user-online': t<{ id: string }>() }), requests()],
+    capabilities: [
+      emits({ 'user-online': t<{ id: string }>() }),
+      clientRequests(),
+      serverRequests(),
+    ],
   });
   const heartbeat = h.on('heartbeat', {
     input: v.object({}),

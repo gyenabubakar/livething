@@ -1,9 +1,9 @@
 import { define, emits, errors, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
+import { clientRequests } from '@wskit/server/client-requests';
 import { error } from '@wskit/server/errors';
 import { inbox } from '@wskit/server/inbox';
 import { plugin } from '@wskit/server/plugins';
-import { requests } from '@wskit/server/requests';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 
@@ -28,7 +28,7 @@ const h = define({
     resumableStream(),
     recordedStream(),
     stream(),
-    requests(),
+    clientRequests(),
     channels(),
     errors([RoomFull, PluginFailure]),
     emits({ welcome: t<{ name: string }>() }),
@@ -46,15 +46,15 @@ const h = define({
 // write side (broadcast fan-out) and the read side (`__received__` acks) — a
 // mismatch there would silently drop delivery.
 const room = h.channel('room', {
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       joined: t<{ who: string }>(),
       said: t<{ text: string }>(),
       ping: t<{}>(),
       pong: t<{}>(),
-    },
-  },
+    }),
+  ],
   // A declared error thrown from a channel lifecycle handler leaves the server
   // namespaced (`__e2e:feed::room-full`); the client plugin must reject the
   // subscribe with the plain `room-full`.
@@ -97,13 +97,13 @@ const roomPong = room.on('pong', {
 // the case where the namespace prefix and the `{id}` interpolation could disagree.
 const thread = h.channel(['thread', 'thread:{id}'], {
   membership: 'persistent',
-  capabilities: [inbox()],
-  outgoing: {
-    emits: {
+  capabilities: [
+    inbox(),
+    emits({
       posted: t<{ thread: string }>(),
       'thread-msg': t<{ thread: string; text: string }>(),
-    },
-  },
+    }),
+  ],
 });
 
 thread.subscribe((ctx) => {

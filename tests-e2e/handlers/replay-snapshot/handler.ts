@@ -110,11 +110,11 @@ export const handleServerDrop = base.on('server-drop', {
 });
 
 const snapshotRoom = base.channel('snapshot-room', {
-  outgoing: {
-    emits: {
+  capabilities: [
+    emits({
       'room-doc-snapshot': t<v.InferOutput<typeof RoomDocSnapshot>>(),
-    },
-  },
+    }),
+  ],
 });
 
 export const handleUpdateRoomDoc = snapshotRoom.on('update-room-doc', {

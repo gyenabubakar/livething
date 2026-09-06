@@ -95,7 +95,7 @@ export interface DurableStreamService {
   ): Promise<void>;
 }
 
-/** Execute a matched `.request(...)` handler. Set by the `requests()` capability. */
+/** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
 export type RequestDispatch = (
   runtime: any,
   connection: RuntimeConnection,

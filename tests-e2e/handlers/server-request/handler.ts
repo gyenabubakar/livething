@@ -1,5 +1,5 @@
 import { define, emits, t } from '@wskit/server';
-import { requests } from '@wskit/server/requests';
+import { serverRequests } from '@wskit/server/server-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -15,7 +15,7 @@ export const serverRequestContract = define({
   env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
-    requests({
+    serverRequests({
       'ask-permission': { out: t<{ action: string }>(), in: v.object({ allowed: v.boolean() }) },
       'ping-ack': { out: t<{ note: string }>() },
     }),

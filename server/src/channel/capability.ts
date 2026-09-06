@@ -16,7 +16,6 @@ import { channelRuntimePrimitive } from '~/channel/service.ts';
 import { fillChannelTemplate } from '~/channel/template.ts';
 import { incoming as incomingFactory } from '~/incoming/incoming.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
-import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -32,7 +31,10 @@ type StreamBuild = (event: string, config: unknown) => Primitive;
  */
 interface ChannelOnlyBuilder {
   readonly __capabilityKind?: string;
+  readonly __primitives: readonly Primitive[];
   __buildChannelPrimitive?: () => Primitive;
+  readonly __channelEmits?: Record<string, unknown>;
+  readonly __channelServerRequests?: Record<string, unknown>;
 }
 
 /** The capability name a channel stream of each kind needs listed. */
@@ -63,15 +65,14 @@ export interface ChannelDeps {
   }) => Primitive;
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
-  /** Request builder, present only when the `requests()` capability is listed. */
-  readonly buildRequest?: (
+  /** Request builder, present only when the `clientRequests()` capability is listed. */
+  readonly buildClientRequest?: (
     event: string,
     config: { input?: unknown; allowInterleaving?: boolean; run: any },
   ) => Primitive;
   /**
-   * Merge a channel's own `outgoing.requests` declarations into the engine's
-   * server→client request table. Present only when `requests()` is listed, so a
-   * channel declaring `outgoing.requests` without it is a build error.
+   * Merge channel `serverRequests(...)` declarations into the server→client
+   * request table. Present only when `serverRequests()` is listed at the root.
    */
   readonly registerServerRequests?: (channelKey: string, declarations: Record<string, any>) => void;
 }
@@ -126,21 +127,6 @@ export class ChannelBuilder {
 
     const cfg = config ?? {};
     if (cfg.rateLimit) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
-    const emits = cfg.outgoing?.emits as Record<string, unknown> | undefined;
-    if (emits) {
-      for (const event of Object.keys(emits)) this.children.push(outgoingFactory(event));
-    }
-    const serverRequests = cfg.outgoing?.requests as Record<string, unknown> | undefined;
-    if (serverRequests && Object.keys(serverRequests).length > 0) {
-      const register = deps.registerServerRequests;
-      if (!register) {
-        throw new Error(
-          `[wskit] channel '${this.__key}' declares outgoing.requests but the requests() ` +
-            'capability is not listed. Add requests() to capabilities.',
-        );
-      }
-      register(this.__key, serverRequests);
-    }
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));
     }
@@ -156,6 +142,17 @@ export class ChannelBuilder {
     }
     for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
       if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
+      if (cap.__channelEmits) this.children.push(...cap.__primitives);
+      if (cap.__channelServerRequests && Object.keys(cap.__channelServerRequests).length > 0) {
+        const register = deps.registerServerRequests;
+        if (!register) {
+          throw new Error(
+            `[wskit] channel '${this.__key}' declares serverRequests(...) but serverRequests() ` +
+              'is not listed. Add serverRequests() to capabilities.',
+          );
+        }
+        register(this.__key, cap.__channelServerRequests);
+      }
       if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
     }
     if (cfg.check) {
@@ -201,11 +198,11 @@ export class ChannelBuilder {
   }
 
   request(event: string, config: any): ChannelHandlerValue {
-    const build = this.deps.buildRequest;
+    const build = this.deps.buildClientRequest;
     if (!build) {
       throw new Error(
-        `[wskit] channel '${this.__key}' uses request() but the requests() capability is not ` +
-          'listed. Add requests() to capabilities.',
+        `[wskit] channel '${this.__key}' uses request() but clientRequests() is not ` +
+          'listed. Add clientRequests() to capabilities.',
       );
     }
     this.recordRateLimit(event, config);
@@ -355,7 +352,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *
  * const base = define({ env: t<Env>(), capabilities: [channels()] });
  *
- * const lobby = base.channel('lobby', { outgoing: { emits: { joined: t<{ id: string }>() } } });
+ * const lobby = base.channel('lobby', { capabilities: [emits({ joined: t<{ id: string }>() })] });
  * export const handleChat = lobby.on('chat', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },

@@ -63,7 +63,7 @@ export type PrimitiveIdentity =
 
 /**
  * Base type for every primitive. Every primitive factory (a capability like
- * `requests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
+ * `clientRequests()` / `serverRequests()`, or an internal builder behind `base.on(...)` / `base.channel(...)`)
  * returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
