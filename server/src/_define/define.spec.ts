@@ -1,5 +1,7 @@
 import { t } from '~/_api/definitions.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
+import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
@@ -7,12 +9,16 @@ import { intercepts } from '~/intercept/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { define } from './define.ts';
+import { plugin } from './plugins.ts';
 
 interface Env {
   SECRET: string;
 }
+
+type DispatchRuntime = Parameters<typeof dispatchIncoming>[0];
+type DispatchConnection = Parameters<typeof dispatchIncoming>[1];
 
 const NotFound = error('not-found', v.object({ id: v.string() }));
 
@@ -71,6 +77,111 @@ describe('define() send/receive core', () => {
 
     expect(compiled.incoming.get('incoming')?.allowInterleaving).toBe(false);
     expect(compiled.requests.get('request')?.allowInterleaving).toBe(true);
+  });
+
+  it('only enables handlers passed to assemble at every scope', async () => {
+    const top = define({ env: t<Env>() });
+    const runTop = vi.fn();
+    const runTopHidden = vi.fn();
+    const topActive = top.on('top-active', { run: runTop });
+    top.on('top-hidden', { run: runTopHidden });
+    const topCompiled = compileHandlerDefinition(top.assemble({ handlers: [topActive] }));
+    expect(topCompiled.incoming.has('top-hidden')).toBe(false);
+
+    const scoped = define({ scope: 'plugin' });
+    const runPlugin = vi.fn();
+    const runPluginHidden = vi.fn();
+    const pluginActive = scoped.on('plugin-active', { run: runPlugin });
+    scoped.on('plugin-hidden', { run: runPluginHidden });
+    const HiddenPlugin = plugin('acme:hidden', {
+      handler: scoped.assemble({ handlers: [pluginActive] }),
+    });
+    const host = define({ env: t<Env>(), capabilities: [HiddenPlugin()] });
+    const pluginCompiled = compileHandlerDefinition(host.assemble({ handlers: [] }));
+    expect(pluginCompiled.incoming.has('__acme:hidden::plugin-hidden')).toBe(false);
+
+    const channelBase = define({ env: t<Env>(), capabilities: [channels()] });
+    const room = channelBase.channel('room', {});
+    const runChannel = vi.fn();
+    const runChannelHidden = vi.fn();
+    const active = room.on('active', { run: runChannel });
+    room.on('channel-hidden', { run: runChannelHidden });
+    const compiled = compileHandlerDefinition(channelBase.assemble({ handlers: [active] }));
+
+    expect(compiled.channels.get('room')?.incoming.has('active')).toBe(true);
+    expect(compiled.channels.get('room')?.incoming.has('channel-hidden')).toBe(false);
+
+    const channelWithoutHandlers = compileHandlerDefinition(
+      channelBase.assemble({ handlers: [room] }),
+    );
+    expect(channelWithoutHandlers.channels.get('room')?.incoming.has('active')).toBe(false);
+
+    const connection = {
+      id: 'conn_1',
+      channelMemberships: new Set([JSON.stringify([null, 'room'])]),
+    } as unknown as DispatchConnection;
+    function createRuntime(definition: typeof compiled): DispatchRuntime {
+      return {
+        compiled: definition,
+        connections: new Map([[connection.id, connection]]),
+        channelMembers: new Map(),
+        activeStreams: new Map(),
+        protocolHandlers: new Map(),
+        incomingHooks: [],
+        errorHooks: [],
+        buildConnectionContext: () => ({ connection: { id: connection.id } }),
+        async handleRuntimeError() {},
+        async handleValidationError() {},
+        async handleSubscribe() {},
+        async handleUnsubscribe() {},
+        sendProtocolMessage() {},
+        sendReplay() {},
+        persistAttachment() {},
+        generateId: () => 'id_1',
+        toConnectionInfo() {
+          throw new Error('unused');
+        },
+      } as unknown as DispatchRuntime;
+    }
+
+    await dispatchIncoming(createRuntime(topCompiled), connection, {
+      event: 'top-active',
+      payload: {},
+      wskit: undefined,
+    });
+    await dispatchIncoming(createRuntime(topCompiled), connection, {
+      event: 'top-hidden',
+      payload: {},
+      wskit: undefined,
+    });
+    expect(runTop).toHaveBeenCalledOnce();
+    expect(runTopHidden).not.toHaveBeenCalled();
+
+    await dispatchIncoming(createRuntime(pluginCompiled), connection, {
+      event: '__acme:hidden::plugin-active',
+      payload: {},
+      wskit: { channelFamily: null },
+    });
+    await dispatchIncoming(createRuntime(pluginCompiled), connection, {
+      event: '__acme:hidden::plugin-hidden',
+      payload: {},
+      wskit: { channelFamily: null },
+    });
+    expect(runPlugin).toHaveBeenCalledOnce();
+    expect(runPluginHidden).not.toHaveBeenCalled();
+
+    await dispatchIncoming(createRuntime(compiled), connection, {
+      event: 'active',
+      payload: {},
+      wskit: { channel: 'room', channelFamily: null },
+    });
+    await dispatchIncoming(createRuntime(compiled), connection, {
+      event: 'channel-hidden',
+      payload: {},
+      wskit: { channel: 'room', channelFamily: null },
+    });
+    expect(runChannel).toHaveBeenCalledOnce();
+    expect(runChannelHidden).not.toHaveBeenCalled();
   });
 
   it('registers a single intercept', () => {

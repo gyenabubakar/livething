@@ -45,12 +45,12 @@ describe('recordedStream build-time validation', () => {
   // generator path in compile.ts is unreachable through define()/assemble(). The
   // assertion is preserved by driving compileRecordedStreamDef directly with an
   // empty handler map, the same path the capability builder feeds.
-  it('throws at build when a recordedStream declaration has no handler', () => {
+  it('throws when a recordedStream handler is not assembled', () => {
     const def = recordedStreamDef('tokens', {
       payload: v.object({}),
     });
     expect(() => compileRecordedStreamDef(def, new Map())).toThrow(
-      /No generator registered for recordedStream/,
+      /No handler assembled for recordedStream/,
     );
   });
 });

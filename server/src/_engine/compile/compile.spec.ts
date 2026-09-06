@@ -76,9 +76,9 @@ describe('boot-time cross-primitive collision guard', () => {
       capabilities: [channels(), stream(), recordedStream()],
     });
     const rooms = base.channel('rooms', {});
-    rooms.stream('feed', { async *run() {} });
-    rooms.recordedStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [rooms] }))).toThrow(
+    const plain = rooms.stream('feed', { async *run() {} });
+    const recorded = rooms.recordedStream('feed', { async *run() {} });
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
       /Event name 'feed' is registered as both 'stream' and 'recordedStream' in channel 'rooms'/,
     );
   });
@@ -89,9 +89,9 @@ describe('boot-time cross-primitive collision guard', () => {
       capabilities: [channels(), stream(), resumableStream()],
     });
     const rooms = base.channel(['rooms', 'room:{id}'], {});
-    rooms.stream('feed', { async *run() {} });
-    rooms.resumableStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [rooms] }))).toThrow(
+    const plain = rooms.stream('feed', { async *run() {} });
+    const resumable = rooms.resumableStream('feed', { async *run() {} });
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [plain, resumable] }))).toThrow(
       /Event name 'feed' is registered as both 'stream' and 'resumableStream' in channel family 'rooms'/,
     );
   });
@@ -103,9 +103,9 @@ describe('boot-time cross-primitive collision guard', () => {
     });
     const topFeed = base.stream('feed', { async *run() {} });
     const rooms = base.channel('rooms', {});
-    rooms.recordedStream('feed', { async *run() {} });
+    const recorded = rooms.recordedStream('feed', { async *run() {} });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [topFeed, rooms] })),
+      compileHandlerDefinition(base.assemble({ handlers: [topFeed, recorded] })),
     ).not.toThrow();
   });
 });
@@ -201,8 +201,8 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects an event name containing :: inside a channel', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const chat = base.channel('chat', {});
-    chat.on('send::message', { run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [chat] }))).toThrow(
+    const send = chat.on('send::message', { run() {} });
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [send] }))).toThrow(
       /Event name 'send::message' in channel 'chat' contains '::'/,
     );
   });
@@ -318,9 +318,9 @@ describe('boot-time same-kind duplicate guard', () => {
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', {});
-    room.on('msg', { run() {} });
-    room.on('msg', { run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [room] }))).toThrow(
+    const first = room.on('msg', { run() {} });
+    const second = room.on('msg', { run() {} });
+    expect(() => compileHandlerDefinition(base.assemble({ handlers: [first, second] }))).toThrow(
       /Duplicate incoming in channel "room" declaration for "msg"/,
     );
   });

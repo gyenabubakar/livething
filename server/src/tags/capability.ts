@@ -90,6 +90,8 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  *     ctx.tags.ephemeral('role').ref('admin').send('announce', { text: 'hi admins' });
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handlePromote] });
  * ```
  */
 export const tags = withCapabilityKind(function tags<const TDefs extends readonly TagGroupDef[]>(

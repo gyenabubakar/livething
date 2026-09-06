@@ -50,11 +50,11 @@ const mediumBase = define({
   ],
 });
 const lobby = mediumBase.channel('lobby', { capabilities: [emits({ said: TextOut })] });
-lobby.on('say', { input: Text, run() {} });
+const handleLobbySay = lobby.on('say', { input: Text, run() {} });
 const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
   capabilities: [emits({ posted: TextOut })],
 });
-rooms.on('post', { input: Text, run() {} });
+const handleRoomPost = rooms.on('post', { input: Text, run() {} });
 const mediumHandler = mediumBase.assemble({
   handlers: [
     mediumBase.on('join', { input: Empty, run() {} }),
@@ -73,8 +73,8 @@ const mediumHandler = mediumBase.assemble({
         yield { n: 1 };
       },
     }),
-    lobby,
-    rooms,
+    handleLobbySay,
+    handleRoomPost,
   ],
 });
 
@@ -146,17 +146,19 @@ heavyHandlers.push(
 );
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel(`chan-${n}`, { capabilities: [emits(channelEmits(`c${n}`))] });
-  ch.on(`c${n}-send`, { input: Text, run() {} });
-  ch.on(`c${n}-edit`, { input: Text, run() {} });
-  heavyHandlers.push(ch);
+  heavyHandlers.push(
+    ch.on(`c${n}-send`, { input: Text, run() {} }),
+    ch.on(`c${n}-edit`, { input: Text, run() {} }),
+  );
 }
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
     capabilities: [emits(channelEmits(`r${n}`))],
   });
-  ch.on(`r${n}-send`, { input: Text, run() {} });
-  ch.on(`r${n}-edit`, { input: Text, run() {} });
-  heavyHandlers.push(ch);
+  heavyHandlers.push(
+    ch.on(`r${n}-send`, { input: Text, run() {} }),
+    ch.on(`r${n}-edit`, { input: Text, run() {} }),
+  );
 }
 const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
 

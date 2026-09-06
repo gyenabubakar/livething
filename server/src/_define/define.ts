@@ -293,10 +293,10 @@ export type RequestConfig<
 /** Builder method granted by the `clientRequests()` capability. */
 export interface RequestMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
   /**
-   * Register a handler for one client→server request. Like `base.on`, but the
+   * Create a handler value for one client→server request. Like `base.on`, but the
    * client awaits a reply: whatever the handler returns becomes the response,
    * and its type is inferred from the return. Returning nothing rejects the
-   * client's pending request.
+   * client's pending request. Pass the returned value to `assemble()` to activate it.
    */
   request<
     TEvent extends string,
@@ -418,7 +418,7 @@ export interface StreamConfig<
 
 /** Builder method granted by the `stream()` capability. */
 export interface StreamMethods<TSlots, TEnv, TMeta, TCaps extends readonly AnyCapability[]> {
-  /** Register a plain server-pushed stream. */
+  /** Create a plain server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
     TChunk = unknown,
@@ -499,7 +499,7 @@ export interface ResumableStreamMethods<
   TMeta,
   TCaps extends readonly AnyCapability[],
 > {
-  /** Register a resumable server-pushed stream. */
+  /** Create a resumable server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   resumableStream<
     TEvent extends string,
     TChunk = unknown,
@@ -554,7 +554,7 @@ export interface RecordedStreamMethods<
   TMeta,
   TCaps extends readonly AnyCapability[],
 > {
-  /** Register a recorded server-pushed stream. */
+  /** Create a recorded server-pushed stream handler value. Pass it to `assemble()` to activate it. */
   recordedStream<
     TEvent extends string,
     TChunk = unknown,
@@ -831,7 +831,7 @@ export type ChannelConfig<
  * A channel handler's return value. It declares the channel's own slice (emits,
  * subscribe payload, addressing) **and** this handler's slice under the channel,
  * and carries a reference to the channel — so passing a single handler to
- * `assemble()` gives `InferClient` the whole channel surface.
+ * `assemble()` includes that handler and the channel surface it belongs to.
  */
 export type ChannelHandlerContribution<TKey extends string, TOwn, TSlice> = ChannelHandlerValue &
   Contribution<{ channels: { [K in TKey]: TOwn & TSlice } }>;
@@ -999,8 +999,9 @@ type ChannelResumableStreamConfig<
  * The accumulating channel object returned by `base.channel(...)`. Its handler
  * methods register onto the channel and return a value carrying both the
  * client-contract type and a reference back to the channel; its gate and
- * lifecycle methods mutate and return void. Pass any handler value — or the
- * channel itself — to `assemble()`; the whole channel is pulled in once.
+ * lifecycle methods mutate and return void. Pass handler values to
+ * `assemble()` to select them; passing the channel itself only includes its
+ * configuration and lifecycle behavior.
  */
 interface ChannelStreamMethod<
   TSlots,
@@ -1015,7 +1016,7 @@ interface ChannelStreamMethod<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Register a plain stream scoped to this channel. */
+  /** Create a plain stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   stream<
     TEvent extends string,
     TChunk = unknown,
@@ -1061,7 +1062,7 @@ interface ChannelResumableStreamMethod<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Register a resumable stream scoped to this channel. */
+  /** Create a resumable stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   resumableStream<
     TEvent extends string,
     TChunk = unknown,
@@ -1114,7 +1115,7 @@ interface ChannelRecordedStreamMethod<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Register a recorded stream scoped to this channel. */
+  /** Create a recorded stream handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   recordedStream<
     TEvent extends string,
     TChunk = unknown,
@@ -1350,7 +1351,7 @@ export interface ChannelCoreMethods<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Register a client→server event handler scoped to this channel. */
+  /** Create a client→server event handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   on<TEvent extends string, TInput extends Validator | undefined = undefined>(
     event: TEvent,
     config: {
@@ -1440,7 +1441,7 @@ export interface ChannelRequestMethods<
   TServerRequests = {},
   TChannelBrand extends string = never,
 > {
-  /** Register a client→server request handler scoped to this channel. */
+  /** Create a client→server request handler value scoped to this channel. Pass it to `assemble()` to activate it. */
   request<
     TEvent extends string,
     TInput extends Validator | undefined = undefined,
@@ -1684,9 +1685,9 @@ export interface CoreBase<
   TScoped extends boolean = false,
 > {
   /**
-   * Register a handler for one client→server event. The handler is an
-   * exportable value — pass it to `assemble(...)`. Exactly one handler per event
-   * name is allowed across the whole server.
+   * Create a handler value for one client→server event. Pass it to `assemble(...)`
+   * to activate it. Exactly one assembled handler per event name is allowed in one
+   * server definition.
    */
   on<TEvent extends string, TSchema extends Validator | undefined = undefined>(
     event: TEvent,
@@ -1746,9 +1747,10 @@ export interface CoreBase<
   /**
    * Collect every routed handler into the final server the platform adapter runs.
    * Pass them as `{ handlers: [...] }` — each `base.on(...)` (and, with their
-   * capabilities, `request` / `stream` / `channel`) value. Scheduled task bodies,
-   * lifecycle hooks, the upgrade hook, the intercept, and listed capabilities are
-   * folded in automatically.
+   * capabilities, `request` / `stream` / `channel`) value. A channel handler
+   * enables only itself; passing the channel includes its configuration but no
+   * handlers. Scheduled task bodies, lifecycle hooks, the upgrade hook, the
+   * intercept, and listed capabilities are folded in automatically.
    *
    * A scoped plugin handler (`define({ scope: 'plugin' })`) may also pass `api` —
    * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
@@ -1793,7 +1795,10 @@ type PluginEnvCheck<TEnv, TCaps extends readonly AnyCapability[]> = [
 interface ChannelRateLimitSource {
   readonly __key: string;
   readonly __rateLimit?: RateLimitConfig;
-  readonly __rateLimitOverrides?: ReadonlyMap<string, RateLimitConfig>;
+  readonly __rateLimitOverrides?: ReadonlyMap<
+    Primitive,
+    { event: string; config: RateLimitConfig }
+  >;
 }
 
 /**
@@ -2229,24 +2234,41 @@ export function define(config: any): any {
       assertPluginDependencies(config.capabilities ?? []);
       assertNoChannelOnlyCapabilities(config.capabilities ?? []);
       const handlerPrimitives: Primitive[] = [];
-      const channelObjects = new Set<{ __build(): Primitive }>();
+      const channelObjects = new Map<
+        { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive },
+        Set<Primitive>
+      >();
       for (const item of items) {
         if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
           throw new Error(
             '[wskit] A capability was passed to assemble(). List capabilities in ' +
-              'define({ capabilities: [...] }) and pass only handlers (base.on, ...) to assemble().',
+              'define({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
           );
         }
-        const channel = (item as { __channel?: { __build(): Primitive } }).__channel;
+        const channel = (
+          item as {
+            __channel?: { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive };
+          }
+        ).__channel;
         if (channel) {
-          channelObjects.add(channel);
+          if ((item as { __wskitChannel?: boolean }).__wskitChannel) {
+            if (!channelObjects.has(channel)) channelObjects.set(channel, new Set());
+          } else {
+            const handler = (item as { __handler?: Primitive }).__handler;
+            if (handler) {
+              if (!channelObjects.has(channel)) channelObjects.set(channel, new Set());
+              channelObjects.get(channel)?.add(handler);
+            }
+          }
           continue;
         }
         handlerPrimitives.push(item as Primitive);
       }
       assertUniqueHandlers(handlerPrimitives);
 
-      const channelPrimitives = [...channelObjects].map((ch) => ch.__build());
+      const channelPrimitives = [...channelObjects].map(([channel, handlers]) =>
+        channel.__build(handlers),
+      );
 
       const scheduledDeclarations = new Map<string, ScheduledDeclaration>();
       let buildScheduled: ScheduledCapability['__buildScheduled'] | undefined;
@@ -2292,7 +2314,7 @@ export function define(config: any): any {
       }
 
       const channelKeys = new Set<string>();
-      for (const channel of channelObjects) {
+      for (const [channel, handlers] of channelObjects) {
         const ch = channel as unknown as ChannelRateLimitSource;
         channelKeys.add(ch.__key);
         if (ch.__rateLimit) {
@@ -2300,8 +2322,14 @@ export function define(config: any): any {
           hasRateLimitConfig = true;
         }
         if (ch.__rateLimitOverrides && ch.__rateLimitOverrides.size > 0) {
-          overrides.set(`channel:${ch.__key}`, new Map(ch.__rateLimitOverrides));
-          hasRateLimitConfig = true;
+          const channelOverrides = new Map<string, RateLimitConfig>();
+          for (const [handler, { event, config }] of ch.__rateLimitOverrides) {
+            if (handlers.has(handler)) channelOverrides.set(event, config);
+          }
+          if (channelOverrides.size > 0) {
+            overrides.set(`channel:${ch.__key}`, channelOverrides);
+            hasRateLimitConfig = true;
+          }
         }
       }
 

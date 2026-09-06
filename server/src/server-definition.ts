@@ -29,6 +29,9 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * `streams` slot as plain `stream` — the durability mechanism is a server
  * concern and does not change the client's wire surface.
  *
+ * For routed handlers, a row exists only when the value returned by the
+ * matching `base.*(...)` call is included in `base.assemble({ handlers: [...] })`.
+ *
  * @example
  * ```ts
  * import { define, emits, t } from '@wskit/server';
@@ -90,7 +93,7 @@ export interface ServerContract {
  * The finalized blueprint for a WSKit server.
  *
  * You get a `ServerDefinition` by calling `base.assemble(...)` with your
- * handlers. It is an immutable, frozen object that holds all registered
+ * handlers. It is an immutable, frozen object that holds all assembled
  * primitives plus the contract type that `InferClient` uses to generate the
  * client-side API.
  *
@@ -104,7 +107,7 @@ export interface ServerContract {
  * server(chat, { port: 3000 })
  * ```
  *
- * @template TPrimitives - The frozen tuple of all registered primitives.
+ * @template TPrimitives - The frozen tuple of all assembled primitives.
  * @template TContract - The client contract carried along with the built server.
  * @template TScopedCtx - The `ctx` type a scoped handler's own handlers receive.
  * @template TApi - The return type of the handler's `api` factory (the per-connection

@@ -88,8 +88,9 @@ function withChannelCtx(
  * The accumulating channel object returned by `base.channel(...)`. Its handler
  * methods register onto the channel and return a value carrying both the
  * client-contract type and a reference back to the channel; its gate and
- * lifecycle methods mutate and return void. `assemble()` reaches the channel
- * through any of those values (or the channel itself) and builds it once.
+ * lifecycle methods mutate and return void. A handler value passed to
+ * `assemble()` enables that handler; passing the channel itself only includes
+ * its configuration and lifecycle behavior.
  *
  * Stream and custom-replay handlers delegate to the matching capability's
  * builder (passed in as `deps`), so a channel only pulls in those engines when
@@ -104,11 +105,12 @@ export class ChannelBuilder {
   readonly __key: string;
   /** The channel-level rate-limit rule, if the config set one. @internal */
   readonly __rateLimit?: RateLimitConfig;
-  /** Per-handler rate-limit overrides for this channel, keyed by event. @internal */
-  readonly __rateLimitOverrides = new Map<string, RateLimitConfig>();
+  /** Per-handler rate-limit overrides for this channel. @internal */
+  readonly __rateLimitOverrides = new Map<Primitive, { event: string; config: RateLimitConfig }>();
 
   private readonly pattern: string | ReturnType<typeof scopeFactory>;
   private readonly children: Primitive[] = [];
+  private readonly handlerPrimitives = new Set<Primitive>();
   private readonly once = new Set<string>();
   private readonly deps: ChannelDeps;
   /** Capability kinds declared by this channel's own `capabilities` list. */
@@ -187,14 +189,14 @@ export class ChannelBuilder {
   }
 
   on(event: string, config: any): ChannelHandlerValue {
-    this.recordRateLimit(event, config);
-    this.children.push(
-      incomingFactory(event, withChannelCtx(config.run) as any, {
-        validator: config.input,
-        allowInterleaving: config.allowInterleaving,
-      }),
-    );
-    return this.handlerValue();
+    const primitive = incomingFactory(event, withChannelCtx(config.run) as any, {
+      validator: config.input,
+      allowInterleaving: config.allowInterleaving,
+    });
+    this.recordRateLimit(event, config, primitive);
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+    return this.handlerValue(primitive);
   }
 
   request(event: string, config: any): ChannelHandlerValue {
@@ -205,16 +207,16 @@ export class ChannelBuilder {
           'listed. Add clientRequests() to capabilities.',
       );
     }
-    this.recordRateLimit(event, config);
     const run = config.run;
-    this.children.push(
-      build(event, {
-        input: config.input,
-        allowInterleaving: config.allowInterleaving,
-        run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
-      }),
-    );
-    return this.handlerValue();
+    const primitive = build(event, {
+      input: config.input,
+      allowInterleaving: config.allowInterleaving,
+      run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
+    });
+    this.recordRateLimit(event, config, primitive);
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+    return this.handlerValue(primitive);
   }
 
   stream(event: string, config: any): ChannelHandlerValue {
@@ -257,8 +259,13 @@ export class ChannelBuilder {
   }
 
   /** Build the channel primitive from everything registered so far. @internal */
-  __build(): Primitive {
-    const primitive = channelFactory(this.pattern as any, ...(this.children as any[]));
+  __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive {
+    const children = selectedHandlers
+      ? this.children.filter(
+          (child) => !this.handlerPrimitives.has(child) || selectedHandlers.has(child),
+        )
+      : this.children;
+    const primitive = channelFactory(this.pattern as any, ...(children as any[]));
     (primitive as { __capabilityKinds?: ReadonlySet<string> }).__capabilityKinds =
       this.capabilityKinds;
     return primitive;
@@ -278,20 +285,25 @@ export class ChannelBuilder {
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
-    this.recordRateLimit(event, config);
     const run = config.run;
     const channelConfig = {
       ...config,
       run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
     };
-    this.children.push(build(event, channelConfig));
-    return this.handlerValue();
+    const primitive = build(event, channelConfig);
+    this.recordRateLimit(event, config, primitive);
+    this.handlerPrimitives.add(primitive);
+    this.children.push(primitive);
+    return this.handlerValue(primitive);
   }
 
   /** Stash a handler's `rateLimit` override so assembly can fold it into the plan. */
-  private recordRateLimit(event: string, config: any): void {
+  private recordRateLimit(event: string, config: any, primitive: Primitive): void {
     if (config?.rateLimit) {
-      this.__rateLimitOverrides.set(event, config.rateLimit as RateLimitConfig);
+      this.__rateLimitOverrides.set(primitive, {
+        event,
+        config: config.rateLimit as RateLimitConfig,
+      });
     }
   }
 
@@ -305,8 +317,8 @@ export class ChannelBuilder {
     this.children.push(primitive);
   }
 
-  private handlerValue(): ChannelHandlerValue {
-    return { __wskitChannelHandler: true, __channel: this };
+  private handlerValue(primitive: Primitive): ChannelHandlerValue {
+    return { __wskitChannelHandler: true, __channel: this, __handler: primitive };
   }
 }
 
@@ -314,6 +326,7 @@ export class ChannelBuilder {
 export interface ChannelHandlerValue {
   readonly __wskitChannelHandler: true;
   readonly __channel: ChannelBuilder;
+  readonly __handler: Primitive;
 }
 
 /**
@@ -346,7 +359,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { define, emits, t } from '@wskit/server';
  * import { channels } from '@wskit/server/channels';
  * import * as v from 'valibot';
  *
@@ -357,6 +370,8 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) { ctx.channel.broadcast('joined', { id: ctx.connection.id }); },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handleChat] });
  * ```
  */
 export const channels = withCapabilityKind(function channels(): ChannelsCapability {

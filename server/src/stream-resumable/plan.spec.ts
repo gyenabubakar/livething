@@ -45,12 +45,12 @@ describe('resumableStream build-time validation', () => {
   // generator path in compile.ts is unreachable through define()/assemble(). The
   // assertion is preserved by driving compileResumableStreamDef directly with an
   // empty handler map, the same path the capability builder feeds.
-  it('throws at build when a resumableStream declaration has no handler', () => {
+  it('throws when a resumableStream handler is not assembled', () => {
     const def = resumableStreamDef('feed', {
       payload: v.object({}),
     });
     expect(() => compileResumableStreamDef(def, new Map())).toThrow(
-      /No generator registered for resumableStream/,
+      /No handler assembled for resumableStream/,
     );
   });
 

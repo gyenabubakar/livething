@@ -2,7 +2,7 @@
 /**
  * Cascade resolution for the rate-limit feature.
  *
- * At build time the implementer walks the contract tree once and turns the
+ * At assembly time the definition compiler walks the selected primitive tree once and turns the
  * scattered `rateLimit:` config + per-handler overrides into a flat
  * `ResolvedRateLimitPlan` keyed by scope and event. Runtime only does a map
  * lookup per frame.
@@ -25,14 +25,13 @@ import type { RateLimitConfig } from './rate-limit.ts';
 import type { ResolvedRateLimitPlan, RuleInstance } from './runtime.ts';
 
 /**
- * Per-handler overrides collected from `.rateLimit(event, config)` calls on
- * the implementer + sub-implementers. Keyed by scope key (same form as
+ * Per-handler overrides collected from handler config during assembly. Keyed by scope key (same form as
  * `ResolvedRateLimitPlan.scopeRules`), then by event name.
  */
 export type RateLimitOverrideMap = ReadonlyMap<string, ReadonlyMap<string, RateLimitConfig>>;
 
 /**
- * Inputs collected by the implementer at build time. Pass to `resolvePlan` to
+ * Inputs collected by the definition compiler at assembly time. Pass to `resolvePlan` to
  * get the flat `ResolvedRateLimitPlan` the primitive consumes.
  */
 export interface PlanInput {

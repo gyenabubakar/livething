@@ -95,7 +95,7 @@ describe('channels() capability', () => {
     });
   });
 
-  it('pulls in the whole channel — gates and lifecycle — from one handler', () => {
+  it('pulls in channel configuration and lifecycle with one selected handler', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     room.subscribe(() => {});
@@ -130,13 +130,13 @@ describe('channels() capability', () => {
     const base = define({ env: t<Env>(), capabilities: [channels()] });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     let seenFamily: unknown;
-    room.on('say', {
+    const say = room.on('say', {
       input: v.object({}),
       run(ctx) {
         seenFamily = ctx.channel.family;
       },
     });
-    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [say] }).primitives);
     const incoming = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'incoming' && p.event === 'say',
     );
@@ -204,13 +204,13 @@ describe('channels() capability', () => {
   it('responds to a channel request with the return value', async () => {
     const base = define({ env: t<Env>(), capabilities: [channels(), clientRequests()] });
     const room = base.channel('room', {});
-    room.request('info', {
+    const info = room.request('info', {
       input: v.object({}),
       run() {
         return { ok: true };
       },
     });
-    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [info] }).primitives);
     const requestChild = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'request' && p.event === 'info',
     );
@@ -238,13 +238,13 @@ describe('channels() capability', () => {
   it('runs a channel stream generator with both the stream and channel handles', async () => {
     const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
     const room = base.channel('room', {});
-    room.stream('feed', {
+    const feed = room.stream('feed', {
       input: v.object({}),
       async *run(ctx) {
         yield { family: ctx.channel.family };
       },
     });
-    const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
+    const primitive = channelPrimitive(base.assemble({ handlers: [feed] }).primitives);
     const streamChild = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) =>
         p.__wskit === 'stream-generate' && p.event === 'feed',

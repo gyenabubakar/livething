@@ -13,7 +13,8 @@ export interface RespondMethod<TResponse = unknown> {
 
 /**
  * Handler function for a request/response pair. Receives `ctx.respond(value)`
- * to send the reply.
+ * to send the reply. The builder creates this primitive while assembling a
+ * selected `base.request(...)` value.
  */
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
   ctx: TCtx & RespondMethod<TResponse>,
@@ -58,10 +59,8 @@ export interface RequestPrimitive<
 const REQUEST_KEY = Symbol('request');
 
 /**
- * Internal primitive factory. The user-facing `request()` for declaring a
- * request/response pair in a contract lives at `~/request/definition.ts`.
- * This factory is called by the implementer's compile step to bind a
- * registered handler to a `RequestDef`.
+ * Internal primitive factory. The user-facing builder is `base.request(...)`.
+ * The definition compiler calls this while assembling a selected handler value.
  */
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,

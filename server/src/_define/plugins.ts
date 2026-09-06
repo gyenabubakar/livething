@@ -159,7 +159,7 @@ export interface PluginManifest<
 
 /**
  * The contract slice a plugin contributes to the host. It carries the plugin's
- * own scoped contract in server perspective and the type of `ctx.plugin(id)`.
+ * own assembled scoped contract in server perspective and the type of `ctx.plugin(id)`.
  * `InferClient` flips the contract into the client's view and folds every event
  * into the top-level client maps under its `__<id>::` wire name; the `api` feeds
  * the server ctx's `ctx.plugin(id)`.

@@ -48,6 +48,8 @@ function buildDurableSweep(): Primitive {
  *     for (const token of await generateTokens()) yield { token };
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handleTokens] });
  * ```
  */
 export const recordedStream = withCapabilityKind(

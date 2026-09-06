@@ -50,6 +50,8 @@ function buildDurableSweep(): Primitive {
  *     for (let i = start + 1; i <= 100; i += 1) yield ctx.stream.withCursor({ row: i }, { row: i });
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handlePaginate] });
  * ```
  */
 export const resumableStream = withCapabilityKind(

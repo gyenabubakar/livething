@@ -9,9 +9,9 @@ type RecordedHandlers = Map<
 >;
 
 /**
- * Pair a `RecordedStreamDef` with the generator registered on the
- * implementer and produce the runtime primitive the engine mounts. Throws
- * when no generator was registered for the stream's name.
+ * Pair a `RecordedStreamDef` with a generator selected during assembly and
+ * produce the runtime primitive the engine mounts. Throws when the stream's
+ * handler value was not assembled.
  */
 export function compileRecordedStreamDef(
   def: RecordedStreamDef,
@@ -20,7 +20,7 @@ export function compileRecordedStreamDef(
   const generator = handlers.get(def.name);
   if (!generator) {
     throw new Error(
-      `[wskit] No generator registered for recordedStream('${def.name}'). Call implement(c).recordedStream('${def.name}', ...).`,
+      `[wskit] No handler assembled for recordedStream('${def.name}'). Include the value returned by base.recordedStream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
   return recordedGenerateFactory({

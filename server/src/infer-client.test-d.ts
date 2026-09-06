@@ -70,6 +70,21 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTy
 }>();
 
 // ---------------------------------------------------------------------------
+// A selected channel handler is the exact client contract and runtime surface.
+// ---------------------------------------------------------------------------
+const selectedBase = define({ env: t<{}>(), capabilities: [channels()] });
+const selectedChannel = selectedBase.channel('selected', {});
+const selectedHandler = selectedChannel.on('selected-event', { run() {} });
+selectedChannel.on('unselected-event', { run() {} });
+const selectedDef = selectedBase.assemble({ handlers: [selectedHandler] });
+type SelectedClient = InferClient<typeof selectedDef>;
+
+expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().toHaveProperty('selected-event');
+expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHaveProperty(
+  'unselected-event',
+);
+
+// ---------------------------------------------------------------------------
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
 const streamBase = define({
@@ -130,8 +145,8 @@ const flaggedChannelHandler = flaggedChannel.on('join', {
 
 const plainChannel = flagsBase.channel('plain', {});
 
-// The flags ride on the channel's own contribution, not its handlers' — so the
-// channel itself, not just handlers built from it, must reach `assemble`.
+// Passing a channel itself includes its configuration. This also includes the
+// plain channel, which has no handler value to pass.
 const flagsDef = flagsBase.assemble({
   handlers: [flaggedChannel, plainChannel, flaggedChannelHandler],
 });

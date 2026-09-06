@@ -773,8 +773,8 @@ export interface ChannelHandle<
  * families declared with `scope(key, pattern)`. The returned handle is bound to
  * the resolved channel so members and kicks never cross into a different family.
  *
- * Available as `ctx.channels` when at least one `channel()` is registered at
- * the top level. Inside a channel handler, prefer `ctx.channel` instead.
+ * Available as `ctx.channels` when the `channels()` capability is listed.
+ * Inside a channel handler, prefer `ctx.channel` instead.
  */
 export interface ChannelsManager<
   TStaticNames extends string = string,
@@ -802,7 +802,7 @@ export interface ChannelsManager<
  * interface lists **everything the engine might provide**; your handler type
  * trims it down.
  *
- * `ConnectionContext` is passed to handlers registered with: `base.on`,
+ * `ConnectionContext` is passed to handlers created with: `base.on`,
  * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
  * `base.onError`, and `base.onValidationError`.
  *
@@ -812,13 +812,14 @@ export interface ChannelsManager<
  *
  * @example
  * ```ts
- * base.on('send', {
+ * const handleSend = base.on('send', {
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) {
  *     ctx.send('message', { text: input.text });
  *     ctx.broadcast('message', { text: input.text });
  *   },
  * });
+ * base.assemble({ handlers: [handleSend] });
  * ```
  *
  * Mental model, grouped by purpose:
@@ -922,7 +923,7 @@ export interface ConnectionContext<
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
-  /** Resolve a channel handle from any handler. Only present when channels are registered. */
+  /** Resolve a channel handle from any handler. Only present when `channels()` is listed. */
   channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */

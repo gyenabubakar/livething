@@ -325,14 +325,14 @@ describe('plugin namespacing — channel runtime sends', () => {
   it('prefixes ctx.channel.send / broadcast event names from a plugin channel handler', () => {
     const h = define({ scope: 'plugin', capabilities: [channels()] });
     const room = h.channel('room', { capabilities: [emits({ roster: t<{ who: string }>() })] });
-    room.on('say', {
+    const say = room.on('say', {
       input: v.object({}),
       run(ctx: any) {
         ctx.channel.send('roster', { who: 'a' });
         ctx.channel.broadcast('roster', { who: 'b' });
       },
     });
-    const { __primitives } = plugin('acme:room', { handler: h.assemble({ handlers: [room] }) })();
+    const { __primitives } = plugin('acme:room', { handler: h.assemble({ handlers: [say] }) })();
     const channelPrim = __primitives.find((p: any) => p.__wskit === 'channel') as any;
     const child = channelPrim.primitives.find(
       (p: any) => p.__wskit === 'incoming' && p.event === '__acme:room::say',

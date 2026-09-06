@@ -38,12 +38,13 @@ export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
  * ```ts
  * import { Disconnect, CloseCodes } from '@wskit/server/errors';
  *
- * base.on('send-message', {
+ * const handleSend = base.on('send-message', {
  *   input: SendMessage,
  *   async run(ctx, input) {
  *     if (ctx.meta.violations > 10) throw Disconnect(CloseCodes.BANNED, 'Too many violations');
  *   },
  * });
+ * base.assemble({ handlers: [handleSend] });
  * ```
  */
 export function Disconnect(code: number, reason: string) {
@@ -92,13 +93,14 @@ export function RejectUpgrade(code: number, reason: string) {
  * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
  * import { Defer } from '@wskit/server/errors';
  *
- * base.on('process-job', {
+ * const handleProcessJob = base.on('process-job', {
  *   input: ProcessJob,
  *   async run(ctx, input) {
  *     const lock = await tryAcquireLock(input.resourceId);
  *     if (!lock) throw Defer(1000); // retry in 1 second
  *   },
  * });
+ * base.assemble({ handlers: [handleProcessJob] });
  * ```
  */
 export function Defer(delay: number) {

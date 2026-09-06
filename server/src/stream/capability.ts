@@ -54,6 +54,8 @@ export interface StreamCapability extends Capability<{}, never, 'stream'> {
  *     for (let i = 0; i < input.count; i += 1) yield { index: i };
  *   },
  * });
+ *
+ * export const server = base.assemble({ handlers: [handleFeed] });
  * ```
  */
 export const stream = withCapabilityKind(function stream(): StreamCapability {

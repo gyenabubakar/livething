@@ -235,10 +235,9 @@ export function scope<TKey extends string, const TTemplate extends string>(
 }
 
 /**
- * Internal primitive factory. The user-facing `channel()` for declaring a
- * channel in a contract lives at `~/channel/definition.ts`. This factory is
- * called by the implementer's compile step to wrap a channel's compiled
- * child primitives.
+ * Internal primitive factory. The user-facing channel builder lives at
+ * `base.channel(...)`. This factory is called by the definition compiler to
+ * wrap a channel's assembled child primitives.
  *
  * @param pattern A string (static channel name) or a `ScopeDeclaration` from
  *   `scope()` for dynamic families that match many subscription paths.

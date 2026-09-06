@@ -25,7 +25,7 @@ const ERRORS_KEY = Symbol('errors');
 
 /**
  * Internal primitive factory. The user-facing way to register typed errors is
- * the contract's `errors: [...]` array; the implementer compiles that list
+ * the `errors([...])` capability; the definition compiler turns that list
  * into this primitive so the engine can recognise each declared error code at
  * runtime and `InferClient` can surface them to the client SDK.
  *

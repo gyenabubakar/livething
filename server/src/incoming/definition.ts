@@ -29,6 +29,7 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  *   input: v.object({ text: v.string() }),
  *   run(ctx, input) { ... },
  * });
+ * base.assemble({ handlers: [handleSend] });
  * ```
  */
 export function incoming<TName extends string>(name: TName): IncomingDef<TName, unknown>;

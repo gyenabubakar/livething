@@ -260,7 +260,7 @@ type PluginsFragmentOf<TContract> =
  *
  * Pass the type of your server definition (the value returned by `assemble(...)`)
  * and get back a type that describes every event, request, stream, channel,
- * and error the server exposes to clients.
+ * and error in the assembled server definition.
  *
  * The client SDK accepts this type as a generic parameter so all client calls
  * are fully type-safe.
