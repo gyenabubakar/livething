@@ -23,7 +23,7 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  * import { define, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>() });
+ * const base = define({});
  *
  * const handleSend = base.on('send-msg', {
  *   input: v.object({ text: v.string() }),

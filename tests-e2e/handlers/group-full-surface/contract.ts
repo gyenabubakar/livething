@@ -24,7 +24,6 @@ export const RoomMsgPayload = v.object({ text: v.string(), from: v.string() });
 export const BadPayload = v.object({ ok: v.literal(true) });
 
 export const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     sequence({ persist: true }),

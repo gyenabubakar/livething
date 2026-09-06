@@ -68,7 +68,6 @@ interface RecordedStreamConfig<
  * const TokenChunk = t<{ idx: number }>();
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [recordedStream()],
  * });
  *

@@ -18,7 +18,6 @@ const StopPayload = v.object({});
 const overflowGates = new Map<string, () => void>();
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [recordedStream(), resumableStream()],
 });

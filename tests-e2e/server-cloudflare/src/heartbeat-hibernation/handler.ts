@@ -11,7 +11,6 @@ import type { InferClient } from '@wskit/server';
  * handler lets a test prove both over the real wire.
  */
 const base = define({
-  env: t<Env>(),
   hibernation: { enabled: true },
   upgrade: (request) => requireUsername(request),
   capabilities: [

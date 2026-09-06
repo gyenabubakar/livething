@@ -1,14 +1,9 @@
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugins.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-
-interface Env {
-  SECRET: string;
-}
 
 const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
@@ -24,11 +19,10 @@ describe('errors() duplicate error-code build guard', () => {
   });
 
   it('throws at assemble() when two errors() capabilities share a code', () => {
-    const base = define({ env: t<Env>(), capabilities: [errors([NotFound]), errors([Forbidden])] });
+    const base = define({ capabilities: [errors([NotFound]), errors([Forbidden])] });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
 
     const dup = define({
-      env: t<Env>(),
       capabilities: [errors([NotFound]), errors([NotFoundAgain])],
     });
     expect(() => dup.assemble({ handlers: [] })).toThrow(/duplicate error code "not-found"/);
@@ -40,7 +34,7 @@ describe('errors() duplicate error-code build guard', () => {
 
     // host declares its own 'not-found' while the plugin namespaces its code to
     // '__acme:denied::not-found' — distinct wire codes, so no collision.
-    const base = define({ env: t<Env>(), capabilities: [errors([NotFound]), Denied()] });
+    const base = define({ capabilities: [errors([NotFound]), Denied()] });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 });

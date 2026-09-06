@@ -119,8 +119,7 @@ function pluginSurfacePrimitive(): Primitive {
  * The scoped-handler shape a plugin manifest accepts, carrying its own contract,
  * ctx, and — when the scoped `assemble({ handlers, api })` declared one — its api
  * factory. `plugin(id, { handler })` reads the api off the handler, so the api is
- * authored in one place next to the handlers it wraps. Its environment requirement
- * is carried by the scoped context type.
+ * authored in one place next to the handlers it wraps.
  */
 type ScopedHandler<
   TContract extends ServerContract,
@@ -129,11 +128,6 @@ type ScopedHandler<
 > = ServerDefinition<readonly Primitive[], TContract, TScopedCtx, TApi> & {
   readonly __scoped?: boolean;
 };
-
-/** Reads the environment type from a plugin's scoped connection context. */
-type EnvOfScopedContext<TScopedCtx> = TScopedCtx extends { readonly env: infer TEnv }
-  ? TEnv
-  : unknown;
 
 /** The plain-object manifest passed to `plugin(id, ...)`. */
 export interface PluginManifest<
@@ -179,10 +173,7 @@ export interface PluginCapability<
   TId extends string = string,
   TContract extends ServerContract = ServerContract,
   TApi = unknown,
-  TEnv = unknown,
 > extends Capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never> {
-  /** Type-only environment requirement inherited from the plugin's scoped definition. */
-  readonly __pluginEnv?: TEnv;
   /** The plugin's id, for identification at assembly. @internal */
   readonly __pluginId: string;
   /** Capabilities the host must list; a missing one is a build error. @internal */
@@ -194,35 +185,6 @@ export interface PluginCapability<
    */
   readonly __pluginRequiredKinds: readonly string[];
 }
-
-/** The environment requirement carried by one capability, or `never` when absent. */
-type RequiredPluginEnvOf<TCapability> = TCapability extends {
-  readonly __pluginId: string;
-  readonly __pluginEnv?: infer TEnv;
-}
-  ? unknown extends TEnv
-    ? never
-    : TEnv
-  : never;
-
-/**
- * The combined environment requirement of all plugin capabilities in a host.
- *
- * Callers must keep `capabilities` as an inferred tuple: write it inline in
- * `define(...)`, or use `as const` for a reusable list. Widening the list to
- * `AnyCapability[]` erases each plugin's environment type before WSKit sees it,
- * so TypeScript cannot recover or check that requirement here.
- */
-export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = TCaps extends readonly [
-  infer THead extends AnyCapability,
-  ...infer TTail extends AnyCapability[],
-]
-  ? [RequiredPluginEnvOf<THead>] extends [never]
-    ? PluginEnvRequirements<TTail>
-    : [PluginEnvRequirements<TTail>] extends [never]
-      ? RequiredPluginEnvOf<THead>
-      : RequiredPluginEnvOf<THead> & PluginEnvRequirements<TTail>
-  : never;
 
 /**
  * The client-side contract for a server plugin — its own events, requests,
@@ -253,7 +215,6 @@ export type PluginEnvRequirements<TCaps extends readonly AnyCapability[]> = TCap
 export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
   string,
   infer TContract,
-  unknown,
   unknown
 >
   ? ClientPluginContract<TContract>
@@ -328,7 +289,7 @@ export function plugin<
 >(
   id: TId,
   manifest: PluginManifest<TContract, TApi, TScopedCtx>,
-): () => PluginCapability<TId, TContract, TApi, EnvOfScopedContext<TScopedCtx>> {
+): () => PluginCapability<TId, TContract, TApi> {
   if (!PLUGIN_ID.test(id)) {
     throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
   }
@@ -349,7 +310,7 @@ export function plugin<
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(
     primitives,
-  ) as PluginCapability<TId, TContract, TApi, EnvOfScopedContext<TScopedCtx>>;
+  ) as PluginCapability<TId, TContract, TApi>;
   const writable = cap as {
     __pluginId: string;
     __pluginDependsOn: readonly CapabilityFactory[];

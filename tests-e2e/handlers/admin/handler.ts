@@ -7,7 +7,6 @@ import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const base = define({
-  env: t<Env>(),
   upgrade: requireUsername,
   capabilities: [
     channels(),
@@ -136,10 +135,6 @@ export const adminHandler = base.assemble({
     async getFlag(key: string): Promise<string | null> {
       const value = await ctx.kv.get(key);
       return typeof value === 'string' ? value : null;
-    },
-
-    envKeys(): string[] {
-      return Object.keys(ctx.env).sort();
     },
 
     logSomething(text: string): void {

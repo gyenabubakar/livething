@@ -37,7 +37,6 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * import { define, emits, t } from '@wskit/server';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [emits({ message: Message })],
  * });
  * const handleSend = base.on('send', { input: Send, run() {} });
@@ -127,7 +126,7 @@ export interface ServerDefinition<
    * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
-   * surface and to carry its environment requirement to the host. Absent
+   * surface. Absent
    * (`unknown`) on app servers.
    */
   readonly __scopedCtx?: TScopedCtx;

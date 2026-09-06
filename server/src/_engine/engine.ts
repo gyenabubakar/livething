@@ -257,8 +257,7 @@ export class Engine<TApi = unknown> {
    * adapter hands it back whole; the Cloudflare adapter projects it onto an
    * `RpcTarget`, because only prototype methods survive a Worker→DO call.
    */
-  admin(): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> &
-    TApi {
+  admin(): PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi {
     const core = this.core;
     const ctx = createAdminContext({
       connections: core.connections,
@@ -271,12 +270,7 @@ export class Engine<TApi = unknown> {
     // must stay live, and the built-ins have to land after the dev api to win.
     const surface = flattenApi(devApi);
     Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
-    return surface as PublicApi.AdminContext<
-      Record<string, unknown>,
-      Record<string, unknown>,
-      unknown
-    > &
-      TApi;
+    return surface as PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi;
   }
 }
 

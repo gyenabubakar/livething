@@ -327,7 +327,7 @@ describe('createTimers', () => {
   it('waits for an in-flight alarm before closing its storage', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(500_000);
-    const runtime = createRuntime({ server: {} as Server, env: {} });
+    const runtime = createRuntime({ server: {} as Server });
     let release!: () => void;
     const alarmGate = new Promise<void>((resolve) => {
       release = resolve;
@@ -634,26 +634,23 @@ describe('createLogger and createPlatform', () => {
     }
   });
 
-  it('exposes the Node HTTP server and environment as platform context', () => {
+  it('exposes the Node HTTP server as platform context', () => {
     const server = {} as Server;
-    const env = { NODE_ENV: 'test' };
-    const platform = createPlatform(server, env);
+    const platform = createPlatform(server);
 
-    expect(platform).toEqual({ server, env });
+    expect(platform).toEqual({ server });
   });
 });
 
 describe('createRuntime', () => {
   it('bundles the engine services and preserves injected storage providers', async () => {
     const server = {} as Server;
-    const env = { NODE_ENV: 'test' };
     const kv = createFakeKv();
     const logger = createMockLogger();
-    const runtime = createRuntime({ server, env, kv, logger });
+    const runtime = createRuntime({ server, kv, logger });
 
     try {
-      expect(runtime.env).toBe(env);
-      expect(runtime.platform).toEqual({ server, env });
+      expect(runtime.platform).toEqual({ server });
       expect(runtime.storage.kv).toBe(kv);
       expect(runtime.storage.sql.limits.maxBoundParams).toBe(32_766);
       expect(runtime.asyncContextFactory().getStore()).toBeUndefined();
@@ -664,7 +661,7 @@ describe('createRuntime', () => {
   });
 
   it('defaults KV to the same SQLite database as SQL', async () => {
-    const runtime = createRuntime({ server: {} as Server, env: {} });
+    const runtime = createRuntime({ server: {} as Server });
 
     try {
       await runtime.storage.kv.set('default', 'sqlite-backed');

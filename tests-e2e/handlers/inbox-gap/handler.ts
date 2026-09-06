@@ -18,7 +18,6 @@ import type { RoomMsg } from './events.ts';
 // consumes and acknowledges the gap even without `replay()`; `replay()` owns the
 // optional `onGap` callback that makes the loss visible to application code.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

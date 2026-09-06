@@ -13,7 +13,6 @@ export const NsKey = localKey<{ tag: string }>('ns');
 export const ChannelKey = localKey<{ tag: string }>('channel');
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ echoed: t<{ text: string }>() }),

@@ -7,7 +7,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Tick = t<{ index: number }>();
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),

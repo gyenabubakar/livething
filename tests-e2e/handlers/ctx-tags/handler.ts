@@ -9,7 +9,6 @@ function serializeTags(tags: readonly { group: string; key: string }[]): string 
 }
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),

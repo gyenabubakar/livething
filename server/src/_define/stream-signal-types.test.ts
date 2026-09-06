@@ -13,12 +13,8 @@ import { describe, expectTypeOf, it } from 'vitest';
  * generator: plain, resumable, recorded, and channel-scoped.
  */
 describe('ctx.stream.signal type', () => {
-  interface Env {
-    DB: unknown;
-  }
-
   it('is an AbortSignal in a plain stream run', () => {
-    const base = define({ env: t<Env>(), capabilities: [stream()] });
+    const base = define({ capabilities: [stream()] });
     base.stream('feed', {
       input: v.object({}),
       async *run(ctx) {
@@ -30,7 +26,6 @@ describe('ctx.stream.signal type', () => {
 
   it('is an AbortSignal in a resumable stream run (alongside cursor)', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
@@ -46,7 +41,6 @@ describe('ctx.stream.signal type', () => {
 
   it('is an AbortSignal in a recorded stream run', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
@@ -59,7 +53,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a channel-scoped stream run', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
+    const base = define({ capabilities: [channels(), stream()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });

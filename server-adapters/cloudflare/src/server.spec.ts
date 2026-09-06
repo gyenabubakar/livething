@@ -150,7 +150,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     ]);
     expect(fake.calls.create).toHaveLength(1);
     expect(fake.calls.create[0]).toMatchObject({
-      env: {},
       logger: expect.any(Object),
       platform: expect.any(Object),
       storage: expect.any(Object),
@@ -484,7 +483,7 @@ describe('engine wiring in the constructor', () => {
     installWebSocketPair();
   });
 
-  it('provides env, storage, platform, and timers to the engine', () => {
+  it('provides storage, platform, and timers to the engine', () => {
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     const env = { KEY: 'value' };
@@ -493,9 +492,8 @@ describe('engine wiring in the constructor', () => {
     expect(fake.calls.create).toHaveLength(1);
     const engineOptions = fake.calls.create[0] as Record<string, unknown>;
     expect(fake.engine.setInstanceId).toHaveBeenCalledWith('fake-instance');
-    expect(engineOptions.env).toEqual(env);
     expect(engineOptions.storage).toBeDefined();
-    expect(engineOptions.platform).toBeDefined();
+    expect(engineOptions.platform).toMatchObject({ env });
     expect(engineOptions.timers).toBeDefined();
     expect(engineOptions.logger).toBeDefined();
 
@@ -689,7 +687,7 @@ describe('WSKitDurableObject admin()', () => {
 
   it('leaves the context plumbing off the stub surface', async () => {
     const { admin } = await adminOf();
-    for (const plumbing of ['sql', 'kv', 'env', 'log', 'platform', 'schedule']) {
+    for (const plumbing of ['sql', 'kv', 'log', 'platform', 'schedule']) {
       expect(admin).not.toHaveProperty(plumbing);
     }
   });

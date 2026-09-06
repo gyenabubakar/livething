@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -17,7 +16,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -32,7 +31,7 @@ function buildEngine(handler: ServerDefinition): Engine {
 
 describe('channels() runtime install', () => {
   it('creates the membership table and its indexes at boot', async () => {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const handler = base.assemble({ handlers: [] });
     const engine = buildEngine(handler);
 
@@ -48,7 +47,7 @@ describe('channels() runtime install', () => {
   });
 
   it('registers a purgeUser hook', async () => {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const handler = base.assemble({ handlers: [] });
     const engine = buildEngine(handler);
 

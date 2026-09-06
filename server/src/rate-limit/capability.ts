@@ -78,7 +78,6 @@ export interface RateLimitCapability extends Capability<{}, never, 'rateLimit'> 
  * import { rateLimit } from '@wskit/server/rate-limit';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [rateLimit({ windowMs: 60_000, max: 100 })],
  * });
  * ```

@@ -3,7 +3,6 @@
  * capabilities: they belong in a channel's own `capabilities` list, and
  * `readReceipts()` needs `inbox()` listed on that SAME channel.
  */
-import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
@@ -15,7 +14,6 @@ import type { ChannelCtx } from '~/_define/define.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 const base = define({
-  env: t<Record<string, never>>(),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 
@@ -122,7 +120,7 @@ base.channel('widened-bypass', { capabilities: widenedCaps });
 
 // The same widened brand reaching `ChannelCtx` directly (the type that grants
 // `ctx.channel.inbox` / `ctx.channel.readReceipts`) does not grant either arm.
-type WidenedChannelCtx = ChannelCtx<{}, Record<string, never>, {}, {}, {}, readonly [], {}, string>;
+type WidenedChannelCtx = ChannelCtx<{}, {}, {}, {}, readonly [], {}, string>;
 expectTypeOf<WidenedChannelCtx['channel']>().not.toHaveProperty('inbox');
 expectTypeOf<WidenedChannelCtx['channel']>().not.toHaveProperty('readReceipts');
 

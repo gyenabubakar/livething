@@ -9,7 +9,6 @@ let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),

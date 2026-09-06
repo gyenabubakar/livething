@@ -17,7 +17,6 @@ import type { RoomMsg } from '../inbox/events.ts';
 const RETENTION_MS = 1_000;
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

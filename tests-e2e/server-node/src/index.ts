@@ -12,7 +12,7 @@ type AnyAdminMethod = (...args: unknown[]) => unknown;
 type AnyAdmin = Record<string, AnyAdminMethod>;
 
 interface Fixture {
-  service: NodeServer<unknown, unknown>;
+  service: NodeServer<unknown>;
   transport: Server;
   sockets: Set<Duplex>;
   leases: Set<string>;
@@ -86,11 +86,6 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
     const service = spec.create({
       server: transport,
       sql: databasePath(route, room),
-      env: {
-        NODE_ENV: 'test',
-        PLUGIN_LABEL: 'node',
-        ADMIN_SERVER: 'node-test-placeholder',
-      },
       shutdownOnSignal: false,
     });
     const fixture = {
@@ -201,8 +196,6 @@ async function runAdminOp(admin: AnyAdmin, op: string, args: AdminOpArgs): Promi
       return (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null;
     case 'get-flag':
       return admin.getFlag(url.searchParams.get('key') ?? '');
-    case 'env-keys':
-      return admin.envKeys();
     case 'log-something':
       return admin.logSomething(text) ?? null;
     case 'has-platform':

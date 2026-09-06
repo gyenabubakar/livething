@@ -30,7 +30,6 @@ const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() })
 const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({

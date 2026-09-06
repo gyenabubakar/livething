@@ -30,9 +30,8 @@ export { request } from '~/request/definition.ts';
 export { nudge, stream } from '~/stream/definition.ts';
 
 /**
- * Marker carrying a phantom type so `meta: t<{ username: string }>()` flows the
- * type into the contract without any runtime cost. It is also used for the
- * application's typed environment and plugin environment requirements.
+ * Marker carrying a phantom type so typed payload and metadata definitions flow
+ * into the contract without any runtime cost.
  */
 export interface TypeMarker<T> {
   readonly __wskit_t: 't';
@@ -55,15 +54,12 @@ export type Definition =
 export { error } from '@wskit/core';
 
 /**
- * Type-only carrier used to declare a shape with no runtime schema — the env
- * bindings in `define(...)` and the payload of an `emits(...)` event.
+ * Type-only carrier used to declare a shape with no runtime schema, such as the
+ * payload of an `emits(...)` event.
  *
  * @example
  * ```ts
- * define({
- *   env: t<Env>(),
- *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
- * });
+ * define({ capabilities: [emits({ 'chat-message': t<{ text: string }>() })] });
  * ```
  */
 export function t<T>(): TypeMarker<T> {

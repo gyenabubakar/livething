@@ -74,7 +74,6 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  * import * as v from 'valibot';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [
  *     tags((ephemeral, persistent) => [
  *       ephemeral('role', t<string>()),

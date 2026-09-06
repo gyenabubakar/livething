@@ -1,4 +1,4 @@
-import { define, errors, t } from '@wskit/server';
+import { define, errors } from '@wskit/server';
 import { error, WSKitError } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -14,7 +14,6 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 const BigIntDetail = error('bigint-detail');
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
 });

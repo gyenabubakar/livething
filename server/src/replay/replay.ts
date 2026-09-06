@@ -81,7 +81,6 @@ const REPLAY_KEY = Symbol('replay');
  * import { replay } from '@wskit/server/replay';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [
  *     dedup(),
  *     sequence({ persist: true }),

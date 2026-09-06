@@ -6,7 +6,6 @@ import { scheduled } from './capability.ts';
 
 function makeBase() {
   return define({
-    env: t<{ SECRET: string }>(),
     capabilities: [
       scheduled({
         cleanup: null,

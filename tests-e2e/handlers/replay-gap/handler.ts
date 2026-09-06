@@ -15,7 +15,6 @@ import type { ChatMsg, RoomMsg } from './events.ts';
 // a client is offline evicts the row the client last held and bumps the eviction
 // watermark above its `lastKnownSeq` — the exact condition a `__gap__` reports.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({

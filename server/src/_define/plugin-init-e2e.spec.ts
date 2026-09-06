@@ -13,7 +13,7 @@ import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { plugin } from './plugins.ts';
 
-function buildEngine(handler: ServerDefinition, env: Record<string, unknown> = {}): Engine {
+function buildEngine(handler: ServerDefinition): Engine {
   let captured: Engine | undefined;
   const server = adapter({
     id: 'plugin-init-e2e',
@@ -22,7 +22,6 @@ function buildEngine(handler: ServerDefinition, env: Record<string, unknown> = {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env,
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -46,7 +45,7 @@ describe('plugin init — onion order end-to-end', () => {
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Plug = plugin('acme:boot', { handler: ph.assemble({ handlers: [beat] }) });
 
-    const base = define({ env: t<{}>(), capabilities: [Plug()] });
+    const base = define({ capabilities: [Plug()] });
     base.onInit(() => {
       trace.push('app');
     });
@@ -68,35 +67,10 @@ describe('plugin init — onion order end-to-end', () => {
     const Plug = plugin('acme:tags', { handler: ph.assemble({ handlers: [] }) });
 
     const base = define({
-      env: t<{}>(),
       capabilities: [tags((ephemeral) => [ephemeral('host-role', t<string>())]), Plug()],
     });
 
     const engine = buildEngine(base.assemble({ handlers: [] }));
     await expect(engine.initialize()).resolves.toBeUndefined();
-  });
-
-  it('passes the host environment to a plugin unchanged', async () => {
-    const env = { services: { issuer: 'test-issuer' } };
-    let seen: unknown;
-
-    const ph = define({
-      scope: 'plugin',
-      env: t<typeof env>(),
-    });
-    ph.onInit((ctx) => {
-      seen = ctx.env;
-    });
-    const Plug = plugin('acme:env', { handler: ph.assemble({ handlers: [] }) });
-
-    const base = define({
-      env: t<typeof env>(),
-      capabilities: [Plug()],
-    });
-    const engine = buildEngine(base.assemble({ handlers: [] }), env);
-
-    await engine.initialize();
-
-    expect(seen).toBe(env);
   });
 });

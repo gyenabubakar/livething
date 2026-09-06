@@ -73,7 +73,6 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
   let storageView: ReturnType<typeof createLazyStorageView> | undefined;
   return {
-    env: core.env,
     logger: core.logger,
     platform: core.platform,
     getStorage: () => core.storage,

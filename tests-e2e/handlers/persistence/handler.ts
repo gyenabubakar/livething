@@ -14,7 +14,6 @@ const TrueLeavePayload = v.object({ channel: v.string(), username: v.string() })
 const RemoveMemberPayload = v.object({ identity: v.string() });
 
 const base = define({
-  env: t<Env>(),
   // Default path requires a username (existing tests). Connecting with `?anon`
   // takes the anonymous path (empty identity) so anonymous-skips-membership and
   // anonymous-replay-gate behavior can be exercised.

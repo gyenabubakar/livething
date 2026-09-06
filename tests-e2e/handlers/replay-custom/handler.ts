@@ -27,7 +27,6 @@ import type {
 } from './events.ts';
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({

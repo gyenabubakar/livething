@@ -16,7 +16,6 @@ import { expectTypeOf } from 'vitest';
 import type { ConnectionRef } from '~/context.ts';
 
 const base = define({
-  env: t<{}>(),
   capabilities: [serverRequests(), channels()],
 });
 
@@ -103,7 +102,6 @@ room.on('ping', {
  * `ctx.channel.request` / `broadcastRequest` verbs — not just a runtime throw.
  */
 const noRequests = define({
-  env: t<{}>(),
   capabilities: [channels()],
 });
 

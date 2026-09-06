@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import * as v from 'valibot';
@@ -31,7 +30,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: makeStorage(),
-        env: {},
+
         platform: {},
         timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
@@ -65,7 +64,7 @@ describe('plugin onPing / onPong', () => {
     ph.onPong(() => void seen.push('pong'));
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
-    const base = define({ env: t<{}>(), capabilities: [Probe()] });
+    const base = define({ capabilities: [Probe()] });
     const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('ping');
@@ -81,7 +80,7 @@ describe('plugin onPing / onPong', () => {
     ph.onPong((ctx: any) => void (scopedId = ctx.connection.id));
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
-    const base = define({ env: t<{}>(), capabilities: [Probe()] });
+    const base = define({ capabilities: [Probe()] });
     const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 
     await conn.handleMessage('pong');
@@ -97,7 +96,6 @@ describe('plugin onPing / onPong', () => {
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({
-      env: t<{}>(),
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Probe()],
     });
     base.onPong(() => void order.push('app'));
@@ -119,7 +117,7 @@ describe('plugin onPing / onPong', () => {
     });
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
-    const base = define({ env: t<{}>(), capabilities: [Probe()] });
+    const base = define({ capabilities: [Probe()] });
     base.onPing(() => void order.push('app'));
     const conn = await openConnection(buildEngine(base.assemble({ handlers: [] })));
 

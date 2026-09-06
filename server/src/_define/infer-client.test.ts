@@ -12,7 +12,6 @@ const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 const base = define({
-  env: t<{ SECRET: string }>(),
   upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
     emits({ welcome: t<{ username: string }>() }),
@@ -76,7 +75,7 @@ describe('InferClient for define()', () => {
   });
 
   it('rejects a builder method whose capability was not listed', () => {
-    const bare = define({ env: t<{ SECRET: string }>() });
+    const bare = define({});
     // `clientRequests()` is not in capabilities, so `base.request` does not exist.
     // @ts-expect-error base.request requires the clientRequests() capability
     bare.request;

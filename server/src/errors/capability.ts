@@ -24,7 +24,6 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [errors([NotFound])],
  * });
  *

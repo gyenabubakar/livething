@@ -18,7 +18,6 @@ import type { RoomMsg } from './events.ts';
 // `cursor-answer` emit surfaces the authoritative server view, independent of
 // the live fan-out.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

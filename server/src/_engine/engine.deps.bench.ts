@@ -15,7 +15,7 @@ function makeCore(): EngineCore {
     setup(createEngine) {
       core = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: {
           setAlarm: async () => {},

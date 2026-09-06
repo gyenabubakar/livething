@@ -13,7 +13,6 @@ const TokenChunk = t<{ token: string }>();
 const StopPayload = v.object({});
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), stream(), resumableStream(), recordedStream()],
 });

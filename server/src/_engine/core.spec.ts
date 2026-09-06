@@ -1,4 +1,3 @@
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -6,13 +5,13 @@ import { describe, expect, it } from 'vitest';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import { EngineCore } from './core.ts';
 
-const handler = define({ env: t<Record<string, never>>() }).assemble({ handlers: [] });
+const handler = define({}).assemble({ handlers: [] });
 
 function validOptions(): EngineAdapterTypes.EngineOptions {
   return {
     adapterId: 'test-adapter',
     storage: { sql: createTestSql(), kv: createTestKV() },
-    env: {},
+
     platform: {},
     timers: createTestTimers(),
     asyncContextFactory: <TStore>() => {

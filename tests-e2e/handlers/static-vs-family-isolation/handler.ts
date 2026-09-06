@@ -35,7 +35,6 @@ const KickFamilyPayload = v.object({
 const KickAckPayload = v.object({ where: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     dedup(),

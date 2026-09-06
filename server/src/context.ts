@@ -806,7 +806,6 @@ export interface ChannelsManager<
  * `base.request`, `base.stream`, `base.onConnect`, `base.onDisconnect`,
  * `base.onError`, and `base.onValidationError`.
  *
- * @template Env      Environment variables exposed by the adapter.
  * @template Meta     Per-connection metadata set in the upgrade step.
  * @template Platform The raw platform object (e.g. a Cloudflare DO stub).
  *
@@ -827,13 +826,9 @@ export interface ChannelsManager<
  * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).send`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
- *   `env`, `log`, `platform`
+ *   `log`, `platform`
  */
-export interface ConnectionContext<
-  Env = Record<string, unknown>,
-  Meta = Record<string, unknown>,
-  Platform = unknown,
-> {
+export interface ConnectionContext<Meta = Record<string, unknown>, Platform = unknown> {
   /**
    * A `ConnectionRef` for the current connection — the self socket address.
    * Pass it to engine methods that act on a specific socket. Equivalent to
@@ -938,9 +933,6 @@ export interface ConnectionContext<
   /** Key-value storage access. */
   kv: KVProvider;
 
-  /** Environment variables provided by the adapter (e.g. secrets, feature flags). */
-  env: Env;
-
   /** Structured logger. */
   log: Logger;
 
@@ -995,15 +987,12 @@ export interface ConnectionContext<
  * This context has no connection-level APIs (`send`, `broadcast`, etc.)
  * because no clients are connected yet.
  */
-export interface InitContext<Env = Record<string, unknown>, Platform = unknown> {
+export interface InitContext<Platform = unknown> {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
-
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
@@ -1037,7 +1026,6 @@ type ShutdownOutgoing<TSlots> = 'outgoing' extends keyof TSlots
  * live connections, broadcast, and queue durable work.
  */
 export interface ShutdownContext<
-  Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
@@ -1078,9 +1066,6 @@ export interface ShutdownContext<
   /** Reach any user by id with `get(id)` to fan out to every socket they hold. */
   users: UsersManager<Meta>;
 
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
-
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
 
@@ -1098,11 +1083,7 @@ export interface ShutdownContext<
  * Mental model: this looks like `ShutdownContext`, but it runs for one queued
  * job instance and receives its payload separately as the handler argument.
  */
-export interface TaskContext<
-  Env = Record<string, unknown>,
-  Meta = Record<string, unknown>,
-  Platform = unknown,
-> {
+export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown> {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -1130,9 +1111,6 @@ export interface TaskContext<
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
@@ -1186,7 +1164,6 @@ export interface AdminChannels<Meta = Record<string, unknown>> {
  * `tags` admin operations are not part of this context yet.
  */
 export interface AdminContext<
-  Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
@@ -1256,9 +1233,6 @@ export interface AdminContext<
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-
-  /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
-  env: Env;
 
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;

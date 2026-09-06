@@ -26,7 +26,6 @@ interface IntegrationState {
 
 function createHandler(state: IntegrationState) {
   const base = define({
-    env: t<{ TEST_SECRET: string }>(),
     upgrade(request) {
       state.upgradeRequest = request;
       const url = new URL(request.url);
@@ -148,7 +147,6 @@ function createHandler(state: IntegrationState) {
 
 function createTranslatedHandler(state: IntegrationState) {
   const base = define({
-    env: t<{ TEST_SECRET: string }>(),
     translate: translator(() => ({
       inbound(raw) {
         const frame = JSON.parse(raw) as { data?: unknown; type?: string };
@@ -389,7 +387,6 @@ describe('Node server integration', () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = server(createHandler(state), {
       port: 0,
-      env: { TEST_SECRET: 'integration-secret' },
       clientIp: { mode: 'direct' },
       shutdownOnSignal: false,
     });

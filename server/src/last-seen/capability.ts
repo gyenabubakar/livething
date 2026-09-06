@@ -18,7 +18,6 @@ export type { LastSeenOptions, LastSeenTrack } from '~/last-seen/types.ts';
  * import { lastSeen } from '@wskit/server/last-seen';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [lastSeen({ track: 'activity' })],
  * });
  * ```

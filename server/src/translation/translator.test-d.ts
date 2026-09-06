@@ -1,5 +1,4 @@
 /* oxlint-disable no-unused-vars */
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
@@ -51,7 +50,7 @@ translator(() => ({
 }));
 
 const serverOnly = translator(() => ({ inbound: (raw) => raw }));
-define({ env: t<{}>(), translate: serverOnly });
+define({ translate: serverOnly });
 
 // @ts-expect-error translation belongs to the app server, not a plugin scope
 define({ scope: 'plugin', translate: serverOnly });

@@ -8,13 +8,9 @@ import { replay } from '~/replay/capability.ts';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('ctx.sendReplay gating', () => {
   it('omits ctx.sendReplay without a replay capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [emits({ msg: t<{ text: string }>() })] });
+    const base = define({ capabilities: [emits({ msg: t<{ text: string }>() })] });
     base.on('x', {
       run(ctx) {
         // @ts-expect-error ctx.sendReplay needs a replay capability
@@ -25,7 +21,6 @@ describe('ctx.sendReplay gating', () => {
 
   it('adds ctx.sendReplay with replay.history()', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.history()],
     });
     base.on('x', {
@@ -39,7 +34,6 @@ describe('ctx.sendReplay gating', () => {
 
   it('adds ctx.sendReplay with replay.custom()', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.custom()],
     });
     base.on('x', {
@@ -51,7 +45,6 @@ describe('ctx.sendReplay gating', () => {
 
   it('adds ctx.sendReplay with replay.snapshot(), typed to the emits catalog', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [
         emits({ msg: t<{ text: string }>() }),
         replay.snapshot({ snapshotKey: () => 'k' }),
@@ -70,7 +63,6 @@ describe('ctx.sendReplay gating', () => {
 describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [emits({ msg: t<{ text: string }>() }), intercepts()],
     });
     base.intercept((ctx, frame: InterceptFrame) => {
@@ -84,7 +76,6 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
 
   it('are typed on ctx without intercepts() — they are core', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [emits({ msg: t<{ text: string }>() })],
     });
     base.on('x', {

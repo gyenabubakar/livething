@@ -15,7 +15,6 @@ const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
 const SendPayload = v.object({ text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels()],
 });

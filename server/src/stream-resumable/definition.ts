@@ -84,7 +84,6 @@ interface ResumableStreamConfig<
  * const PaginateCursor = v.object({ idx: v.number() });
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [resumableStream()],
  * });
  *

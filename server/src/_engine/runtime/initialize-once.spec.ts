@@ -6,7 +6,6 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -23,7 +22,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -36,9 +35,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   return captured;
 }
 
-function assembleWith(
-  base: ReturnType<typeof define<Record<string, never>, unknown, readonly []>>,
-): ServerDefinition {
+function assembleWith(base: ReturnType<typeof define>): ServerDefinition {
   return base.assemble({ handlers: [base.on('noop', { input: v.object({}), run() {} })] });
 }
 
@@ -67,7 +64,7 @@ function buildGatedEngine(): GatedEngine {
     release = resolve;
   });
 
-  const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+  const base = define({ capabilities: [] });
   base.onInit(async () => {
     calls += 1;
     entered();
@@ -121,7 +118,7 @@ describe('engine.initialize() under concurrent callers', () => {
     let calls = 0;
     let engine!: Engine;
 
-    const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+    const base = define({ capabilities: [] });
     base.onInit(() => {
       calls += 1;
       // Re-entry from the hook's synchronous body, the earliest point any
@@ -138,7 +135,7 @@ describe('engine.initialize() under concurrent callers', () => {
   it('keeps a failed run failed rather than half-installing hooks twice', async () => {
     let calls = 0;
 
-    const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+    const base = define({ capabilities: [] });
     base.onInit(async () => {
       calls += 1;
       await Promise.resolve();

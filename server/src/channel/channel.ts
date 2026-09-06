@@ -81,7 +81,7 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  * import { define, t } from '@wskit/server';
  * import { channels } from '@wskit/server/channels';
  *
- * const base = define({ env: t<Env>(), capabilities: [channels()] });
+ * const base = define({ capabilities: [channels()] });
  *
  * // A `[familyKey, pattern]` tuple declares a channel family that matches
  * // `room:<anything>` subscriptions. The family key ('rooms') is used in

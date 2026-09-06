@@ -11,7 +11,6 @@ const Note = v.object({ text: v.string() });
 const SendNote = v.object({ text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [dedup(), sequence({ persist: true }), channels(), replay.custom()],
 });

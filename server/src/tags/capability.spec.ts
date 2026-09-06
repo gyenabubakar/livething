@@ -6,10 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { tags } from './capability.ts';
 import type { TagGroupsPrimitive } from './tags.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 function tagGroupsPrimitive(
   primitives: readonly { __wskit: string }[],
   kind: 'ephemeral' | 'persistent',
@@ -24,7 +20,6 @@ function tagGroupsPrimitive(
 describe('tags() capability', () => {
   it('registers an ephemeral group with its name and validator', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [
         tags((ephemeral) => [
           ephemeral('role', t<string>()),
@@ -41,7 +36,6 @@ describe('tags() capability', () => {
 
   it('boots through the engine and registers the declared groups', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
@@ -49,7 +43,6 @@ describe('tags() capability', () => {
 
   it('emits no ephemeral primitive when only persistent groups are declared', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     const { primitives } = base.assemble({ handlers: [] });
@@ -62,7 +55,6 @@ describe('tags() capability', () => {
 
   it('seeds initial ephemeral tags from the upgrade sugar', async () => {
     const base = define({
-      env: t<Env>(),
       upgrade() {
         return { userId: 'alice', tags: { ephemeral: { role: 'admin' } } };
       },
@@ -81,7 +73,6 @@ describe('tags() capability', () => {
 
   it('omits tags from the upgrade result when none are seeded', async () => {
     const base = define({
-      env: t<Env>(),
       upgrade() {
         return { userId: 'alice' };
       },
@@ -98,7 +89,6 @@ describe('tags() capability', () => {
 
   it('allows persistent groups', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -107,7 +97,6 @@ describe('tags() capability', () => {
   it('throws when the same group name is declared twice in one kind', () => {
     expect(() =>
       define({
-        env: t<Env>(),
         capabilities: [tags((ephemeral) => [ephemeral('role'), ephemeral('role')])],
       }),
     ).toThrow(/'role' declared twice/);

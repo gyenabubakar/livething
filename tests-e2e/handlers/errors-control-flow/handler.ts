@@ -17,7 +17,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const StreamToken = t<{ index: number }>();
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

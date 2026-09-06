@@ -35,7 +35,6 @@ const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble({ handl
  * listed plugin observes the same frames.
  */
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     HeartbeatProbe(),

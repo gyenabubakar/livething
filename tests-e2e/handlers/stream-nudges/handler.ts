@@ -16,7 +16,6 @@ const overflowGates = new Map<string, () => void>();
 export const NudgeRejected = error('nudge-rejected');
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     dedup(),

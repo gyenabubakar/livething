@@ -1,11 +1,10 @@
-import { define, t } from '@wskit/server';
+import { define } from '@wskit/server';
 import { clientRequests } from '@wskit/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [clientRequests()],
 });

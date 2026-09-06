@@ -363,7 +363,7 @@ export interface ChannelsCapability extends Capability<{}, never, 'channels'> {
  * import { channels } from '@wskit/server/channels';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [channels()] });
+ * const base = define({ capabilities: [channels()] });
  *
  * const lobby = base.channel('lobby', { capabilities: [emits({ joined: t<{ id: string }>() })] });
  * export const handleChat = lobby.on('chat', {

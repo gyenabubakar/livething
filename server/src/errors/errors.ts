@@ -60,7 +60,6 @@ export function Disconnect(code: number, reason: string) {
  * import { RejectUpgrade } from '@wskit/server/errors';
  *
  * define({
- *   env: t<Env>(),
  *   async upgrade(req) {
  *     const user = await validateToken(req.headers.get('authorization'));
  *     if (!user) throw RejectUpgrade(4002, 'Invalid token');

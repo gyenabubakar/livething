@@ -55,7 +55,6 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
  * import { sequence } from '@wskit/server/sequence';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [
  *     dedup(),
  *     sequence({ persist: true }),
@@ -123,7 +122,7 @@ function attachBuiltinReplayBuilder(cap: HostCapability<{}, 'replay'>): void {
  * import { define, t } from '@wskit/server';
  * import { replay } from '@wskit/server/replay';
  *
- * const base = define({ env: t<Env>(), capabilities: [replay.custom()] });
+ * const base = define({ capabilities: [replay.custom()] });
  *
  * base.replay({
  *   beforeSend(ctx, msg) {

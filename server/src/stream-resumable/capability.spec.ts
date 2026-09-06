@@ -6,13 +6,9 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './capability.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('resumableStream() capability', () => {
   it('registers a resumable stream that boots', () => {
-    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
+    const base = define({ capabilities: [resumableStream()] });
     const handle = base.resumableStream('paginate', {
       input: v.object({}),
       cursor: t<{ row: number }>(),
@@ -26,14 +22,14 @@ describe('resumableStream() capability', () => {
   });
 
   it('rejects keep-running without broadcast', () => {
-    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
+    const base = define({ capabilities: [resumableStream()] });
     expect(() =>
       base.resumableStream('p', { onDisconnect: 'keep-running', async *run() {} }),
     ).toThrow(/keep-running/);
   });
 
   it('lets the generator read cursor and use withCursor through the wrapper', async () => {
-    const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
+    const base = define({ capabilities: [resumableStream()] });
     let seenCursor: unknown;
     const handle = base.resumableStream('p', {
       chunk: t<{ row: number }>(),
@@ -64,7 +60,7 @@ describe('resumableStream() capability', () => {
   });
 
   it('throws when base.resumableStream() is used without the capability', () => {
-    const base = define({ env: t<Env>() });
+    const base = define({});
     const escapeHatch = base as unknown as { resumableStream(event: string, config: any): unknown };
     expect(() => escapeHatch.resumableStream('x', { async *run() {} })).toThrow(
       /base\.resumableStream\(\) needs the resumableStream\(\) capability/,

@@ -27,12 +27,6 @@ import type { DefineConfig, ScopedDefineConfig } from '~/_define/define.ts';
 import type { InferPluginClient } from '~/_define/plugins.ts';
 import type { InferClient } from '~/infer-client.ts';
 
-interface PluginEnv {
-  auth: {
-    issuer: string;
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
 // ---------------------------------------------------------------------------
@@ -71,50 +65,6 @@ const ApiPlugin = plugin('acme:presence', {
 void ApiPlugin;
 
 // ---------------------------------------------------------------------------
-// Plugin environment requirements — the plugin declares a type-only
-// requirement, and the host must provide a structurally compatible env.
-// ---------------------------------------------------------------------------
-const envScoped = define({
-  scope: 'plugin',
-  env: t<PluginEnv>(),
-});
-
-const envHandler = envScoped.on('env-probe', {
-  run(ctx) {
-    expectTypeOf(ctx.env.auth.issuer).toEqualTypeOf<string>();
-  },
-});
-
-const EnvPlugin = plugin('acme:env', {
-  handler: envScoped.assemble({ handlers: [envHandler] }),
-});
-
-const envHost = define({
-  env: t<PluginEnv & { region: string }>(),
-  capabilities: [EnvPlugin()],
-});
-void envHost;
-
-// @ts-expect-error — the host env does not satisfy the plugin's auth requirement
-define({
-  env: t<{ region: string }>(),
-  capabilities: [EnvPlugin()],
-});
-
-// An ordinary host capability must not hide a plugin's environment requirement.
-// @ts-expect-error — the plugin still requires auth when the host declares emits
-define({
-  env: t<{ region: string }>(),
-  capabilities: [emits({ hostEvent: t<{ ok: boolean }>() }), EnvPlugin()],
-});
-
-// @ts-expect-error — every possible host env variant must satisfy the plugin requirement
-define({
-  env: t<PluginEnv | { region: string }>(),
-  capabilities: [EnvPlugin()],
-});
-
-// ---------------------------------------------------------------------------
 // Gap 2 — `api` return type is inferred (no annotation) and reaches the host
 // through the SERVER ctx as `ctx.plugin(id)`. The api type lives on the server
 // ctx / contract slot, not on the client `InferClient`.
@@ -135,7 +85,7 @@ const InferApiPlugin = plugin('acme:infer', {
   }),
 });
 
-const inferHost = define({ env: t<{}>(), capabilities: [InferApiPlugin()] });
+const inferHost = define({ capabilities: [InferApiPlugin()] });
 inferHost.on('host-probe', {
   run(ctx) {
     const api = ctx.plugin('acme:infer');
@@ -175,7 +125,6 @@ const LeakPlugin = plugin('acme:leak', {
 });
 
 const leakHost = define({
-  env: t<{}>(),
   capabilities: [emits({ 'host-out': t<{ h: number }>() }), LeakPlugin()],
 });
 const leakHostOn = leakHost.on('host-in', { input: v.object({ h: v.number() }), run() {} });
@@ -228,7 +177,7 @@ const ChPlugin = plugin('acme:chan', {
   handler: chScoped.assemble({ handlers: [chFamHandler], api: () => ({}) }),
 });
 
-const chHost = define({ env: t<{}>(), capabilities: [ChPlugin()] });
+const chHost = define({ capabilities: [ChPlugin()] });
 const chHostDef = chHost.assemble({ handlers: [chHost.on('host-noop', { run() {} })] });
 type ChClient = InferClient<typeof chHostDef>;
 
@@ -317,13 +266,11 @@ plugin('acme:bad', {
 // ---------------------------------------------------------------------------
 
 ({
-  env: t<Record<string, never>>(),
   // @ts-expect-error — a top-level config never carries a scope.
   scope: 'plugin',
 }) satisfies DefineConfig<Record<string, never>>;
 
 ({
-  env: t<Record<string, never>>(),
   // @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
   scoped: true,
 }) satisfies DefineConfig<Record<string, never>>;
@@ -338,7 +285,7 @@ plugin('acme:bad', {
 // And end to end, so the overload itself is covered: a typo'd flag on a real
 // call is rejected, with TypeScript pointing at the correct field.
 // @ts-expect-error — `DefineConfig` has no `scoped` property; the field is `scope`.
-define({ env: t<Record<string, never>>(), scoped: true });
+define({ scoped: true });
 
 // ---------------------------------------------------------------------------
 // `inbox()` / `readReceipts()` are channel-only capabilities — the
@@ -350,7 +297,6 @@ define({ env: t<Record<string, never>>(), scoped: true });
 // check just above does.
 // ---------------------------------------------------------------------------
 define({
-  env: t<Record<string, never>>(),
   // @ts-expect-error — inbox() is channel-only; list it in a channel's own `capabilities`.
   capabilities: [inbox()],
 });
@@ -362,7 +308,6 @@ define({
 });
 
 define({
-  env: t<Record<string, never>>(),
   // @ts-expect-error — readReceipts() is channel-only; list it in a channel's own `capabilities`.
   capabilities: [readReceipts()],
 });

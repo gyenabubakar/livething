@@ -6,7 +6,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { channels } from './capability.ts';
 
-const base = define({ env: t<{ SECRET: string }>(), capabilities: [channels()] });
+const base = define({ capabilities: [channels()] });
 
 const lobby = base.channel('lobby', {
   capabilities: [emits({ joined: t<{ id: string }>() })],

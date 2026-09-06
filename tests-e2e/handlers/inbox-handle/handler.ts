@@ -19,7 +19,6 @@ import type { RoomMsg } from './events.ts';
 // `null`. `lastSeen()` rides along so `backlog()` fills each member's
 // `lastSeenAt` instead of omitting the field.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

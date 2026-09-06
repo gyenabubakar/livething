@@ -52,7 +52,6 @@ function buildEngine(
     (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
 ): Engine {
   const base = define({
-    env: t<Record<string, never>>(),
     hibernation: { enabled: true },
     capabilities: [channels()],
   });
@@ -77,7 +76,6 @@ function buildEngine(
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage,
         timers: {

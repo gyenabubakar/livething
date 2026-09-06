@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -29,7 +28,7 @@ function buildEngine(handler: ServerDefinition, storage = createTestStorage()): 
     setup(createEngine) {
       captured = createEngine({
         storage,
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -44,7 +43,6 @@ function buildEngine(handler: ServerDefinition, storage = createTestStorage()): 
 
 function buildInboxEngine(storage = createTestStorage()): Engine {
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', { capabilities: [inbox()] });
@@ -54,7 +52,6 @@ function buildInboxEngine(storage = createTestStorage()): Engine {
 
 function buildChannelsOnlyEngine(): Engine {
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', {});
@@ -144,7 +141,6 @@ describe('inbox runtime install', () => {
     const engine = buildEngine(
       (() => {
         const base = define({
-          env: t<Record<string, never>>(),
           capabilities: [channels(), sequence({ persist: true }), dedup()],
         });
         return base.assemble({ handlers: [base.channel('chat', { capabilities: [inbox()] })] });
@@ -207,7 +203,6 @@ describe('inbox runtime install', () => {
       },
     });
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const engine = buildEngine(

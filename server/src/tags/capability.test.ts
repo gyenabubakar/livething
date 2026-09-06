@@ -7,12 +7,7 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { tags } from './capability.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 const base = define({
-  env: t<Env>(),
   capabilities: [
     tags((ephemeral, persistent) => [
       ephemeral('role', t<string>()),
@@ -42,7 +37,6 @@ describe('tags typing', () => {
 
   it('gates the upgrade ephemeral-tag sugar to declared ephemeral group names', () => {
     define({
-      env: t<Env>(),
       upgrade() {
         return { userId: 'a', tags: { ephemeral: { role: 'admin' } } };
       },
@@ -51,7 +45,6 @@ describe('tags typing', () => {
 
     // @ts-expect-error 'nope' is not a declared ephemeral group
     define({
-      env: t<Env>(),
       upgrade() {
         return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },
@@ -60,7 +53,7 @@ describe('tags typing', () => {
   });
 
   it('rejects ctx.tags group names when no tags() capability is listed', () => {
-    const plain = define({ env: t<Env>() });
+    const plain = define({});
     plain.on('act', {
       run(ctx) {
         // @ts-expect-error no tag groups declared

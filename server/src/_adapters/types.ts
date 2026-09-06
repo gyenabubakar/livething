@@ -116,9 +116,6 @@ export interface EngineRuntimeOptions {
   /** Adapter-provided SQL and key-value storage surface. Every adapter provides this. */
   storage: StorageProvider;
 
-  /** Env bindings exposed to every runtime context. */
-  env: Record<string, unknown>;
-
   /** Adapter-specific platform object exposed as `ctx.platform`. */
   platform: unknown;
 

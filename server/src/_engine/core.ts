@@ -57,7 +57,6 @@ export class EngineCore {
   readonly hooks: EngineRuntimeTypes.RegisteredEngineHooks = createRegisteredHooks();
 
   storage: PublicApi.StorageProvider;
-  env: Record<string, unknown>;
   timers: PublicApi.TimerProvider;
   platform: unknown;
   logger: PublicApi.Logger;
@@ -238,9 +237,6 @@ export class EngineCore {
     if (options.timers === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
     }
-    if (options.env === undefined) {
-      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide env.`);
-    }
     if (options.platform === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
     }
@@ -259,7 +255,6 @@ export class EngineCore {
     this.translatorFactory = handler.__translate;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
     this.storage = options.storage;
-    this.env = options.env;
     this.timers = options.timers;
     this.platform = options.platform;
     this.logger = options.logger;

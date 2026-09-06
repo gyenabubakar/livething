@@ -34,7 +34,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     compiled: {},
     connections: new Map<string, RuntimeConnection>(),
     tagMembers: new Map(),
-    env: {},
+
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     getStorage: () => ({

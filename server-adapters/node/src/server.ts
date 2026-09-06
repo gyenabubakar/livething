@@ -22,7 +22,7 @@ import type { NodeWebSocketServer } from './upgrade.ts';
 type ShutdownSignal = 'SIGINT' | 'SIGTERM';
 
 /** Configuration for an owned or externally managed Node HTTP server. */
-export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOptions, 'logger'> {
+export interface NodeServerOptions extends Omit<NodeStorageOptions, 'logger'> {
   /** Attach WSKit to an existing Node HTTP server, such as an Express server. */
   server?: Server;
 
@@ -31,9 +31,6 @@ export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOption
 
   /** Host passed to the owned HTTP server's `listen()` call. */
   host?: string;
-
-  /** The application environment passed through to `ctx.env`. */
-  env?: Env;
 
   /** Logger used by the engine and Node runtime services. */
   logger?: Logger;
@@ -49,29 +46,23 @@ export interface NodeServerOptions<Env = unknown> extends Omit<NodeStorageOption
 }
 
 /** The in-process admin surface returned by a Node service. */
-export type NodeAdmin<TApi = unknown> = AdminContext<
-  Record<string, unknown>,
-  Record<string, unknown>,
-  unknown
-> &
-  TApi;
+export type NodeAdmin<TApi = unknown> = AdminContext<Record<string, unknown>, unknown> & TApi;
 
 /** The live service created by the Node adapter. */
-export interface NodeServer<Env = unknown, TApi = unknown> {
+export interface NodeServer<TApi = unknown> {
   readonly server: Server;
   readonly ready: Promise<void>;
   admin(): Promise<NodeAdmin<TApi>>;
   shutdown(): Promise<void>;
-  readonly env: Env;
 }
 
-const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unknown>>({
+const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
   id: 'node',
   asyncContextFactory: createAsyncContext,
 
   setup<TApi>(
     createEngine: (options: EngineRuntimeOptions) => Engine<TApi>,
-    options: NodeServerOptions<unknown>,
+    options: NodeServerOptions,
   ) {
     if (options.server && options.port !== undefined) {
       throw new TypeError('[wskit] Node server options cannot include both server and port.');
@@ -89,10 +80,8 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
         response.end();
       });
 
-    const env = options.env ?? {};
     const runtime = createRuntime({
       server,
-      env,
       sql: options.sql,
       kv: options.kv,
       logger: options.logger,
@@ -107,7 +96,6 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
 
     const engine = createEngine({
       logger,
-      env: runtime.env,
       platform: runtime.platform,
       storage: runtime.storage,
       timers: runtime.timers,
@@ -166,10 +154,9 @@ const buildServe = adapter<NodeServerOptions<unknown>, NodeServer<unknown, unkno
       signalHandlers.clear();
     }
 
-    const service: NodeServer<unknown, TApi> = {
+    const service: NodeServer<TApi> = {
       server,
       ready,
-      env,
 
       async admin() {
         await ready;
@@ -254,9 +241,9 @@ function closeServer(server: Server): Promise<void> {
 }
 
 /** Creates a Node service for a compiled WSKit server definition. */
-export function server<THandler extends ServerDefinition, Env = unknown>(
+export function server<THandler extends ServerDefinition>(
   handler: THandler,
-  options: NodeServerOptions<Env>,
-): NodeServer<Env, ApiOf<THandler>> {
-  return buildServe(handler, options) as unknown as NodeServer<Env, ApiOf<THandler>>;
+  options: NodeServerOptions,
+): NodeServer<ApiOf<THandler>> {
+  return buildServe(handler, options) as unknown as NodeServer<ApiOf<THandler>>;
 }

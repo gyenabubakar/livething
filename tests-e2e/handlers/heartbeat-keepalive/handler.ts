@@ -10,7 +10,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * round-trip first.
  */
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 10_000 }),

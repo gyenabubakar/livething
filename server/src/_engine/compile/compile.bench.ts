@@ -32,7 +32,6 @@ const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();
 
 const tinyBase = define({
-  env: t<Record<string, unknown>>(),
   capabilities: [emits({ notify: EmptyOut })],
 });
 const tinyHandler = tinyBase.assemble({
@@ -40,7 +39,6 @@ const tinyHandler = tinyBase.assemble({
 });
 
 const mediumBase = define({
-  env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
     clientRequests(),
@@ -86,7 +84,6 @@ function channelEmits(prefix: string) {
 }
 
 const heavyBase = define({
-  env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
     dedup(),

@@ -55,7 +55,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
     connections: connectionsMap,
     usersByKey,
     tagMembers: new Map<string, Set<RuntimeConnection>>(),
-    env: {},
+
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     getStorage: () => baseStorage(),

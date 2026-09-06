@@ -13,7 +13,6 @@ const TagSelfPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),

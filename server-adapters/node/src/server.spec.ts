@@ -119,7 +119,7 @@ afterEach(() => {
 describe('server()', () => {
   it('builds through the Node adapter without hibernation and reconciles before ready', async () => {
     const httpServer = new FakeHttpServer();
-    const service = server({} as never, { server: httpServer as unknown as Server, env: {} });
+    const service = server({} as never, { server: httpServer as unknown as Server });
 
     await service.ready;
 
@@ -130,7 +130,6 @@ describe('server()', () => {
       fake.reconcileConnections.mock.invocationCallOrder[0]!,
     );
     expect(createOptions[0]).toMatchObject({
-      env: {},
       storage: expect.any(Object),
       timers: expect.any(Object),
     });

@@ -271,7 +271,6 @@ type PluginsFragmentOf<TContract> =
  *
  * // server.ts
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
  * });
  * const handleSend = base.on('send-message', {

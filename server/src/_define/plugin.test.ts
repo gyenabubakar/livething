@@ -14,10 +14,6 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { plugin } from './plugins.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 interface PresenceApi {
   announce(): void;
   count(): number;
@@ -36,7 +32,7 @@ const Presence = plugin('acme:presence', {
   }),
 });
 
-const base = define({ env: t<Env>(), capabilities: [Presence()] });
+const base = define({ capabilities: [Presence()] });
 
 describe('plugin typing', () => {
   it('accepts a plugin capability in define({ capabilities })', () => {
@@ -82,7 +78,7 @@ describe('plugin typing', () => {
         api: (): PresenceApi => ({ announce() {}, count: () => 0 }),
       }),
     });
-    const app = define({ env: t<Env>(), capabilities: [P()] });
+    const app = define({ capabilities: [P()] });
     const handler = app.assemble({ handlers: [] });
     type C = InferClient<typeof handler>;
     expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
@@ -102,7 +98,7 @@ describe('plugin typing', () => {
     const room = ph.channel('room', { capabilities: [emits({ msg: t<{ text: string }>() })] });
     room.on('say', { input: v.object({}), run() {} });
     const P = plugin('acme:feed', { handler: ph.assemble({ handlers: [ticks, room] }) });
-    const app = define({ env: t<Env>(), capabilities: [P()] });
+    const app = define({ capabilities: [P()] });
     const feedHandler = app.assemble({ handlers: [] });
     type C = InferClient<typeof feedHandler>;
     expectTypeOf<C['streams']>().toHaveProperty('__acme:feed::ticks');

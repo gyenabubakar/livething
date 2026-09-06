@@ -13,7 +13,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels()],
 });

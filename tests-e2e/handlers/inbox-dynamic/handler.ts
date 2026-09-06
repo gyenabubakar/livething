@@ -20,7 +20,6 @@ import type { RoomMsg, TopMsg } from './events.ts';
 // host's top-level `replay.history()` events keep their own sequence
 // numbers, independent of a room's per-member inbox seq.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

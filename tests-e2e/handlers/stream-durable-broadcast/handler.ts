@@ -11,7 +11,6 @@ const RowChunk = t<{ row: number }>();
 const AttemptChunk = t<{ attempt: number }>();
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), recordedStream(), resumableStream()],
 });

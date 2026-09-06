@@ -64,7 +64,6 @@ async function buildEngine(
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql, kv: createTestKV() },
         timers: {
@@ -111,7 +110,6 @@ function fakeConnectionWithThrowingClose(id: string, userId: string): RuntimeCon
 
 function withChannelsAndTags(): ServerDefinition {
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -124,7 +122,6 @@ function withChannelsAndTags(): ServerDefinition {
 
 function withEveryOwningCapability(): ServerDefinition {
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -291,7 +288,7 @@ describe('admin().purgeUser()', () => {
   });
 
   it("with neither channels() nor tags() listed, closes only the purged user's sockets and touches no storage", async () => {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+    const base = define({ capabilities: [] });
     const handler = base.assemble({ handlers: [] });
     const { engine, sql } = await buildEngine(handler);
     const connection = fakeConnection('conn-1', 'alice');
@@ -358,7 +355,6 @@ describe('admin().purgeUser() — one cleanup step throws', () => {
 describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
   it('succeeds when resumableStream() is listed but no stream has ever been started', async () => {
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [resumableStream()],
     });
     const handler = base.assemble({ handlers: [] });

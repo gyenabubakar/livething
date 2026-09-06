@@ -23,7 +23,7 @@ import type { AnyCapability } from '~/_define/capability.ts';
 // ---------------------------------------------------------------------------
 
 declare const widenedCaps: AnyCapability[];
-const base = define({ env: t<Record<string, never>>(), capabilities: widenedCaps });
+const base = define({ capabilities: widenedCaps });
 
 // channels() cannot be confirmed listed either, once the array has widened —
 // every gate closes together, so `base.channel` itself is gone, not just its
@@ -60,13 +60,11 @@ base.on('ping', {
 // ---------------------------------------------------------------------------
 
 const rateLimitBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [channels(), rateLimit({ max: 5 })],
 });
 rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
 const requestsBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [channels(), serverRequests()],
 });
 requestsBase.channel('room2', {
@@ -74,7 +72,6 @@ requestsBase.channel('room2', {
 });
 
 const channelsBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [channels()],
 });
 channelsBase.on('ping', {
@@ -85,7 +82,6 @@ channelsBase.on('ping', {
 });
 
 const scheduledBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [scheduled({ task: null })],
 });
 scheduledBase.on('ping', {
@@ -96,7 +92,6 @@ scheduledBase.on('ping', {
 });
 
 const keepaliveBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
 });
 keepaliveBase.on('ping', {
@@ -107,7 +102,6 @@ keepaliveBase.on('ping', {
 });
 
 const lastSeenBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [lastSeen()],
 });
 lastSeenBase.on('ping', {
@@ -118,7 +112,6 @@ lastSeenBase.on('ping', {
 });
 
 const replayBase = define({
-  env: t<Record<string, never>>(),
   capabilities: [replay.history()],
 });
 replayBase.on('ping', {

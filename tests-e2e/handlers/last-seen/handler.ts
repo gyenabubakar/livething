@@ -10,7 +10,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // connection can query ANY identity's standing, including one it does not own,
 // so a still-connected member can answer for one that has since disconnected.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     lastSeen(),

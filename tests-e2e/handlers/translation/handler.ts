@@ -41,7 +41,6 @@ const foreignProtocol = translator(() => {
 });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   translate: foreignProtocol,
   capabilities: [
@@ -79,7 +78,6 @@ const passThrough = translator(() => ({
 }));
 
 const passThroughBase = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   translate: passThrough,
   capabilities: [emits({ heard: t<{ text: string }>() })],
@@ -104,7 +102,6 @@ const inboundOnly = translator(() => ({
 }));
 
 const inboundOnlyBase = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   translate: inboundOnly,
   capabilities: [emits({ heard: t<{ text: string }>() })],

@@ -8,7 +8,6 @@ import type { InferClient } from '~/infer-client.ts';
 import { stream } from './capability.ts';
 
 const base = define({
-  env: t<{ SECRET: string }>(),
   capabilities: [stream(), resumableStream(), recordedStream()],
 });
 

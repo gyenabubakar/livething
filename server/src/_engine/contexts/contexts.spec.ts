@@ -55,7 +55,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
     connections: new Map<string, RuntimeConnection>(),
     usersByKey: new Map<string, Set<RuntimeConnection>>(),
     tagMembers: new Map<string, Set<RuntimeConnection>>(),
-    env: {},
+
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},
     getStorage: () => baseStorage(),
@@ -761,7 +761,6 @@ describe('persistAttachment', () => {
 describe('storage view in init/shutdown/task contexts', () => {
   function makeShutdownDeps(getStorage: () => any) {
     return {
-      env: {},
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       platform: {},
       getStorage,

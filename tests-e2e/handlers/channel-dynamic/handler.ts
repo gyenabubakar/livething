@@ -10,7 +10,6 @@ const SendMessagePayload = v.object({ text: v.string() });
 const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

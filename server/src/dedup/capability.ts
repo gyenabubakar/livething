@@ -15,7 +15,7 @@ import { dedup as dedupFactory } from '~/dedup/dedup.ts';
  * import { define, t } from '@wskit/server';
  * import { dedup } from '@wskit/server/dedup';
  *
- * const base = define({ env: t<Env>(), capabilities: [dedup({ cap: 256 })] });
+ * const base = define({ capabilities: [dedup({ cap: 256 })] });
  * ```
  */
 export const dedup = defineHostCapability(CAPABILITY_KIND.dedup, (options?: { cap?: number }) =>

@@ -30,7 +30,6 @@ export type EmitSlot<TDefs extends EmitDefs> = {
  * import { define, emits, t } from '@wskit/server';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [
  *     emits({
  *       message: t<{ text: string; from: string }>(),

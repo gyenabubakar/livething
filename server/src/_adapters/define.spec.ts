@@ -41,7 +41,6 @@ describe('adapter', () => {
 
     return {
       storage: createTestStorage(),
-      env: { KEY: 'value' },
       platform: { kind: 'test' },
       timers,
       logger,
@@ -73,7 +72,6 @@ describe('adapter', () => {
     expect(engine.core.options).toMatchObject({
       adapterId: 'test',
       hibernation: noopHibernation,
-      env: { KEY: 'value' },
       platform: { kind: 'test' },
     });
   });

@@ -30,7 +30,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -90,7 +90,6 @@ function buildHandler() {
   } = { gate: undefined, normal: undefined };
 
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [
       channels(),
       sequence({ persist: true }),
@@ -173,7 +172,6 @@ function buildDynamicHandler() {
   const state = { sightings, handles };
 
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [
       channels(),
       sequence({ persist: true }),
@@ -525,7 +523,6 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
 
     const Feed = plugin('acme:gate-feed', { handler: pluginBase.assemble({ handlers: [room] }) });
     const host = define({
-      env: t<Record<string, never>>(),
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
     const engine = buildEngine(host.assemble({ handlers: [] }));

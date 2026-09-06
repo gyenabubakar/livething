@@ -38,8 +38,6 @@ export interface EngineChannelMeta {
  * contexts from the engine state.
  */
 export interface ContextCommonDeps {
-  env: Record<string, unknown>;
-
   logger: PublicApi.Logger;
 
   platform: unknown;

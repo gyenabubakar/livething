@@ -98,7 +98,6 @@ const buildServe = adapter<
 
         this.engine = createEngine({
           logger,
-          env: (env ?? {}) as Record<string, unknown>,
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),

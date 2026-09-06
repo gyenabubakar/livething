@@ -40,7 +40,7 @@ function buildDurableSweep(): Primitive {
  * import { resumableStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * const base = define({ env: t<Env>(), capabilities: [resumableStream()] });
+ * const base = define({ capabilities: [resumableStream()] });
  *
  * export const handlePaginate = base.resumableStream('paginate', {
  *   input: v.object({}),

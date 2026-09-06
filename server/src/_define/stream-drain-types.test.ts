@@ -13,12 +13,8 @@ import { describe, expectTypeOf, it } from 'vitest';
  * generator, and `highWaterMark` is accepted on every stream config.
  */
 describe('ctx.stream.drain type + highWaterMark config', () => {
-  interface Env {
-    DB: unknown;
-  }
-
   it('drain() is () => Promise<void> in a plain stream and highWaterMark is accepted', () => {
-    const base = define({ env: t<Env>(), capabilities: [stream()] });
+    const base = define({ capabilities: [stream()] });
     base.stream('feed', {
       input: v.object({}),
       highWaterMark: 64 * 1024,
@@ -32,7 +28,6 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
 
   it('drain() is present in a resumable stream and highWaterMark is accepted', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
@@ -49,7 +44,6 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
 
   it('drain() is present in a recorded stream and highWaterMark is accepted', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
@@ -64,7 +58,7 @@ describe('ctx.stream.drain type + highWaterMark config', () => {
   });
 
   it('drain() is present in a channel-scoped stream and highWaterMark is accepted', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
+    const base = define({ capabilities: [channels(), stream()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });

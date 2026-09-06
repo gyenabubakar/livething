@@ -1,9 +1,8 @@
-import { define, t } from '@wskit/server';
+import { define } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 
 const base = define({
-  env: t<Env>(),
   upgrade: () => {
     throw RejectUpgrade(403, 'Forbidden HTTP upgrade');
   },

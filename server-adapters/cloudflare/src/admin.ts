@@ -43,10 +43,10 @@ function toPlainInfo<TMeta>(info: ConnectionInfo<TMeta>): AdminConnectionInfo<TM
  * your api methods, not for surfacing directly over the stub.
  */
 export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
-  readonly #ctx: AdminContext<Record<string, unknown>, TMeta>;
+  readonly #ctx: AdminContext<TMeta>;
   readonly #instanceId: string | undefined;
 
-  constructor(ctx: AdminContext<Record<string, unknown>, TMeta>, instanceId?: string) {
+  constructor(ctx: AdminContext<TMeta>, instanceId?: string) {
     super();
     this.#ctx = ctx;
     this.#instanceId = instanceId;
@@ -162,7 +162,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
  * a clear error at the moment the admin surface is built.
  */
 export function buildAdmin<TApi, TMeta>(
-  surface: AdminContext<Record<string, unknown>, TMeta> & TApi,
+  surface: AdminContext<TMeta> & TApi,
   instanceId?: string,
 ): WSKitAdmin<TMeta> & TApi {
   const devMethods = Object.entries(surface as Record<string, unknown>).filter(

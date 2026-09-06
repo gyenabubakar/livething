@@ -40,7 +40,6 @@ const ERRORS_KEY = Symbol('errors');
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [errors([NotFound])],
  * });
  *

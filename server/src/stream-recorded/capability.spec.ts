@@ -1,18 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { recordedStream } from './capability.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 describe('recordedStream() capability', () => {
   it('registers a recorded stream that boots', () => {
-    const base = define({ env: t<Env>(), capabilities: [recordedStream()] });
+    const base = define({ capabilities: [recordedStream()] });
     const handle = base.recordedStream('tokens', {
       input: v.object({}),
       maxChunks: 100,
@@ -25,7 +20,7 @@ describe('recordedStream() capability', () => {
   });
 
   it('throws when base.recordedStream() is used without the capability', () => {
-    const base = define({ env: t<Env>() });
+    const base = define({});
     const escapeHatch = base as unknown as { recordedStream(event: string, config: any): unknown };
     expect(() => escapeHatch.recordedStream('x', { async *run() {} })).toThrow(
       /base\.recordedStream\(\) needs the recordedStream\(\) capability/,

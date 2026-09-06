@@ -117,7 +117,6 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
  * import { scheduled } from '@wskit/server/scheduled';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [
  *     scheduled({
  *       cleanup: null,

@@ -13,7 +13,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * the "nobody volunteered" path.
  */
 export const broadcastRequestContract = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),

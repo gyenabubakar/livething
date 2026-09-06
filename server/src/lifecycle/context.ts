@@ -6,16 +6,12 @@ import type * as PublicApi from '~/context.ts';
  * Build the context passed to the `onInit` lifecycle hook.
  */
 export function createInitContext(
-  deps: Pick<
-    EngineContextTypes.CreateTaskContextDeps,
-    'env' | 'logger' | 'platform' | 'getStorageView'
-  >,
-): PublicApi.InitContext<Record<string, unknown>, unknown> {
+  deps: Pick<EngineContextTypes.CreateTaskContextDeps, 'logger' | 'platform' | 'getStorageView'>,
+): PublicApi.InitContext<unknown> {
   const { sql, kv } = deps.getStorageView();
   return {
     sql,
     kv,
-    env: deps.env,
     log: deps.logger,
     platform: deps.platform,
   };
@@ -26,7 +22,7 @@ export function createInitContext(
  */
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
-): PublicApi.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+): PublicApi.ShutdownContext<Record<string, unknown>, unknown> {
   const { sql, kv } = deps.getStorageView();
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
@@ -58,7 +54,6 @@ export function createShutdownContext(
     },
     connections: buildConnectionsManager(deps),
     users: buildUsersManager(deps),
-    env: deps.env,
     log: deps.logger,
     platform: deps.platform,
   };

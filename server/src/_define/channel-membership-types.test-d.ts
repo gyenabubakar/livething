@@ -8,7 +8,7 @@
  */
 import type { ChannelConfig } from '~/_define/define.ts';
 
-type Config = ChannelConfig<Record<string, never>, Record<string, never>, Record<string, never>>;
+type Config = ChannelConfig<Record<string, never>, Record<string, never>, readonly []>;
 
 ({
   membership: 'persistent',

@@ -5,7 +5,6 @@ import { scheduled } from '@wskit/server/scheduled';
 import * as v from 'valibot';
 import type { Platform } from '@wskit/server-node';
 import type { SQLProvider } from '@wskit/server/adapters';
-import type { PluginsEnv } from '@wskit/tests-e2e-handlers/plugins';
 
 interface LastConnectionState {
   id: string;
@@ -47,11 +46,9 @@ function getState(platform: Platform): NodePluginState {
 
 const h = define({
   scope: 'plugin',
-  env: t<PluginsEnv>(),
   capabilities: [
     emits({
       'drizzle-ready': t<{ tables: string[] }>(),
-      'plugin-env-result': t<{ label: string }>(),
       'drizzle-vacuum-done': t<{ timestamp: number }>(),
       'plugin-every-tick': t<{ count: number }>(),
       'plugin-flaky-result': t<{ attempts: number }>(),
@@ -104,7 +101,6 @@ h.onConnect((ctx) => {
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
-  ctx.send('plugin-env-result', { label: ctx.env.PLUGIN_LABEL });
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 

@@ -102,9 +102,6 @@ export interface CustomReplaySendContext {
   /** KV access for persisting messages to your own replay store. */
   readonly kv: KVProvider;
 
-  /** Environment variables / bindings available to the handler. */
-  readonly env: Record<string, unknown>;
-
   /** Structured logger. */
   readonly log: Logger;
 
@@ -128,9 +125,6 @@ interface BaseCustomReplayContext {
 
   /** KV access for querying your own replay store. */
   readonly kv: KVProvider;
-
-  /** Environment variables / bindings available to the handler. */
-  readonly env: Record<string, unknown>;
 
   /** Structured logger. */
   readonly log: Logger;
@@ -207,7 +201,7 @@ export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
    * Called synchronously before each outgoing message is sent. Store the
    * message here for "store-before-send" (strict) durability.
    *
-   * @param ctx     Storage and platform access (sql, kv, env, log, platform).
+   * @param ctx     Storage and platform access (sql, kv, log, platform).
    * @param message The outgoing message with clean payload and wire metadata.
    */
   readonly onBeforeSend?: (
@@ -219,7 +213,7 @@ export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
    * Called (optionally async) after each outgoing message is sent. Store the
    * message here for "store-after-send" (best-effort) durability.
    *
-   * @param ctx     Storage and platform access (sql, kv, env, log, platform).
+   * @param ctx     Storage and platform access (sql, kv, log, platform).
    * @param message The outgoing message with clean payload and wire metadata.
    */
   readonly onAfterSend?: (
@@ -309,7 +303,6 @@ function createTopLevelReplayContext(
     meta: (baseCtx.meta as Record<string, unknown>) ?? {},
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
-    env: (baseCtx.env as Record<string, unknown>) ?? {},
     log: baseCtx.log as Logger,
     platform: baseCtx.platform,
     request,
@@ -351,7 +344,6 @@ function createChannelReplayContext(
     channel: { name: channelName },
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
-    env: (baseCtx.env as Record<string, unknown>) ?? {},
     log: baseCtx.log as Logger,
     platform: baseCtx.platform,
     sendReplay(event, payload, wire) {
@@ -402,7 +394,6 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           baseSendCtx = {
             sql: base.sql as SQLProvider,
             kv: base.kv as KVProvider,
-            env: (base.env as Record<string, unknown>) ?? {},
             log: base.log as Logger,
             platform: base.platform,
           };

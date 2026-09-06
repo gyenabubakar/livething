@@ -27,10 +27,6 @@ test.describe('plugins handler', () => {
     await waitForText(page, 'db-connected', 'db-ready');
   });
 
-  test('plugin receives the host environment through ctx.env', async ({ page }) => {
-    await waitForText(page, 'plugin-env-result', /label:(node|cloudflare)/);
-  });
-
   test('insert record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id: \d+/);

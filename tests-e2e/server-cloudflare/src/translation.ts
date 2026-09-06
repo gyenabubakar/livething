@@ -40,7 +40,6 @@ const hibernationForeignProtocol = translator(() => {
 });
 
 const hibernationBase = define({
-  env: t<Env>(),
   hibernation: { enabled: true },
   upgrade: (request) => requireUsername(request),
   translate: hibernationForeignProtocol,

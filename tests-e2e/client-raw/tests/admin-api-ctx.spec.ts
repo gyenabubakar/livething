@@ -298,15 +298,12 @@ test.describe('api(ctx) members over the stub', () => {
     expect(await callApi(page, 'get-flag', { room, key: 'mode' })).toBe('maintenance');
   });
 
-  test('env, log, and platform are usable from an api method', async ({ page }, testInfo) => {
+  test('log and platform are usable from an api method', async ({ page }, testInfo) => {
     const room = `admin-ctx-plumbing-${RUN}-${testInfo.testId}`;
     await page.evaluate(async (r) => {
       window.__a = await window.__openSocket(r, 'alice');
     }, room);
 
-    expect(await callApi(page, 'env-keys', { room })).toEqual(
-      expect.arrayContaining(['ADMIN_SERVER']),
-    );
     expect(await callApi(page, 'has-platform', { room })).toBe(true);
     // Nothing to assert on the log itself; it must simply not throw over RPC.
     await callApi(page, 'log-something', { room, text: 'hello' });

@@ -9,7 +9,6 @@ function assertNoConnectionAlarm(ctx: ConnectionContext) {
 }
 
 const base = define({
-  env: t<Env>(),
   capabilities: [scheduled({ 'alarm-api-task': null }), emits({ 'alarm-api-reply': t<{}>() })],
 });
 

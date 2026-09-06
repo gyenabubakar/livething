@@ -13,7 +13,6 @@ import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 const TagBatchPayload = v.object({});
 
 const base = define({
-  env: t<Env>(),
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [

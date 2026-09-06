@@ -17,7 +17,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -33,7 +33,6 @@ function buildEngine(handler: ServerDefinition): Engine {
 describe('tags() runtime install', () => {
   it('creates the tag table and its indexes at boot', async () => {
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     const handler = base.assemble({ handlers: [] });
@@ -52,7 +51,6 @@ describe('tags() runtime install', () => {
 
   it('registers a purgeUser hook', async () => {
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     const handler = base.assemble({ handlers: [] });

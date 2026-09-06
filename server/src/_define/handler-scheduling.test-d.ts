@@ -1,12 +1,10 @@
 /* oxlint-disable no-unused-vars */
-import { t } from '~/_api/index.ts';
 import { define } from '~/_define/define.ts';
 import { channels } from '~/channel/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { recordedStream, resumableStream, stream } from '~/streams.ts';
 
 const base = define({
-  env: t<{}>(),
   capabilities: [channels(), clientRequests(), stream(), resumableStream(), recordedStream()],
 });
 

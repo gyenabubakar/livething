@@ -22,7 +22,7 @@ function toTarget(name: string, instance?: string): string | { family: string; n
  */
 export function createAdminContext(
   deps: CreateAdminContextDeps,
-): PublicApi.AdminContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+): PublicApi.AdminContext<Record<string, unknown>, unknown> {
   const { sql, kv } = deps.getStorageView();
 
   const channels: PublicApi.AdminChannels = {
@@ -87,7 +87,6 @@ export function createAdminContext(
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled,
-    env: deps.env,
     log: deps.logger,
     platform: deps.platform,
   };
@@ -115,17 +114,12 @@ export const ADMIN_CONTEXT_MEMBER_NAMES = [
   'kv',
   'schedule',
   'cancelScheduled',
-  'env',
   'log',
   'platform',
 ] as const satisfies readonly AdminContextMember[];
 
 /** A member name of the admin context. */
-export type AdminContextMember = keyof PublicApi.AdminContext<
-  Record<string, unknown>,
-  Record<string, unknown>,
-  unknown
->;
+export type AdminContextMember = keyof PublicApi.AdminContext<Record<string, unknown>, unknown>;
 
 /** Any admin-context member {@link ADMIN_CONTEXT_MEMBER_NAMES} forgot to list. */
 export type UnlistedAdminContextMember = Exclude<

@@ -11,7 +11,6 @@ import { resumableStream as resumableStreamDef } from './definition.ts';
 describe('resumableStream build-time validation', () => {
   it('builds when the stream is top-level', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {
@@ -26,7 +25,6 @@ describe('resumableStream build-time validation', () => {
 
   it('builds when declared inside a channel', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels(), resumableStream()],
     });
     const rooms = base.channel('rooms');
@@ -56,7 +54,6 @@ describe('resumableStream build-time validation', () => {
 
   it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [resumableStream()],
     });
     expect(() =>
@@ -73,7 +70,6 @@ describe('resumableStream build-time validation', () => {
 
   it('allows keep-running on a broadcast resumableStream', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [resumableStream()],
     });
     const handle = base.resumableStream('feed', {

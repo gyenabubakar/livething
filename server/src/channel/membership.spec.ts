@@ -1,5 +1,4 @@
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
@@ -258,7 +257,6 @@ describe('durable membership is the channel default', () => {
       asyncContextFactory: passthroughAsyncContext(),
       setup(createEngine) {
         engine = createEngine({
-          env: {},
           platform: { kind: 'test' },
           storage: { sql, kv: createTestKV() },
           timers: {
@@ -279,7 +277,7 @@ describe('durable membership is the channel default', () => {
   function makeHandler(
     channelConfig: { membership?: 'persistent' | 'ephemeral' } = {},
   ): ServerDefinition {
-    const base = define({ env: t<Record<string, never>>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', channelConfig);
     const noop = room.on('noop', { run() {} });
     return base.assemble({ handlers: [noop] });

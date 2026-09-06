@@ -17,7 +17,7 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
  * import { define, t } from '@wskit/server';
  * import { sequence } from '@wskit/server/sequence';
  *
- * const base = define({ env: t<Env>(), capabilities: [sequence({ persist: true })] });
+ * const base = define({ capabilities: [sequence({ persist: true })] });
  * ```
  */
 export const sequence = defineHostCapability(

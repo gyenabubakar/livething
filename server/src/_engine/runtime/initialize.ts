@@ -125,7 +125,6 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   }
 
   const initCtx = createInitContext({
-    env: core.env,
     logger: core.logger,
     platform: core.platform,
     getStorageView: commonDeps(core).getStorageView,

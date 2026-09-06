@@ -12,7 +12,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * wire.
  */
 export const serverRequestContract = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     serverRequests({

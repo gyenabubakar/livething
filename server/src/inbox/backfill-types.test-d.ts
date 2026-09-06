@@ -7,7 +7,6 @@ import { inbox } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 
 const base = define({
-  env: t<Record<string, never>>(),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 

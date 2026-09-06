@@ -9,7 +9,6 @@ const BroadcastChunkSchema = t<{ index: number }>();
 const RoomBroadcastChunkSchema = t<{ index: number }>();
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [stream(), channels()],
 });

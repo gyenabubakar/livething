@@ -13,10 +13,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { define } from './define.ts';
 import { plugin } from './plugins.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 type DispatchRuntime = Parameters<typeof dispatchIncoming>[0];
 type DispatchConnection = Parameters<typeof dispatchIncoming>[1];
 
@@ -24,7 +20,6 @@ const NotFound = error('not-found', v.object({ id: v.string() }));
 
 function makeBase() {
   return define({
-    env: t<Env>(),
     upgrade(request) {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { userId: username, meta: { username } };
@@ -70,7 +65,7 @@ describe('define() send/receive core', () => {
   });
 
   it('uses ordered work for on handlers and interleaved work for requests by default', () => {
-    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
+    const base = define({ capabilities: [clientRequests()] });
     const incoming = base.on('incoming', { run() {} });
     const request = base.request('request', { run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [incoming, request] }));
@@ -80,7 +75,7 @@ describe('define() send/receive core', () => {
   });
 
   it('only enables handlers passed to assemble at every scope', async () => {
-    const top = define({ env: t<Env>() });
+    const top = define({});
     const runTop = vi.fn();
     const runTopHidden = vi.fn();
     const topActive = top.on('top-active', { run: runTop });
@@ -96,11 +91,11 @@ describe('define() send/receive core', () => {
     const HiddenPlugin = plugin('acme:hidden', {
       handler: scoped.assemble({ handlers: [pluginActive] }),
     });
-    const host = define({ env: t<Env>(), capabilities: [HiddenPlugin()] });
+    const host = define({ capabilities: [HiddenPlugin()] });
     const pluginCompiled = compileHandlerDefinition(host.assemble({ handlers: [] }));
     expect(pluginCompiled.incoming.has('__acme:hidden::plugin-hidden')).toBe(false);
 
-    const channelBase = define({ env: t<Env>(), capabilities: [channels()] });
+    const channelBase = define({ capabilities: [channels()] });
     const room = channelBase.channel('room', {});
     const runChannel = vi.fn();
     const runChannelHidden = vi.fn();
@@ -195,7 +190,6 @@ describe('define() send/receive core', () => {
 
   it('merges multiple emits capabilities into the outgoing surface', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [
         emits({ welcome: t<{ username: string }>() }),
         emits({ goodbye: t<{ username: string }>() }),
@@ -207,14 +201,14 @@ describe('define() send/receive core', () => {
   });
 
   it('wires hibernation into a primitive and the feature set when enabled', () => {
-    const base = define({ env: t<Env>(), hibernation: { enabled: true } });
+    const base = define({ hibernation: { enabled: true } });
     const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'hibernation')).toBe(true);
     expect(handler.__features?.has('hibernation')).toBe(true);
   });
 
   it('omits hibernation when not enabled', () => {
-    const base = define({ env: t<Env>() });
+    const base = define({});
     const handler = base.assemble({ handlers: [] });
     expect(handler.primitives.some((p) => p.__wskit === 'hibernation')).toBe(false);
     expect(handler.__features?.has('hibernation')).toBe(false);
@@ -222,7 +216,7 @@ describe('define() send/receive core', () => {
 
   it('retains one translator factory on the assembled server definition', () => {
     const translate = translator(() => ({ inbound: (raw) => raw }));
-    const base = define({ env: t<Env>(), translate });
+    const base = define({ translate });
 
     expect(base.assemble({ handlers: [] }).__translate).toBe(translate);
   });
@@ -266,7 +260,7 @@ describe('define() send/receive core', () => {
   });
 
   it('throws when one event name is bound by both an on and a request handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [clientRequests()] });
+    const base = define({ capabilities: [clientRequests()] });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     const asRequest = base.request('shared', { input: v.object({}), run() {} });
     expect(() => base.assemble({ handlers: [asEvent, asRequest] })).toThrow(
@@ -278,7 +272,6 @@ describe('define() send/receive core', () => {
 describe('define({ users }) maxConnections validation', () => {
   it('rejects maxConnections: 0', () => {
     const base = define({
-      env: t<Env>(),
       users: { maxConnections: 0, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
@@ -286,7 +279,6 @@ describe('define({ users }) maxConnections validation', () => {
 
   it('rejects a negative maxConnections', () => {
     const base = define({
-      env: t<Env>(),
       users: { maxConnections: -1, onExceed: 'reject' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
@@ -294,7 +286,6 @@ describe('define({ users }) maxConnections validation', () => {
 
   it('rejects a non-integer maxConnections', () => {
     const base = define({
-      env: t<Env>(),
       users: { maxConnections: 2.5, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
@@ -302,7 +293,6 @@ describe('define({ users }) maxConnections validation', () => {
 
   it('accepts a positive integer maxConnections', () => {
     const base = define({
-      env: t<Env>(),
       users: { maxConnections: 3, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -310,7 +300,6 @@ describe('define({ users }) maxConnections validation', () => {
 
   it('accepts users config with maxConnections omitted', () => {
     const base = define({
-      env: t<Env>(),
       users: { onExceed: 'reject' },
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();

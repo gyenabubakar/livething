@@ -36,7 +36,6 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<{}, never, 'readRecei
  * import { inbox } from '@wskit/server/inbox';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [channels(), sequence({ persist: true }), dedup()],
  * });
  *

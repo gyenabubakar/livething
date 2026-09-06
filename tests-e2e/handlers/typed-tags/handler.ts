@@ -17,7 +17,6 @@ const KickByPayload = v.object({ group: v.string(), key: v.string(), reason: v.s
 const GroupStatsPayload = v.object({ key: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),

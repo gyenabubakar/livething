@@ -18,7 +18,6 @@ const StartSlowStreamPayload = v.object({});
 const SlowChunk = t<{ index: number }>();
 
 const base = define({
-  env: t<Env>(),
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [

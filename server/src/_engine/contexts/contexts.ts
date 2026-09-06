@@ -296,8 +296,7 @@ export function buildConnectionContext(
     channelFamily?: string | null;
     isSubscribeGate?: boolean;
   },
-): PublicApi.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
-  Record<PropertyKey, unknown> {
+): PublicApi.ConnectionContext<Record<string, unknown>, unknown> & Record<PropertyKey, unknown> {
   const { sql, kv } = deps.getStorageView();
 
   // Allocated on the first `provide()` — most handlers never touch locals.
@@ -322,7 +321,6 @@ export function buildConnectionContext(
 
   base.sql = sql;
   base.kv = kv;
-  base.env = deps.env;
   base.log = deps.logger;
   base.platform = deps.platform;
 
@@ -341,11 +339,7 @@ export function buildConnectionContext(
     Object.defineProperties(base, Object.getOwnPropertyDescriptors(extend(base)));
   }
 
-  return base as PublicApi.ConnectionContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
-  > &
+  return base as PublicApi.ConnectionContext<Record<string, unknown>, unknown> &
     Record<PropertyKey, unknown>;
 }
 

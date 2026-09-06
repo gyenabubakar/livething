@@ -11,10 +11,6 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { plugin } from './plugins.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 /** Minimal outgoing runtime with no hooks/stampers — just the compiled scope. */
 function outgoingRuntime(compiled: any) {
   return {
@@ -48,7 +44,6 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
       },
     });
     const base = define({
-      env: t<Env>(),
       capabilities: [plugin('e2e:drizzle', { handler: h.assemble({ handlers: [beat] }) })()],
     });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
@@ -73,7 +68,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
   });
 
   it('still rejects a genuinely undeclared __x__ event', () => {
-    const base = define({ env: t<Env>() });
+    const base = define({});
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     const connection = { id: 'c', meta: {}, descriptor: { send() {} } } as any;
 

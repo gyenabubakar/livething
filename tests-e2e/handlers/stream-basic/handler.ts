@@ -10,7 +10,6 @@ const Token = t<{ index: number }>();
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),

@@ -11,10 +11,6 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { channels } from './capability.ts';
 
-interface Env {
-  SECRET: string;
-}
-
 function channelPrimitive(primitives: readonly { __wskit: string }[]): any {
   const found = primitives.find((p) => p.__wskit === 'channel');
   if (!found) throw new Error('no channel primitive');
@@ -24,7 +20,6 @@ function channelPrimitive(primitives: readonly { __wskit: string }[]): any {
 describe('channels() capability', () => {
   it('registers events and outbound requests from channel capabilities', () => {
     const base = define({
-      env: t<Env>(),
       capabilities: [channels(), serverRequests()],
     });
     const room = base.channel('room', {
@@ -40,7 +35,7 @@ describe('channels() capability', () => {
   });
 
   it('registers a static channel with its emits and handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const lobby = base.channel('lobby', {
       capabilities: [emits({ joined: t<{ id: string }>() })],
     });
@@ -52,7 +47,7 @@ describe('channels() capability', () => {
   });
 
   it('registers a dynamic channel family', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });
@@ -62,7 +57,7 @@ describe('channels() capability', () => {
   });
 
   describe('.at(params) ref resolution and guardrails', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
 
     it('fills a family template into a concrete channel ref', () => {
       const rooms = base.channel(['rooms', 'room:{id}']);
@@ -96,7 +91,7 @@ describe('channels() capability', () => {
   });
 
   it('pulls in channel configuration and lifecycle with one selected handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     room.subscribe(() => {});
     const handleSay = room.on('say', { input: v.object({}), run() {} });
@@ -107,7 +102,7 @@ describe('channels() capability', () => {
   });
 
   it('assembles a handler-less channel passed directly', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const presence = base.channel('presence', {
       capabilities: [emits({ tick: t<{}>() })],
     });
@@ -117,7 +112,7 @@ describe('channels() capability', () => {
   });
 
   it('dedupes a channel passed both directly and via a handler', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const channelCount = base
@@ -127,7 +122,7 @@ describe('channels() capability', () => {
   });
 
   it('exposes the family key as ctx.channel.family at runtime', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
     let seenFamily: unknown;
     const say = room.on('say', {
@@ -145,7 +140,7 @@ describe('channels() capability', () => {
   });
 
   it('runs the check gate with the validated payload as the input argument and forwards to commit', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     let seenCheck: unknown;
     let seenCommit: unknown;
     const room = base.channel('room', {
@@ -174,7 +169,7 @@ describe('channels() capability', () => {
   });
 
   it('attaches the subscribe validator even when the channel has no check handler (bug #5)', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', {
       subscribe: v.object({ token: v.string() }),
     });
@@ -188,7 +183,7 @@ describe('channels() capability', () => {
   });
 
   it('runs the revalidate gate', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     let ran = false;
     const room = base.channel('room', {
       revalidate() {
@@ -202,7 +197,7 @@ describe('channels() capability', () => {
   });
 
   it('responds to a channel request with the return value', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), clientRequests()] });
+    const base = define({ capabilities: [channels(), clientRequests()] });
     const room = base.channel('room', {});
     const info = room.request('info', {
       input: v.object({}),
@@ -220,7 +215,7 @@ describe('channels() capability', () => {
   });
 
   it('carries handler scheduling options through channel compilation', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), clientRequests()] });
+    const base = define({ capabilities: [channels(), clientRequests()] });
     const room = base.channel('room', {});
     const ordered = room.on('ordered', { run() {} });
     const interleaved = room.on('interleaved', { allowInterleaving: true, run() {} });
@@ -236,7 +231,7 @@ describe('channels() capability', () => {
   });
 
   it('runs a channel stream generator with both the stream and channel handles', async () => {
-    const base = define({ env: t<Env>(), capabilities: [channels(), stream()] });
+    const base = define({ capabilities: [channels(), stream()] });
     const room = base.channel('room', {});
     const feed = room.stream('feed', {
       input: v.object({}),
@@ -259,14 +254,14 @@ describe('channels() capability', () => {
   });
 
   it('throws when a lifecycle hook is registered twice', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', {});
     room.subscribe(() => {});
     expect(() => room.subscribe(() => {})).toThrow(/Duplicate subscribe on channel 'room'/);
   });
 
   it('throws when a channel request is used without the clientRequests() capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', {}) as unknown as {
       request(event: string, config: { input?: unknown; run: () => unknown }): unknown;
     };
@@ -276,7 +271,7 @@ describe('channels() capability', () => {
   });
 
   it('throws when a channel declares serverRequests without the root runtime', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const escapeHatch = base as unknown as {
       channel(name: string, config?: any): unknown;
     };
@@ -293,7 +288,7 @@ describe('channels() capability', () => {
 
   it('registers channel serverRequests with the root runtime', () => {
     const reqCap = serverRequests();
-    const base = define({ env: t<Env>(), capabilities: [reqCap, channels()] });
+    const base = define({ capabilities: [reqCap, channels()] });
     base.channel('room', {
       capabilities: [
         serverRequests({
@@ -315,7 +310,7 @@ describe('channels() capability', () => {
   });
 
   it('throws when a channel stream is used without the stream() capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', {});
     // stream() is type-gated off this channel; reach it through an escape hatch
     // to prove the runtime guard still fires as defense in depth.
@@ -326,7 +321,7 @@ describe('channels() capability', () => {
   });
 
   it('throws when a custom channel replay is used without the replay.custom() capability', () => {
-    const base = define({ env: t<Env>(), capabilities: [channels()] });
+    const base = define({ capabilities: [channels()] });
     const room = base.channel('room', {});
     expect(() => room.replay({ replay() {} })).toThrow(
       /replay\.custom\(\) capability is\s+not listed/,
@@ -334,7 +329,7 @@ describe('channels() capability', () => {
   });
 
   it('throws when base.channel() is used without the channels() capability', () => {
-    const base = define({ env: t<Env>() });
+    const base = define({});
     const escapeHatch = base as unknown as { channel(name: string, config?: any): unknown };
     expect(() => escapeHatch.channel('x', {})).toThrow(
       /base\.channel\(\) needs the channels\(\) capability/,

@@ -8,10 +8,6 @@ import * as v from 'valibot';
 import type { ServerContract } from '@wskit/server/adapters';
 import type { PluginCapability } from '@wskit/server/plugins';
 
-export interface PluginsEnv {
-  PLUGIN_LABEL: string;
-}
-
 export interface DrizzlePluginApi {
   insert(data: { name: string; value: string }): { id: number } | null;
   findAll(): unknown[];
@@ -30,14 +26,12 @@ export interface DrizzlePluginApi {
 type DrizzleCapability<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
-  TEnv,
-> = PluginCapability<'e2e:drizzle', TContract, TApi, TEnv>;
+> = PluginCapability<'e2e:drizzle', TContract, TApi>;
 
 export function createPluginsHandler<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
-  TEnv,
->(drizzle: () => DrizzleCapability<TContract, TApi, TEnv>) {
+>(drizzle: () => DrizzleCapability<TContract, TApi>) {
   const InsertRecord = v.object({ name: v.string(), value: v.string() });
   const GetAllRecords = v.object({});
   const GetRecord = v.object({ id: v.number() });
@@ -58,11 +52,7 @@ export function createPluginsHandler<
 
   const drizzleCapability = drizzle();
 
-  // This shared factory is generic over the plugin's environment. The concrete
-  // plugin passed by each adapter supplies the requirement at its call site.
-  // @ts-expect-error TypeScript cannot prove that relationship inside the generic factory.
   const base = define({
-    env: t<Env & TEnv>(),
     upgrade: (request) => requireUsername(request),
     capabilities: [
       stream(),

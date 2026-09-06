@@ -27,7 +27,7 @@ async function makeEngine(handler: AnyServerDefinition): Promise<Engine> {
     setup(createEngine) {
       engine = createEngine({
         storage: { sql: createTestSql(), kv: createTestKV() },
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },
@@ -63,7 +63,7 @@ function createConnection(): RuntimeConnection {
 
 /** A handler with nothing listed — the smallest context the engine ever builds. */
 function bareHandler(): AnyServerDefinition {
-  const base = define({ env: t<Record<string, never>>() });
+  const base = define({});
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
   }) as AnyServerDefinition;
@@ -76,7 +76,6 @@ function bareHandler(): AnyServerDefinition {
  */
 function fullHandler(): AnyServerDefinition {
   const base = define({
-    env: t<Record<string, never>>(),
     capabilities: [channels(), tags((ephemeral) => [ephemeral('team', t<string>())])],
   });
   const room = base.channel('room', { membership: 'ephemeral' });

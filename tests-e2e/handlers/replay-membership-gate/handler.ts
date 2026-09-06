@@ -13,7 +13,6 @@ const SendSecret = v.object({ text: v.string() });
 const SendBeacon = v.object({ text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ 'top-beacon': t<v.InferOutput<typeof TopBeacon>>() }),

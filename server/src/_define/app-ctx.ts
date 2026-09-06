@@ -221,10 +221,9 @@ export interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]>
  * so reading one without its capability is a compile error.
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  */
-export type CoreCtx<TSlots, TEnv, TMeta> = {
+export type CoreCtx<TSlots, TMeta> = {
   /**
    * A `ConnectionRef` for the current connection — the self socket address. Read
    * `ctx.connection.id` for the connection id and `ctx.connection.userId` for the
@@ -235,8 +234,6 @@ export type CoreCtx<TSlots, TEnv, TMeta> = {
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
-  /** The typed application environment supplied by the adapter. */
-  readonly env: TEnv;
   /** The raw platform handle (for example a Durable Object state). Untyped by default. */
   readonly platform: unknown;
 
@@ -563,17 +560,15 @@ export type CtxExtensionsOf<
  * present only when their capability is listed (see `CtxExtensionsOf`).
  *
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
- * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned ctx fields.
  */
 export type AppCtx<
   TSlots,
-  TEnv,
   TMeta,
   TCaps extends readonly AnyCapability[] = readonly [],
   TGate extends boolean = false,
-> = CoreCtx<TSlots, TEnv, TMeta> &
+> = CoreCtx<TSlots, TMeta> &
   ConnectionsCtx<TSlots, TMeta, TCaps> &
   UsersCtx<TSlots, TMeta, TCaps> &
   FrameMatchCtx<TSlots> &
@@ -592,19 +587,16 @@ export type AppCtx<
  * itself and no-ops when there is nothing durable to clean up.
  *
  * @template TSlots The merged contract slots — drives the typed `broadcast`.
- * @template TEnv   The typed application environment, declared by `env: t<Env>()`.
  * @template TMeta  The per-connection metadata returned from `upgrade(...)`.
  * @template TCaps  The capabilities listed, gating the capability-owned fields.
  */
-export type AdminCtx<
-  TSlots,
-  TEnv,
-  TMeta,
-  TCaps extends readonly AnyCapability[] = readonly [],
-> = Omit<AdminContext<TEnv, TMeta, unknown, TSlots>, 'schedule' | 'cancelScheduled' | 'channels'> &
+export type AdminCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[] = readonly []> = Omit<
+  AdminContext<TMeta, unknown, TSlots>,
+  'schedule' | 'cancelScheduled' | 'channels'
+> &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
   ('channels' extends BrandsOf<TCaps>
-    ? Pick<AdminContext<TEnv, TMeta, unknown, TSlots>, 'channels'>
+    ? Pick<AdminContext<TMeta, unknown, TSlots>, 'channels'>
     : {});
 
 /** The server→client events, read off the merged contract slots. */

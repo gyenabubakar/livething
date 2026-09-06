@@ -73,7 +73,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: createTestStorage(),
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: {
@@ -118,7 +118,6 @@ const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();
 
 const tinyBase = define({
-  env: t<Record<string, unknown>>(),
   capabilities: [emits({ notify: EmptyOut })],
 });
 const tinyHandler = tinyBase.assemble({
@@ -126,7 +125,6 @@ const tinyHandler = tinyBase.assemble({
 });
 
 const alarmBase = define({
-  env: t<Record<string, unknown>>(),
   capabilities: [scheduled({ noop: null })],
 });
 alarmBase.scheduled('noop', { run() {} });
@@ -135,7 +133,6 @@ const alarmHandler = alarmBase.assemble({
 });
 
 const mediumBase = define({
-  env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
     clientRequests(),
@@ -181,7 +178,6 @@ function channelEmits(prefix: string) {
 }
 
 const heavyBase = define({
-  env: t<Record<string, unknown>>(),
   hibernation: { enabled: true },
   capabilities: [
     dedup(),
@@ -537,7 +533,6 @@ describe('revalidate requires a persistent channel', () => {
 
   it("throws at boot when a `membership: 'ephemeral'` channel has a .revalidate() hook", async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels()],
     });
     const room = base.channel('room', {
@@ -554,7 +549,6 @@ describe('revalidate requires a persistent channel', () => {
 
   it('boots fine when a persistent channel has a .revalidate() hook', async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels()],
     });
     const room = base.channel('room', { ...channelCapabilities, revalidate() {} });
@@ -569,7 +563,6 @@ describe('inbox requires a persistent channel', () => {
 
   it("throws at boot when a `membership: 'ephemeral'` channel has inbox()", async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const room = base.channel('room', {
@@ -586,7 +579,6 @@ describe('inbox requires a persistent channel', () => {
 
   it('boots fine when a persistent channel has inbox()', async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const room = base.channel('room', { capabilities: [emits({ said: TextOut }), inbox()] });
@@ -622,7 +614,6 @@ describe('tags() restores persistent tags on reconnect', () => {
 
   it('restores a persistent tag on reconnect even with no channels() capability', async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [tags((_ephemeral, persistent) => [persistent('role', t<string>())])],
     });
     const handler = base.assemble({
@@ -644,7 +635,6 @@ describe('tags() restores persistent tags on reconnect', () => {
 
   it('restores exactly once when both tags() and channels() are listed', async () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [
         tags((_ephemeral, persistent) => [persistent('role', t<string>())]),
         channels(),
@@ -699,7 +689,6 @@ describe('a capability added after storage was already initialized', () => {
     const storage = createTestStorage();
 
     const firstBase = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels()],
     });
     const firstRoom = firstBase.channel('room', {
@@ -711,7 +700,6 @@ describe('a capability added after storage was already initialized', () => {
     await firstEngine.initialize();
 
     const secondBase = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [
         channels(),
         tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),

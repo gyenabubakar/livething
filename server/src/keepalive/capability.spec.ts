@@ -1,4 +1,3 @@
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { describe, expect, it } from 'vitest';
 import { keepalive } from './capability.ts';
@@ -6,7 +5,6 @@ import { keepalive } from './capability.ts';
 describe('keepalive() capability', () => {
   it('adds the keepalive primitive and the keepalive feature flag', () => {
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
     });
     const handler = base.assemble({ handlers: [] });

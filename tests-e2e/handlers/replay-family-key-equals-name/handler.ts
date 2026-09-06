@@ -11,7 +11,6 @@ const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), dedup(), sequence({ persist: true }), replay.history()],
 });

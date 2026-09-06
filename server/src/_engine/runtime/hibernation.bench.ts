@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -26,7 +25,7 @@ interface FakeSocket {
 }
 
 function hibernatingHandler(): AnyServerDefinition {
-  const base = define({ env: t<Record<string, never>>(), hibernation: { enabled: true } });
+  const base = define({ hibernation: { enabled: true } });
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
   }) as AnyServerDefinition;
@@ -44,7 +43,7 @@ async function makeEngine(): Promise<Engine> {
     setup(createEngine) {
       engine = createEngine({
         storage: { sql: createTestSql(), kv: createTestKV() },
-        env: {},
+
         platform: {},
         timers: createTestTimers(),
         logger: { info() {}, warn() {}, error() {} },

@@ -1,5 +1,4 @@
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { scheduleTask } from '~/_engine/scheduling.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
@@ -43,7 +42,6 @@ async function buildEngine(
     },
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql, kv: createTestKV() },
         timers: {
@@ -646,7 +644,6 @@ describe('scheduled/runtime — through the real engine', () => {
     const rowsDuringHandler: unknown[][] = [];
 
     const base = define({
-      env: t<Record<string, never>>(),
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
     base.scheduled('processRefund', {

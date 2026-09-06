@@ -127,8 +127,6 @@ async function runAdminOp(
       return (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null;
     case 'get-flag':
       return admin.getFlag(url.searchParams.get('key') ?? '');
-    case 'env-keys':
-      return admin.envKeys();
     case 'log-something':
       return admin.logSomething(text) ?? null;
     case 'has-platform':

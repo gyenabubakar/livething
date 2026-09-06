@@ -1,5 +1,4 @@
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -52,7 +51,6 @@ type ServerOptions = {
 
 function buildEngine(options: ServerOptions = {}): Engine {
   const base = define({
-    env: t<Record<string, never>>(),
     ...(options.hibernation ? { hibernation: { enabled: true } } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
   });
@@ -74,7 +72,7 @@ function buildEngine(options: ServerOptions = {}): Engine {
       engine = createEngine({
         storage: createTestStorage(),
         timers: createTestTimers(),
-        env: {},
+
         platform: { kind: 'test' },
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       });

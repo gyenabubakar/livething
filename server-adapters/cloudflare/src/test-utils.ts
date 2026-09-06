@@ -227,7 +227,6 @@ export function makeFakeEngine(): FakeEngine {
     connectionCount: 3,
     sql: {},
     kv: {},
-    env: {},
     log: {},
     platform: {},
     schedule: vi.fn(),

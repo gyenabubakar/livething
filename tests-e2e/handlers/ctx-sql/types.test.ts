@@ -49,7 +49,6 @@ describe('CtxSqlClient — incoming (server outgoing)', () => {
       | 'sql-raw-result'
       | 'sql-reuse-result'
       | 'snapshot-result'
-      | 'env-result'
     >();
   });
 });

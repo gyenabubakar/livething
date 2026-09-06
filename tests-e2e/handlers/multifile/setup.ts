@@ -8,7 +8,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 import type { NotificationPayload } from './events.ts';
 
 export const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ notification: t<v.InferOutput<typeof NotificationPayload>>() }),

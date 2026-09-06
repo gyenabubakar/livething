@@ -53,7 +53,6 @@ export const ReplayPlugin = plugin('e2e:replay', {
 });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({

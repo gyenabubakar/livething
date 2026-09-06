@@ -18,7 +18,6 @@ import type { RoomMsg } from './events.ts';
 // so a later reconnect does not re-deliver. `onDelivered: 'delete'` (the
 // default) drops each row once acked.
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });

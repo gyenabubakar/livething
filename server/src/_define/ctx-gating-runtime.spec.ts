@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -34,7 +33,7 @@ function buildEngine(handler: ServerDefinition): Engine {
     setup(createEngine) {
       captured = createEngine({
         storage: makeStorage(),
-        env: {},
+
         platform: {},
         timers: { setAlarm() {}, getAlarm: () => null, deleteAlarm() {} } as never,
         logger: { info() {}, warn() {}, error() {} },
@@ -85,7 +84,7 @@ async function captureCtx(server: ProbeServer): Promise<any> {
 
 describe('capability-owned ctx surfaces — runtime gating', () => {
   it('a bare server exposes none of the gated surfaces', async () => {
-    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+    const ctx = await captureCtx(probeServer(define({})));
     expect('schedule' in ctx).toBe(false);
     expect('cancelScheduled' in ctx).toBe(false);
     expect('latency' in ctx).toBe(false);
@@ -97,7 +96,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
-    const ctx = await captureCtx(probeServer(define({ env: t<{}>() })));
+    const ctx = await captureCtx(probeServer(define({})));
 
     const frame = {
       event: 'probe',
@@ -113,7 +112,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
-    const base = define({ env: t<{}>(), capabilities: [scheduled({ cleanup: null })] });
+    const base = define({ capabilities: [scheduled({ cleanup: null })] });
     base.scheduled('cleanup', { run() {} });
     const ctx = await captureCtx(probeServer(base));
 
@@ -126,7 +125,6 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
 
   it('keepalive() adds live ctx.latency / ctx.quality', async () => {
     const base = define({
-      env: t<{}>(),
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
     const ctx = await captureCtx(probeServer(base));
@@ -150,7 +148,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
       handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
     });
 
-    const base = define({ env: t<{}>(), capabilities: [Presence()] });
+    const base = define({ capabilities: [Presence()] });
     const ctx = await captureCtx(probeServer(base));
 
     expect('plugin' in ctx).toBe(true);
@@ -161,7 +159,6 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
 
   it('a stream-sweep-only server (recordedStream, no scheduled()) has no ctx.schedule', async () => {
     const base = define({
-      env: t<{}>(),
       capabilities: [recordedStream()],
     });
     const ctx = await captureCtx(probeServer(base));

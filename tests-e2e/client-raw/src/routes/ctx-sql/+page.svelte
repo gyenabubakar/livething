@@ -9,7 +9,6 @@
 	let reuseError = $state<string>('');
 	let snapshotCount = $state<number | null>(null);
 	let snapshotShapeOk = $state<boolean | null>(null);
-	let envKeyCount = $state<number | null>(null);
 
 	function connect() {
 		if (ws) return;
@@ -48,9 +47,6 @@
 				snapshotCount = data.payload?.count ?? null;
 				snapshotShapeOk = data.payload?.shapeOk ?? null;
 			}
-			if (data.event === 'env-result') {
-				envKeyCount = data.payload?.keyCount ?? null;
-			}
 		};
 	}
 
@@ -84,9 +80,6 @@
 	function connectionsSnapshot() {
 		ws?.send(JSON.stringify({ event: 'connections-snapshot-probe', payload: {} }));
 	}
-	function readEnv() {
-		ws?.send(JSON.stringify({ event: 'read-env-probe', payload: {} }));
-	}
 </script>
 
 <h1>ctx-sql feature</h1>
@@ -105,7 +98,6 @@
 <button data-testid="sql-tx-rollback" onclick={sqlTxRollback}>Tx rollback probe</button>
 <button data-testid="sql-one-multi" onclick={sqlOneMulti}>One multi probe</button>
 <button data-testid="connections-snapshot" onclick={connectionsSnapshot}>Snapshot probe</button>
-<button data-testid="read-env" onclick={readEnv}>Read env probe</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="note-titles">{titles.join(',')}</span>
@@ -115,4 +107,3 @@
 <span data-testid="reuse-error">{reuseError}</span>
 <span data-testid="snapshot-count">{snapshotCount ?? ''}</span>
 <span data-testid="snapshot-shape-ok">{snapshotShapeOk === null ? '' : String(snapshotShapeOk)}</span>
-<span data-testid="env-key-count">{envKeyCount ?? ''}</span>

@@ -9,7 +9,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 //  - sequence({ persist: true }) so the seq counter survives a restart
 //  - dedup({ cap: 2 }) so the incoming dedup ring evicts the oldest id
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     sequence({ persist: true, batchSize: 5 }),

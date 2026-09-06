@@ -16,7 +16,6 @@ function selectNotes(ctx: {
 }
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -26,7 +25,6 @@ const base = define({
       'sql-raw-result': t<{ rows: unknown[][] }>(),
       'sql-reuse-result': t<{ error: string }>(),
       'snapshot-result': t<{ count: number; shapeOk: boolean }>(),
-      'env-result': t<{ keyCount: number }>(),
     }),
   ],
 });
@@ -161,13 +159,6 @@ const handleConnectionsSnapshotProbe = base.on('connections-snapshot-probe', {
   },
 });
 
-const handleReadEnvProbe = base.on('read-env-probe', {
-  input: v.object({}),
-  run(ctx) {
-    ctx.send('env-result', { keyCount: Object.keys(ctx.env as object).length });
-  },
-});
-
 export const ctxSqlHandler = base.assemble({
   handlers: [
     handleSaveNote,
@@ -180,7 +171,6 @@ export const ctxSqlHandler = base.assemble({
     handleSqlTxRollbackProbe,
     handleSqlOneMultiProbe,
     handleConnectionsSnapshotProbe,
-    handleReadEnvProbe,
   ],
 });
 

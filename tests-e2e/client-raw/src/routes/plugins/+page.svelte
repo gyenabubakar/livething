@@ -10,7 +10,6 @@
 	let recordCount = $state('');
 	let deleteResult = $state('');
 	let dbConnected = $state(false);
-	let pluginEnvLabel = $state('');
 	let drizzleReadyPayload = $state('');
 	let messageLog = $state<string[]>([]);
 	let messageCountResult = $state('');
@@ -64,9 +63,6 @@
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
 
 			switch (evt) {
-			case '__e2e:drizzle::plugin-env-result':
-				pluginEnvLabel = `label:${payload.label}`;
-				break;
 			case '__e2e:drizzle::drizzle-ready':
 				dbConnected = true;
 				drizzleReadyPayload = JSON.stringify(payload);
@@ -169,7 +165,6 @@
 		>
 		<span data-testid="status">{status}</span>
 		<span data-testid="db-connected">{dbConnected ? 'db-ready' : ''}</span>
-		<div data-testid="plugin-env-result">{pluginEnvLabel}</div>
 		<div data-testid="drizzle-ready-payload">{drizzleReadyPayload}</div>
 	</section>
 

@@ -1,6 +1,5 @@
 import { WSKitConfigError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
-import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import * as v from 'valibot';
@@ -28,7 +27,7 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 /** Build an engine whose `api` factory returns whatever the test hands back. */
 function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
-  const base = define({ env: t<Record<string, never>>(), capabilities: [] });
+  const base = define({ capabilities: [] });
   const noop = base.on('noop', { input: v.object({}), run() {} });
   const handler = base.assemble({ handlers: [noop], api: makeApi });
 
@@ -38,7 +37,6 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
       engine = createEngine({
-        env: {},
         platform: { kind: 'test' },
         storage: { sql: createTestSql(), kv: createTestKV() },
         timers: {

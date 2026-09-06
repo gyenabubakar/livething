@@ -1,13 +1,13 @@
 /* oxlint-disable no-unused-vars */
 
-import { define, t } from '@wskit/server';
+import { define } from '@wskit/server';
 import { expectTypeOf } from 'vitest';
 import * as Adapter from './index.ts';
 import type { Platform } from './index.ts';
 
 void Adapter.server;
 
-const base = define({ env: t<{ SECRET: string }>() });
+const base = define({});
 const handler = base.assemble({
   handlers: [],
   api: () => ({

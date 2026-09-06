@@ -9,11 +9,7 @@ import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 
-interface Env {
-  SECRET: string;
-}
-
-const base = define({ env: t<Env>(), capabilities: [channels()] });
+const base = define({ capabilities: [channels()] });
 
 describe('channel check -> commit inference', () => {
   it('threads the check return type into commit (not any)', () => {
@@ -84,7 +80,7 @@ describe('channel handler ctx typing', () => {
 
 describe('channel gate surface typing', () => {
   it('omits channel-only handles from gate contexts but keeps channel membership reads', () => {
-    const gateBase = define({ env: t<Env>(), capabilities: [channels()] });
+    const gateBase = define({ capabilities: [channels()] });
     gateBase.channel('gated', {
       check(ctx) {
         expectTypeOf(ctx.channel.members).toBeFunction();
@@ -99,7 +95,6 @@ describe('channel gate surface typing', () => {
 
   it('omits channel-owned request methods from check, commit, and revalidate', () => {
     const requestGateBase = define({
-      env: t<Env>(),
       capabilities: [
         channels(),
         serverRequests({
@@ -175,7 +170,6 @@ describe('channel gate surface typing', () => {
 
   it('keeps replay channel-scoped instead of exposing the root replay method', () => {
     const replayBase = define({
-      env: t<Env>(),
       capabilities: [channels(), replay.history()],
     });
     replayBase.channel('replay-gated', {

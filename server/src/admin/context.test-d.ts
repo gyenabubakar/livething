@@ -7,7 +7,6 @@ import type { UnlistedAdminContextMember } from './context.ts';
 // A top-level (app) assemble types its api ctx as the connectionless admin ctx:
 // engine-wide ops are present, per-connection members are not.
 const app = define({
-  env: t<{ SECRET: string }>(),
   capabilities: [emits({ ping: t<{ n: number }>() })],
 });
 const go = app.on('go', { run() {} });
@@ -49,7 +48,6 @@ app.assemble({
 
 // Listing the owning capability puts the gated members back, typed.
 const full = define({
-  env: t<{ SECRET: string }>(),
   capabilities: [
     emits({ ping: t<{ n: number }>() }),
     channels(),

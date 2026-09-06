@@ -16,7 +16,7 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
   ]);
   const deps = {
     connections,
-    env: {},
+
     logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     platform: {},
     getStorage: () => ({}) as never,

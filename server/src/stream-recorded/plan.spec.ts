@@ -11,7 +11,6 @@ import { recordedStream as recordedStreamDef } from './definition.ts';
 describe('recordedStream build-time validation', () => {
   it('builds when declared inside a channel', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [channels(), recordedStream()],
     });
     const rooms = base.channel('rooms');
@@ -27,7 +26,6 @@ describe('recordedStream build-time validation', () => {
 
   it('builds when the stream is top-level', () => {
     const base = define({
-      env: t<Record<string, unknown>>(),
       capabilities: [recordedStream()],
     });
     const handle = base.recordedStream('tokens', {

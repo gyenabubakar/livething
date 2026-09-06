@@ -6,7 +6,6 @@ import type { InferClient } from '@wskit/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({

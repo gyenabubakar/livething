@@ -10,7 +10,6 @@ const RoomMsgPayload = v.object({ text: v.string() });
 const EchoReqPayload = v.object({ text: v.string() });
 
 const base = define({
-  env: t<Env>(),
   upgrade: (request) => requireUsername(request),
   capabilities: [
     rateLimit({ windowMs: 60_000, max: 3 }),

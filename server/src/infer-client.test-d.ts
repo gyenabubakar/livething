@@ -24,7 +24,6 @@ import type { InferClient } from '~/infer-client.ts';
 // Gap 6 — `serverRequests` on InferClient (top-level + channel-scoped).
 // ---------------------------------------------------------------------------
 const reqBase = define({
-  env: t<{}>(),
   capabilities: [
     serverRequests({
       ask: { out: t<{ a: string }>(), in: v.object({ ok: v.boolean() }) },
@@ -72,7 +71,7 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTy
 // ---------------------------------------------------------------------------
 // A selected channel handler is the exact client contract and runtime surface.
 // ---------------------------------------------------------------------------
-const selectedBase = define({ env: t<{}>(), capabilities: [channels()] });
+const selectedBase = define({ capabilities: [channels()] });
 const selectedChannel = selectedBase.channel('selected', {});
 const selectedHandler = selectedChannel.on('selected-event', { run() {} });
 selectedChannel.on('unselected-event', { run() {} });
@@ -88,7 +87,6 @@ expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHavePro
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
 const streamBase = define({
-  env: t<{}>(),
   capabilities: [emits({ noop: t<{}>() }), stream(), resumableStream(), recordedStream()],
 });
 
@@ -131,7 +129,6 @@ expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
 // produce the `inbox: true` / `readReceipts: true` flags InferClient exposes.
 // ---------------------------------------------------------------------------
 const flagsBase = define({
-  env: t<{}>(),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 

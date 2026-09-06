@@ -15,7 +15,6 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
  * import { keepalive } from '@wskit/server/keepalive';
  *
  * const base = define({
- *   env: t<Env>(),
  *   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
  * });
  * ```

@@ -6,7 +6,6 @@ import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
 import type { Platform } from '@wskit/server-cloudflare';
-import type { PluginsEnv } from '@wskit/tests-e2e-handlers/plugins';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
 import { pluginMeta, records } from './schema.ts';
@@ -77,11 +76,9 @@ function getState(platform: Platform): DoState {
 
 const h = define({
   scope: 'plugin',
-  env: t<PluginsEnv>(),
   capabilities: [
     emits({
       'drizzle-ready': t<{ tables: string[] }>(),
-      'plugin-env-result': t<{ label: string }>(),
       'drizzle-vacuum-done': t<{ timestamp: number }>(),
       'plugin-every-tick': t<{ count: number }>(),
       'plugin-flaky-result': t<{ attempts: number }>(),
@@ -137,7 +134,6 @@ h.onConnect((ctx) => {
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
-  ctx.send('plugin-env-result', { label: ctx.env.PLUGIN_LABEL });
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 
