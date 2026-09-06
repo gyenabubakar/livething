@@ -89,6 +89,98 @@
     "no-useless-backreference": "error",
     "require-yield": "error",
     "no-nested-ternary": "error",
+    "complexity": ["error", { "max": 72, "variant": "classic" }],
     "max-params": ["error", { "max": 3 }]
-  }
+  },
+  "overrides": [
+    {
+      "files": [".dependency-cruiser.cjs"],
+      "rules": {
+        "import/no-commonjs": "off"
+      }
+    },
+    {
+      "files": ["server/src/**/*.ts"],
+      "excludeFiles": [
+        "server/src/**/_test/**",
+        "server/src/**/*.spec.ts",
+        "server/src/**/*.test.ts",
+        "server/src/**/*.test-d.ts",
+        "server/src/**/*.bench.ts"
+      ],
+      "env": {
+        "builtin": true
+      },
+      "globals": {
+        "AbortController": "readonly",
+        "AbortSignal": "readonly",
+        "atob": "readonly",
+        "Blob": "readonly",
+        "btoa": "readonly",
+        "clearInterval": "readonly",
+        "clearTimeout": "readonly",
+        "console": "readonly",
+        "crypto": "readonly",
+        "Event": "readonly",
+        "EventTarget": "readonly",
+        "fetch": "readonly",
+        "FormData": "readonly",
+        "Headers": "readonly",
+        "MessageChannel": "readonly",
+        "MessageEvent": "readonly",
+        "MessagePort": "readonly",
+        "performance": "readonly",
+        "queueMicrotask": "readonly",
+        "ReadableStream": "readonly",
+        "Request": "readonly",
+        "Response": "readonly",
+        "setInterval": "readonly",
+        "setTimeout": "readonly",
+        "structuredClone": "readonly",
+        "TextDecoder": "readonly",
+        "TextEncoder": "readonly",
+        "TransformStream": "readonly",
+        "URL": "readonly",
+        "URLSearchParams": "readonly",
+        "WebSocket": "readonly",
+        "WritableStream": "readonly"
+      },
+      "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-undef": ["error", { "typeof": true }],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "globalThis",
+            "message": "WSKit server code must not read runtime globals through globalThis."
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "cloudflare:workers",
+                "message": "Runtime bindings belong in a server adapter."
+              },
+              {
+                "name": "@wskit/server-node",
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              },
+              {
+                "name": "@wskit/server-cloudflare",
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@wskit/server-node/*", "@wskit/server-cloudflare/*"],
+                "message": "Server code must depend on adapter interfaces, not a runtime adapter."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

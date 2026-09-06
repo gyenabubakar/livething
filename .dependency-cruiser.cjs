@@ -36,6 +36,19 @@
 module.exports = {
   forbidden: [
     {
+      name: 'server-core-no-adapter-import',
+      comment:
+        'The portable server package must depend on adapter interfaces, never an adapter implementation. ' +
+        'Put runtime-specific behavior in server-adapters instead.',
+      severity: 'error',
+      from: {
+        path: '^server/src/',
+      },
+      to: {
+        path: '^server-adapters/',
+      },
+    },
+    {
       name: 'core-no-feature-capability',
       comment:
         'Engine core must not value-import a feature capability module. Core exposes seams; ' +

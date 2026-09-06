@@ -722,8 +722,7 @@ export function acceptConnection(
     }
   }
 
-  let connection!: EngineRuntimeTypes.RuntimeConnection;
-  connection = {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     userId: normalizedDescriptor.userId,
     wsKey,
@@ -921,19 +920,16 @@ export function wakeHibernatedConnection(
     }
   }
 
-  let connection: EngineRuntimeTypes.RuntimeConnection | undefined;
-  const descriptor = translatedDescriptor({
-    runtime,
-    descriptor: rawDescriptor,
-    translator,
-    getConnection: () => connection,
-  });
-
-  connection = {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id,
     userId,
     wsKey,
-    descriptor,
+    descriptor: translatedDescriptor({
+      runtime,
+      descriptor: rawDescriptor,
+      translator,
+      getConnection: () => connection,
+    }),
     meta,
     ...(translator ? { translator } : {}),
     tags: { ephemeral: new Map(), persistent: new Map() },
@@ -968,7 +964,7 @@ export function wakeHibernatedConnection(
     runtime.reloadPersistentTags?.(connection);
 
     for (const streamId of restoredStreamIds) {
-      const sent = descriptor.send(
+      const sent = connection.descriptor.send(
         JSON.stringify({
           event: '__error__',
           payload: {

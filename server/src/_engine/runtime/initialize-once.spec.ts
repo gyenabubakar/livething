@@ -116,8 +116,6 @@ describe('engine.initialize() under concurrent callers', () => {
 
   it('runs init hooks once when an init hook calls initialize() again', async () => {
     let calls = 0;
-    let engine!: Engine;
-
     const base = define({ capabilities: [] });
     base.onInit(() => {
       calls += 1;
@@ -126,7 +124,7 @@ describe('engine.initialize() under concurrent callers', () => {
       if (calls === 1) void engine.initialize();
     });
 
-    engine = buildEngine(assembleWith(base));
+    const engine = buildEngine(assembleWith(base));
     await engine.initialize();
 
     expect(calls).toBe(1);

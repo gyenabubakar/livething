@@ -72,8 +72,7 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
   const existingCreation = fixtureCreations.get(key);
   if (existingCreation) return existingCreation;
 
-  let creation: Promise<Fixture>;
-  creation = (async () => {
+  const creation = (async () => {
     if (current?.shutdown) await current.shutdown;
 
     const replacement = fixtures.get(key);

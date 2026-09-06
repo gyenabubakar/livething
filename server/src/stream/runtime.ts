@@ -401,7 +401,7 @@ export async function runStream(
   // The drain function needs the active-stream object to know when the stream is
   // torn down, but the iterator (built from ctx, which carries drain) is created
   // before the active stream exists. A late-bound holder breaks the cycle.
-  let activeStreamRef: ActiveStream | undefined;
+  let activeStreamRef: ActiveStream | undefined = undefined;
   const highWaterMark = stream.stream.highWaterMark ?? DEFAULT_HIGH_WATER_MARK;
   installCtxDrain(
     ctx,
