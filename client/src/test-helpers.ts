@@ -12,6 +12,7 @@ export class MockWebSocket {
   static last(): MockWebSocket {
     const ws = MockWebSocket.instances.at(-1);
     if (!ws) throw new Error('no MockWebSocket instance created yet');
+
     return ws;
   }
   static reset(): void {
@@ -45,9 +46,11 @@ export class MockWebSocket {
     if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) {
       throw new DOMException('Invalid close code', 'InvalidAccessError');
     }
+
     if (new TextEncoder().encode(reason).byteLength > 123) {
       throw new DOMException('Close reason is too long', 'SyntaxError');
     }
+
     this.closeCall = { code, reason };
     this.readyState = 3;
     this.onclose?.({ code, reason, wasClean: true });
@@ -86,6 +89,7 @@ export class MockWebSocket {
     return this.sent
       .map((s) => {
         if (typeof s !== 'string') return s;
+
         try {
           return JSON.parse(s);
         } catch {

@@ -38,6 +38,7 @@ function buildEngine(handler: ServerDefinition, storage = createTestStorage()): 
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -102,6 +103,7 @@ describe('inbox runtime install', () => {
       },
     });
     const runTransaction = storage.sql.transaction.bind(storage.sql);
+
     storage.sql.transaction = <T>(fn: (tx: Pick<SQLProvider, 'exec'>) => T): T => {
       const transactionId = ++transactionCalls;
       return runTransaction((tx) => {
@@ -149,6 +151,7 @@ describe('inbox runtime install', () => {
     );
     await engine.initialize();
     const core = engine.core;
+
     const setAlarm = vi.fn(async () => {});
     const deleteAlarm = vi.fn(async () => {});
     core.timers.setAlarm = setAlarm;
@@ -160,6 +163,7 @@ describe('inbox runtime install', () => {
       frame: { event: 'room-msg', payload: {}, seq: 1, messageId: 'm1' },
       now: 1,
     });
+
     bumpInboxWatermark(core.storage.sql, {
       userId: 'alice',
       channelName: 'chat',
@@ -181,6 +185,7 @@ describe('inbox runtime install', () => {
     expect(loadUndeliveredRows(core.storage.sql, 'alice')).toHaveLength(
       _name === 'inbox rows' ? 1 : 0,
     );
+
     expect(loadInboxWatermarks(core.storage.sql, 'alice')).toHaveLength(
       _name === 'watermarks' ? 1 : 0,
     );
@@ -211,6 +216,7 @@ describe('inbox runtime install', () => {
     );
     await engine.initialize();
     const core = engine.core;
+
     core.inboxReceiptCursors.set(JSON.stringify(['chat', null, 'alice']), {
       receivedThrough: 1,
       readThrough: 1,
@@ -219,6 +225,7 @@ describe('inbox runtime install', () => {
     const setAlarm = vi.fn(async () => {});
     const deleteAlarm = vi.fn(async () => {});
     core.timers.setAlarm = setAlarm;
+
     core.timers.deleteAlarm = deleteAlarm;
 
     let caught: unknown;
@@ -227,9 +234,11 @@ describe('inbox runtime install', () => {
     } catch (error) {
       caught = error;
     }
+
     expect(caught).toBeInstanceOf(AggregateError);
     const errors = (caught as AggregateError).errors;
     expect(errors).toHaveLength(1);
+
     const inboxErrors = (errors[0] as AggregateError).errors;
     expect(inboxErrors).toHaveLength(2);
     expect(inboxErrors.map((error) => (error as Error).message)).toEqual(
@@ -237,6 +246,7 @@ describe('inbox runtime install', () => {
     );
     expect(core.inboxReceiptCursors.size).toBe(0);
     expect(core.inboxMemberCounts.size).toBe(0);
+
     expect(setAlarm.mock.calls.length + deleteAlarm.mock.calls.length).toBeGreaterThan(0);
   });
 
@@ -254,6 +264,7 @@ describe('inbox runtime install', () => {
         readThrough: 1,
       });
       core.inboxMemberCounts.set(JSON.stringify(['chat', null, 'alice']), 1);
+
       insertInboxRows(core.storage.sql, {
         userIds: ['alice'],
         channelName: 'chat',
@@ -286,6 +297,7 @@ describe('inbox runtime install', () => {
         }),
       ]);
       expect(loadUndeliveredRows(core.storage.sql, 'alice')).toEqual([]);
+
       expect(core.inboxReceiptCursors.size).toBe(0);
       expect(core.inboxMemberCounts.size).toBe(0);
     },

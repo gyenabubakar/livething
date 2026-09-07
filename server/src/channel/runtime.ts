@@ -68,6 +68,7 @@ export function addChannelMembership(
     members = new Set();
     channelMembers.set(key, members);
   }
+
   members.add(connection);
 }
 
@@ -115,6 +116,7 @@ export function matchesFamilyPattern(
   channelName: string,
 ): boolean {
   if (typeof pattern === 'string') return true;
+
   return pattern.pattern.test(channelName);
 }
 
@@ -128,6 +130,7 @@ export function matchScopeParams(
   channelName: string,
 ): Record<string, string> {
   if (typeof pattern === 'string') return {};
+
   const match = pattern.pattern.exec(channelName);
   return match?.groups ? { ...match.groups } : {};
 }
@@ -275,6 +278,7 @@ function resolveChannelByName(
       : runtime.compiled.channelFamilies.get(channelFamily);
 
   if (!channel) return;
+
   if (!matchesFamilyPattern(channel.pattern, channelName)) return;
 
   return { channel, channelName, channelFamily };
@@ -338,7 +342,9 @@ function clearDurableLeaveState(
   ) {
     return;
   }
+
   runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
+
   if (connection.userId)
     runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
 }
@@ -496,6 +502,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
           throw error;
         }
       }
+
       checkResult = await checkHook.handler(getGateCtx(), validatedData);
     }
   }
@@ -515,6 +522,7 @@ async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
       }
     }
   }
+
   return isDurable;
 }
 
@@ -535,6 +543,7 @@ async function runSubscribeFlow(
   const isDurable = await runSubscribeGates({ runtime, connection, opts, scope });
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily))
     return;
+
   if (
     rejoining &&
     isDurable === true &&
@@ -571,12 +580,15 @@ async function runSubscribeFlow(
     source,
     channelMembership: isDurable ? 'persistent' : 'ephemeral',
   };
+
   if (runtime.isInboxChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.inbox = true;
   }
+
   if (runtime.isReadReceiptsChannel?.(scope.channelName, scope.channelFamily)) {
     confirmation.readReceipts = true;
   }
+
   try {
     runtime.sendProtocolMessage(connection, {
       event: '__subscribeOk__',
@@ -587,6 +599,7 @@ async function runSubscribeFlow(
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     throw error;
   }
+
   if (connection.closing) {
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     return;
@@ -602,6 +615,7 @@ async function runSubscribeFlow(
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     throw error;
   }
+
   if (connection.closing) {
     rollbackFailedSubscribe(runtime, connection, { scope, isDurable, rejoining });
     return;
@@ -679,6 +693,7 @@ function snapshotMembers(
       members.push({ connectionId: member.id, meta: member.meta });
     }
   }
+
   return members;
 }
 
@@ -700,6 +715,7 @@ export function resyncChannelMembers(
 ): void {
   const scope = resolveChannelByName(runtime, opts.channelName, opts.channelFamily);
   if (!scope) return;
+
   if (!hasChannelMembership(connection, scope.channelName, scope.channelFamily)) return;
 
   const members = snapshotMembers(runtime, scope, connection.id);
@@ -858,9 +874,11 @@ export type KickTarget =
 
 function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): boolean {
   if (target.__wskit === 'user-ref') return userKeyOf(connection) === target.id;
+
   if (target.__wskit === 'tag-ref') {
     return connection.tags[target.kind].get(target.group)?.has(target.key) ?? false;
   }
+
   return (connection.tags[target.kind].get(target.group)?.size ?? 0) > 0;
 }
 
@@ -876,6 +894,7 @@ export type ChannelRecipient =
 /** Whether a connection satisfies a channel-scoped recipient. */
 export function matchesRecipient(connection: RuntimeConnection, target: ChannelRecipient): boolean {
   if (target.__wskit === 'connection-ref') return connection.id === target.id;
+
   return matchesKickTarget(connection, target);
 }
 
@@ -899,6 +918,7 @@ export function resolveChannelRecipients(
     createChannelMembershipKey(opts.channelName, opts.channelFamily),
   );
   if (!members) return [];
+
   return [...members].filter((connection) => matchesRecipient(connection, opts.to));
 }
 
@@ -973,5 +993,6 @@ export async function kickChannelMembers(
         }),
     );
   }
+
   await Promise.all(pending);
 }

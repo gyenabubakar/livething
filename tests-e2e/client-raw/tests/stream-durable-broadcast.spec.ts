@@ -16,9 +16,11 @@ async function newPair(browser: Browser): Promise<{
   const pageA = await ctxA.newPage();
   const pageB = await ctxB.newPage();
   await pageA.goto('/stream-durable-broadcast');
+
   await installRig(pageA);
   await pageB.goto('/stream-durable-broadcast');
   await installRig(pageB);
+
   return { ctxA, ctxB, pageA, pageB };
 }
 
@@ -35,6 +37,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
@@ -164,6 +167,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
         { length: rowsB.length },
         (_, i) => 10 - rowsB.length + 1 + i,
       );
+
       expect(rowsB).toEqual(expectedTail);
     } finally {
       await ctxA.close();
@@ -181,6 +185,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
@@ -211,6 +216,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await pageA.waitForTimeout(500);
       const bTokensFinal = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
       expect(bTokensFinal).toBe(bTokensSettled);
+
       expect(bTokensFinal).toBeLessThan(10);
 
       // Both the peer AND the creator see not-found — the row is gone for
@@ -250,6 +256,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       await send(pageA, a, {
@@ -317,6 +324,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
       await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+
       await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
 
       // Alice (creator) starts the broadcast stream; both see chunks fan out.

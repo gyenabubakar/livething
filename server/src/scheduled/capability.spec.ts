@@ -12,6 +12,7 @@ type AnyScheduledPrimitive = Omit<ScheduledPrimitive, 'handler'> & {
 function scheduledPrimitive(primitives: readonly { __wskit: string }[]): AnyScheduledPrimitive {
   const found = primitives.find((p) => p.__wskit === 'scheduled');
   if (!found) throw new Error('no scheduled primitive');
+
   return found as unknown as AnyScheduledPrimitive;
 }
 
@@ -22,6 +23,7 @@ describe('scheduled() capability', () => {
     const handler = base.assemble({ handlers: [] });
     const compiled = compileHandlerDefinition(handler);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
+
     expect(scheduledPrimitive(handler.primitives).hasData).toBe(false);
   });
 

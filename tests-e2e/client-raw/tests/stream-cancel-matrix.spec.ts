@@ -50,6 +50,7 @@ test.describe('stream-cancel matrix', () => {
     const snapshot = await chunkCount(page, a, 'start-room-stream');
     await page.waitForTimeout(500);
     const after = await chunkCount(page, a, 'start-room-stream');
+
     expect(after - snapshot).toBe(0);
     expect(after).toBeLessThan(20);
     // Plain stream cancel does not send __streamEnd__.

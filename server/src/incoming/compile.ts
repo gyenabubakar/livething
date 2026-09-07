@@ -13,6 +13,7 @@ export function compileIncomingDef(
       `[wskit] No handler assembled for incoming('${def.name}'). Include the value returned by base.on(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   return incomingFactory(
     def.name,
     handler as any,

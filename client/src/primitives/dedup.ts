@@ -32,6 +32,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
           // the oldest are first and we can stop at the first still-fresh one.
           for (const [key, time] of seen) {
             if (now - time <= windowMs) break;
+
             seen.delete(key);
           }
 
@@ -46,6 +47,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
           }
 
           seen.set(id, now);
+
           return message;
         },
       };

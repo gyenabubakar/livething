@@ -40,6 +40,7 @@ describe('common engine deps', () => {
     } catch (error) {
       thrown = error;
     }
+
     expect(CrossInstanceRef.matches(thrown)).toBe(true);
   });
 

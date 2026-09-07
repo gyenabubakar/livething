@@ -133,6 +133,7 @@ export class ChannelBuilder {
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));
     }
+
     if (cfg.replay !== undefined) {
       const build = deps.buildBuiltinReplay;
       if (!build) {
@@ -141,8 +142,10 @@ export class ChannelBuilder {
             'listed. Add replay.history() or replay.snapshot() to capabilities.',
         );
       }
+
       this.children.push(build(cfg.replay));
     }
+
     for (const cap of (cfg.capabilities as readonly ChannelOnlyBuilder[] | undefined) ?? []) {
       if (cap.__capabilityKind) this.capabilityKinds.add(cap.__capabilityKind);
       if (cap.__channelEmits) this.children.push(...cap.__primitives);
@@ -154,10 +157,13 @@ export class ChannelBuilder {
               'is not listed. Add serverRequests() to capabilities.',
           );
         }
+
         register(this.__key, cap.__channelServerRequests);
       }
+
       if (cap.__buildChannelPrimitive) this.children.push(cap.__buildChannelPrimitive());
     }
+
     if (cfg.check) {
       this.children.push(
         checkFactory(
@@ -168,6 +174,7 @@ export class ChannelBuilder {
     } else if (cfg.subscribe) {
       this.children.push(checkFactory(() => undefined, { validator: cfg.subscribe }));
     }
+
     if (cfg.commit) this.children.push(commitFactory(withChannelCtx(cfg.commit) as any));
     if (cfg.revalidate)
       this.children.push(revalidateFactory(withChannelCtx(cfg.revalidate) as any));
@@ -185,6 +192,7 @@ export class ChannelBuilder {
           'static channel — pass it to ctx.channels.get(...) directly.',
       );
     }
+
     const name = fillChannelTemplate(this.pattern.template, params, `channel '${this.__key}'`);
     return { __wskitChannelRef: true, family: this.__key, name };
   }
@@ -197,6 +205,7 @@ export class ChannelBuilder {
     this.recordRateLimit(event, config, primitive);
     this.handlerPrimitives.add(primitive);
     this.children.push(primitive);
+
     return this.handlerValue(primitive);
   }
 
@@ -208,6 +217,7 @@ export class ChannelBuilder {
           'listed. Add clientRequests() to capabilities.',
       );
     }
+
     const run = config.run;
     const primitive = build(event, {
       input: config.input,
@@ -215,8 +225,10 @@ export class ChannelBuilder {
       run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
     });
     this.recordRateLimit(event, config, primitive);
+
     this.handlerPrimitives.add(primitive);
     this.children.push(primitive);
+
     return this.handlerValue(primitive);
   }
 
@@ -256,6 +268,7 @@ export class ChannelBuilder {
           'not listed. Add replay.custom() to capabilities.',
       );
     }
+
     this.registerOnce('replay', build(hooks));
   }
 
@@ -286,15 +299,19 @@ export class ChannelBuilder {
           `capability is not listed. Add ${capabilityName} to capabilities.`,
       );
     }
+
     const run = config.run;
     const channelConfig = {
       ...config,
       run: (ctx: any, payload: any) => run(adaptChannelContext(ctx), payload),
     };
+
     const primitive = build(event, channelConfig);
+
     this.recordRateLimit(event, config, primitive);
     this.handlerPrimitives.add(primitive);
     this.children.push(primitive);
+
     return this.handlerValue(primitive);
   }
 
@@ -314,6 +331,7 @@ export class ChannelBuilder {
         `[wskit] Duplicate ${slot} on channel '${this.__key}'. Only one ${slot} can be attached.`,
       );
     }
+
     this.once.add(slot);
     this.children.push(primitive);
   }

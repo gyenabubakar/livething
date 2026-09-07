@@ -94,6 +94,7 @@ export const rateLimit = withCapabilityKind(function rateLimit(
   };
   writable.__hostOnly = true;
   writable.__rateLimit = rule;
+
   writable.__buildRateLimit = (input) => {
     const { overrides, channelRules, channelKeys } = input;
     // Each channel becomes a synthetic top-level channel definition so the
@@ -110,8 +111,11 @@ export const rateLimit = withCapabilityKind(function rateLimit(
         definitions: [],
       });
     }
+
     const plan = resolvePlan({ contractRateLimit: rule, definitions, overrides });
+
     return plan ? rateLimitFactory(plan) : null;
   };
+
   return stampKind(cap, CAPABILITY_KIND.rateLimit);
 }, CAPABILITY_KIND.rateLimit);

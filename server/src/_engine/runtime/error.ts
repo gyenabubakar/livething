@@ -46,6 +46,7 @@ export function resolveScopeFromRouting(
       }
     }
   }
+
   return undefined;
 }
 

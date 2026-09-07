@@ -29,6 +29,7 @@ export function assertUsableUserId(userId: string): void {
       `the user id returned from onUpgrade is ${userId.length} characters; the most allowed is ${MAX_USER_ID_LENGTH}. Use a stable id such as a user id or a ULID, not a token.`,
     );
   }
+
   if (userId.startsWith(RESERVED_USER_ID_PREFIX)) {
     throw new WSKitConfigError(
       `the user id returned from onUpgrade starts with "${RESERVED_USER_ID_PREFIX}", which is reserved for keys WSKit files internally. Give this user an id that starts with anything else.`,

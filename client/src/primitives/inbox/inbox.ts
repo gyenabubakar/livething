@@ -77,6 +77,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           };
           channels.set(key, state);
         }
+
         return state;
       }
 
@@ -84,8 +85,10 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         const state = stateFor(key);
         const previous = state.byUserId.get(userId) ?? 0;
         if (receivedThrough <= previous) return;
+
         state.byUserId.set(userId, receivedThrough);
         state.store.set(projectCursor(state.byUserId));
+
         for (const listener of [...state.listeners]) {
           try {
             listener(userId, receivedThrough);
@@ -97,12 +100,15 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
 
       function scheduleFlush(): void {
         if (flushScheduled) return;
+
         flushScheduled = true;
         queueMicrotask(() => {
           flushScheduled = false;
           for (const [key, mark] of marks) {
             if (!inboxScopes.has(key)) continue;
+
             if (mark.seq <= mark.acked) continue;
+
             mark.acked = mark.seq;
             sendReceived(helpers, mark);
           }
@@ -123,6 +129,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         if (typeof payload?.userId === 'string' && typeof payload.receivedThrough === 'number') {
           applyReceived(key, payload.userId, payload.receivedThrough);
         }
+
         return null;
       }
 
@@ -144,11 +151,13 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           current.seq = missedThrough;
           scheduleFlush();
         }
+
         return message;
       }
 
       function trackIncoming(key: string, channel: string, message: WireMessage): WireMessage {
         if (message.__wskit?.streamId !== undefined) return message;
+
         const seq = message.__wskit?.seq;
         if (typeof seq !== 'number') return message;
 
@@ -159,32 +168,42 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         } else if (seq > current.seq) {
           current.seq = seq;
         }
+
         scheduleFlush();
+
         return message;
       }
 
       function handleIncoming(message: WireMessage): WireMessage | null {
         const channel = message.__wskit?.channel;
         if (channel === undefined) return message;
+
         const key = channelKey(message.__wskit?.channelFamily, channel);
 
         switch (message.event) {
           case '__subscribeOk__':
             if (message.__wskit?.inbox === true) inboxScopes.add(key);
             return message;
+
           case '__unsubscribeOk__':
             if (isRejoinConfirmation(message)) return message;
+
             clearScope(key);
             return message;
+
           case '__kicked__':
             clearScope(key);
             return message;
+
           case '__receivedQuery__':
             return resolveOwnQuery(pendingQueries, message);
+
           case '__received__':
             return receiveFanout(key, message);
+
           case '__gap__':
             return receiveGap(key, channel, message);
+
           default:
             return trackIncoming(key, channel, message);
         }
@@ -198,6 +217,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
           for (const [key, mark] of marks) {
             if (inboxScopes.has(key)) requests.push(buildReceived(mark));
           }
+
           return requests.length > 0 ? requests : null;
         },
         onClose() {
@@ -232,6 +252,7 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
                   timeout: queryOptions?.timeout ?? defaultTimeout,
                 }),
             };
+
             Object.assign(messaging, inboxApi);
           });
         },
@@ -246,6 +267,7 @@ function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
   for (const [userId, cursor] of byUserId) {
     if (cursor > 0) list.set(userId, cursor);
   }
+
   return list;
 }
 

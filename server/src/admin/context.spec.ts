@@ -27,9 +27,11 @@ function makeDeps(overrides: Partial<CreateAdminContextDeps> = {}) {
     kickChannelMembers: vi.fn(() => Promise.resolve()),
     resolveChannel: vi.fn((target: unknown) => {
       if (target === 'missing') return undefined;
+
       if (typeof target === 'string') {
         return { channelName: target, channelFamily: null, params: {} };
       }
+
       const { family, name } = target as { family: string; name: string };
       return { channelName: name, channelFamily: family, params: {} };
     }),
@@ -49,6 +51,7 @@ describe('createAdminContext', () => {
     expect(deps.broadcastToConnections).toHaveBeenCalledTimes(1);
     const [conns, opts] = (deps.broadcastToConnections as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect([...(conns as Iterable<unknown>)]).toHaveLength(3);
+
     expect(opts).toEqual({ event: 'ping', payload: { n: 1 } });
   });
 

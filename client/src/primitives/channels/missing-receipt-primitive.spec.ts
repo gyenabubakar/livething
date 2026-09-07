@@ -30,6 +30,7 @@ function build(extraPrimitives: Primitive[], debug: boolean) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 

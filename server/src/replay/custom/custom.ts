@@ -420,6 +420,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
             })
           )
             return;
+
           opts.onBeforeSend!(
             buildSendCtx(message.meta),
             channelKey
@@ -440,6 +441,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
             })
           )
             return;
+
           return opts.onAfterSend!(
             buildSendCtx(message.meta),
             channelKey
@@ -451,6 +453,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
       engine.onProtocolMessage('__replay__', async (ctx, frame) => {
         if (frame.event !== '__replay__') return false;
+
         const baseCtx = ctx as Record<PropertyKey, unknown>;
         const scope = readReplayContextScope(baseCtx);
 
@@ -484,6 +487,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           }) as ReplayContext<CustomReplayScope>,
           since,
         );
+
         return true;
       });
     },

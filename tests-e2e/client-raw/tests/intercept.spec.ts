@@ -49,6 +49,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('send-ch-pre-block').click();
     await page.waitForTimeout(200);
+
     await expect(page.getByTestId('echoed')).toHaveText('');
     // Positive signal: a normal ch rewrite still works after a block.
     await page.getByTestId('send-ch-pre').click();
@@ -63,6 +64,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('dynamic-subscribed')).toHaveText('yes');
     await page.getByTestId('send-dyn-pre-block').click();
     await page.waitForTimeout(200);
+
     await expect(page.getByTestId('echoed')).toHaveText('');
     await page.getByTestId('send-dyn-pre').click();
     await expect(page.getByTestId('echoed')).toContainText('dyn:dyn-pre-rewritten');
@@ -105,6 +107,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-ch-nudge-stream').click();
     await expect(page.getByTestId('ch-nudge-chunks')).toContainText('hello-ch-intercepted');
+
     await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
   });
 
@@ -116,6 +119,7 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-ch-nudge-stream-block').click();
     await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
+
     await expect(page.getByTestId('ch-nudge-chunks')).toContainText('no-hint');
     await expect(page.getByTestId('ch-nudge-chunks')).not.toContainText('ch-hint-block');
   });
@@ -140,6 +144,7 @@ test.describe('intercept', () => {
       payload: { text: 'req-pre' },
       __wskit: { correlationId: 'req-1' },
     });
+
     const reply = await waitForFrame(page, sock, {
       match: (f) => f.event === 'intercept-req' && f.__wskit?.correlationId === 'req-1',
     });

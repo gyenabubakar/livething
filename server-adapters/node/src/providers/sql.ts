@@ -81,6 +81,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     }
 
     statement.run(...(params as never[]));
+
     return emptyResult<TRow>();
   }
 
@@ -120,6 +121,7 @@ function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<
           '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
         );
       }
+
       return rows[0] ?? null;
     },
 

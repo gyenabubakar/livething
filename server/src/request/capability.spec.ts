@@ -8,6 +8,7 @@ import type { RequestPrimitive } from './request.ts';
 function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPrimitive {
   const found = primitives.find((p) => p.__wskit === 'request');
   if (!found) throw new Error('no request primitive');
+
   return found as unknown as RequestPrimitive;
 }
 

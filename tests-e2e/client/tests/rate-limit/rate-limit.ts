@@ -27,6 +27,7 @@ export function setup(): void {
 
   socket.onServerError((err) => {
     if (!(err instanceof WSKitError)) return;
+
     el('error-code').textContent = errorCode(err);
     const detail = err.detail as { retryAfterMs?: number } | undefined;
     if (typeof detail?.retryAfterMs === 'number') {

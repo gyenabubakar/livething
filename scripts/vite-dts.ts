@@ -27,6 +27,7 @@ export function relativizeTildeImports(distRoot: string) {
     );
 
     if (rewritten === content) return;
+
     return { filePath, content: rewritten };
   };
 }

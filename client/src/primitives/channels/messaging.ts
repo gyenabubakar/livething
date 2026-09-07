@@ -64,6 +64,7 @@ export function buildChannelMessaging(
   function markers(): ScopeMarkers {
     return channelMarkers(state);
   }
+
   function assertReady(): void {
     if (!state.active) throw ChannelNotSubscribed();
   }
@@ -77,6 +78,7 @@ export function buildChannelMessaging(
       let released = false;
       return () => {
         if (released) return;
+
         released = true;
         remove();
         helpers.lazyRelease();
@@ -88,13 +90,16 @@ export function buildChannelMessaging(
       // namespaced user event, while a plain channel keeps it as a protocol
       // frame and must still reject it.
       if (typeof event !== 'string' || event.length === 0) return false;
+
       const wireEvent = eventPrefix + event;
       if (isReservedEventName(wireEvent)) return false;
+
       const ttl = options?.ttl ?? context.resolveTtl(event);
       const result = helpers.send(
         { event: wireEvent, payload, __wskit: markers() },
         ttl !== undefined ? { ttl } : undefined,
       );
+
       return result === 'sent' || result === 'buffered';
     },
     subscribe(data?: unknown) {
@@ -136,17 +141,20 @@ export function buildChannelMessaging(
       // old payload promise rejecting after a newer subscribe) clobbering the new one.
       function failSubscribe(error: unknown): void {
         if (state.pending !== thisPending) return;
+
         state.failPendingSubscribe(error);
       }
 
       function sendSubscribe(resolved: unknown): void {
         if (state.pending !== thisPending) return;
+
         state.resolvedSubscribeData = resolved;
         const frame = {
           event: '__subscribe__',
           payload: resolved ?? {},
           __wskit: channelMarkers(state),
         };
+
         let result: SendResult;
         try {
           result = helpers.rawSend(frame);
@@ -155,6 +163,7 @@ export function buildChannelMessaging(
           failSubscribe(error);
           return;
         }
+
         if (result === 'connecting') {
           state.pendingSubscribeFrame = frame;
         } else if (result === 'closed') {
@@ -176,6 +185,7 @@ export function buildChannelMessaging(
             failSubscribe(error);
             return;
           }
+
           void Promise.resolve(factoryResult).then(sendSubscribe, failSubscribe);
         } else {
           sendSubscribe(data);
@@ -203,6 +213,7 @@ export function buildChannelMessaging(
           state.deferredSubscribe = null;
           state.failPendingSubscribe(new Error('[wskit] re-subscribe superseded by unsubscribe()'));
         }
+
         return state.beginLeave(state.pendingLeave.unsubscribeId);
       }
 
@@ -226,6 +237,7 @@ export function buildChannelMessaging(
     },
     resyncMembers(): void {
       if (!state.active) return;
+
       helpers.rawSend({
         event: '__memberSync__',
         payload: {},
@@ -252,6 +264,7 @@ export function buildChannelMessaging(
     // gets no prefixName and leaves names bare.
     prefixName: eventPrefix ? (name) => eventPrefix + name : undefined,
   });
+
   return messaging;
 }
 
@@ -270,6 +283,8 @@ export function buildFamilyHandle(context: ChannelContext, familyKey: string): F
   handle.on = (event, handler) => family.addHandler(event, handler);
   handle.onSubscribed = (callback) => family.onSubscribed(callback);
   handle.onUnsubscribed = (callback) => family.onUnsubscribed(callback);
+
   handle.list = () => context.listFamily(familyKey);
+
   return handle;
 }

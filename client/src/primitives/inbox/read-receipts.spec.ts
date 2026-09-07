@@ -31,6 +31,7 @@ function build(readReceiptsOptions?: { timeout?: number }) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -43,6 +44,7 @@ async function subscribed(socket: ReturnType<typeof build>['socket'], ws: MockWe
     __wskit: { source: 'client', channel: 'room', inbox: true, readReceipts: true },
   });
   await p;
+
   return room;
 }
 
@@ -149,6 +151,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
     });
     const snapshotAfterFirst = room.readers.get();
     const events: Array<[string, number]> = [];
+
     room.onRead((userId, readThrough) => events.push([userId, readThrough]));
 
     ws.emit({
@@ -304,6 +307,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
       __wskit: { channel: 'room', unsubscribeId: leave1Id },
     });
     await leave1;
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -322,6 +326,7 @@ describe('read-receipts — readers store from __read__ fan-out', () => {
       payload: {},
       __wskit: { channel: 'room', unsubscribeId: leave1Id },
     });
+
     await Promise.resolve();
     expect(leave2Settled).toBe(false);
     expect(room.readers.get()).toEqual(new Map([['bob', 5]]));
@@ -428,6 +433,7 @@ describe('read-receipts — disjoint query ownership with inbox', () => {
       .filter((f) => f.event === '__readQuery__')
       .at(-1);
     const receivedId = receivedQuery.__wskit.correlationId;
+
     const readId = readQuery.__wskit.correlationId;
     expect(receivedId).not.toBe(readId);
 

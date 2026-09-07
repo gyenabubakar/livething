@@ -32,6 +32,7 @@ test.describe('sequence', () => {
     const third = await tickAndReadSeq(page, second);
     expect(first).toBeGreaterThan(0);
     expect(second).toBeGreaterThan(first);
+
     expect(third).toBeGreaterThan(second);
   });
 
@@ -47,6 +48,7 @@ test.describe('sequence', () => {
       prev = await tickAndReadSeq(page, prev);
       history.push(prev);
     }
+
     for (let i = 1; i < history.length; i++) {
       expect(history[i]).toBeGreaterThan(history[i - 1]);
     }
@@ -78,6 +80,7 @@ test.describe('sequence', () => {
       const tocks = (await frames(page, conn)).filter(
         (f) => f.event === 'tock' && typeof f.__wskit?.seq === 'number',
       );
+
       seqs.push(tocks[tocks.length - 1]!.__wskit!.seq as number);
     }
 

@@ -21,6 +21,7 @@ test.describe('stream-broadcast (conformance)', () => {
     const peer = await browser.newContext();
     const a = await trigger.newPage();
     const b = await peer.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -45,6 +46,7 @@ test.describe('stream-broadcast (conformance)', () => {
     const peer = await browser.newContext();
     const a = await trigger.newPage();
     const b = await peer.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -69,6 +71,7 @@ test.describe('stream-broadcast (conformance)', () => {
     const peer = await browser.newContext();
     const a = await trigger.newPage();
     const b = await peer.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 

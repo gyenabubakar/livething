@@ -71,6 +71,7 @@ export class KeepaliveLoop {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+
     this.pingSentAt = null;
     this.missedPongs = 0;
     this.samples = [];
@@ -106,6 +107,7 @@ export class KeepaliveLoop {
         this.callbacks.forceClose();
         return;
       }
+
       // The last measured RTT is stale once a pong goes unanswered — clear it so
       // the 'poor' change (and getLatency()) report null, not a healthy-looking value.
       this.callbacks.reportLatency(null);
@@ -130,13 +132,17 @@ export class KeepaliveLoop {
 
   private qualityFromLatency(latency: number): ConnectionQuality {
     if (latency < this.thresholds.excellent) return 'excellent';
+
     if (latency < this.thresholds.good) return 'good';
+
     if (latency < this.thresholds.degraded) return 'degraded';
+
     return 'poor';
   }
 
   private setQuality(next: ConnectionQuality): void {
     if (this.quality === next) return;
+
     this.quality = next;
     this.callbacks.onQualityChange(next);
   }

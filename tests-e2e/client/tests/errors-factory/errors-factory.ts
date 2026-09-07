@@ -31,6 +31,7 @@ export function setup(): void {
 
   socket.onServerError((err) => {
     if (!(err instanceof WSKitError)) return;
+
     el('error-code').textContent = errorCode(err);
     el('error-result').textContent = `${err.code}:${JSON.stringify(err.detail ?? {})}`;
   });

@@ -33,6 +33,7 @@ test.describe('replay-snapshot handler', () => {
       );
     }).toPass({ timeout: 5_000 });
     await page.getByTestId('replay-btn').click();
+
     await expect(async () => {
       const snapshots = await page.getByTestId('snapshots').textContent();
       const aEntries = snapshots!.split(' | ').filter((s) => s.startsWith('A:'));
@@ -70,6 +71,7 @@ test.describe('replay-snapshot handler', () => {
         seqBefore + 3,
       );
     }).toPass({ timeout: 5_000 });
+
     await page.getByTestId('counter-replay-btn').click();
     await expect(async () => {
       const snapshots = await page.getByTestId('counter-snapshots').textContent();
@@ -125,12 +127,15 @@ test.describe('replay-snapshot handler', () => {
             // ignore
           }
         }
+
         if (typeof original === 'function') original.call(ws, ev);
       };
       ws.send(
         JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: since }, __wskit: {} }),
       );
+
       await new Promise((r) => setTimeout(r, 1500));
+
       return collected.filter((m) => m.event === 'counter-snapshot');
     }, firstSeq - 1);
 
@@ -158,6 +163,7 @@ test.describe('replay-snapshot handler', () => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) return;
+
       ws.send(
         JSON.stringify({
           event: 'update-doc',
@@ -179,6 +185,7 @@ test.describe('replay-snapshot handler', () => {
     const seqAfterJoin = Number(await page.getByTestId('last-seq').textContent());
     await page.getByTestId('room-update-doc-a-btn').click();
     await page.getByTestId('room-update-doc-a2-btn').click();
+
     await expect(async () => {
       expect(Number(await page.getByTestId('last-seq').textContent())).toBeGreaterThanOrEqual(
         seqAfterJoin + 2,

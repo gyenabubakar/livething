@@ -139,6 +139,7 @@ function visitCompiledPrimitives(
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
+
         EngineCompileUtils.setUniqueOrThrow(compiled.channels, primitive.pattern, {
           value: compiledChannel,
           kind: 'channel',
@@ -150,6 +151,7 @@ function visitCompiledPrimitives(
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
+
         EngineCompileUtils.setUniqueOrThrow(compiled.channelFamilies, primitive.pattern.key, {
           value: compiledChannel,
           kind: 'channel family',
@@ -191,10 +193,12 @@ export function compileHandlerDefinition(
   validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   const declaredPluginEvents = collectPluginEventNames(compiled);
+
   const declaredPluginChannels = collectPluginChannelNames(compiled);
   validateNoReservedEventNames(compiled, declaredPluginEvents);
   validateScopeAndEventNameSyntax(compiled, declaredPluginEvents, declaredPluginChannels);
   validateChannelsDisjoint?.(compiled);
+
   return compiled;
 }
 
@@ -203,6 +207,7 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
     if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
       return true;
     }
+
     if (
       EngineCompileUtils.isChannelPrimitive(primitive) &&
       hasAnyReplayPrimitive(primitive.primitives)
@@ -210,6 +215,7 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
       return true;
     }
   }
+
   return false;
 }
 
@@ -235,13 +241,16 @@ function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive
       hasPersistentSequence = true;
     }
   }
+
   const hasReplay = hasAnyReplayPrimitive(primitives);
   if (!hasReplay) return;
+
   if (!hasDedup) {
     throw new Error(
       `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
     );
   }
+
   if (!hasPersistentSequence) {
     throw new Error(
       `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
@@ -281,6 +290,7 @@ function validateScopeAndEventNameSyntax(
           `[wskit] ${kind} name '${name}' is ${name.length} characters; the wire protocol limit is ${limit}.`,
         );
       }
+
       return;
     }
 
@@ -446,18 +456,24 @@ function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<stri
       if ((primitive as { __plugin?: string }).__plugin) names.add(event);
     }
   }
+
   for (const [event, generate] of scope.streams) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.stream.nudges) names.add(nudge.event);
   }
+
   for (const [event, generate] of scope.resumableStreams ?? []) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.nudges) names.add(nudge.event);
   }
+
   for (const [event, generate] of scope.recordedStreams ?? []) {
     if (!(generate as { __plugin?: string }).__plugin) continue;
+
     names.add(event);
     for (const nudge of generate.nudges) names.add(nudge.event);
   }
@@ -471,6 +487,7 @@ function collectPluginChannelNames(
   for (const channel of [...compiled.channels.values(), ...compiled.channelFamilies.values()]) {
     if (channel.__plugin) names.add(channel.key);
   }
+
   return names;
 }
 

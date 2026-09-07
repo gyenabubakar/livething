@@ -61,6 +61,7 @@ export function setup(): void {
   function renderMembers(): void {
     el('members').textContent = String(archive.members.get().size);
   }
+
   archive.onMemberJoin(renderMembers);
   archive.onMemberLeave(renderMembers);
 

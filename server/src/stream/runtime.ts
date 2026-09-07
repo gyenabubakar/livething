@@ -162,6 +162,7 @@ export async function cancelStream(
         ...buildStreamRouting(activeStream.id, activeStream.scope),
         eventName: activeStream.event,
       };
+
       await forEachIsolatedAsync(
         streamBroadcastTargets(runtime.connections, connection.id, activeStream.scope),
         (target) =>
@@ -173,6 +174,7 @@ export async function cancelStream(
         { context: `stream broadcast cancel end streamId="${activeStream.id}"` },
       );
     }
+
     runtime.activeStreams.delete(activeStream.id);
   }
 }
@@ -209,6 +211,7 @@ export async function bufferStreamNudge(
   const { event, payload, wskit } = options;
   const streamId = wskit?.streamId;
   if (streamId === undefined) return false;
+
   const streamNudgeId = wskit?.streamNudgeId;
 
   // A rejected nudge is non-terminal: the error carries streamTerminated:false and
@@ -252,6 +255,7 @@ export async function bufferStreamNudge(
       storedScope.channelName,
       storedScope.channelFamily ?? null,
     );
+
   if (!sameScope || !memberOk) {
     await runtime.handleRuntimeError(connection, {
       error: ChannelNotSubscribed(),
@@ -357,6 +361,7 @@ export async function runStream(
     if (runtime.activeStreams.has(suppliedId)) {
       throw StreamIdCollision();
     }
+
     streamId = suppliedId;
   } else {
     streamId = runtime.generateId('stream');
@@ -382,6 +387,7 @@ export async function runStream(
 
   async function sendBroadcastEnd(seq: number): Promise<void> {
     if (!stream.stream.broadcast) return;
+
     const endWskit = { ...buildStreamRouting(streamId, scope), seq, eventName: event };
     await forEachIsolatedAsync(
       broadcastTargets(),
@@ -477,6 +483,7 @@ export async function runStream(
           { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
         );
       }
+
       const sent = runtime.sendThroughPipeline(connection, {
         routing: chunkRouting,
         event,

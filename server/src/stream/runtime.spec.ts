@@ -207,6 +207,7 @@ describe('stream/runtime', () => {
     const peer = createConnection('peer');
     runtime.connections.set(creator.id, creator);
     runtime.connections.set(peer.id, peer);
+
     const pipelineTargets: string[] = [];
     runtime.sendThroughPipeline = vi.fn((target: RuntimeConnection) => {
       pipelineTargets.push(target.id);
@@ -246,6 +247,7 @@ describe('stream/runtime', () => {
       channelName: 'room:123',
       channelFamily: 'rooms',
     });
+
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(peer.id, peer);
 
@@ -352,6 +354,7 @@ describe('stream/runtime', () => {
     runtime.handleRuntimeError = handleRuntimeError;
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
+
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(peer.id, peer);
 
@@ -499,6 +502,7 @@ describe('stream/runtime', () => {
     expect((target as RuntimeConnection).id).toBe('bob');
     expect((opts as { event: string }).event).toBe('__streamEnd__');
     const wskit = (opts as { wskit: Record<string, unknown> }).wskit;
+
     expect(wskit.streamId).toBe(streamId);
     expect(wskit.eventName).toBe('feed');
   });
@@ -636,6 +640,7 @@ describe('stream/runtime', () => {
     const errMsg = protocolMessages.find((m) => m.event === '__error__');
     expect(errMsg).toBeDefined();
     expect(errMsg!.payload.code).toBe('internal-error');
+
     expect(errMsg!.wskit.streamId).toBe('stream_1');
   });
 
@@ -684,6 +689,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: true,
     };
+
     runtime.activeStreams.set('stream_1', closed);
 
     const result = await bufferStreamNudge(
@@ -742,6 +748,7 @@ describe('stream/runtime', () => {
       closed: false,
       scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     const result = await bufferStreamNudge(
@@ -783,6 +790,7 @@ describe('stream/runtime', () => {
       closed: false,
       scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     // The nudge omits the channel markers — claimed scope is top-level, which
@@ -819,6 +827,7 @@ describe('stream/runtime', () => {
       closed: false,
       scope: { channelName: 'room:1', channelFamily: 'rooms' },
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     const result = await bufferStreamNudge(
@@ -850,6 +859,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     const result = await bufferStreamNudge(
@@ -878,6 +888,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     const result = await bufferStreamNudge(
@@ -911,6 +922,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     await bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
@@ -936,6 +948,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', active);
 
     const result = await bufferStreamNudge(
@@ -953,6 +966,7 @@ describe('stream/runtime', () => {
     expect(runtime.activeStreams.has('stream_1')).toBe(true);
     const rejected = protocolMessages.find((m) => m.event === '__error__');
     expect(rejected).toBeDefined();
+
     expect(rejected!.payload).toMatchObject({
       code: 'nudge-overflow',
       detail: { cap: 256 },
@@ -980,6 +994,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', activeStream);
 
     const result = await bufferStreamNudge(
@@ -1030,6 +1045,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', activeStream);
 
     await expect(
@@ -1067,6 +1083,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set('stream_1', activeStream);
 
     const handleRuntimeError = vi.fn();
@@ -1176,6 +1193,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set(existing.id, existing);
     connection.activeStreamIds = new Set([existing.id]);
 
@@ -1284,6 +1302,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set(existing.id, existing);
     connection.activeStreamIds = new Set([existing.id]);
 
@@ -1319,6 +1338,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set(existing.id, existing);
     owner.activeStreamIds = new Set([existing.id]);
 
@@ -1355,6 +1375,7 @@ describe('stream/runtime', () => {
       abortController: new AbortController(),
       closed: false,
     };
+
     runtime.activeStreams.set(existing.id, existing);
     connection.activeStreamIds = new Set([existing.id]);
 

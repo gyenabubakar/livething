@@ -101,7 +101,9 @@ export const tags = withCapabilityKind(function tags<const TDefs extends readonl
   const ephemeral = registrationsFor(defs, 'ephemeral');
   const persistent = registrationsFor(defs, 'persistent');
   if (ephemeral.length > 0) primitives.push(tagGroups('ephemeral', ephemeral));
+
   if (persistent.length > 0) primitives.push(tagGroups('persistent', persistent));
+
   return stampKind(
     capability<TagsSlots<TDefs>, never>(primitives) as TagsCapability<TDefs>,
     CAPABILITY_KIND.tags,

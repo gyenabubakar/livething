@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-quality?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -23,12 +25,14 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			// Answer the server's raw keepalive "ping" so a latency/quality
 			// measurement actually completes (raw "ping" isn't JSON).
 			if (ev.data === 'ping') {
 				ws?.send('pong');
 				return;
 			}
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'quality-result') {
 				quality = data.payload?.quality ?? '';

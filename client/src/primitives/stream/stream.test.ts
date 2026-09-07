@@ -34,9 +34,11 @@ async function main() {
     const _t: string = chunk.text;
     void _t;
   }
+
   const _nudged: Promise<void> = handle.nudge('cancel', { reason: 'stop' }, { timeout: 5000 });
   void _nudged;
   handle.cancel();
+
   const _id: string = handle.streamId;
   void _id;
 
@@ -87,4 +89,5 @@ async function main() {
     void _t;
   }
 }
+
 void main;

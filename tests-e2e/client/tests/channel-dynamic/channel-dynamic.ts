@@ -59,6 +59,7 @@ export function setup(): void {
       el('name-result').textContent = `${data.name}|${data.suffix}`;
     });
   }
+
   general.onSubscriptionFailed(() => {
     el('subscription-failed').textContent = 'yes';
   });

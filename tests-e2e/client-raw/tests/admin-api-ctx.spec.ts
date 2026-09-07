@@ -60,6 +60,7 @@ async function callRoute(page: Page, path: string): Promise<unknown> {
   return page.evaluate(async (url) => {
     const res = await fetch(url, { method: 'POST' });
     if (!res.ok) throw new Error(`${url} -> ${res.status} ${await res.text()}`);
+
     return ((await res.json()) as { result: unknown }).result;
   }, path);
 }
@@ -174,6 +175,7 @@ test.describe('api(ctx) members over the stub', () => {
     );
     expect(aliceClosed).toHaveLength(1);
     expect(state.a1.length + state.a2.length).toBe(1);
+
     expect(state.bob).toEqual([]);
   });
 

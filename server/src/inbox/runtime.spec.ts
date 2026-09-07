@@ -43,6 +43,7 @@ function createCore(
     storage: { sql },
     generateId: (prefix = 'id') => `${prefix}_${++idCounter}`,
   } as unknown as EngineCore;
+
   return { core, sql };
 }
 
@@ -509,6 +510,7 @@ describe('drainInboxOnReconnect', () => {
         now: seq,
       });
     }
+
     pruneInboxRetentionAndBumpWatermark(sql, {
       userId: 'alice',
       channelName: 'room',

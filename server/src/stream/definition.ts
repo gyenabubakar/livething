@@ -76,6 +76,7 @@ export function stream<
   assertValidHighWaterMark(config?.highWaterMark, `stream("${name}")`);
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
+
   return {
     _: 'stream',
     name,

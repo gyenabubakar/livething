@@ -182,6 +182,7 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
       `${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
+
   if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
     throw new WSKitConfigError(
       `${source} requires a compiled template — build it with scope(key, template), ` +
@@ -230,6 +231,7 @@ export function scope<TKey extends string, const TTemplate extends string>(
     pattern: compiled.regex,
     paramNames: compiled.paramNames,
   };
+
   assertValidScopeDeclaration(declaration, 'scope()');
   return declaration;
 }
@@ -255,6 +257,7 @@ export function channel<
   } else {
     assertValidScopeDeclaration(pattern, 'channel()');
   }
+
   return {
     __wskit: 'channel',
     __kind: 'scope',

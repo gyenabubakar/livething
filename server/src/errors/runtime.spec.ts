@@ -221,6 +221,7 @@ describe('errors runtime', () => {
               channelFamily: routing.channelFamily,
             };
           }
+
           return undefined;
         },
         declaredErrorCodes: new Set(),

@@ -35,8 +35,10 @@ function connected(debug: boolean) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   socket.on('message', () => {});
   socket.on('presence', () => {});
+
   return { socket, ws, restore };
 }
 
@@ -58,6 +60,7 @@ function trafficFor(count: number): string[] {
       frames.push(JSON.stringify({ event: 'message', payload: { text: `m${i}`, from: 'u-1' } }));
     }
   }
+
   return frames;
 }
 

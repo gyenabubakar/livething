@@ -79,6 +79,7 @@ describe('plugin typing', () => {
       }),
     });
     const app = define({ capabilities: [P()] });
+
     const handler = app.assemble({ handlers: [] });
     type C = InferClient<typeof handler>;
     expectTypeOf<C['incoming']['__acme:presence::user-online']>().toEqualTypeOf<{ id: string }>();
@@ -97,11 +98,13 @@ describe('plugin typing', () => {
     const ticks = ph.stream('ticks', { input: v.object({}), async *run() {} });
     const room = ph.channel('room', { capabilities: [emits({ msg: t<{ text: string }>() })] });
     room.on('say', { input: v.object({}), run() {} });
+
     const P = plugin('acme:feed', { handler: ph.assemble({ handlers: [ticks, room] }) });
     const app = define({ capabilities: [P()] });
     const feedHandler = app.assemble({ handlers: [] });
     type C = InferClient<typeof feedHandler>;
     expectTypeOf<C['streams']>().toHaveProperty('__acme:feed::ticks');
+
     expectTypeOf<C['channels']>().toHaveProperty('__acme:feed::room');
     expectTypeOf<C['errors']>().toHaveProperty('__acme:feed::denied');
   });

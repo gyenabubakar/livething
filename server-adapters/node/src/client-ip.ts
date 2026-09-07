@@ -60,6 +60,7 @@ export function createClientIpResolver(config?: NodeClientIpConfig): ClientIpRes
     for (let index = 1; index < addresses.length; index += 1) {
       const address = addresses[index];
       if (!address || isIP(address) === 0) return undefined;
+
       if (!trust(address, index)) return address;
     }
 

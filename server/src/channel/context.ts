@@ -55,6 +55,7 @@ export function buildChannelHandle(
           payload,
         });
       }
+
       return deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
@@ -115,14 +116,17 @@ type ChannelsApiDeps = ChannelHandleDeps &
  */
 function toChannelTarget(args: unknown[]): string | { family: string; name: string } {
   if (args.length >= 2) return { family: args[0] as string, name: args[1] as string };
+
   const arg = args[0];
   if (arg && typeof arg === 'object') {
     if ('__wskitChannelRef' in arg) {
       const ref = arg as unknown as { family: string; name: string };
       return { family: ref.family, name: ref.name };
     }
+
     if ('__wskitChannel' in arg) return (arg as unknown as { __key: string }).__key;
   }
+
   return arg as string;
 }
 
@@ -136,6 +140,7 @@ export function buildChannelsApi(
     get(...args: unknown[]) {
       const resolved = deps.resolveChannel(toChannelTarget(args));
       if (!resolved) throw ChannelNotFound();
+
       return buildChannelHandle(connection, { ...resolved, ...options }, deps);
     },
   };
@@ -154,11 +159,13 @@ export function buildChannelFamilyExtra(
   deps: ChannelHandleDeps,
 ): { channel?: PublicApi.ChannelHandle } {
   if (!scope?.channel) return {};
+
   const channel = scope.channel;
   const channelName =
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
   const channelFamily = scope.channelFamily ?? null;
   const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
+
   return {
     channel: buildChannelHandle(
       connection,

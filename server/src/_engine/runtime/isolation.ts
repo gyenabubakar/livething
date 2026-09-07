@@ -20,6 +20,7 @@ function reportIsolated(error: unknown, options: IsolationOptions): void {
     options.logger.error(message, { error });
     return;
   }
+
   // eslint-disable-next-line no-console
   console.error(message, error);
 }

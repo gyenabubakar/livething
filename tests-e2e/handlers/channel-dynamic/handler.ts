@@ -66,10 +66,12 @@ const room = base.channel(['room', 'room:{id}'], {
     if (ctx.meta.username === 'banned-user') {
       throw new Error('banned-user may not subscribe');
     }
+
     if (ctx.meta.username === 'async-banned-user') {
       await new Promise((r) => setTimeout(r, 20));
       throw new Error('async-banned-user may not subscribe');
     }
+
     if (ctx.meta.username.startsWith('slow-user')) {
       await new Promise((r) => setTimeout(r, 50));
     }

@@ -81,6 +81,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
   for (const nudge of input.nudges) {
     nudgeValidators.set(nudge.event, nudge.validator);
   }
+
   const active: ActiveStream = {
     id: input.streamId,
     connectionId: input.connection.id,
@@ -96,6 +97,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     highWaterMark: input.highWaterMark ?? DEFAULT_HIGH_WATER_MARK,
     broadcast: input.broadcast ?? false,
   };
+
   return { active, nudgeBuffer };
 }
 
@@ -171,9 +173,11 @@ export function buildDrain(input: BuildDrainInput): () => Promise<void> {
     let best: number | null = null;
     for (const target of input.targets()) {
       if (!targetSupportsBackpressure(target)) continue;
+
       const buffered = target.descriptor.bufferedAmount();
       if (best === null || buffered < best) best = buffered;
     }
+
     return best;
   }
 
@@ -181,10 +185,13 @@ export function buildDrain(input: BuildDrainInput): () => Promise<void> {
     for (let poll = 0; poll < DRAIN_MAX_POLLS; poll += 1) {
       // The stream is being torn down — never hang a draining generator.
       if (input.isClosed()) return;
+
       const best = healthiestBuffered();
       // No target reports real backpressure (Cloudflare, or no live targets): no-op.
       if (best === null) return;
+
       if (best < input.highWaterMark) return;
+
       await delay(DRAIN_POLL_INTERVAL_MS);
     }
   };
@@ -218,6 +225,7 @@ export function abortActiveStream(
 ): void {
   const controller = active.abortController;
   if (!controller || controller.signal.aborted) return;
+
   controller.abort(reason);
 }
 
@@ -259,8 +267,10 @@ export function assertNoConcurrentStream(
 ): void {
   const { event, allowConcurrent } = options;
   if (allowConcurrent) return;
+
   const ids = connection.activeStreamIds;
   if (!ids) return;
+
   for (const id of ids) {
     const existing = runtime.activeStreams.get(id);
     if (existing && !existing.closed && existing.event === event) {
@@ -288,6 +298,7 @@ export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeCon
   const targets: RuntimeConnection[] = [];
   for (const candidate of input.runtime.connections.values()) {
     if (candidate.id === input.excludeConnectionId) continue;
+
     if (input.scope.channelName) {
       if (
         !ChannelPrimitive.hasChannelMembership(
@@ -299,8 +310,11 @@ export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeCon
         continue;
       }
     }
+
     if (input.extraFilter && !input.extraFilter(candidate)) continue;
+
     targets.push(candidate);
   }
+
   return targets;
 }

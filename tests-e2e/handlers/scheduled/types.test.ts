@@ -8,6 +8,7 @@ describe('ScheduledClient — no-any guard', () => {
     expectTypeOf<ScheduledClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ScheduledClient['streams']>().not.toBeAny();
     expectTypeOf<ScheduledClient['channels']>().not.toBeAny();
+
     expectTypeOf<ScheduledClient['errors']>().not.toBeAny();
   });
 });

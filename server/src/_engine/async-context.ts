@@ -21,6 +21,7 @@ export interface EngineAsyncContextStore {
   connectionId?: string;
   [INVOCATION_SCOPE]?: InvocationScopeState;
 }
+
 export type EngineAsyncContext = AsyncContext<EngineAsyncContextStore>;
 
 export function createAsyncContext(factory: AsyncContextFactory): EngineAsyncContext {

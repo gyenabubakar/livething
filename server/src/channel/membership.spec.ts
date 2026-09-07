@@ -271,6 +271,7 @@ describe('durable membership is the channel default', () => {
     });
     server(handler, {} as never);
     await engine.initialize();
+
     return { engine, sql };
   }
 
@@ -294,6 +295,7 @@ describe('durable membership is the channel default', () => {
     });
     const connection = [...engine.core.connections.values()].find((c) => !before.has(c.id))!;
     await connection.lifecycleReady;
+
     return { handle, connection };
   }
 

@@ -66,6 +66,7 @@ export function translator(
           'translator.outbound',
         );
     }
+
     if (definition.hibernation) {
       instance.hibernation = {
         serialize() {
@@ -93,9 +94,11 @@ function assertDefinition(
   if (!definition || typeof definition !== 'object' || typeof definition.inbound !== 'function') {
     throw new WSKitConfigError('translator() factory must return an object with inbound(raw).');
   }
+
   if (definition.outbound !== undefined && typeof definition.outbound !== 'function') {
     throw new WSKitConfigError('translator outbound must be a function when provided.');
   }
+
   if (
     definition.hibernation !== undefined &&
     (!definition.hibernation ||
@@ -107,9 +110,11 @@ function assertDefinition(
       'translator hibernation must provide both serialize() and restore().',
     );
   }
+
   if (definition.input !== undefined && !isValidator(definition.input)) {
     throw new WSKitConfigError('translator input must be a Standard Schema validator.');
   }
+
   return definition;
 }
 
@@ -140,10 +145,12 @@ function validateInput(input: Validator, raw: string): unknown {
       `[wskit] translator input rejected frame: ${result.issues[0]?.message ?? 'invalid input'}`,
     );
   }
+
   return result.value;
 }
 
 function assertTranslatedString(value: unknown, method: string): string | null {
   if (typeof value === 'string' || value === null) return value;
+
   throw new WSKitConfigError(`${method} must return a string or null.`);
 }

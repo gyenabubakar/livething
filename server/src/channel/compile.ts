@@ -40,21 +40,25 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
         setUniqueOrThrow(scope.outgoing, p.event, { value: p, kind: `outgoing in ${scopeLabel}` });
         break;
       }
+
       case 'incoming': {
         const p = child as AnyIncoming;
         setUniqueOrThrow(scope.incoming, p.event, { value: p, kind: `incoming in ${scopeLabel}` });
         break;
       }
+
       case 'request': {
         const p = child as AnyRequest;
         setUniqueOrThrow(scope.requests, p.event, { value: p, kind: `request in ${scopeLabel}` });
         break;
       }
+
       case 'stream-generate': {
         const p = child as AnyGenerate;
         setUniqueOrThrow(scope.streams, p.event, { value: p, kind: `stream in ${scopeLabel}` });
         break;
       }
+
       case 'resumable-stream-generate': {
         const p = child as AnyResumableStream;
         setUniqueOrThrow(scope.resumableStreams, p.event, {
@@ -63,6 +67,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
         });
         break;
       }
+
       case 'recorded-stream-generate': {
         const p = child as AnyRecordedStream;
         setUniqueOrThrow(scope.recordedStreams, p.event, {
@@ -71,6 +76,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
         });
         break;
       }
+
       case 'intercept':
         scope.intercepts.push(child as AnyIntercept);
         break;

@@ -54,7 +54,9 @@ export function setup(): void {
   lobby.onRequest('volunteer', (payload) => {
     el('last-turn').textContent = String(payload.turn);
     if (mode === 'drop') return new Promise<{ ready: boolean }>(() => {});
+
     if (mode === 'bad') return { ready: 'sure' } as unknown as { ready: boolean };
+
     return { ready: true };
   });
 
@@ -72,6 +74,7 @@ export function setup(): void {
   button('answer-drop', () => {
     mode = 'drop';
   });
+
   button('trigger', () => {
     socket.send('trigger', { turn: 5 });
   });

@@ -41,6 +41,7 @@ function readMember(
 ): { connectionId: string; meta?: Record<string, unknown> } | null {
   const fields = (payload ?? {}) as { connectionId?: unknown; meta?: unknown };
   if (typeof fields.connectionId !== 'string') return null;
+
   return {
     connectionId: fields.connectionId,
     meta: fields.meta as Record<string, unknown> | undefined,
@@ -83,6 +84,7 @@ function scopedChannelMethod(channel: HostChannel, scope: ScopeInfo): HostChanne
       ? channel(scopedName(scope, nameOrFamily))
       : channel(scopedName(scope, nameOrFamily), name);
   }
+
   scoped.family = (familyKey: string): FamilyHandle => channel.family(scopedName(scope, familyKey));
   return scoped;
 }
@@ -102,6 +104,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       const families = new Map<string, FamilyState>();
       const familyHandles = new Map<string, FamilyHandle>();
       const warnedInboxMissing = new Set<string>();
+
       const warnedReadReceiptsMissing = new Set<string>();
       let socket: WSKitSocket; // assigned in install, before any handle is built
 
@@ -116,6 +119,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             `channel '${name}' is inbox-backed but inbox() is not registered — received receipts will not be tracked. Add inbox() to client().`,
           );
         }
+
         if (
           wskit?.readReceipts === true &&
           !helpers.hasPrimitive('read-receipts') &&
@@ -130,7 +134,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
       function resolveTtl(event: string): number | undefined {
         if (typeof options.ttl === 'number') return options.ttl;
+
         if (options.ttl) return options.ttl[event];
+
         return undefined;
       }
 
@@ -141,6 +147,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           state = new ChannelState(name, familyKey, helpers.log);
           states.set(key, state);
         }
+
         return state;
       }
 
@@ -150,6 +157,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           family = new FamilyState(helpers.log);
           families.set(familyKey, family);
         }
+
         return family;
       }
 
@@ -158,6 +166,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         for (const state of states.values()) {
           if (state.familyKey === familyKey && state.active) names.push(state.name);
         }
+
         return names;
       }
 
@@ -176,6 +185,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             messaging = buildChannelMessaging(context, stateFor(name, familyKey));
             cache.set(key, messaging);
           }
+
           return messaging;
         },
       };
@@ -189,11 +199,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           );
           return null;
         }
+
         helpers.log.info(`channel '${name}' subscribed (${source})`);
         warnMissingReceiptPrimitive(channelKey(familyKey, name), name, wskit);
+
         state.persistent = wskit?.channelMembership === 'persistent';
         state.markSubscribed(source);
         if (familyKey) familyFor(familyKey).fireSubscribed(name, source);
+
         return message;
       }
 
@@ -202,6 +215,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           helpers.log.info(`channel '${name}' ignoring a presence frame for an inactive channel`);
           return null;
         }
+
         if (message.event === '__memberSync__') {
           const raw = (message.payload as { members?: unknown })?.members;
           state.syncMembers(
@@ -212,31 +226,38 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
         const member = readMember(message.payload);
         if (!member) return null;
+
         switch (message.event) {
           case '__memberJoin__':
             state.addMember(member.connectionId, member.meta);
             break;
+
           case '__memberLeave__':
             state.removeMember(member.connectionId);
             break;
+
           case '__memberOnline__':
             state.memberWentOnline(member.connectionId, member.meta);
             break;
+
           case '__memberOffline__':
             state.memberWentOffline(member.connectionId);
             break;
         }
+
         return null;
       }
 
       function handleChannelError(incoming: ChannelIncoming): WireMessage | null {
         const { message, state, name, familyKey, wskit } = incoming;
         if (wskit?.correlationId !== undefined || wskit?.streamId !== undefined) return message;
+
         const error = unscopeErrorCode(
           familyKey ?? name,
           toWSKitError(message.payload),
         ) as WSKitError;
         state.fireSubscriptionFailed(error);
+
         return null;
       }
 
@@ -249,10 +270,13 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         ) {
           return message;
         }
+
         const event = channelEventName(state.eventPrefix, message.event);
         if (helpers.log.debug) helpers.log.info(`routing '${event}' to channel '${name}'`);
         state.dispatch(event, message.payload);
+
         if (familyKey) familyFor(familyKey).dispatch(event, message.payload, name);
+
         return message;
       }
 
@@ -265,16 +289,21 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         const state = stateFor(name, familyKey);
         const incoming = { message, state, name, familyKey, wskit };
         if (PRESENCE_EVENTS.has(message.event)) return handlePresence(message, state, name);
+
         switch (message.event) {
           case '__subscribeOk__':
             return handleSubscribe(incoming);
+
           case '__unsubscribeOk__': {
             const id = wskit?.unsubscribeId;
             if (typeof id !== 'string') return null;
+
             const confirmation = state.confirmLeave(id);
             if (!confirmation) return null;
+
             return confirmation.rejoinPending ? markRejoinConfirmation(message) : message;
           }
+
           case '__kicked__': {
             const reason = (message.payload as { reason?: unknown })?.reason;
             state.fireKicked(typeof reason === 'string' ? reason : '');
@@ -282,8 +311,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             if (familyKey) familyFor(familyKey).fireUnsubscribed(name);
             return message;
           }
+
           case '__error__':
             return handleChannelError(incoming);
+
           default:
             return handleChannelEvent(incoming);
         }
@@ -301,6 +332,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // its rejoin and a server auto-rejoin __subscribeOk__ is ignored.
           for (const state of states.values()) {
             if (!state.pendingLeave) continue;
+
             helpers.rawSend({
               event: '__unsubscribe__',
               payload: {},
@@ -326,6 +358,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               reject: (error) => sub.failPendingSubscribe(error),
             });
           }
+
           return null;
         },
 
@@ -394,6 +427,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               }, PERSISTENT_REJOIN_FALLBACK_MS);
             }
           }
+
           return resubscribes.length ? resubscribes : null;
         },
 
@@ -463,6 +497,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               handle = buildFamilyHandle(context, familyKey);
               familyHandles.set(familyKey, handle);
             }
+
             return handle;
           };
 
@@ -474,6 +509,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // channels don't nest, so it gets no `channel` here.
           getAugmenters(installedSocket).push((messaging, scope) => {
             if (!scope.prefixName) return;
+
             messaging.channel = scopedChannelMethod(channel, scope);
           });
         },

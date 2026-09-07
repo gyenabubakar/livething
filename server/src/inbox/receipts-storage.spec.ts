@@ -160,6 +160,7 @@ describe('receipts-storage — clearCacheEntriesForUser', () => {
       cache,
     );
     advanceReceivedThrough(sql, { ...room, userId: 'bob', receivedThrough: 5, now: 1 }, cache);
+
     expect(cache.size).toBe(3);
 
     clearCacheEntriesForUser(cache, 'alice');

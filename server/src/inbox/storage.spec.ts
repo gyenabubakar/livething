@@ -261,6 +261,7 @@ describe('inbox/storage — bind-limit batching (regression: broadcast to >12 me
       limits: { maxBoundParams: 32 }, // 4 rows per batch, 5 members needs 2 batches
       onExec: (query) => {
         if (!query.trim().startsWith('INSERT')) return;
+
         insertCalls += 1;
         if (insertCalls === 2) throw new Error('storage down mid-transaction');
       },
@@ -611,6 +612,7 @@ describe('inbox/storage — retention and watermark', () => {
       frame: frame(1),
       now: 10,
     });
+
     bumpInboxWatermark(sql, {
       userId: 'alice',
       channelName: 'old-chat',

@@ -24,6 +24,7 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       issues: [{ message: `${label} must be a non-empty string.` }],
     });
   }
+
   if (kind === 'event' && isReservedEventName(value)) {
     return ValidationFailed({
       event,
@@ -32,12 +33,14 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
       ],
     });
   }
+
   if (value.length > limit) {
     return ValidationFailed({
       event,
       issues: [{ message: `${label} is ${value.length} characters; the limit is ${limit}.` }],
     });
   }
+
   return null;
 }
 
@@ -53,7 +56,9 @@ export function wireIdError(event: string, value: string, kind: WireFieldKind): 
  */
 export function isReservedEventName(name: string): boolean {
   if (name === 'ping' || name === 'pong') return true;
+
   if (typeof name === 'string' && name.startsWith('__') && name.includes('::')) return false;
+
   return !isValidWSKitIdentifier(name);
 }
 
@@ -79,12 +84,14 @@ export function isProtocolFrameEvent(event: string): boolean {
  */
 export function familyKeyError(event: string, familyKey: string | undefined): WSKitError | null {
   if (familyKey === undefined) return null;
+
   if (familyKey.length === 0) {
     return ValidationFailed({
       event,
       issues: [{ message: 'channel family must be a non-empty string when given.' }],
     });
   }
+
   if (familyKey.length > WIRE_LIMITS.channelFamily) {
     return ValidationFailed({
       event,
@@ -93,5 +100,6 @@ export function familyKeyError(event: string, familyKey: string | undefined): WS
       ],
     });
   }
+
   return null;
 }

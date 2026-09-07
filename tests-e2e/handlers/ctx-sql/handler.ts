@@ -117,6 +117,7 @@ const handleSqlTxRollbackProbe = base.on('sql-tx-rollback-probe', {
     } catch {
       // expected — the transaction rethrows after rolling back.
     }
+
     ctx.send('notes-list', { notes: selectNotes(ctx) });
   },
 });

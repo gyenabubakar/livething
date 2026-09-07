@@ -13,6 +13,7 @@ export function compileRequestDef(
       `[wskit] No handler assembled for request('${def.name}'). Include the value returned by base.request(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   return requestFactory(def.name, handler as any, {
     validator: def.payload,
     responseSchema: def.response,

@@ -26,6 +26,7 @@ export function stampLastSeen(
   params: StampLastSeenParamsParameter,
 ): void {
   if (!params.userId) return;
+
   sql.exec(
     `
       INSERT INTO __wskit_last_seen (user_id, last_seen_at)
@@ -40,6 +41,7 @@ export function stampLastSeen(
 /** Read one user's last-seen timestamp (ms), or `null` when never stamped. */
 export function readLastSeen(sql: Pick<SQLProvider, 'exec'>, userId: string): number | null {
   if (!userId) return null;
+
   const row = sql
     .exec<{
       last_seen_at: number;
@@ -80,5 +82,6 @@ export function readLastSeenMany(
       .toArray();
     for (const row of rows) result.set(String(row.user_id), Number(row.last_seen_at));
   }
+
   return result;
 }

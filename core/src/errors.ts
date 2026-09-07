@@ -154,7 +154,9 @@ function createMatchesFn<TCode extends string, TDetail>(
 ): (err: unknown) => err is WSKitError<TCode, TDetail> {
   return (err: unknown): err is WSKitError<TCode, TDetail> => {
     if (!(err instanceof WSKitError)) return false;
+
     if (err.code !== code) return false;
+
     if (!validate) return true;
 
     try {
@@ -252,6 +254,7 @@ export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFact
       `[wskit] error code "${code}" is reserved by the framework — pick a different code.`,
     );
   }
+
   return schema ? buildErrorFactory(code, schema) : buildErrorFactory(code);
 }
 
@@ -284,6 +287,7 @@ function buildErrorFactory(
             `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,
           );
         }
+
         return result.value;
       };
 

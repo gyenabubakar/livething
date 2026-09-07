@@ -1,7 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "unicorn"],
-  "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
+  "jsPlugins": [
+    { "name": "eslint-js", "specifier": "oxlint-plugin-eslint" },
+    { "name": "wskit", "specifier": "./lint-rules/index.mjs" }
+  ],
   "categories": {
     "correctness": "off"
   },
@@ -102,9 +105,26 @@
         "selector": ":matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > :matches(ObjectPattern, ArrayPattern), :matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > AssignmentPattern > :matches(ObjectPattern, ArrayPattern)",
         "message": "Do not destructure function parameters; use a named parameter."
       }
-    ]
+    ],
+    "wskit/max-consecutive-statements": ["error", { "max": 5 }],
+    "wskit/padding-after-block": "error",
+    "wskit/padding-after-guard-clause": "error",
+    "wskit/padding-after-object-literal-declaration": "error",
+    "wskit/padding-before-final-return": ["error", { "minStatements": 5 }],
+    "wskit/switch-case-padding": ["error", { "minCases": 3 }]
   },
   "overrides": [
+    {
+      "files": ["**/*.svelte"],
+      "rules": {
+        "wskit/max-consecutive-statements": "off",
+        "wskit/padding-after-block": "off",
+        "wskit/padding-after-guard-clause": "off",
+        "wskit/padding-after-object-literal-declaration": "off",
+        "wskit/padding-before-final-return": "off",
+        "wskit/switch-case-padding": "off"
+      }
+    },
     {
       "files": [
         "**/*.spec.ts",

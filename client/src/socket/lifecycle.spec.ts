@@ -45,11 +45,13 @@ function makePrimitive(
           if (options.throwOnClose) {
             throw new Error(`${id} onClose threw`);
           }
+
           closeLog.push({ code, reason, intentional });
         },
       };
     },
   };
+
   return { primitive, closeLog };
 }
 
@@ -102,6 +104,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     socket.connect();
     MockWebSocket.last().open();
     socket.onClose(onClose);
+
     MockWebSocket.last().serverClose(1006, 'drop');
 
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -133,6 +136,7 @@ describe('primitive onClose throw isolation on disconnect()', () => {
     socket.connect();
     MockWebSocket.last().open();
     socket.onClose(onClose);
+
     socket.disconnect(1000, 'bye');
 
     expect(onClose).toHaveBeenCalledTimes(1);

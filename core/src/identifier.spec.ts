@@ -21,6 +21,7 @@ describe('isValidWSKitIdentifier', () => {
     expect(isValidWSKitIdentifier(123)).toBe(false);
     expect(isValidWSKitIdentifier('__subscribe__')).toBe(false);
     expect(isValidWSKitIdentifier('__anything')).toBe(false);
+
     expect(isValidWSKitIdentifier('anything__')).toBe(false);
   });
 });

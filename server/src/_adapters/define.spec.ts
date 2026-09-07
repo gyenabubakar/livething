@@ -33,6 +33,7 @@ describe('adapter', () => {
       deleteAlarm: vi.fn(async () => {}),
       getAlarm: vi.fn(async () => null),
     };
+
     const logger: Logger = {
       info: vi.fn(),
       warn: vi.fn(),

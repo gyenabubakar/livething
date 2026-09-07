@@ -12,9 +12,11 @@ async function openMember(browser: Browser, room: string, username: string): Pro
   await page.goto(`/tests/broadcast-request/index.html?room=${room}&username=${username}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('open');
   await page.getByTestId('subscribe').click();
   await expect(page.getByTestId('subscribed')).toHaveText('true');
+
   return page;
 }
 

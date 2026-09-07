@@ -80,6 +80,7 @@ describe('define() send/receive core', () => {
     const runTopHidden = vi.fn();
     const topActive = top.on('top-active', { run: runTop });
     top.on('top-hidden', { run: runTopHidden });
+
     const topCompiled = compileHandlerDefinition(top.assemble({ handlers: [topActive] }));
     expect(topCompiled.incoming.has('top-hidden')).toBe(false);
 
@@ -88,6 +89,7 @@ describe('define() send/receive core', () => {
     const runPluginHidden = vi.fn();
     const pluginActive = scoped.on('plugin-active', { run: runPlugin });
     scoped.on('plugin-hidden', { run: runPluginHidden });
+
     const HiddenPlugin = plugin('acme:hidden', {
       handler: scoped.assemble({ handlers: [pluginActive] }),
     });
@@ -100,6 +102,7 @@ describe('define() send/receive core', () => {
     const runChannel = vi.fn();
     const runChannelHidden = vi.fn();
     const active = room.on('active', { run: runChannel });
+
     room.on('channel-hidden', { run: runChannelHidden });
     const compiled = compileHandlerDefinition(channelBase.assemble({ handlers: [active] }));
 

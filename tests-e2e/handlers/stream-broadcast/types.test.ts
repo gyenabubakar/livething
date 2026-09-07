@@ -8,6 +8,7 @@ describe('StreamBroadcastClient — no-any guard', () => {
     expectTypeOf<StreamBroadcastClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBroadcastClient['channels']>().not.toBeAny();
+
     expectTypeOf<StreamBroadcastClient['errors']>().not.toBeAny();
   });
 });

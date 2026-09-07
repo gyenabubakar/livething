@@ -52,6 +52,7 @@ describe('throwing onClose listener', () => {
       throw new Error('boom');
     });
     const ws = MockWebSocket.last();
+
     expect(() => ws.serverClose(1006)).not.toThrow();
     expect(socket.state.get()).toBe('reconnecting');
   });
@@ -66,6 +67,7 @@ describe('idempotent on() unsubscribe', () => {
       socket.on('b', () => {});
       MockWebSocket.last().open();
       unsubA();
+
       unsubA();
       vi.advanceTimersByTime(1000);
       expect(socket.state.get()).toBe('open'); // B is still live → must NOT idle-close
@@ -82,6 +84,7 @@ describe('state is settled before onClose fires', () => {
     const ws = MockWebSocket.last();
     ws.open();
     let inside = '';
+
     socket.onClose(() => {
       inside = socket.state.get();
     });
@@ -95,6 +98,7 @@ describe('state is settled before onClose fires', () => {
     const ws = MockWebSocket.last();
     ws.open();
     let inside = '';
+
     socket.onClose(() => {
       inside = socket.state.get();
     });
@@ -110,6 +114,7 @@ describe('disconnect() resets the session', () => {
     socket.onReconnect(onReconnect);
     socket.connect();
     MockWebSocket.last().open();
+
     socket.disconnect();
     socket.connect();
     MockWebSocket.last().open();
@@ -124,6 +129,7 @@ describe('superseded socket is inert', () => {
     socket.on('message', handler);
     socket.connect();
     const ws1 = MockWebSocket.last();
+
     socket.disconnect();
     ws1.emit({ event: 'message', payload: { text: 'late' } });
     expect(handler).not.toHaveBeenCalled();
@@ -135,6 +141,7 @@ describe('superseded socket is inert', () => {
     socket.onError(onErr);
     socket.connect();
     const ws1 = MockWebSocket.last();
+
     socket.disconnect();
     ws1.onerror?.({});
     expect(onErr).not.toHaveBeenCalled();
@@ -170,6 +177,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     MockWebSocket.last().open();
     const onClose = vi.fn();
     socket.onClose(onClose);
+
     socket.disconnect();
     socket.disconnect();
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -189,6 +197,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     socket.onClose(onClose);
     socket.connect();
     socket.disconnect();
+
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -198,6 +207,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     socket.onReconnect(onReconnect);
     socket.connect();
     MockWebSocket.last().open();
+
     MockWebSocket.last().serverClose(1006);
     socket.disconnect();
     socket.connect();
@@ -249,6 +259,7 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
       MockWebSocket.last().open();
       MockWebSocket.last().serverClose(1006);
       unsub();
+
       vi.advanceTimersByTime(2000);
       MockWebSocket.last().open();
       expect(socket.state.get()).toBe('open');
@@ -269,6 +280,7 @@ describe('getLatency() after disconnect', () => {
       const ws = MockWebSocket.last();
       ws.open();
       vi.advanceTimersByTime(1000);
+
       ws.emit('pong');
       expect(socket.latency.get()).not.toBeNull();
       socket.disconnect();

@@ -71,6 +71,7 @@ function stateFor(core: object): AlarmSyncState {
     };
     alarmSyncStates.set(core, state);
   }
+
   return state;
 }
 
@@ -93,6 +94,7 @@ export function restoreAlarmCoordinator(core: Pick<EngineCore, 'storage'>): void
   const state = stateFor(core);
   state.retryAt = retryAt;
   state.persistedRetryAt = retryAt;
+
   state.providerRetryAt = null;
   state.durableReady = true;
 }
@@ -133,6 +135,7 @@ function readAlarmDeadlines(core: AlarmCore): AlarmDeadlines {
       failures.push({ name: key.description ?? 'unknown', error });
     }
   }
+
   return { candidates, failures };
 }
 
@@ -142,19 +145,23 @@ function reportSourceFailures(
   report: SourceFailureReport,
 ): number | null {
   if (report.failures.length === 0) return state.retryAt;
+
   const sourceRetryAt = report.now + 1_000;
   if (state.retryAt === null || sourceRetryAt < state.retryAt) {
     setRetryDeadline(core, state, sourceRetryAt);
   }
+
   const errors = report.failures.map((failure) => failure.error);
   const error =
     errors.length === 1
       ? errors[0]
       : new AggregateError(errors, '[wskit] one or more durable alarm sources failed');
+
   core.logger?.error('[wskit] durable alarm source failed; retrying', {
     error: error instanceof Error ? error.message : String(error),
     sources: report.failures.map((failure) => failure.name),
   });
+
   return state.retryAt;
 }
 
@@ -168,6 +175,7 @@ function earliestDeadline(
     const effective = retryAt !== null && candidate <= now ? retryAt : candidate;
     if (next === null || effective < next) next = effective;
   }
+
   return next;
 }
 
@@ -180,6 +188,7 @@ function earliestDeadline(
 export function rescheduleAlarm(core: AlarmCore, options: RescheduleOptions = {}): Promise<void> {
   const state = stateFor(core);
   if (state.stopped) return Promise.resolve();
+
   if ('retryAt' in options) setRetryDeadline(core, state, options.retryAt ?? null);
 
   const now = Date.now();
@@ -193,6 +202,7 @@ export function rescheduleAlarm(core: AlarmCore, options: RescheduleOptions = {}
   const pending = flushAlarm(core, state);
   state.pending = pending;
   observeProviderWrite(core, state, pending);
+
   return pending;
 }
 
@@ -206,6 +216,7 @@ export async function stopAlarmCoordinator(core: object): Promise<void> {
     clearTimeout(state.providerRetry);
     state.providerRetry = undefined;
   }
+
   await state.pending?.catch(() => {});
 }
 
@@ -215,6 +226,7 @@ function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: Alarm
     if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
       state.providerRetryAt = null;
     }
+
     return;
   }
 
@@ -227,6 +239,7 @@ function setRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryAt: Alarm
       retryAt,
     );
   }
+
   state.retryAt = retryAt;
   state.persistedRetryAt = retryAt;
   if (state.providerRetryAt !== null && state.providerRetryAt !== retryAt) {
@@ -242,14 +255,17 @@ function setProviderRetryDeadline(core: AlarmCore, state: AlarmSyncState, retryA
       error: error instanceof Error ? error.message : String(error),
     });
   }
+
   state.providerRetryAt = retryAt;
 }
 
 function clearProviderRetryAfterSuccessfulWrite(core: AlarmCore, state: AlarmSyncState): void {
   const providerRetryAt = state.providerRetryAt;
   if (providerRetryAt === null) return;
+
   state.providerRetryAt = null;
   if (state.retryAt !== providerRetryAt) return;
+
   setRetryDeadline(core, state, null);
 }
 
@@ -268,6 +284,7 @@ function observeProviderWrite(
       if (state.retryAt === null || retryAt < state.retryAt) {
         setProviderRetryDeadline(core, state, retryAt);
       }
+
       if (!state.delivering) scheduleProviderRetry(core, state);
     }
   });
@@ -289,6 +306,7 @@ function scheduleProviderRetry(core: AlarmCore, state: AlarmSyncState): void {
 async function flushAlarm(core: AlarmCore, state: AlarmSyncState): Promise<void> {
   while (state.desired !== undefined) {
     if (state.stopped) return;
+
     const desired = state.desired;
     state.desired = undefined;
     try {
@@ -304,6 +322,7 @@ async function flushAlarm(core: AlarmCore, state: AlarmSyncState): Promise<void>
       throw error;
     }
   }
+
   clearProviderRetryAfterSuccessfulWrite(core, state);
   state.pending = undefined;
 }

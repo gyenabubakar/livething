@@ -37,6 +37,7 @@ async function makeEngine(handler: AnyServerDefinition): Promise<Engine> {
   });
   server(handler, {} as never);
   await engine!.initialize();
+
   return engine!;
 }
 

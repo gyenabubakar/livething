@@ -433,6 +433,7 @@ describe('channel runtime', () => {
     connections.set(tabB.id, tabB);
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
+
     const clearInbox = vi.fn();
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
@@ -476,6 +477,7 @@ describe('channel runtime', () => {
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
+
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
     const channel = runtime.compiled.channelFamilies.get('rooms')!;
@@ -503,6 +505,7 @@ describe('channel runtime', () => {
     runtime.isChannelDurable = () => true;
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
+
     runtime.deleteDurableMembership = deleteDurableMembership;
     (runtime as unknown as { clearInbox: typeof clearInbox }).clearInbox = clearInbox;
     const channel = runtime.compiled.channelFamilies.get('rooms')!;
@@ -599,6 +602,7 @@ describe('channel runtime', () => {
     });
     connections.set(roomsMember.id, roomsMember);
     connections.set(lobbiesMember.id, lobbiesMember);
+
     connections.set(newSubscriber.id, newSubscriber);
 
     await subscribeConnection(runtime, newSubscriber, {
@@ -1253,6 +1257,7 @@ describe('subscribeConnectionAsServer', () => {
     const deleteDurableMembership = vi.fn();
     const clearInbox = vi.fn();
     connections.set(target.id, target);
+
     const rejoinRuntime = {
       ...runtime,
       isChannelDurable: () => true,
@@ -1523,6 +1528,7 @@ describe('subscribeConnectionAsServer', () => {
       channelFamily: 'rooms',
     });
     connections.set(existingA.id, existingA);
+
     connections.set(existingB.id, existingB);
 
     const target = createConnection('target', {});
@@ -1581,6 +1587,7 @@ describe('subscribeConnectionAsServer', () => {
     connections.set(target.id, target);
     const onSubscribe = vi.fn();
     runtime.subscribeHooks = new Map([['rooms', [onSubscribe]]]);
+
     runtime.sendProtocolMessage = (_connection, options) => {
       if (options.event === '__subscribeOk__') (target as RuntimeConnection).closing = true;
     };
@@ -1829,6 +1836,7 @@ describe('resyncChannelMembers (client __memberSync__ request, bug #16)', () => 
       channelName: 'room:general',
       channelFamily: 'rooms',
     });
+
     const { runtime, connections, protocol } = createRuntime(channelMembers);
     connections.set(first.id, first);
     connections.set(second.id, second);

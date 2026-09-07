@@ -12,6 +12,7 @@ async function open(page: Page, room: string): Promise<void> {
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('open');
   await page.getByTestId('subscribe').click();
+
   await expect(page.getByTestId('subscribed')).toHaveText('true');
 }
 

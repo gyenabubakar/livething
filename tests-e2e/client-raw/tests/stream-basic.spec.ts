@@ -44,6 +44,7 @@ test.describe('stream-basic', () => {
     await page.waitForTimeout(500);
     const after = (await page.getByTestId('chunk-indices').textContent()) ?? '';
     const afterCount = after.split(',').filter(Boolean).length;
+
     expect(afterCount).toBeLessThan(10);
     // Stream must be fully quiescent — no new chunks after the cancel settled.
     const snapCount = snapshot.split(',').filter(Boolean).length;
@@ -56,6 +57,7 @@ test.describe('stream-basic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 

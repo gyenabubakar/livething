@@ -47,6 +47,7 @@ base.onValidationError((ctx, evt) => {
 
 base.intercept((_ctx, frame) => {
   if (frame.event === 'block-test') throw Block;
+
   if (frame.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
   // void return — pass payload through unchanged.
 });
@@ -72,7 +73,9 @@ const handleDeferTest = base.on('defer-test', {
     const attempts = ((await ctx.kv.get(key)) as number | undefined) ?? 0;
     await ctx.kv.set(key, attempts + 1);
     if (attempts < 1) throw Defer(50);
+
     await ctx.kv.delete(key);
+
     ctx.send('defer-result', { received: true });
   },
 });

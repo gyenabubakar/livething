@@ -8,6 +8,7 @@ test.describe('inbox purge resilience (real Durable Object)', () => {
     const alice = await openMember(browser, { path: '/receipts', room, username: 'alice' });
     const bob = await openMember(browser, { path: '/receipts', room, username: 'bob' });
     await subscribe(alice.page);
+
     await subscribe(bob.page);
 
     await send(bob.page, {

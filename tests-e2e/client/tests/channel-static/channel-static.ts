@@ -132,6 +132,7 @@ export function setup(): void {
       chunks.push(chunk.index);
       el('stream-chunks').textContent = chunks.join(',');
     }
+
     el('stream-end').textContent = 'yes';
   });
 

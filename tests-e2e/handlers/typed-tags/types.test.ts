@@ -8,6 +8,7 @@ describe('TypedTagsClient — no-any guard', () => {
     expectTypeOf<TypedTagsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['streams']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['channels']>().not.toBeAny();
+
     expectTypeOf<TypedTagsClient['errors']>().not.toBeAny();
   });
 });

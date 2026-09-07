@@ -27,6 +27,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -112,6 +113,7 @@ describe('serverRequests — answering server-initiated requests', () => {
     expect(reply).toBeDefined();
     expect(reply?.__wskit?.correlationId).toBe('ack1');
     expect(reply?.payload).toBeUndefined();
+
     expect(ws.sentFrames().some((f) => f.event === '__error__')).toBe(false);
   });
 

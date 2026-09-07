@@ -87,6 +87,7 @@ export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
   if (!columns.some((column) => column.name === 'metadata')) {
     sql.exec("ALTER TABLE __wskit_connections ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
   }
+
   if (!columns.some((column) => column.name === 'translator_state')) {
     sql.exec('ALTER TABLE __wskit_connections ADD COLUMN translator_state TEXT');
   }
@@ -104,7 +105,9 @@ export function serializeTranslatorState(connection: RuntimeConnection): Seriali
   if (translatorState === undefined) {
     return { value: undefined, json: undefined };
   }
+
   const json = serializeJsonOrThrow(translatorState, `Translator state for "${connection.id}"`);
+
   return { value: JSON.parse(json) as unknown, json };
 }
 
@@ -116,6 +119,7 @@ export function buildConnectionRow(
   for (const [group, keys] of connection.tags.ephemeral) {
     for (const key of keys) ephemeral_tags.push({ group, key });
   }
+
   const translatorState = options
     ? options.translatorState
     : serializeTranslatorState(connection).value;
@@ -182,6 +186,7 @@ export function readConnectionRow(
     )
     .one();
   if (!raw) return null;
+
   return {
     connection_id: raw.connection_id,
     user_id: raw.user_id,
@@ -223,6 +228,7 @@ export function readAllConnectionRows(
       translator_state: parseJsonOrUndefined(raw.translator_state),
     });
   }
+
   return byId;
 }
 
@@ -279,6 +285,7 @@ function parseObject(raw: string): Record<string, unknown> {
   } catch {
     // fall through
   }
+
   return {};
 }
 
@@ -291,6 +298,7 @@ function parseStringArray(raw: string): readonly string[] {
   } catch {
     // fall through
   }
+
   return [];
 }
 
@@ -298,10 +306,13 @@ function parseEphemeralTagArray(raw: string): readonly StoredEphemeralTag[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
+
     return parsed.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
+
       const record = entry as Record<string, unknown>;
       if (typeof record.group !== 'string' || typeof record.key !== 'string') return [];
+
       return [{ group: record.group, key: record.key }];
     });
   } catch {
@@ -315,11 +326,15 @@ function parseMembershipArray(
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
+
     return parsed.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
+
       const record = entry as Record<string, unknown>;
       if (typeof record.channelName !== 'string') return [];
+
       const scope = typeof record.channelFamily === 'string' ? record.channelFamily : null;
+
       return [{ channelName: record.channelName, channelFamily: scope }];
     });
   } catch {

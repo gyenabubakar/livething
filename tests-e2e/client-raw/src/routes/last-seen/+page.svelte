@@ -7,12 +7,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/last-seen?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		const win = window as unknown as { __ws?: WebSocket; __frames?: Frame[] };
 		// Buffer every frame from socket creation so a spec never races the drain
 		// that fires right after the server accepts a reconnect.

@@ -87,6 +87,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -107,6 +108,7 @@ async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
   const engine = buildEngine(handler);
   engine.core.storage = storage as never;
   await engine.initialize();
+
   return { execCount: calls.length, calls };
 }
 
@@ -196,6 +198,7 @@ const heavyHandlers: any[] = [];
 for (const name of ['a', 'b', 'c', 'd', 'e']) {
   heavyHandlers.push(heavyBase.on(name, { input: Empty, run() {} }));
 }
+
 for (const name of ['r-a', 'r-b', 'r-c']) {
   heavyHandlers.push(
     heavyBase.request(name, {
@@ -206,6 +209,7 @@ for (const name of ['r-a', 'r-b', 'r-c']) {
     }),
   );
 }
+
 for (const name of ['s-a', 's-b']) {
   heavyHandlers.push(
     heavyBase.stream(name, {
@@ -217,6 +221,7 @@ for (const name of ['s-a', 's-b']) {
     }),
   );
 }
+
 heavyHandlers.push(
   heavyBase.resumableStream('rs-a', {
     input: Empty,
@@ -241,6 +246,7 @@ for (const n of [1, 2, 3, 4, 5]) {
   ch.on(`c${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
+
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
     capabilities: [emits(channelEmits(`r${n}`))],
@@ -249,6 +255,7 @@ for (const n of [1, 2, 3, 4, 5]) {
   ch.on(`r${n}-edit`, { input: Text, run() {} });
   heavyHandlers.push(ch);
 }
+
 const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('engine.initialize — sql.exec round-trip budget', () => {
@@ -266,6 +273,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
+
     // 1 sentinel SELECT + 2 schema hooks (channel membership, hibernation) +
     // 1 hibernation-column check + 1 mark + 1 cleanup (channel membership reconcile SELECT). No
     // replay/sequence/scheduled.
@@ -281,6 +289,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
+
     // 1 marker SELECT (returns a row, so storage is not fresh and the marker
     // write is skipped) + 2 schema hooks (connections, channel membership) +
     // 1 hibernation-column check + 1 cleanup (channel membership reconcile).
@@ -297,6 +306,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
+
     // Breakdown:
     //   1. sentinel SELECT (throws — no table yet)
     //   2-8. seven schema hooks: alarm retries, channel membership, connections
@@ -334,6 +344,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
+
     // Breakdown:
     //   1. marker SELECT (returns a row, so the marker write is skipped)
     //   2-8. every schema hook: alarm retries, connections, sequence, replay,
@@ -360,6 +371,7 @@ describe('engine.initialize — freshBoot only on a truly empty DB', () => {
     const engine = buildEngine(mediumHandler);
     engine.core.storage = storage as never;
     await engine.initialize();
+
     return engine;
   }
 
@@ -460,6 +472,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
       let shouldFail = true;
       engine.core.hooks.alarm.push(async () => {
         if (shouldFail) throw new Error('cleanup failed');
+
         await rescheduleAlarm(engine.core);
       });
 
@@ -499,6 +512,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
     await expect(engine.handleAlarm()).resolves.toBeUndefined();
     expect(events).toEqual(['inbox', 'scheduled']);
     expect(setAlarm).toHaveBeenCalledWith(expect.any(Number));
+
     expect(setAlarm.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(before + 1_000);
   });
 
@@ -609,6 +623,7 @@ describe('tags() restores persistent tags on reconnect', () => {
     const engine = buildEngine(handler);
     engine.core.storage = storage as never;
     await engine.initialize();
+
     return engine;
   }
 
@@ -697,6 +712,7 @@ describe('a capability added after storage was already initialized', () => {
     const firstHandler = firstBase.assemble({ handlers: [firstRoom] });
     const firstEngine = buildEngine(firstHandler);
     firstEngine.core.storage = storage as never;
+
     await firstEngine.initialize();
 
     const secondBase = define({
@@ -711,6 +727,7 @@ describe('a capability added after storage was already initialized', () => {
     const secondHandler = secondBase.assemble({ handlers: [secondRoom] });
     const secondEngine = buildEngine(secondHandler);
     secondEngine.core.storage = storage as never;
+
     await secondEngine.initialize();
 
     insertTag(storage.sql, { userId: 'alice', group: 'favorite', key: 'blue' });

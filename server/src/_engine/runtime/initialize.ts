@@ -42,6 +42,7 @@ function validatePrimitives(core: EngineCore): void {
         return core.isChannelDurable(key);
       },
     };
+
     for (const primitive of primitives) {
       primitive.__validate?.(view);
       if (primitive.__wskit === 'channel') {
@@ -95,6 +96,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   if (core.compiled.scheduled.size > 0) {
     accessDeps.ensureScheduledRuntime();
   }
+
   validatePrimitives(core);
 
   if (core.hooks.alarm.length > 0 || core.alarmSources.size > 0) {
@@ -112,9 +114,11 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     for (const hook of core.hooks.bootSchema) {
       await hook();
     }
+
     if (storageForSchema && schemaState.fresh) {
       markSchemaInitialized(storageForSchema.sql);
     }
+
     // A storage that has booted before may already hold membership rows, so
     // the first auto-rejoin must not be skipped.
     if (storageForSchema) core.freshBoot = schemaState.fresh;
@@ -134,6 +138,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
   for (const entry of core.hooks.pluginLifecycle.init) {
     await entry.handler(initCtx);
   }
+
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }
@@ -183,6 +188,7 @@ export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps
           error: retryError instanceof Error ? retryError.message : String(retryError),
         });
       }
+
       throw retryError;
     }
   } finally {

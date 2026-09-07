@@ -8,6 +8,7 @@ const handler = intercept(async (ctx: { userId: string }, frame) => {
   const _kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown' = frame.kind;
   const _channel: string | undefined = frame.routing.channel;
   void [_user, _event, _kind, _channel];
+
   return frame.payload;
 });
 

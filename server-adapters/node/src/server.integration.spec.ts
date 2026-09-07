@@ -30,11 +30,15 @@ function createHandler(state: IntegrationState) {
       state.upgradeRequest = request;
       const url = new URL(request.url);
       if (url.pathname === '/reject') throw RejectUpgrade(401, 'No token');
+
       if (url.pathname === '/reject-socket') throw RejectUpgrade(4001, 'No token');
+
       if (url.pathname === '/reject-fractional') throw RejectUpgrade(4000.5, 'No token');
+
       if (url.pathname === '/reject-long-reason') {
         throw RejectUpgrade(CloseCodes.AUTH_INVALID, '🙂'.repeat(100));
       }
+
       return {
         userId: url.searchParams.get('user') ?? 'anonymous',
         meta: { role: request.headers.get('x-role') ?? 'guest' },
@@ -151,6 +155,7 @@ function createTranslatedHandler(state: IntegrationState) {
       inbound(raw) {
         const frame = JSON.parse(raw) as { data?: unknown; type?: string };
         if (frame.type === 'ignore') return null;
+
         return JSON.stringify({ event: frame.type, payload: frame.data });
       },
       outbound(raw) {
@@ -186,11 +191,13 @@ function createTranslatedHandler(state: IntegrationState) {
 function serverPort(serverInstance: Server): number {
   const address = serverInstance.address();
   if (!address || typeof address === 'string') throw new Error('Expected a TCP server address');
+
   return address.port;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   if (socket.readyState === WebSocket.OPEN) return Promise.resolve();
+
   return new Promise<void>((resolve, reject) => {
     socket.once('open', resolve);
     socket.once('error', reject);
@@ -247,6 +254,7 @@ function createMessageQueue(socket: WebSocket): {
     next() {
       const message = messages.shift();
       if (message) return Promise.resolve(message);
+
       return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     },
     dispose() {
@@ -280,6 +288,7 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
 
 function closeClient(socket: WebSocket): Promise<void> {
   if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+
   return new Promise<void>((resolve) => {
     socket.once('close', () => resolve());
     socket.close();
@@ -351,6 +360,7 @@ function createObservedWebSocketServer(): {
       webSocketServer.handleUpgrade(...args);
     },
   };
+
   return { server, enteredHandleUpgrade };
 }
 
@@ -369,6 +379,7 @@ function createCapturingWebSocketServer(): {
       });
     },
   };
+
   return { server, getAccepted: () => accepted };
 }
 
@@ -420,6 +431,7 @@ describe('Node server integration', () => {
     expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toMatch(
       /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/,
     );
+
     expect(state.upgradeRequest?.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -521,6 +533,7 @@ describe('Node server integration', () => {
     const connected = waitForMessage(socket);
     const closed = waitForClose(socket);
     await waitForOpen(socket);
+
     await connected;
 
     socket.send(JSON.stringify({ event: 'invalid-close', payload: {} }));
@@ -681,6 +694,7 @@ describe('Node server integration', () => {
       shutdownOnSignal: false,
     });
     services.push(first);
+
     await first.ready;
 
     const socket = new WebSocket(`ws://127.0.0.1:${serverPort(first.server)}/chat`);
@@ -688,6 +702,7 @@ describe('Node server integration', () => {
     const connected = waitForMessage(socket);
     await waitForOpen(socket);
     await connected;
+
     expect((await first.admin()).connectionCount).toBe(1);
 
     const secondState: IntegrationState = { errors: [], shutdowns: 0 };

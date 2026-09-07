@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 describe('intercept', () => {
   it('creates an intercept primitive', () => {
     async function handler() {}
+
     const p = intercept(handler);
 
     expect(p.__wskit).toBe('intercept');

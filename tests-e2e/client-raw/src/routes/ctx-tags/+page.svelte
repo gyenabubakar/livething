@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-tags?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		(window as unknown as { __ws: WebSocket }).__ws = ws;
 		ws.onopen = () => {
 			status = 'connected';
@@ -24,6 +26,7 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'tag-result') tags = data.payload?.tags ?? '';
 			if (data.event === 'connection-info') connCount = data.payload?.count ?? null;
@@ -36,12 +39,15 @@
 	function tagSelf(tag: string) {
 		ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag } }));
 	}
+
 	function untagSelf(tag: string) {
 		ws?.send(JSON.stringify({ event: 'untag-self', payload: { tag } }));
 	}
+
 	function connInfo() {
 		ws?.send(JSON.stringify({ event: 'get-connection-info', payload: {} }));
 	}
+
 	function getByTag(tag: string) {
 		ws?.send(JSON.stringify({ event: 'get-by-tag', payload: { tag } }));
 	}

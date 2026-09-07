@@ -1686,6 +1686,7 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
       registered = new Set();
       seen.set(key, registered);
     }
+
     const id = registrationId ?? '';
     if (registered.has(id)) {
       throw new Error(
@@ -1694,6 +1695,7 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
           'An event can only be bound once — drop the duplicate.',
       );
     }
+
     registered.add(id);
 
     if (ROUTING_KINDS.has(handler.__wskit)) {
@@ -1707,6 +1709,7 @@ function assertUniqueHandlers(handlers: readonly Primitive[]): void {
               'kind within a scope — pick a different name.',
           );
         }
+
         routedEvents.set(event, handler.__wskit);
       }
     }
@@ -1739,6 +1742,7 @@ function mergeServerRequestPrimitives(primitives: Primitive[]): void {
             'Each request can only be declared once per scope.',
         );
       }
+
       declarations.set(key, declaration);
     }
   }
@@ -1768,8 +1772,10 @@ function mergeScheduled(
           `Register it with base.scheduled('${taskId}', ...).`,
       );
     }
+
     primitives.push(build!(taskId, declaration, body));
   }
+
   for (const taskId of bodies.keys()) {
     if (!declarations.has(taskId)) {
       throw new Error(
@@ -1778,16 +1784,19 @@ function mergeScheduled(
       );
     }
   }
+
   return primitives;
 }
 
 /** Turn the `upgrade` ephemeral-tag sugar `{ group: key }` into the engine's tag refs. */
 function toEphemeralTagRefs(ephemeral: Record<string, string | undefined> | undefined): TagRef[] {
   if (!ephemeral) return [];
+
   const refs: TagRef[] = [];
   for (const [group, key] of Object.entries(ephemeral)) {
     if (key !== undefined) refs.push({ __wskit: 'tag-ref', kind: 'ephemeral', group, key });
   }
+
   return refs;
 }
 
@@ -1888,6 +1897,7 @@ export function define(config: any): any {
         `[wskit] Duplicate ${slot} hook on this server. Only one ${slot} hook can be attached.`,
       );
     }
+
     seen.add(slot);
     lifecyclePrimitives.push(primitive);
   }
@@ -1903,6 +1913,7 @@ export function define(config: any): any {
       const built = (cap as { __streamBuild?: { kind: string; build: StreamBuild } }).__streamBuild;
       if (built?.kind === kind) return built.build;
     }
+
     throw new Error(
       `[wskit] base.${method}() needs the ${capabilityName} capability. ` +
         `Add ${capabilityName} to capabilities.`,
@@ -1920,11 +1931,13 @@ export function define(config: any): any {
     for (const cap of config.capabilities ?? []) {
       const build = (cap as Partial<RateLimitCapability>).__buildRateLimit;
       if (!build) continue;
+
       if (buildRateLimit) {
         throw new Error(
           '[wskit] rateLimit() is listed more than once. Set one global rule, or none.',
         );
       }
+
       buildRateLimit = build;
     }
 
@@ -1936,6 +1949,7 @@ export function define(config: any): any {
       const event = (handler as { event?: string }).event;
       if (override && event !== undefined) topOverrides.set(event, override);
     }
+
     if (topOverrides.size > 0) overrides.set('top', topOverrides);
 
     const channelKeys = new Set<string>();
@@ -1948,6 +1962,7 @@ export function define(config: any): any {
         for (const [handler, declaration] of source.__rateLimitOverrides) {
           if (handlers.has(handler)) channelOverrides.set(declaration.event, declaration.config);
         }
+
         if (channelOverrides.size > 0) {
           overrides.set(`channel:${source.__key}`, channelOverrides);
         }
@@ -1961,6 +1976,7 @@ export function define(config: any): any {
           'Add rateLimit() to capabilities.',
       );
     }
+
     return buildRateLimit ? buildRateLimit({ overrides, channelRules, channelKeys }) : null;
   }
 
@@ -1973,6 +1989,7 @@ export function define(config: any): any {
       if (config.rateLimit) {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = config.rateLimit;
       }
+
       return primitive;
     },
     request(event: string, requestConfig: DefineRequestConfigParameter) {
@@ -1982,19 +1999,23 @@ export function define(config: any): any {
         const candidate = (cap as { __buildClientRequest?: Build }).__buildClientRequest;
         if (candidate) build = candidate;
       }
+
       if (!build) {
         throw new Error(
           '[wskit] base.request() needs clientRequests(). Add clientRequests() to capabilities.',
         );
       }
+
       const primitive = build(event, {
         input: requestConfig.input,
         allowInterleaving: requestConfig.allowInterleaving,
         run: requestConfig.run,
       });
+
       if (requestConfig.rateLimit) {
         (primitive as { __rateLimit?: RateLimitConfig }).__rateLimit = requestConfig.rateLimit;
       }
+
       return primitive;
     },
     scheduled(taskId: string, config: DefineConfigParameter) {
@@ -2004,6 +2025,7 @@ export function define(config: any): any {
             'A task can only be registered once.',
         );
       }
+
       scheduledBodies.set(taskId, config.run);
     },
     stream(event: string, streamConfig: unknown) {
@@ -2025,6 +2047,7 @@ export function define(config: any): any {
       let buildCustomReplay: unknown;
       let buildBuiltinReplay: unknown;
       let buildClientRequest: unknown;
+
       let registerServerRequests: unknown;
       for (const cap of config.capabilities ?? []) {
         const candidate = (
@@ -2035,19 +2058,23 @@ export function define(config: any): any {
           .__streamBuild;
         if (streamBuild) streamBuilders[streamBuild.kind] = streamBuild.build;
         const customReplay = (cap as { __buildCustomReplay?: unknown }).__buildCustomReplay;
+
         if (customReplay) buildCustomReplay = customReplay;
         const builtinReplay = (cap as { __buildBuiltinReplay?: unknown }).__buildBuiltinReplay;
         if (builtinReplay) buildBuiltinReplay = builtinReplay;
         const request = (cap as { __buildClientRequest?: unknown }).__buildClientRequest;
         if (request) buildClientRequest = request;
+
         const registerSR = (cap as { __registerServerRequests?: unknown }).__registerServerRequests;
         if (registerSR) registerServerRequests = registerSR;
       }
+
       if (!factory) {
         throw new Error(
           '[wskit] base.channel() needs the channels() capability. Add channels() to capabilities.',
         );
       }
+
       return factory(pattern, channelConfig, {
         streamBuilders,
         buildCustomReplay,
@@ -2104,15 +2131,18 @@ export function define(config: any): any {
           if (build) {
             throw new Error('[wskit] replay.custom() is listed more than once. List it once.');
           }
+
           build = candidate;
         }
       }
+
       if (!build) {
         throw new Error(
           '[wskit] base.replay() needs the replay.custom() capability. ' +
             'Add replay.custom() to capabilities.',
         );
       }
+
       registerOnce('replay', build(hooks));
     },
     assemble(assembleConfig: DefineAssembleConfigParameter) {
@@ -2121,6 +2151,7 @@ export function define(config: any): any {
       assertUniquePluginIds(config.capabilities ?? []);
       assertPluginDependencies(config.capabilities ?? []);
       assertNoChannelOnlyCapabilities(config.capabilities ?? []);
+
       const handlerPrimitives: Primitive[] = [];
       const channelObjects = new Map<
         { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive },
@@ -2133,6 +2164,7 @@ export function define(config: any): any {
               'define({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
           );
         }
+
         const channel = (
           item as {
             __channel?: { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive };
@@ -2148,10 +2180,13 @@ export function define(config: any): any {
               channelObjects.get(channel)?.add(handler);
             }
           }
+
           continue;
         }
+
         handlerPrimitives.push(item as Primitive);
       }
+
       assertUniqueHandlers(handlerPrimitives);
 
       const channelPrimitives = [...channelObjects].map((entry) => entry[0].__build(entry[1]));
@@ -2166,6 +2201,7 @@ export function define(config: any): any {
           buildScheduled = (cap as Partial<ScheduledCapability>).__buildScheduled;
         }
       }
+
       const scheduledPrimitives = mergeScheduled(
         scheduledDeclarations,
         scheduledBodies,
@@ -2182,9 +2218,11 @@ export function define(config: any): any {
             : onUpgrade(adaptUpgrade(config.upgrade)),
         );
       }
+
       if (config.hibernation?.enabled) primitives.push(hibernationFactory(true));
       for (const cap of config.capabilities ?? []) primitives.push(...cap.__primitives);
       if (rateLimitPrimitive) primitives.push(rateLimitPrimitive);
+
       primitives.push(...lifecyclePrimitives);
       primitives.push(...handlerPrimitives);
       primitives.push(...scheduledPrimitives);
@@ -2209,6 +2247,7 @@ export function define(config: any): any {
             'once. Use one replay strategy per scope.',
         );
       }
+
       if (builtinReplayCount > 0 && hasCustomReplay) {
         throw new Error(
           '[wskit] built-in replay and custom base.replay() are both configured. ' +
@@ -2220,6 +2259,7 @@ export function define(config: any): any {
       for (const cap of config.capabilities ?? []) {
         for (const feature of cap.__features) features.add(feature);
       }
+
       if (config.hibernation?.enabled) features.add('hibernation');
 
       function isDurableGenerate(p: Primitive): boolean {
@@ -2227,6 +2267,7 @@ export function define(config: any): any {
           p.__wskit === 'resumable-stream-generate' || p.__wskit === 'recorded-stream-generate'
         );
       }
+
       // A durable stream can be declared at the top level or nested inside a
       // channel, so scan both — otherwise a channel-only durable stream would
       // miss the retention sweep below.

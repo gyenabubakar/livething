@@ -62,6 +62,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
         toArray: () => rows,
         one() {
           if (rows.length > 1) throw new Error('.one() saw more than one row');
+
           return rows[0] ?? null;
         },
         raw: () => rows.map((row) => Object.values(row as Record<string, unknown>)),
@@ -75,6 +76,7 @@ export function createTestSql(options: TestSqlOptions = {}): SQLProvider & { db:
     const last = statements.pop()!;
     for (const statement of statements) db.exec(statement);
     db.prepare(last).run(...(params as never[]));
+
     return emptyResult<TRow>();
   }
 

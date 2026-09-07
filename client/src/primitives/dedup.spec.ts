@@ -17,6 +17,7 @@ function build(windowMs?: number) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -34,6 +35,7 @@ function buildWithWindow(windowMs: number) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -50,6 +52,7 @@ describe('dedup — keeps every id within the window', () => {
     for (const id of ['B', 'C', 'D', 'E']) {
       ws.emit({ event: 'trade', payload: { id }, __wskit: { messageId: id } });
     }
+
     expect(handler).toHaveBeenCalledTimes(5);
 
     ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });

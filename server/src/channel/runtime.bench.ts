@@ -131,6 +131,7 @@ for (const memberCount of [1000]) {
           channelFamily: null,
         });
       }
+
       for (const member of members) {
         removeChannelMembership(channelMembers, member, {
           channelName: 'general',
@@ -146,6 +147,7 @@ for (const memberCount of [1000]) {
           channelFamily: 'rooms',
         });
       }
+
       for (const member of members) {
         removeChannelMembership(channelMembers, member, {
           channelName: 'room:general',

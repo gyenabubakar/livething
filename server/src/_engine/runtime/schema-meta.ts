@@ -40,6 +40,7 @@ export function readSchemaState(sql: SqlExec): SchemaState {
     if (error instanceof Error && /no such table/i.test(error.message)) {
       return { fresh: true };
     }
+
     throw error;
   }
 }

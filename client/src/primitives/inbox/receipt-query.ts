@@ -45,6 +45,7 @@ export function runReceiptQuery(
       payload: { seq },
       __wskit: { ...scope.markers(), correlationId },
     });
+
     if (result !== 'sent') {
       clearTimeout(timer);
       pending.delete(correlationId);
@@ -65,10 +66,13 @@ export function resolveOwnQuery(
   const correlationId = message.__wskit?.correlationId;
   const waiter = correlationId ? pending.get(correlationId) : undefined;
   if (!waiter || correlationId === undefined) return message;
+
   pending.delete(correlationId);
   clearTimeout(waiter.timer);
+
   const userIds = (message.payload as { userIds?: unknown })?.userIds;
   waiter.resolve(Array.isArray(userIds) ? userIds.filter(isString) : []);
+
   return null;
 }
 

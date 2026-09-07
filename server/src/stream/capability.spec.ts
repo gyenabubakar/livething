@@ -8,6 +8,7 @@ import { stream } from './capability.ts';
 function streamPrimitive(primitives: readonly { __wskit: string }[]): any {
   const found = primitives.find((p) => p.__wskit === 'stream-generate');
   if (!found) throw new Error('no stream primitive');
+
   return found;
 }
 
@@ -47,6 +48,7 @@ describe('stream() capability', () => {
     });
     const primitive = streamPrimitive(base.assemble({ handlers: [handle] }).primitives);
     const ctx: any = { nudges: (value: unknown) => (Array.isArray(value) ? value : []) };
+
     const iterator = primitive.generator(ctx, {});
     await iterator.next();
     await iterator.next([{ event: 'go' }]);

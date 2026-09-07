@@ -234,15 +234,19 @@ export class EngineCore {
     if (options.storage === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
     }
+
     if (options.timers === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide timers.`);
     }
+
     if (options.platform === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
     }
+
     if (options.logger === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide logger.`);
     }
+
     if (options.asyncContextFactory === undefined) {
       throw new Error(
         `[wskit] Adapter "${options.adapterId}" did not provide async-context support.`,
@@ -254,11 +258,13 @@ export class EngineCore {
     this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
     this.translatorFactory = handler.__translate;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
+
     this.storage = options.storage;
     this.timers = options.timers;
     this.platform = options.platform;
     this.logger = options.logger;
     this.asyncContext = createAsyncContext(options.asyncContextFactory);
+
     this.hooks.ping.push((connectionId) => this.replyPong(connectionId));
   }
 
@@ -332,6 +338,7 @@ export class EngineCore {
       const channel = this.compiled.channels.get(channelName);
       return channel ? this.isChannelDurable(channel.key) : false;
     }
+
     const family = this.compiled.channelFamilies.get(channelFamily);
     return family ? this.isChannelDurable(family.key) : false;
   }

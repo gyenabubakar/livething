@@ -8,6 +8,7 @@ describe('MultifileClient — no-any guard', () => {
     expectTypeOf<MultifileClient['clientRequests']>().not.toBeAny();
     expectTypeOf<MultifileClient['streams']>().not.toBeAny();
     expectTypeOf<MultifileClient['channels']>().not.toBeAny();
+
     expectTypeOf<MultifileClient['errors']>().not.toBeAny();
   });
 });

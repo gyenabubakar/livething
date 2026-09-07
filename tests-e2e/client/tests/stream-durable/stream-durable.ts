@@ -44,6 +44,7 @@ export function setup(): void {
         rows.push(chunk.row);
         render();
       }
+
       el('ended').textContent = 'yes';
     } catch (err) {
       el('error-code').textContent = errorCode(err);

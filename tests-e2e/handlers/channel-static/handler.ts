@@ -73,9 +73,11 @@ room.subscribe((ctx) => {
   if (ctx.channel.name !== 'room') {
     throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
   }
+
   if (ctx.meta.username === 'subscribe-thrower') {
     throw new Error('intentional onSubscribe throw');
   }
+
   ctx.channel.broadcast('room-message', {
     text: `${ctx.meta.username} entered`,
     from: 'system',

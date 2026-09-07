@@ -14,6 +14,7 @@ const hibernationForeignProtocol = translator(() => {
   return {
     inbound(raw) {
       if (raw === 'ping') return raw;
+
       const frame = v.parse(
         v.object({ type: v.literal('send'), text: v.string() }),
         JSON.parse(raw),
@@ -25,6 +26,7 @@ const hibernationForeignProtocol = translator(() => {
     },
     outbound(outgoing) {
       if (outgoing === 'pong') return 'foreign-pong';
+
       const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
       return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
     },
@@ -58,6 +60,9 @@ const translationHibernationHandler = hibernationBase.assemble({
 });
 
 export class TranslationServer extends server(translationHandler) {}
+
 export class TranslationPassThroughServer extends server(translationPassThroughHandler) {}
+
 export class TranslationInboundOnlyServer extends server(translationInboundOnlyHandler) {}
+
 export class TranslationHibernationServer extends server(translationHibernationHandler) {}

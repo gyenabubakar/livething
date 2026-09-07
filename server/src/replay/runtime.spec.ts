@@ -179,6 +179,7 @@ describe('replay/runtime', () => {
         shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
       ).toBe(false);
     }
+
     expect(
       shouldStoreReplayMessage('room-msg', {
         channelKey: 'rooms',
@@ -409,6 +410,7 @@ describe('replay/runtime', () => {
         createdAt: seq,
       };
     }
+
     storeReplayRow(sql, make('a', 1));
     storeReplayRow(sql, make('b', 2));
     storeReplayRow(sql, make('c', 3));
@@ -433,6 +435,7 @@ describe('replay/runtime', () => {
           channelFamily: scope,
         });
       }
+
       return { channelMemberships: map } as unknown as RuntimeConnection;
     }
 
@@ -568,6 +571,7 @@ describe('replay/runtime', () => {
       expect(readReplayWatermark(sql, '')).toBe(10);
       bumpReplayWatermark(sql, '', 5);
       expect(readReplayWatermark(sql, '')).toBe(10);
+
       bumpReplayWatermark(sql, '', 20);
       expect(readReplayWatermark(sql, '')).toBe(20);
     });
@@ -620,6 +624,7 @@ describe('replay/runtime', () => {
           makeRow({ rowKey: `c${seq}`, seq, channel: 'room-1', channelFamily: 'rooms' }),
         );
       }
+
       pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelFamily: 'rooms' });
 
       const key = replayScopeKey({ channel: 'room-1', channelFamily: 'rooms' });

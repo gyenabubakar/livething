@@ -13,12 +13,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/broadcast-request?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -28,6 +30,7 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			const correlationId = data.__wskit?.correlationId;
 
@@ -39,6 +42,7 @@
 			if (data.event === 'volunteer' && correlationId) {
 				lastTurn = data.payload?.turn ?? null;
 				if (answerMode === 'drop') return;
+
 				const payload = answerMode === 'good' ? { ready: true } : { ready: 'not-a-boolean' };
 				ws?.send(
 					JSON.stringify({
@@ -54,6 +58,7 @@
 				outcomeFrom = String(data.payload?.from ?? '');
 				outcomeReady = String(data.payload?.ready ?? '');
 			}
+
 			if (data.event === 'error-outcome') errorOutcome = String(data.payload?.code);
 		};
 	}

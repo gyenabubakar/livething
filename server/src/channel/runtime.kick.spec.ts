@@ -184,6 +184,7 @@ describe('channels.kick end-to-end', () => {
       channelName: 'room:general',
       channelFamily: null,
     });
+
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 

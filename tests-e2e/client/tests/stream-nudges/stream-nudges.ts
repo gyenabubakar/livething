@@ -56,6 +56,7 @@ export function setup(): void {
       for await (const chunk of started) {
         el('tokens').textContent = (el('tokens').textContent ?? '') + chunk.token;
       }
+
       el('active').textContent = String(started.active);
       el('stream-end').textContent = 'yes';
     })();
@@ -63,6 +64,7 @@ export function setup(): void {
 
   button('speed-up', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('speed-up', { factor: 4 });
       el('nudge-ok').textContent = 'yes';
@@ -75,6 +77,7 @@ export function setup(): void {
   // nudge() Promise must reject with that code while the stream keeps running.
   button('reject-nudge', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('speed-up', { factor: 0 });
       el('nudge-ok').textContent = 'yes';
@@ -85,12 +88,14 @@ export function setup(): void {
 
   button('pause', async () => {
     if (!handle) return;
+
     await handle.nudge('pause', {});
     el('nudge-ok').textContent = 'yes';
   });
 
   button('malformed-pause', async () => {
     if (!handle) return;
+
     try {
       await handle.nudge('pause', { leak: 'extra' });
       el('nudge-ok').textContent = 'yes';
@@ -111,6 +116,7 @@ export function setup(): void {
       for await (const _chunk of started) {
         void _chunk;
       }
+
       el('held-end').textContent = 'yes';
     })();
   });
@@ -126,6 +132,7 @@ export function setup(): void {
     for await (const _chunk of breakHandle) {
       break;
     }
+
     el('break-end').textContent = String(breakHandle.active);
   });
 

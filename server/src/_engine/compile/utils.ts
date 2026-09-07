@@ -36,8 +36,10 @@ export function collectUnique<T>(
         `${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
       );
     }
+
     seen.add(key);
   }
+
   return items;
 }
 
@@ -57,6 +59,7 @@ export function setUniqueOrThrow<V>(map: Map<string, V>, key: string, entry: Uni
         `Each name can only be declared once per scope.`,
     );
   }
+
   map.set(key, entry.value);
 }
 
@@ -69,6 +72,7 @@ export function setUniqueOrThrow<V>(map: Map<string, V>, key: string, entry: Uni
  */
 export function assertValidHighWaterMark(value: number | undefined, context: string): void {
   if (value === undefined) return;
+
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new Error(
       `[wskit] ${context}: highWaterMark must be a positive number of bytes (got ${value}). ` +
@@ -127,17 +131,21 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
           const normalized: ValidateValueNormalizedValue = {
             message: issue.message,
           };
+
           if (Array.isArray(issue.path)) {
             const pathKeys = issue.path.flatMap((p) => {
               if (typeof p === 'string' || typeof p === 'number') return [p];
+
               if (p && typeof p === 'object' && 'key' in (p as object)) {
                 const k = (p as { key: unknown }).key;
                 if (typeof k === 'string' || typeof k === 'number') return [k];
               }
+
               return [];
             });
             if (pathKeys.length > 0) normalized.path = pathKeys;
           }
+
           return normalized;
         }),
       });

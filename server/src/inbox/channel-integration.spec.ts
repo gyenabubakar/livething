@@ -54,6 +54,7 @@ function buildEngine(
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return { engine: captured, getAlarm: () => alarm };
 }
 
@@ -66,6 +67,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
     const plain = base.channel('plain', {});
     const handler = base.assemble({ handlers: [chat, plain] });
     const { engine } = buildEngine(handler);
+
     await engine.initialize();
 
     const core = engine.core;
@@ -94,6 +96,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
     const plain = base.channel('plain', {});
     const handler = base.assemble({ handlers: [chat, plain] });
     const { engine } = buildEngine(handler);
+
     await engine.initialize();
 
     const core = engine.core;
@@ -121,6 +124,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     const firstLegacy = base.channel('legacy', { capabilities: [inbox()] });
     const storage = createTestStorage();
     const first = buildEngine(base.assemble({ handlers: [firstChat, firstLegacy] }), storage);
+
     await first.engine.initialize();
 
     insertInboxRows(storage.sql, {
@@ -175,6 +179,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     const firstHandler = base.assemble({ handlers: [firstChat] });
     const storage = createTestStorage();
     const first = buildEngine(firstHandler, storage);
+
     await first.engine.initialize();
 
     insertInboxRows(storage.sql, {
@@ -220,6 +225,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       base.scheduled('tick', { run() {} });
       const handler = base.assemble({ handlers: [chat] });
       const { engine, getAlarm } = buildEngine(handler);
+
       await engine.initialize();
 
       const core = engine.core;
@@ -269,6 +275,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       });
       const handler = base.assemble({ handlers: [chat, rooms] });
       const { engine, getAlarm } = buildEngine(handler);
+
       await engine.initialize();
 
       const core = engine.core;
@@ -312,6 +319,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
       expect(loadInboxWatermarks(core.storage.sql, 'bob')).toEqual([
         { channelName: 'room:one', channelFamily: 'rooms', evictedThroughSeq: 2 },
       ]);
+
       expect(getAlarm()).toBeNull();
     } finally {
       vi.useRealTimers();

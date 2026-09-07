@@ -69,6 +69,7 @@ export function computeBroadcastKey(scope: ResolvedChannel): string {
       ? `${bcast}:chf:${JSON.stringify([scope.channelFamily, scope.channelName])}__`
       : `${bcast}:ch:${scope.channelName}__`;
   }
+
   return `${bcast}:top__`;
 }
 
@@ -207,6 +208,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 
     if (connection.descriptor.send(wire) === false || connection.closing) return false;
   }
+
   return true;
 }
 
@@ -304,6 +306,7 @@ export async function runDurableStream(
     Storage.deleteStream(runtime.sql, storageUserId, streamId);
     throw error;
   }
+
   if (connection.closing) {
     Storage.deleteStream(runtime.sql, storageUserId, streamId);
     return;
@@ -425,6 +428,7 @@ export async function resumeDurableStream(
     });
     return;
   }
+
   const { def, scope } = resolved;
 
   const realUserId = realUserIdForGuard;
@@ -444,6 +448,7 @@ export async function resumeDurableStream(
       const previousConnectionId = detachedStream.connectionId;
       detachedStream.connection = connection;
       detachedStream.connectionId = connection.id;
+
       detachedStream.detached = false;
 
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
@@ -474,6 +479,7 @@ export async function resumeDurableStream(
         rollbackResumeAttachment();
         throw error;
       }
+
       if (connection.closing) {
         rollbackResumeAttachment();
         return;
@@ -534,7 +540,9 @@ export async function resumeDurableStream(
         wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
       });
     }
+
     if (connection.closing) return;
+
     Storage.setCaughtUpSeq(runtime.sql, {
       storageUserId,
       streamId,
@@ -554,6 +562,7 @@ export async function resumeDurableStream(
     if (!sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId })) {
       return;
     }
+
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
 
@@ -607,6 +616,7 @@ export async function resumeDurableStream(
       return;
     }
   }
+
   let payload: unknown;
   try {
     payload = JSON.parse(row.payload);
@@ -620,11 +630,13 @@ export async function resumeDurableStream(
     });
     return;
   }
+
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
     wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
   });
+
   if (connection.closing) return;
 
   runtime.sql.exec(
@@ -654,10 +666,12 @@ export function sweepDurableStreams(runtime: SweepDurableStreamsRuntimeParameter
     Storage.deleteStream(runtime.sql, candidate.userId, candidate.streamId);
     deleted += 1;
   }
+
   for (const candidate of Storage.findExpiredEnded(runtime.sql, now)) {
     Storage.deleteStream(runtime.sql, candidate.userId, candidate.streamId);
     deleted += 1;
   }
+
   return deleted;
 }
 
@@ -705,6 +719,7 @@ async function runGenerator(
       targets: () => {
         const wireTarget = activeStream?.connection ?? connection;
         if (!def.broadcast) return [wireTarget];
+
         return [
           wireTarget,
           ...resolveBroadcastTargets({ runtime, excludeConnectionId: connection.id, scope }),
@@ -722,12 +737,14 @@ async function runGenerator(
   // (activeStream undefined) the slot is its own to manage.
   function stillOwnsSlot(): boolean {
     if (!activeStream) return true;
+
     const current = runtime.activeStreams.get(streamId);
     return current === undefined || current === activeStream;
   }
 
   function attachedConnection(): RuntimeConnection | undefined {
     if (activeStream?.detached) return undefined;
+
     return activeStream?.connection ?? connection;
   }
 
@@ -803,6 +820,7 @@ async function runGenerator(
           } else {
             activeStream.recordedChunkCount += 1;
           }
+
           const count = activeStream.recordedChunkCount;
           if (count > def.maxChunks) {
             Storage.trimOldestChunks(runtime.sql, {
@@ -817,6 +835,7 @@ async function runGenerator(
               rethrowIfConfigError(err);
               throw err;
             }
+
             break;
           }
         }
@@ -833,6 +852,7 @@ async function runGenerator(
           });
           return;
         }
+
         Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
       }
 
@@ -915,6 +935,7 @@ async function runGenerator(
       if (row && row.status === 'active' && stillOwnsSlot()) {
         Storage.markSuspended(runtime.sql, { userId, streamId, now: Date.now() });
       }
+
       return;
     }
 
@@ -930,6 +951,7 @@ async function runGenerator(
         wskit: { ...buildScopeRouting(scope), streamId, seq },
       });
     }
+
     if (def.broadcast) {
       // Tell every subscriber the source generator finished.
       const peerTargets = resolveBroadcastTargets({
@@ -966,12 +988,15 @@ async function runGenerator(
       if (stillOwnsSlot()) {
         Storage.markEnded(runtime.sql, { userId, streamId, now: Date.now() });
       }
+
       throw error;
     }
+
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelFamily) routing.channelFamily = scope.channelFamily;
     const ownerConnection = attachedConnection();
+
     if (ownerConnection) {
       await runtime.handleRuntimeError(ownerConnection, {
         error,
@@ -979,6 +1004,7 @@ async function runGenerator(
         routing,
       });
     }
+
     // For broadcast streams, tell every subscriber the source died — with the
     // same terminal __error__ the creator gets (not a misleading clean end), so
     // their onError fires instead of them waiting indefinitely.
@@ -1005,6 +1031,7 @@ async function runGenerator(
         { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }
+
     if (stillOwnsSlot()) {
       Storage.markEnded(runtime.sql, { userId, streamId, now: Date.now() });
     }
@@ -1029,6 +1056,7 @@ async function runGenerator(
 
 function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknown } {
   if (isCursorChunk(value)) return { chunkValue: value.chunk, cursorValue: value.cursor };
+
   return { chunkValue: value, cursorValue: undefined };
 }
 
@@ -1102,6 +1130,7 @@ export async function cancelDurableStream(
       seq: row.lastSeq,
       eventName: row.event,
     };
+
     forEachIsolated(
       peerTargets,
       (target) =>

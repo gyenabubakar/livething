@@ -21,6 +21,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -29,6 +30,7 @@ function reconnectAfterDrop(ws: MockWebSocket): MockWebSocket {
   vi.advanceTimersByTime(1500);
   const next = MockWebSocket.last();
   next.open();
+
   return next;
 }
 
@@ -314,6 +316,7 @@ describe('replay — per-channel scope catch-up', () => {
       const ws = MockWebSocket.last();
       ws.open();
       const onGap = vi.fn();
+
       socket.onGap(onGap);
 
       ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });

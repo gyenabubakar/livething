@@ -30,6 +30,7 @@ test.describe('replay-custom-cascade', () => {
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
@@ -83,6 +84,7 @@ test.describe('replay-custom-cascade', () => {
     for (const text of ['one', 'two', 'three']) {
       await send('first', { event: 'send-note', payload: { text }, __wskit: { channel: 'lobby' } });
     }
+
     await expect
       .poll(async () => (await messagesOf('first')).filter((m) => m.event === 'note').length >= 3)
       .toBe(true);
@@ -112,6 +114,7 @@ test.describe('replay-custom-cascade', () => {
         }[] = [];
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
+
           messages.push(JSON.parse(ev.data));
         };
         (h as unknown as Record<string, unknown>).second = { ws, messages };
@@ -184,6 +187,7 @@ test.describe('replay-custom-cascade', () => {
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
@@ -245,6 +249,7 @@ test.describe('replay-custom-cascade', () => {
         __wskit: { channel: 'room-7', channelFamily: 'rooms' },
       });
     }
+
     await expect
       .poll(async () => (await messagesOf('first')).filter((m) => m.event === 'note').length >= 2)
       .toBe(true);
@@ -273,6 +278,7 @@ test.describe('replay-custom-cascade', () => {
         }[] = [];
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
+
           messages.push(JSON.parse(ev.data));
         };
         (h as unknown as Record<string, unknown>).second = { ws, messages };

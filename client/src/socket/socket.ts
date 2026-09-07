@@ -136,6 +136,7 @@ export class WSKitSocket {
       });
       return;
     }
+
     this._reportError(error);
   });
 
@@ -200,6 +201,7 @@ export class WSKitSocket {
     this._logger.debug = this._debug;
     this._lazy = config.lazy ?? false;
     this._parse = config.parse ?? defaultParse;
+
     this._serialize = config.serialize ?? defaultSerialize;
     this._intercepts = config.intercepts ?? [];
   }
@@ -219,6 +221,7 @@ export class WSKitSocket {
   /** Open the connection. Calling it again while open or connecting does nothing. */
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
+
     this._intentionalClose = false;
     this._openConnection();
   }
@@ -241,6 +244,7 @@ export class WSKitSocket {
       this._reportError(error);
       return;
     }
+
     this._teardown(code, reason, { intentional: true, suspended: false });
   }
 
@@ -269,8 +273,10 @@ export class WSKitSocket {
       this.ws.onerror = null;
       this.ws.onmessage = null;
       this.ws.close(code, reason);
+
       this.ws = null;
     }
+
     this.protocol = null;
 
     // Add-on modules always clean up here — clear the buffer, reject pending
@@ -286,6 +292,7 @@ export class WSKitSocket {
         this._reportError(error);
       }
     }
+
     // Clear again in case a pending-op release above started an idle timer.
     this._clearLazyIdleTimer();
 
@@ -310,6 +317,7 @@ export class WSKitSocket {
     // Guard so calling this unsubscribe more than once releases the lazy hold
     // only once — a second call must not steal another listener's hold.
     let released = false;
+
     return () => {
       if (released) return;
 
@@ -327,6 +335,7 @@ export class WSKitSocket {
       this._log(`send('${event}') dropped — reserved event name`);
       return false;
     }
+
     const result = this._send({ event, payload }, options);
     return result === 'sent' || result === 'buffered';
   }
@@ -376,6 +385,7 @@ export class WSKitSocket {
     const off = this._emitter.on('serverError', (error) => {
       if (registration.code === undefined || registration.code === error.code) callback(error);
     });
+
     return () => {
       this._serverErrorRegistrations.delete(registration);
       off();
@@ -474,6 +484,7 @@ export class WSKitSocket {
         this._reportError(error);
       }
     }
+
     this._setState('closed');
     if (emitEvent) this._emitter.emit('reconnectFailed');
   }
@@ -495,6 +506,7 @@ export class WSKitSocket {
   private _evaluateShouldReconnect(code: number, reason: string): boolean | undefined {
     for (const primitive of this._primitives) {
       if (!primitive.shouldReconnect) continue;
+
       // Isolate each vote so a throwing policy can't abort the close flow.
       let result: boolean | void;
       try {
@@ -503,13 +515,16 @@ export class WSKitSocket {
         this._logger.report(error);
         continue;
       }
+
       if (result === true || result === false) return result;
     }
+
     return undefined;
   }
 
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
+
     const previous = this._state;
     this._state = state;
     this._log(`${previous} → ${state}`);
@@ -531,6 +546,7 @@ export class WSKitSocket {
       let finalUrl = baseUrl;
       for (const primitive of this._primitives) {
         if (!primitive.resolveUrl) continue;
+
         const result = primitive.resolveUrl(finalUrl);
         if (isThenable<string>(result)) {
           finalUrl = await result;
@@ -616,6 +632,7 @@ export class WSKitSocket {
 
       ws.onclose = (event) => {
         if (attemptId !== this._connectAttemptId) return;
+
         this.ws = null;
         this.protocol = null;
         this._reconnectDecision = null;
@@ -627,6 +644,7 @@ export class WSKitSocket {
             this._reportError(error);
           }
         }
+
         this._clearLazyIdleTimer();
 
         // Update the state BEFORE firing onClose so a handler that reads
@@ -650,12 +668,14 @@ export class WSKitSocket {
 
       ws.onerror = (event) => {
         if (attemptId !== this._connectAttemptId) return;
+
         this._log('WebSocket error');
         this._reportError(event);
       };
 
       ws.onmessage = (event) => {
         if (attemptId !== this._connectAttemptId) return;
+
         this._handleMessage(event);
       };
     } catch (error) {
@@ -714,6 +734,7 @@ export class WSKitSocket {
       this._log('could not parse message — dropping it');
       return;
     }
+
     if (!parsed) return;
 
     this._processIncoming(parsed);
@@ -737,6 +758,7 @@ export class WSKitSocket {
           if (this._debug) this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
           return;
         }
+
         message = result;
       } catch (error) {
         this._reportError(error);
@@ -763,6 +785,7 @@ export class WSKitSocket {
             if (this._debug) this._log(`intercept dropped '${message.event}'`);
             return;
           }
+
           // A real error is isolated like an onIncoming throw above: log it and
           // skip this intercept so the message and the remaining intercepts still
           // run — a bug in one intercept must not silently swallow messages.
@@ -880,6 +903,7 @@ export class WSKitSocket {
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
       this._startLazyIdleTimer();
     }
+
     return 'sent';
   }
 
@@ -889,6 +913,7 @@ export class WSKitSocket {
    */
   private _flushPrimitiveFrames(messages: WireMessage[] | null | undefined): void {
     if (!messages) return;
+
     for (const message of messages) {
       try {
         this._rawSend(message);
@@ -918,12 +943,15 @@ export class WSKitSocket {
           this._reportError(error);
           return 'sent';
         }
+
         this.ws.send(serialized);
         return 'sent';
       }
+
       this.ws.send(this._serialize(message));
       return 'sent';
     }
+
     return this._state === 'connecting' || this._state === 'reconnecting' ? 'connecting' : 'closed';
   }
 
@@ -939,6 +967,7 @@ export class WSKitSocket {
   /** @internal — all log output goes through here; checks debug mode and adds the `[wskit]` prefix. */
   private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
+
     console[level]('[wskit]', ...args);
   }
 

@@ -39,6 +39,7 @@ describe('tags storage', () => {
     insertTag(sql, { userId: 'u-2', group: 'role', key: 'admin' });
     purgeTagsByUser(sql, 'u-1');
     expect(listTagsByUser(sql, 'u-1')).toHaveLength(0);
+
     expect(listTagsByUser(sql, 'u-2')).toHaveLength(1);
   });
 

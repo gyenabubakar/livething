@@ -20,6 +20,7 @@ function harness(
   const handlers = new Map<string, Handler>();
   const broadcasts: Array<Record<string, unknown>> = [];
   const sentFrames: Array<{ connectionId: string; frame: unknown }> = [];
+
   const invalidateInboxMemberCount = vi.fn();
 
   const bootSchemaHooks: Array<() => void> = [];
@@ -43,6 +44,7 @@ function harness(
 
   inbox(config).__setup!(engine as never);
   for (const run of bootSchemaHooks) run();
+
   return { sql, handlers, broadcasts, sentFrames, invalidateInboxMemberCount };
 }
 
@@ -171,6 +173,7 @@ describe('inbox __received__ handler', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', 'rooms'),
     };
+
     const frame = {
       event: '__received__',
       payload: { receivedThrough: 1 },
@@ -196,6 +199,7 @@ describe('inbox __received__ handler', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', null),
     };
+
     const frame = {
       event: '__received__',
       payload: { receivedThrough: 1 },
@@ -293,6 +297,7 @@ describe('inbox __receivedQuery__ handler', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', 'rooms'),
     };
+
     const frame = {
       event: '__receivedQuery__',
       payload: { seq: 5 },
@@ -311,6 +316,7 @@ describe('inbox __receivedQuery__ handler', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberOf('alice', 'alpha', null),
     };
+
     const frame = {
       event: '__receivedQuery__',
       payload: { seq: 5 },

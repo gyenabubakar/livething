@@ -17,6 +17,7 @@ export function idGenerator(helpers: PrimitiveHelpers): IdGenerator {
 
   const generate = createIdGenerator();
   helpers.shared.set(ID_GENERATOR_KEY, generate);
+
   return generate;
 }
 
@@ -40,11 +41,13 @@ function createIdGenerator(): IdGenerator {
 function makeIdScope(): string {
   const crypto = globalThis.crypto;
   if (crypto?.randomUUID) return crypto.randomUUID();
+
   if (crypto?.getRandomValues) {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     let hex = '';
     for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
     return hex;
   }
+
   return Math.random().toString(36).slice(2, 10);
 }

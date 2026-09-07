@@ -20,7 +20,9 @@ export const PRIVILEGED_KV = Symbol('wskit.privilegedKv');
  */
 function assertWritableKvKey(key: unknown): void {
   if (typeof key !== 'string') return;
+
   if (!key.startsWith('__') && !key.includes('::')) return;
+
   throw new Error(
     `[wskit] kv key '${key}' uses a reserved form: a key may not start with '__' or contain ` +
       `'::' (reserved for the plugin namespace, '__<id>::<key>'). Pick a different key.`,
@@ -90,10 +92,12 @@ export function createLazyStorageView(storage: PublicApi.StorageProvider): {
         assertWritableKvKey(prefix);
         return storage.kv.list(prefix);
       }
+
       const keys = await storage.kv.list(prefix);
       return keys.filter((key) => !isPluginKey(key));
     },
     [PRIVILEGED_KV]: privilegedKv,
   };
+
   return { sql, kv };
 }

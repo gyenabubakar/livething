@@ -54,6 +54,7 @@ function harness(options: LastSeenOptions = {}): Captured {
 
   lastSeen(options).__setup!(engine as never);
   for (const run of bootSchemaHooks) run();
+
   return captured;
 }
 
@@ -156,6 +157,7 @@ describe('lastSeen activity mode', () => {
     activity('c2');
     expect(readLastSeen(h.sql, 'alice')).toBe(100);
     expect(readLastSeen(h.sql, 'bob')).toBe(100);
+
     vi.restoreAllMocks();
   });
 });

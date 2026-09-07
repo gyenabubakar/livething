@@ -78,6 +78,7 @@ async function buildEngine(
   });
   server(handler, {} as never);
   await engine.initialize();
+
   return { engine, sql };
 }
 
@@ -135,6 +136,7 @@ function withEveryOwningCapability(): ServerDefinition {
   const chat = base.channel('chat', { capabilities: [inbox(), readReceipts()] });
   const lobbyNoop = lobby.on('noop', { run() {} });
   const chatNoop = chat.on('noop', { run() {} });
+
   return base.assemble({ handlers: [lobbyNoop, chatNoop] });
 }
 
@@ -260,6 +262,7 @@ describe('admin().purgeUser()', () => {
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
     const otherConnection = fakeConnection('conn-2', 'bob');
+
     engine.core.connections.set(otherConnection.id, otherConnection);
 
     await engine.admin().purgeUser('alice');
@@ -278,6 +281,7 @@ describe('admin().purgeUser()', () => {
     insertTag(sql, { userId: 'alice', group: 'favorite', key: 'blue' });
     insertTag(sql, { userId: 'bob', group: 'favorite', key: 'green' });
     const bobConnection = fakeConnection('conn-bob', 'bob');
+
     engine.core.connections.set(bobConnection.id, bobConnection);
 
     await engine.admin().purgeUser('alice');
@@ -293,6 +297,7 @@ describe('admin().purgeUser()', () => {
     const { engine, sql } = await buildEngine(handler);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
+
     const otherConnection = fakeConnection('conn-2', 'bob');
     engine.core.connections.set(otherConnection.id, otherConnection);
     expect(engine.core.hooks.purgeUser).toHaveLength(0);
@@ -453,6 +458,7 @@ describe('purgeUser — empty user id', () => {
     const anonB = fakeConnection('conn-anon-b', '');
     const alice = fakeConnection('conn-alice', 'alice');
     engine.core.connections.set(anonA.id, anonA);
+
     engine.core.connections.set(anonB.id, anonB);
     engine.core.connections.set(alice.id, alice);
 

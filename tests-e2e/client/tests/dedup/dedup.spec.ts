@@ -35,6 +35,7 @@ test.describe('dedup (conformance)', () => {
     await expect(page.getByTestId('echo-count')).toHaveText('1');
     await page.getByTestId('echo').click();
     await expect(page.getByTestId('echo-count')).toHaveText('2');
+
     await page.getByTestId('echo').click();
     await expect(page.getByTestId('echo-count')).toHaveText('3');
   });

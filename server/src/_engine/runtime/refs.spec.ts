@@ -85,6 +85,7 @@ describe('assertLocalRef', () => {
         engineInstance: 'local',
       });
     }
+
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
   });
 });

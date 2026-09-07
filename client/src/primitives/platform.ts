@@ -79,6 +79,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
 
       function bind(): void {
         if (bound) return;
+
         bound = true;
 
         if (environment.onNetworkChange) {
@@ -112,10 +113,12 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
             helpers.log.info('foreground — reconnecting');
             helpers.resume();
           }
+
           return;
         }
 
         if (!wantsBackground) return;
+
         if (reportingInitialVisibility) return;
 
         hiddenTimer = setTimeout(() => {
@@ -124,6 +127,7 @@ export function platform(options: PlatformOptions): Primitive<PlatformTypeFn> {
           // nothing to drop. Don't mark it as our background drop — otherwise
           // foreground would reconnect a socket we never closed.
           if (helpers.getState() !== 'open') return;
+
           backgrounded = true;
           helpers.log.info(`hidden ${backgroundDisconnectMs}ms — disconnecting`);
           helpers.suspend();

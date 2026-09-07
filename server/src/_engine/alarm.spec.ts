@@ -36,6 +36,7 @@ describe('framework alarm multiplexer', () => {
       alarmSources: new Map<symbol, () => number | null>(),
       timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
     };
+
     registerAlarmSource(core, Symbol('empty'), () => null);
 
     rescheduleAlarm(core);
@@ -51,6 +52,7 @@ describe('framework alarm multiplexer', () => {
       alarmSources: new Map<symbol, () => number | null>(),
       timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
     };
+
     const key = Symbol('same-source');
 
     registerAlarmSource(core, key, () => 500);
@@ -102,8 +104,10 @@ describe('framework alarm multiplexer', () => {
       alarmSources: new Map<symbol, () => number | null>(),
       timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
     };
+
     const key = Symbol('changing-source');
     let deadline: number | null = 100;
+
     registerAlarmSource(core, key, () => deadline);
 
     const first = rescheduleAlarm(core);
@@ -138,6 +142,7 @@ describe('framework alarm multiplexer', () => {
       timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
       logger: { info: vi.fn(), warn: vi.fn(), error },
     };
+
     try {
       registerAlarmSource(core, Symbol('retryable-source'), () => 100);
 
@@ -169,6 +174,7 @@ describe('framework alarm multiplexer', () => {
       timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
+
     registerAlarmSource(core, Symbol('retryable-source'), () => 20_000);
 
     try {
@@ -196,6 +202,7 @@ describe('framework alarm multiplexer', () => {
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
+
     ensureAlarmCoordinatorSchema(core);
     restoreAlarmCoordinator(core);
     storage.sql = {
@@ -228,6 +235,7 @@ describe('framework alarm multiplexer', () => {
       timers: { setAlarm, deleteAlarm: vi.fn(async () => {}), getAlarm: vi.fn(async () => null) },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
+
     registerAlarmSource(core, Symbol('retryable-source'), () => 20_000);
 
     try {
@@ -259,7 +267,9 @@ describe('framework alarm multiplexer', () => {
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
+
     ensureAlarmCoordinatorSchema(failedCore);
+
     restoreAlarmCoordinator(failedCore);
     registerAlarmSource(failedCore, Symbol('scheduled work'), () => 200_000);
 
@@ -273,6 +283,7 @@ describe('framework alarm multiplexer', () => {
         storage,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       };
+
       ensureAlarmCoordinatorSchema(resumedCore);
       restoreAlarmCoordinator(resumedCore);
 
@@ -292,6 +303,7 @@ describe('framework alarm multiplexer', () => {
     const firstSetAlarm = vi.fn(async () => {
       if (failures-- > 0) throw new Error('provider unavailable');
     });
+
     const firstCore = {
       alarmSources: new Map<symbol, () => number | null>(),
       timers: {
@@ -302,6 +314,7 @@ describe('framework alarm multiplexer', () => {
       storage,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     };
+
     ensureAlarmCoordinatorSchema(firstCore);
     restoreAlarmCoordinator(firstCore);
     registerAlarmSource(firstCore, Symbol('scheduled work'), () => 200_000);
@@ -322,6 +335,7 @@ describe('framework alarm multiplexer', () => {
         storage,
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       };
+
       ensureAlarmCoordinatorSchema(resumedCore);
       restoreAlarmCoordinator(resumedCore);
       registerAlarmSource(resumedCore, Symbol('scheduled work'), () => 200_000);
@@ -349,11 +363,13 @@ describe('framework alarm multiplexer', () => {
         if (method === 'deleteAlarm' && failures-- > 0) throw new Error('delete failed');
       });
       const error = vi.fn();
+
       const core = {
         alarmSources: new Map<symbol, () => number | null>(),
         timers: { setAlarm, deleteAlarm, getAlarm: vi.fn(async () => null) },
         logger: { info: vi.fn(), warn: vi.fn(), error },
       };
+
       try {
         registerAlarmSource(core, Symbol('source'), () => deadline);
 

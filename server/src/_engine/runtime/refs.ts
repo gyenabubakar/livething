@@ -34,6 +34,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
             });
             return false;
           }
+
           return deps.sendThroughPipeline(target, { routing: undefined, event, payload });
         },
         close: (code, reason) => {
@@ -45,6 +46,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
             });
             return;
           }
+
           target.descriptor.close(code, reason);
         },
       };

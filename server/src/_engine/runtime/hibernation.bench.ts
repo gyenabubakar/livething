@@ -53,6 +53,7 @@ async function makeEngine(): Promise<Engine> {
   });
   server(hibernatingHandler(), {} as never);
   await engine!.initialize();
+
   return engine!;
 }
 
@@ -82,6 +83,7 @@ async function seed(count: number): Promise<{ engine: Engine; sockets: FakeSocke
       userId: `u${i}`,
     });
   }
+
   // The row id the adapter's attachment reports has to match what was written.
   const ids = [...engine.core.connections.keys()];
   for (const [index, socket] of sockets.entries()) socket.id = ids[index]!;
@@ -89,6 +91,7 @@ async function seed(count: number): Promise<{ engine: Engine; sockets: FakeSocke
   engine.core.connections.clear();
   engine.core.usersByKey.clear();
   engine.core.wsToConnectionId.clear();
+
   return { engine, sockets };
 }
 

@@ -82,6 +82,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
   return {
     plugin: (id: string) => {
       if (pluginApiCache.has(id)) return pluginApiCache.get(id);
+
       const factory = engine.getPluginApiFactory(id);
       if (!factory) {
         throw new Error(
@@ -89,8 +90,10 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
             'List the plugin in define({ capabilities: [...] }).',
         );
       }
+
       const api = factory(scopePluginContext(id, base));
       pluginApiCache.set(id, api);
+
       return api;
     },
   };
@@ -238,6 +241,7 @@ function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primiti
 /** Reject any plugin primitive a plugin cannot contribute, with a pointed message. */
 function assertSupported(id: string, primitive: Primitive): void {
   if (ALLOWED_PLUGIN_KINDS.has(primitive.__wskit)) return;
+
   throw new Error(
     `[wskit] plugin('${id}') uses '${primitive.__wskit}', which a plugin cannot contribute. ` +
       'Host-owned engines (dedup, replay, rateLimit, …) belong on the host — list ' +
@@ -293,6 +297,7 @@ export function plugin<
   if (!PLUGIN_ID.test(id)) {
     throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
   }
+
   if (!manifest.handler.__scoped) {
     throw new Error(
       `[wskit] plugin('${id}') handler must be built with define({ scope: 'plugin' }). ` +
@@ -326,5 +331,6 @@ export function plugin<
   const autoKinds =
     (manifest.handler as { __hostDependencies?: readonly string[] }).__hostDependencies ?? [];
   writable.__pluginRequiredKinds = [...new Set([...explicitKinds, ...autoKinds])];
+
   return () => ({ ...cap }) as typeof cap;
 }

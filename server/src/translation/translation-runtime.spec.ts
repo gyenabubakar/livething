@@ -277,6 +277,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor(vi.fn(() => false));
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     const beforeOutbound = persistAttachment.mock.calls.length;
@@ -307,6 +308,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     const connection = [...engine.connections.values()][0]!;
@@ -336,6 +338,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     failPersistence = true;
@@ -373,6 +376,7 @@ describe('translation runtime', () => {
     });
     engine.compiled.outgoing.set('message', { event: 'message' });
     const socket = descriptor();
+
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
     failPersistence = true;
@@ -391,6 +395,7 @@ describe('translation runtime', () => {
     expect(socket.close).toHaveBeenCalledWith(1011, '[wskit] translator configuration failed');
     expect(connection.closing).toBe(true);
     expect(connection.descriptor.send('another frame')).toBe(false);
+
     expect(socket.close).toHaveBeenCalledTimes(1);
   });
 
@@ -411,6 +416,7 @@ describe('translation runtime', () => {
     engine.compiled.outgoing.set('message', { event: 'message' });
     const handle = acceptConnection(engine as never, Symbol('socket'), socket);
     await handle.handleMessage('foreign frame');
+
     const connection = [...engine.connections.values()][0]!;
 
     expect(() =>
@@ -648,6 +654,7 @@ describe('translation runtime', () => {
     expect(order).toEqual(['flush', 'send', 'flush']);
     const flushedConnection = flushAttachment.mock.calls[0]?.[0];
     expect(flushedConnection?.tags.ephemeral).toEqual(new Map([['role', new Set(['member'])]]));
+
     expect(flushedConnection?.channelMemberships).toEqual(
       new Map([
         ['["rooms","room:general"]', { channelName: 'room:general', channelFamily: 'rooms' }],
@@ -732,6 +739,7 @@ describe('translation runtime', () => {
     expect(engine.wsToConnectionId).toHaveLength(0);
     expect(engine.channelMembers).toHaveLength(0);
     expect(engine.tagMembers).toHaveLength(0);
+
     expect(deleteConnectionState).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledOnce();
   });

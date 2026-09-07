@@ -80,11 +80,14 @@ function resolveDurableDefForRow(
         ? runtime.compiled.channelFamilies.get(row.channelFamily)
         : runtime.compiled.channels.get(row.channelKey);
     if (!channel) return undefined;
+
     if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelFamily)) {
       return undefined;
     }
+
     scope = { channel, channelName: row.channelKey, channelFamily: row.channelFamily };
     resumable = channel.resumableStreams.get(row.event);
+
     recorded = channel.recordedStreams.get(row.event);
   } else {
     resumable = runtime.compiled.resumableStreams.get(row.event);
@@ -94,9 +97,11 @@ function resolveDurableDefForRow(
   if (resumable) {
     return { scope, def: buildRuntimeDef(resumable, 'resumable') };
   }
+
   if (recorded) {
     return { scope, def: buildRuntimeDef(recorded, 'recorded') };
   }
+
   return undefined;
 }
 

@@ -15,12 +15,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/channel-static?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
@@ -31,37 +33,45 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === '__subscribeOk__') {
 				subscribeOkCount += 1;
 				subscribeOkChannels = [...subscribeOkChannels, data.__wskit?.channel ?? ''];
 			}
+
 			if (data.event === '__error__' && data.__wskit?.channel) {
 				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
 				if (data.__wskit.channel === 'room' && data.payload.code) {
 					badBroadcastErrorCode = String(data.payload.code);
 				}
 			}
+
 			if (data.event === '__memberJoin__' && data.__wskit?.channel) {
 				memberJoins = [...memberJoins, `${data.__wskit.channel}:${data.payload.connectionId}`];
 			}
+
 			if (data.event === '__memberSync__' && data.__wskit?.channel) {
 				for (const m of data.payload.members) {
 					memberJoins = [...memberJoins, `${data.__wskit.channel}:${m.connectionId}`];
 				}
 			}
+
 			if (data.event === '__memberLeave__' && data.__wskit?.channel) {
 				memberLeaves = [
 					...memberLeaves,
 					`${data.__wskit.channel}:${data.payload.connectionId}`,
 				];
 			}
+
 			if (data.event === 'start-channel-stream' && typeof data.payload?.index === 'number') {
 				channelStreamChunks = [...channelStreamChunks, data.payload.index];
 			}
+
 			if (data.event === '__streamEnd__' && data.__wskit?.channel === 'room') {
 				channelStreamEnd = true;
 			}
+
 			if (data.event === 'room-message') {
 				const entry = `${data.payload.from}:${data.payload.text}`;
 				if (data.payload.kind === 'system') {
@@ -80,29 +90,37 @@
 	) {
 		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
+
 	function subscribeRoom() {
 		send('__subscribe__', {}, { channel: 'room' });
 	}
+
 	function subscribeRoomTwo() {
 		send('__subscribe__', {}, { channel: 'room2' });
 	}
+
 	function subscribeBogus() {
 		send('__subscribe__', {}, { channel: 'does-not-exist' });
 	}
+
 	function unsubscribeRoom() {
 		send('__unsubscribe__', {}, { channel: 'room' });
 	}
+
 	function sendRoom(text: string) {
 		send('send-message', { text }, { channel: 'room' });
 	}
+
 	function publishWithoutSub(text: string) {
 		// Same send, but this button is used WITHOUT subscribing first.
 		send('send-message', { text }, { channel: 'room' });
 	}
+
 	function triggerBadBroadcast() {
 		badBroadcastErrorCode = '';
 		send('trigger-bad-broadcast', {}, { channel: 'room' });
 	}
+
 	function startChannelStream(count: number) {
 		channelStreamChunks = [];
 		channelStreamEnd = false;

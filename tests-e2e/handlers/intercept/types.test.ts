@@ -8,6 +8,7 @@ describe('InterceptClient — no-any guard', () => {
     expectTypeOf<InterceptClient['clientRequests']>().not.toBeAny();
     expectTypeOf<InterceptClient['streams']>().not.toBeAny();
     expectTypeOf<InterceptClient['channels']>().not.toBeAny();
+
     expectTypeOf<InterceptClient['errors']>().not.toBeAny();
   });
 });

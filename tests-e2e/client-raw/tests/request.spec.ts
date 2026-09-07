@@ -49,6 +49,7 @@ test.describe('request', () => {
 
         ws.onmessage = (event) => {
           if (typeof event.data !== 'string') return;
+
           const candidate = JSON.parse(event.data) as Record<string, unknown>;
           if (
             (candidate.__wskit as { correlationId?: unknown } | undefined)?.correlationId !==
@@ -127,6 +128,7 @@ test.describe('request', () => {
     const err = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const original = ws.onmessage;
 
       return await new Promise<ErrorFrame>((resolve, reject) => {
@@ -150,6 +152,7 @@ test.describe('request', () => {
               return;
             }
           }
+
           if (typeof original === 'function') original.call(ws, event);
         };
 
@@ -210,6 +213,7 @@ test.describe('request', () => {
     const err = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const original = ws.onmessage;
 
       return await new Promise<ErrorFrame>((resolve, reject) => {
@@ -228,6 +232,7 @@ test.describe('request', () => {
               return;
             }
           }
+
           if (typeof original === 'function') original.call(ws, event);
         };
 
@@ -250,6 +255,7 @@ test.describe('request', () => {
     const got = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const responses: Record<string, unknown>[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
@@ -257,8 +263,10 @@ test.describe('request', () => {
           const frame = JSON.parse(ev.data);
           if (frame.__wskit?.correlationId === 'anything-1') responses.push(frame);
         }
+
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({
           event: 'echo-anything-req',
@@ -268,6 +276,7 @@ test.describe('request', () => {
       );
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return responses;
     });
 

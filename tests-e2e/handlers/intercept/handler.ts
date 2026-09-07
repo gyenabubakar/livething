@@ -28,19 +28,23 @@ base.intercept((_ctx, frame) => {
   if (frame.kind === 'incoming' && frame.event === 'echo') {
     const p = frame.payload as { text: string };
     if (p.text === 'top-pre') return { text: 'top-pre-rewritten' };
+
     if (p.text === 'top-passthrough') return;
   }
+
   // Request frames arrive with kind === 'request'. The handler echoes the
   // rewritten value so the test can prove the intercept ran.
   if (frame.kind === 'request' && frame.event === 'intercept-req') {
     const p = frame.payload as { text: string };
     if (p.text === 'req-pre') return { text: 'req-pre-rewritten' };
   }
+
   // Nudge frames arrive with kind === 'nudge'. Transform the hint payload so
   // the generator can prove the intercept ran before nudges were buffered.
   if (frame.kind === 'nudge' && frame.event === 'hint') {
     const p = frame.payload as { text: string };
     if (p.text === 'hint-block') throw Block;
+
     return { text: `${p.text}-intercepted` };
   }
 });
@@ -61,6 +65,7 @@ const handleNudgeStream = base.stream('nudge-stream', {
       await new Promise((r) => setTimeout(r, 50));
       nudges = ctx.stream.nudges(yield { saw: 'waiting' });
     }
+
     const hint = nudges.find((n) => n.event === 'hint');
     yield { saw: hint ? (hint.payload as { text: string }).text : 'no-hint' };
   },
@@ -90,11 +95,14 @@ room.intercept((_ctx, frame) => {
   if (frame.kind === 'incoming' && frame.event === 'echo') {
     const p = frame.payload as { text: string };
     if (p.text === 'ch-pre') return { text: 'ch-pre-rewritten' };
+
     if (p.text === 'ch-pre-block') throw Block;
   }
+
   if (frame.kind === 'nudge' && frame.event === 'ch-hint') {
     const p = frame.payload as { text: string };
     if (p.text === 'ch-hint-block') throw Block;
+
     return { text: `${p.text}-ch-intercepted` };
   }
 });
@@ -118,6 +126,7 @@ const handleChNudgeStream = room.stream('ch-nudge-stream', {
       await new Promise((r) => setTimeout(r, 50));
       nudges = ctx.stream.nudges(yield { saw: 'waiting' });
     }
+
     const hint = nudges.find((n) => n.event === 'ch-hint');
     yield { saw: hint ? (hint.payload as { text: string }).text : 'no-hint' };
   },
@@ -131,6 +140,7 @@ rooms.intercept((_ctx, frame) => {
   if (frame.kind === 'incoming' && frame.event === 'echo') {
     const p = frame.payload as { text: string };
     if (p.text === 'dyn-pre') return { text: 'dyn-pre-rewritten' };
+
     if (p.text === 'dyn-pre-block') throw Block;
   }
 });

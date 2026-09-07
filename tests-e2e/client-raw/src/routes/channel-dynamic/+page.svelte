@@ -15,9 +15,11 @@
 	function userMessagesFor(channel: string) {
 		return (userMessagesByChannel[channel] ?? []).join(',');
 	}
+
 	function systemMessagesFor(channel: string) {
 		return (systemMessagesByChannel[channel] ?? []).join(',');
 	}
+
 	function recordRoomMessage(payload: Record<string, any>) {
 		const channel = payload.channel ?? '';
 		const entry = `${payload.from}:${payload.text}`;
@@ -36,6 +38,7 @@
 		'__subscribeOk__': (data) => (subscribeOk = [...subscribeOk, data.__wskit?.channel ?? '']),
 		'__error__': (data) => {
 			if (!data.__wskit?.channel) return;
+
 			subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
 			subscribeErrorScope = data.__wskit.channelFamily ?? '';
 		},
@@ -45,12 +48,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/channel-dynamic?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			// Expose for tests that need to send raw frames (e.g. protocol events).
@@ -62,6 +67,7 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			eventHandlers[data.event]?.(data);
 		};
@@ -74,19 +80,24 @@
 	) {
 		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
+
 	function subscribe(channel: string) {
 		send('__subscribe__', {}, { channel, channelFamily: 'room' });
 	}
+
 	function subscribeNoScope(channel: string) {
 		// Missing channelFamily — should emit __error__ channel-not-found.
 		send('__subscribe__', {}, { channel });
 	}
+
 	function subscribeUnknownScope(channel: string, scopeName: string) {
 		send('__subscribe__', {}, { channel, channelFamily: scopeName });
 	}
+
 	function echoName(channel: string) {
 		send('echo-name', {}, { channel, channelFamily: 'room' });
 	}
+
 	function sendTo(channel: string, text: string) {
 		send('send-message', { text }, { channel, channelFamily: 'room' });
 	}

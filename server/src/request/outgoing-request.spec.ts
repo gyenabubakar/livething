@@ -38,6 +38,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
   let extender!: (ctx: any) => Record<string, unknown>;
   let idCounter = 0;
   const sent: Array<{ connectionId: string; opts: any }> = [];
+
   const live = new Set<string>(['c1', 'peer']);
 
   const engine = {
@@ -81,14 +82,17 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
         all: () => (opts?.connections ?? []).map(member),
       },
     };
+
     if (opts?.user) {
       for (const id of opts.user) live.add(id);
       function userHandle(ids: string[]) {
         return { id: ids[0], connections: () => ids.map(member) };
       }
+
       ctx.user = userHandle(opts.user);
       ctx.users = { get: (_id: string) => userHandle(opts!.user!) };
     }
+
     for (const id of [
       ...(opts?.connections ?? []),
       ...Object.values(opts?.channels ?? {}).flat(),
@@ -97,6 +101,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
     ]) {
       live.add(id);
     }
+
     if (opts?.channels) {
       ctx.channels = {
         get: (name: string) => ({
@@ -106,6 +111,7 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
         }),
       };
     }
+
     if (opts?.tags) {
       function makeGroup() {
         return {
@@ -115,11 +121,14 @@ function install(declarations: ReadonlyMap<string, ResolvedServerRequest>) {
           }),
         };
       }
+
       ctx.tags = { ephemeral: makeGroup, persistent: makeGroup };
     }
+
     // The core attaches ctx.channel before contextExtenders run, so mirror that.
     if (opts?.channel) ctx.channel = opts.channel;
     Object.assign(ctx, extender(ctx));
+
     return ctx;
   }
 
@@ -206,6 +215,7 @@ describe('server→client request — outgoing runtime', () => {
     const ctx = env.buildCtx('c1');
     const promise = ctx.request('ask', { action: 'x' }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
+
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
     vi.useRealTimers();
@@ -237,8 +247,10 @@ describe('server→client request — outgoing runtime', () => {
       instance: undefined,
       userId: 'p',
     };
+
     const promise = ctx.connections.get(ref).request('ask', { action: 'x' });
     expect(env.sent[0]!.connectionId).toBe('peer');
+
     const { correlationId } = env.sent[0]!.opts;
     env.answerHook('peer', { event: 'ask', payload: { allowed: false }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: false });
@@ -253,6 +265,7 @@ describe('server→client request — outgoing runtime', () => {
       instance: 'other',
       userId: 'p',
     };
+
     expect(() => ctx.connections.get(ref).request('ask', { action: 'x' })).toThrow(
       /cross-instance-ref/,
     );
@@ -273,6 +286,7 @@ describe('server→client request — outgoing runtime', () => {
     const promise = ctx.channel.request('ask', { action: 'x' });
     expect(env.sent[0]!.opts.channel).toBe('room-1');
     expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
+
     const { correlationId } = env.sent[0]!.opts;
     env.answerHook('c1', { event: 'ask', payload: { allowed: true }, wskit: { correlationId } });
     await expect(promise).resolves.toEqual({ allowed: true });
@@ -415,6 +429,7 @@ describe('server→client request — outgoing runtime', () => {
       tags: [],
       ref: env.member('conn_abc123').ref,
     };
+
     const ctx = env.buildCtx(
       'c1',
       { channelName: 'room-1', channelFamily: 'rooms' },
@@ -595,6 +610,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const ctx = env.buildCtx('c1', undefined, { connections: ['a', 'b'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
+
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
     vi.useRealTimers();
@@ -606,6 +622,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const ctx = env.buildCtx('c1', undefined, { connections: ['c1'] });
     const promise = ctx.broadcastRequest('volunteer', { turn: 1 }, { timeout: 1000 });
     expect(env.sent).toHaveLength(0);
+
     const rejection = expect(promise).rejects.toMatchObject({ code: 'timeout' });
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
@@ -651,6 +668,7 @@ describe('server→client broadcast request — first answer wins', () => {
       },
     );
     const promise = ctx.channel.broadcastRequest('volunteer', { turn: 1 });
+
     expect(env.sent).toHaveLength(2);
     expect(env.sent[0]!.opts.channel).toBe('room-1');
     expect(env.sent[0]!.opts.channelFamily).toBe('rooms');
@@ -660,6 +678,7 @@ describe('server→client broadcast request — first answer wins', () => {
       payload: { ready: true },
       wskit: { correlationId: legA.opts.correlationId },
     });
+
     await expect(promise).resolves.toEqual({
       response: { ready: true },
       from: expect.objectContaining({ id: 'a' }),
@@ -674,6 +693,7 @@ describe('server→client broadcast request — first answer wins', () => {
     const promise = ctx.channels.get('lobby').broadcastRequest('volunteer', { turn: 1 });
     expect(env.sent.map((s) => s.connectionId).sort()).toEqual(['a', 'b']);
     const legB = env.sent.find((s) => s.connectionId === 'b')!;
+
     env.answerHook('b', {
       event: 'volunteer',
       payload: { ready: false },
@@ -727,6 +747,7 @@ describe('server→client broadcast request — first answer wins', () => {
       payload: { ready: false },
       wskit: { correlationId: legB.opts.correlationId },
     });
+
     await expect(refPromise).resolves.toEqual({
       response: { ready: false },
       from: expect.objectContaining({ id: 'b' }),
@@ -738,6 +759,7 @@ describe('server→client request — per-channel declaration isolation (Major 2
   const askAllowed: ResolvedServerRequest = {
     responseValidator: v.object({ allowed: v.boolean() }),
   };
+
   const askCount: ResolvedServerRequest = {
     responseValidator: v.object({ count: v.number() }),
   };
@@ -789,6 +811,7 @@ describe('server→client request — per-channel declaration isolation (Major 2
     const chanPromise = chanCtx.channel.request('ask', {});
     const chanId = env.sent[0]!.opts.correlationId;
     env.answerHook('c1', { event: 'ask', payload: { count: 9 }, wskit: { correlationId: chanId } });
+
     await expect(chanPromise).resolves.toEqual({ count: 9 });
   });
 });

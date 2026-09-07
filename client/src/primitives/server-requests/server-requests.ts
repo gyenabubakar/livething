@@ -65,6 +65,7 @@ export function serverRequests(
         if (message.__wskit?.channelFamily !== undefined) {
           markers.channelFamily = message.__wskit.channelFamily;
         }
+
         return markers;
       }
 
@@ -128,6 +129,7 @@ export function serverRequests(
           }
 
           void answer(message, handler);
+
           return null;
         },
 

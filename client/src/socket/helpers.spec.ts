@@ -96,9 +96,11 @@ describe('generateId', () => {
     function counter(id: string): number {
       return Number(id.split('-').at(-1));
     }
+
     const first = counter(gen());
     const second = counter(gen());
     const third = counter(gen());
+
     expect(second).toBeGreaterThan(first);
     expect(third).toBeGreaterThan(second);
   });
@@ -117,6 +119,7 @@ describe('generateId', () => {
     const reqId = gen('req');
     const streamN = streamId.replace('stream-', '');
     const reqN = reqId.replace('req-', '');
+
     expect(streamN).not.toBe(reqN);
   });
 });
@@ -159,6 +162,7 @@ describe('id scope fallback (#17)', () => {
     const a = client()(connect('wss://test')) as WSKitSocket;
     const b = client()(connect('wss://test')) as WSKitSocket;
     expect(scopeOf(a)).not.toBe(scopeOf(b));
+
     expect(scopeOf(a)).toMatch(/^[0-9a-f]{32}/);
   });
 
@@ -176,6 +180,7 @@ describe('id scope fallback (#17)', () => {
     });
     const a = client()(connect('wss://test')) as WSKitSocket;
     const b = client()(connect('wss://test')) as WSKitSocket;
+
     expect(scopeOf(a)).not.toBe(scopeOf(b));
   });
 });

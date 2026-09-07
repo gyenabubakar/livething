@@ -106,7 +106,9 @@ function attachBuiltinReplayBuilder(cap: HostCapability<{}, 'replay'>): void {
     replayConfig,
   ) => {
     if (replayConfig === false) return replayFactory(false);
+
     if (replayConfig === true) return replayFactory();
+
     return replayFactory(replayConfig as ReplayOptions);
   };
 }

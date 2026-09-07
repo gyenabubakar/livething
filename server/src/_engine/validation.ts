@@ -49,6 +49,7 @@ export function assertOptionalPositiveInteger(
   context: string,
 ): void {
   if (value === undefined) return;
+
   assertPositiveInteger(value, field, context);
 }
 

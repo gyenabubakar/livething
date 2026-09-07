@@ -80,6 +80,7 @@ describe('StreamQueue', () => {
       const secondError = new Error('second');
       queue.abort(firstError);
       queue.abort(secondError);
+
       await expect(queue.next()).rejects.toThrow('first');
     });
   });
@@ -110,6 +111,7 @@ describe('StreamQueue', () => {
       const b = queue.next();
       queue.push('one');
       queue.push('two');
+
       expect(await a).toEqual({ value: 'one', done: false });
       expect(await b).toEqual({ value: 'two', done: false });
     });
@@ -120,6 +122,7 @@ describe('StreamQueue', () => {
       const b = queue.next();
       queue.end();
       expect(await a).toEqual({ value: undefined, done: true });
+
       expect(await b).toEqual({ value: undefined, done: true });
     });
 
@@ -129,6 +132,7 @@ describe('StreamQueue', () => {
       const b = queue.next();
       queue.abort(new Error('boom'));
       await expect(a).rejects.toThrow('boom');
+
       await expect(b).rejects.toThrow('boom');
     });
   });

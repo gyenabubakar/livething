@@ -68,6 +68,7 @@ const handleStartCancelObserve = base.stream('start-cancel-observe', {
         yield { index: i };
         await new Promise((r) => setTimeout(r, 50));
       }
+
       completedNaturally = true;
     } finally {
       if (!completedNaturally) {

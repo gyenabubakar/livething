@@ -82,10 +82,12 @@ function resolveDeclaration(taskId: string, def: ScheduledDef): ScheduledDeclara
   if ('every' in def && def.every !== undefined) {
     assertPositiveInteger(def.every, '.every', context);
   }
+
   if ('retry' in def && def.retry !== undefined && Array.isArray(def.retry)) {
     if (def.retry.length === 0) {
       throw new Error(`[wskit] ${context}: 'retry' requires at least one entry.`);
     }
+
     for (const entry of def.retry) {
       assertPositiveInteger(entry, '.retry', context);
     }
@@ -141,6 +143,7 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
     assertValidWSKitIdentifier(taskId, 'scheduled() task id');
     declarations.set(taskId, resolveDeclaration(taskId, def));
   }
+
   const cap = capability<ScheduledSlot<TDefs>, never, 'scheduled'>([
     scheduleSurfacePrimitive(),
   ]) as ScheduledCapability<TDefs>;
@@ -149,7 +152,9 @@ export const scheduled = withCapabilityKind(function scheduled<const TDefs exten
     __buildScheduled: ScheduledCapability['__buildScheduled'];
   };
   writable.__scheduled = declarations;
+
   writable.__buildScheduled = (taskId, declaration, body) =>
     makeScheduledPrimitive(taskId, declaration, body);
+
   return stampKind(cap, CAPABILITY_KIND.scheduled);
 }, CAPABILITY_KIND.scheduled);

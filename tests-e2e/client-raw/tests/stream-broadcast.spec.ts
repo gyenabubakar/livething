@@ -9,11 +9,13 @@ test.describe('stream-broadcast', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await a.goto(`/stream-broadcast?room=${room}`);
     await b.goto(`/stream-broadcast?room=${room}`);
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
     await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
@@ -25,6 +27,7 @@ test.describe('stream-broadcast', () => {
     await expect(a.getByTestId('indices')).toHaveText('0,1,2');
     await expect(b.getByTestId('indices')).toContainText('0');
     await expect(b.getByTestId('indices')).toContainText('1');
+
     await expect(b.getByTestId('indices')).toContainText('2');
 
     await ctxA.close();
@@ -45,6 +48,7 @@ test.describe('stream-broadcast', () => {
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
     await a.getByTestId('connect').click();
+
     await b.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
     await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
@@ -81,6 +85,7 @@ test.describe('stream-broadcast', () => {
     const ctxB = await browser.newContext();
     const ctxM = await browser.newContext();
     const a = await ctxA.newPage();
+
     const b = await ctxB.newPage();
     const mallory = await ctxM.newPage();
 
@@ -89,11 +94,13 @@ test.describe('stream-broadcast', () => {
     await mallory.goto(`/stream-broadcast?room=${room}`);
     await a.getByTestId('username').fill('alice');
     await b.getByTestId('username').fill('bob');
+
     await mallory.getByTestId('username').fill('mallory');
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
     await mallory.getByTestId('connect').click();
     await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
+
     await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
     await expect(mallory.getByTestId('status')).toHaveText('connected', { timeout: 15_000 });
 

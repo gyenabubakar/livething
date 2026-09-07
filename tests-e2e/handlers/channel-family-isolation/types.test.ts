@@ -8,6 +8,7 @@ describe('ChannelFamilyIsolationClient — no-any guard', () => {
     expectTypeOf<ChannelFamilyIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelFamilyIsolationClient['channels']>().not.toBeAny();
+
     expectTypeOf<ChannelFamilyIsolationClient['errors']>().not.toBeAny();
   });
 });

@@ -51,6 +51,7 @@ test.describe('dedup', () => {
     const subscribeOkCount = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       let acks = 0;
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
@@ -58,17 +59,21 @@ test.describe('dedup', () => {
           const frame = JSON.parse(ev.data);
           if (frame.event === '__subscribeOk__' && frame.__wskit?.channel === 'room') acks += 1;
         }
+
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       const frame = {
         event: '__subscribe__',
         payload: {},
         __wskit: { channel: 'room' },
       };
+
       ws.send(JSON.stringify(frame));
       ws.send(JSON.stringify(frame));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return acks;
     });
 

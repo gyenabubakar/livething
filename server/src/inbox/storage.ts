@@ -548,6 +548,7 @@ export function pruneInboxRetentionAndBumpWatermark(
         evictedThroughSeq: eviction.undeliveredEvictedThrough,
       });
     }
+
     return eviction.evictedThrough;
   });
 }
@@ -584,6 +585,7 @@ function evictOldest(
     ...scope,
     ...bind,
   );
+
   return {
     evictedThrough: Number(highest.seq),
     undeliveredEvictedThrough:
@@ -606,7 +608,9 @@ function mergeRetentionEvictions(
 
 function maxNullable(first: number | null, second: number | null): number | null {
   if (first === null) return second;
+
   if (second === null) return first;
+
   return Math.max(first, second);
 }
 

@@ -72,5 +72,6 @@ export const serverRequests = withCapabilityKind(function serverRequests<
       resolved.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
     }
   };
+
   return stampKind(cap, CAPABILITY_KIND.serverRequests);
 }, CAPABILITY_KIND.serverRequests);

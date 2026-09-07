@@ -40,6 +40,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
       instance: undefined,
       userId: 'alice',
     };
+
     expect(
       resolveChannelRecipients(channelMembers, { channelName: 'room', channelFamily: null, to }),
     ).toEqual([alice]);
@@ -99,6 +100,7 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
       group: 'role',
       key: 'mod',
     };
+
     const resolved = resolveChannelRecipients(channelMembers, {
       channelName: 'room',
       channelFamily: null,

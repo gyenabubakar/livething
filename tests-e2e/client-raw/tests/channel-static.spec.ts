@@ -53,6 +53,7 @@ test.describe('channel-static', () => {
     const errors = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -63,6 +64,7 @@ test.describe('channel-static', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({
           event: '__subscribe__',
@@ -72,6 +74,7 @@ test.describe('channel-static', () => {
       );
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
+
       return got.filter((m) => m.event === '__error__');
     });
 
@@ -106,6 +109,7 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     // Bob subscribes; alice does not. Alice tries to publish unsubscribed.
@@ -143,11 +147,13 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     // ctx.channel.broadcast fans out to OTHER members; sender does not
@@ -172,6 +178,7 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await a.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
@@ -193,11 +200,13 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     await b.getByTestId('unsubscribe-room').click();
@@ -215,6 +224,7 @@ test.describe('channel-static', () => {
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
     await page.getByTestId('start-channel-stream-3').click();
     await expect(page.getByTestId('channel-stream-chunks')).toHaveText('0,1,2');
+
     await expect(page.getByTestId('channel-stream-end')).toHaveText('yes');
   });
 
@@ -226,6 +236,7 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await a.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
@@ -249,6 +260,7 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await a.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
@@ -274,11 +286,13 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     await b.getByTestId('unsubscribe-room').click();
@@ -296,11 +310,13 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     await ctxB.close();
@@ -317,11 +333,13 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     // Close bob's connection without explicit unsubscribe
@@ -392,6 +410,7 @@ test.describe('channel-static', () => {
     await thrower.getByTestId('subscribe-room').click();
     await observer.getByTestId('subscribe-room').click();
     await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('1');
+
     await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     await ctxThrower.close();
@@ -466,6 +485,7 @@ test.describe('channel-static', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 
@@ -522,15 +542,18 @@ test.describe('channel-static', () => {
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
           });
         }
+
         const thrower_a = await open('leave-thrower-a');
         const thrower_b = await open('leave-thrower-b');
         const observer = await open('observer');
+
         return { thrower_a, thrower_b, observer };
       },
       { room },
@@ -649,6 +672,7 @@ test.describe('channel-static', () => {
     const captured = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -659,14 +683,17 @@ test.describe('channel-static', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
 
       // Wait until the __subscribeOk__ for room2 has arrived (or time out).
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
         if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2')) break;
+
         await new Promise((r) => setTimeout(r, 20));
       }
+
       return got;
     });
 
@@ -688,6 +715,7 @@ test.describe('channel-static', () => {
     const counts = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -698,6 +726,7 @@ test.describe('channel-static', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
       ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
 
@@ -708,8 +737,10 @@ test.describe('channel-static', () => {
         ).length;
         if (okCount >= 1) await new Promise((r) => setTimeout(r, 200));
         if (Date.now() >= deadline - 200) break;
+
         await new Promise((r) => setTimeout(r, 20));
       }
+
       return {
         subscribeOks: got.filter(
           (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
@@ -758,6 +789,7 @@ test.describe('channel-static', () => {
     const aliceCaptureSetup = pageA.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const captured: {
         event: string;
         payload: Record<string, unknown>;
@@ -765,6 +797,7 @@ test.describe('channel-static', () => {
       }[] = [];
       (window as unknown as { __capture?: typeof captured }).__capture = captured;
       const original = ws.onmessage;
+
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') captured.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
@@ -806,8 +839,10 @@ test.describe('channel-static', () => {
             m.payload?.text === 'hello from bob',
         );
         if (hit) return true;
+
         await new Promise((r) => setTimeout(r, 20));
       }
+
       return false;
     });
 

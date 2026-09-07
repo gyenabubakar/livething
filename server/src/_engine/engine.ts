@@ -90,6 +90,7 @@ export class Engine<TApi = unknown> {
         '[wskit] hibernation is not enabled for this handler. Set `hibernation: true` on the contract.',
       );
     }
+
     const handle = EngineConnectionRuntime.wakeHibernatedConnection(
       EngineDeps.connectionRuntime(this.core),
       wsKey,
@@ -191,6 +192,7 @@ export class Engine<TApi = unknown> {
    */
   async restoreHibernatedConnections(sockets: Iterable<unknown>): Promise<void> {
     if (!this.usesHibernation()) return;
+
     const runtime = EngineDeps.connectionRuntime(this.core);
     const restored = new Set<string>();
     EngineHibernation.withPreloadedConnectionRows(this.core, () => {
@@ -272,6 +274,7 @@ export class Engine<TApi = unknown> {
     // must stay live, and the built-ins have to land after the dev api to win.
     const surface = flattenApi(devApi);
     Object.defineProperties(surface, Object.getOwnPropertyDescriptors(ctx));
+
     return surface as PublicApi.AdminContext<Record<string, unknown>, unknown> & TApi;
   }
 }
@@ -287,6 +290,7 @@ export class Engine<TApi = unknown> {
  */
 function assertNotReservedApiName(key: string): void {
   if (!RESERVED_ADMIN_API_NAMES.has(key)) return;
+
   let reason: string;
   if (key === 'then') {
     reason =
@@ -302,6 +306,7 @@ function assertNotReservedApiName(key: string): void {
       `built on. A method by this name cannot be placed on the surface — the ` +
       `inherited one is already there — and would go missing without explanation.`;
   }
+
   throw new WSKitConfigError(
     `assemble({ api }) declared the reserved method name '${key}'. ${reason} Rename it.`,
   );
@@ -344,6 +349,7 @@ function isAutomaticConstructorMarker(
     ) {
       return false;
     }
+
     const prototype = Object.getOwnPropertyDescriptor(descriptor.value, 'prototype');
     return (
       prototype?.get === undefined &&
@@ -371,6 +377,7 @@ function flattenApi(api: unknown): Record<string, unknown> {
     level = Object.getPrototypeOf(level) as object | null
   ) {
     if (seen.has(level)) break;
+
     seen.add(level);
 
     for (const key of Object.getOwnPropertyNames(level)) {
@@ -385,14 +392,17 @@ function flattenApi(api: unknown): Record<string, unknown> {
       ) {
         continue;
       }
+
       // Before the `in flat` guard: `'__proto__' in flat` is true on any plain
       // object, so a method by that name would be skipped silently instead of
       // reported.
       assertNotReservedApiName(key);
       if (Object.hasOwn(flat, key)) continue;
+
       const value = (api as Record<string, unknown>)[key];
       flat[key] = typeof value === 'function' ? value.bind(api) : value;
     }
   }
+
   return flat;
 }

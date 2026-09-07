@@ -231,14 +231,17 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
     if (isUniqueConstraintError(err)) {
       throw StreamIdCollision();
     }
+
     throw err;
   }
 }
 
 function isUniqueConstraintError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
+
   const msg = (err as { message?: unknown }).message;
   if (typeof msg !== 'string') return false;
+
   return (
     msg.includes('UNIQUE constraint') ||
     msg.includes('PRIMARY KEY') ||
@@ -460,6 +463,7 @@ export function getSubscriber(sql: SqlExec, opts: SubscriberRef): StreamSubscrib
     )
     .toArray()[0];
   if (!row) return null;
+
   return {
     caughtUpSeq: Number(row.caught_up_seq),
     unsubscribedAt: row.unsubscribed_at == null ? null : Number(row.unsubscribed_at),
@@ -559,6 +563,7 @@ export function purgeStreamsByUser(
         streamId,
       );
     }
+
     sql.exec('DELETE FROM __wskit_streams WHERE creator_user_id = ?', userId);
   }
 

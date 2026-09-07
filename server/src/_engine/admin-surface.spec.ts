@@ -50,6 +50,7 @@ function buildEngine(makeApi: (ctx: unknown) => object): Engine<object> {
     },
   });
   server(handler, {} as never);
+
   return engine;
 }
 
@@ -70,6 +71,7 @@ describe('Engine.admin() surfacing the app api', () => {
         return `${this.#label}:${room}`;
       }
     }
+
     const engine = buildEngine(() => new AdminApi());
 
     const admin = engine.admin() as unknown as { archiveRoom(room: string): string };
@@ -84,6 +86,7 @@ describe('Engine.admin() surfacing the app api', () => {
         return 'prototype';
       },
     };
+
     const api = Object.assign(Object.create(inherited), {
       report: () => 'own',
     });
@@ -129,6 +132,7 @@ describe('Engine.admin() surfacing the app api', () => {
           return 'nope';
         }
       }
+
       const engine = buildEngine(() => new Api());
 
       expect(() => engine.admin()).toThrow(/then/);
@@ -159,6 +163,7 @@ describe('Engine.admin() surfacing the app api', () => {
     it('rejects an own constructor even when its prototype points back to the api', () => {
       const api = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       AppConstructor.prototype = api;
       Object.defineProperty(api, 'constructor', {
         value: AppConstructor,
@@ -181,6 +186,7 @@ describe('Engine.admin() surfacing the app api', () => {
             reads += 1;
             return api;
           }
+
           return Reflect.get(target, key, receiver);
         },
       });
@@ -213,6 +219,7 @@ describe('Engine.admin() surfacing the app api', () => {
     it('rejects a function marker forged on a null-prototype custom prototype', () => {
       const prototype = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       AppConstructor.prototype = prototype;
       Object.defineProperty(prototype, 'constructor', {
         value: AppConstructor,
@@ -229,6 +236,7 @@ describe('Engine.admin() surfacing the app api', () => {
     it('rejects an inherited bound constructor', () => {
       const prototype = Object.create(null) as Record<string, unknown>;
       function AppConstructor() {}
+
       Object.defineProperty(prototype, 'constructor', {
         value: AppConstructor.bind(null),
         writable: true,

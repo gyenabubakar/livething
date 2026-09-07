@@ -20,6 +20,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -191,6 +192,7 @@ describe('online signal resets attempt counter', () => {
     vi.advanceTimersByTime(999);
     expect(socket_instanceCount()).toBe(2);
     vi.advanceTimersByTime(1);
+
     expect(socket_instanceCount()).toBe(3);
   });
 
@@ -248,6 +250,7 @@ describe('shouldReconnect precedence', () => {
         shouldReconnect: (_code: number, _reason: string): boolean | void => false,
       }),
     };
+
     const { ws, socket } = build(reconnection({ shouldReconnect: () => true }), vetoer);
     ws.serverClose(1006);
     expect(socket.state.get()).toBe('closed');
@@ -261,6 +264,7 @@ describe('shouldReconnect precedence', () => {
         shouldReconnect: (_code: number, _reason: string): boolean | void => true,
       }),
     };
+
     const { ws, socket } = build(reconnection({ nonRetryableCodes: [4003] }), approver);
     ws.serverClose(4003);
     expect(socket.state.get()).toBe('reconnecting');
@@ -281,6 +285,7 @@ describe('reconnect policy error isolation (#18)', () => {
     );
     socket.onError((error) => errors.push(error));
     socket.connect();
+
     MockWebSocket.last().open();
 
     MockWebSocket.last().serverClose(1006);
@@ -357,6 +362,7 @@ describe('socket.reconnection store', () => {
     MockWebSocket.last().serverClose(1006);
     vi.advanceTimersByTime(60_000);
     MockWebSocket.last().serverClose(1006);
+
     vi.advanceTimersByTime(60_000);
 
     const info = socket.reconnection.get();

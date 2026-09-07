@@ -95,6 +95,7 @@ describe('engine shutdown', () => {
     });
     engine.core.trackBackgroundWork(pendingAfterSend);
     let shutdownFinished = false;
+
     const shutdown = engine.handleShutdown().then(() => {
       shutdownFinished = true;
     });
@@ -123,6 +124,7 @@ describe('engine shutdown', () => {
     });
     engine.core.trackBackgroundWork(pending);
     let shutdownHookFinished = false;
+
     engine.core.hooks.shutdown.push(() => {
       shutdownHookFinished = true;
     });

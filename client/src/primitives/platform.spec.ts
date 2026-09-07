@@ -28,6 +28,7 @@ function mockEnvironment() {
       return netUnsub;
     },
   });
+
   return {
     environment: instance,
     visUnsub,
@@ -45,6 +46,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -89,6 +91,7 @@ describe('background disconnect', () => {
     m.setVisible(true);
     m.setVisible(false);
     vi.advanceTimersByTime(999);
+
     expect(socket.state.get()).toBe('open');
     vi.advanceTimersByTime(1);
     expect(socket.state.get()).toBe('closed');
@@ -129,6 +132,7 @@ describe('background disconnect', () => {
     const un1 = socket.on('message', () => undefined);
     socket.on('message', () => undefined);
     MockWebSocket.last().open();
+
     expect(socket.state.get()).toBe('open');
 
     m.setVisible(false);

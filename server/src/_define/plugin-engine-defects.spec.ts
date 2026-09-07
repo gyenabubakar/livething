@@ -28,6 +28,7 @@ function outgoingRuntime(compiled: any) {
 function findPrimitive(primitives: readonly any[], wskit: string, event: string) {
   const found = primitives.find((p) => p.__wskit === wskit && p.event === event);
   if (!found) throw new Error(`no ${wskit} primitive for ${event}`);
+
   return found;
 }
 
@@ -109,6 +110,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
         throw new WSKitError('not-mine', { x: 1 });
       },
     });
+
     return plugin('acme:auth', {
       handler: h.assemble({ handlers: [sync, asyncDeny, undeclared] }),
     })();
@@ -178,6 +180,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
     const go = h.on('go', { input: v.object({}), run: original });
     const { __primitives } = plugin('acme:plain', { handler: h.assemble({ handlers: [go] }) })();
     const incoming = findPrimitive(__primitives, 'incoming', '__acme:plain::go');
+
     incoming.handler({ id: 'c1' }, {});
     expect(original).toHaveBeenCalledTimes(1);
   });

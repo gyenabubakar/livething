@@ -23,6 +23,7 @@ export function compileResumableStreamDef(
       `[wskit] No handler assembled for resumableStream('${def.name}'). Include the value returned by base.resumableStream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   if (def.onDisconnect === 'keep-running' && !def.broadcast) {
     throw new Error(
       `[wskit] resumableStream('${def.name}') has onDisconnect: 'keep-running' but broadcast is off. ` +
@@ -32,6 +33,7 @@ export function compileResumableStreamDef(
         `the chunks it missed.`,
     );
   }
+
   return resumableGenerateFactory({
     event: def.name,
     validator: def.payload,

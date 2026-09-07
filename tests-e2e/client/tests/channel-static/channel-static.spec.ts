@@ -54,6 +54,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed');
     await page.getByTestId('unsub-room').click();
+
     await expect(page.getByTestId('status-log')).toHaveText('subscribing,subscribed,unsubscribed');
   });
 
@@ -63,6 +64,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(page.getByTestId('subscribed')).toHaveText('yes');
     await page.getByTestId('start-stream').click();
     await expect(page.getByTestId('stream-chunks')).toHaveText('0,1,2');
+
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
@@ -96,6 +98,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
     await alice.page.getByTestId('disconnect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('closed');
+
     await alice.page.getByTestId('connect').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
@@ -122,6 +125,7 @@ test.describe('channel-static (conformance)', () => {
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
     await alice.page.getByTestId('hide').click();
     await expect(alice.page.getByTestId('status')).toHaveText('closed');
+
     await alice.page.getByTestId('show').click();
     await expect(alice.page.getByTestId('status')).toHaveText('open');
     await expect(alice.page.getByTestId('subscribed-count')).toHaveText('2');

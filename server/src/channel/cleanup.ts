@@ -30,8 +30,10 @@ export function reconcileMembershipOnBoot(
   let dropped = 0;
   for (const pair of pairs) {
     if (isPairDurable(pair.channelName, pair.channelFamily)) continue;
+
     deleteMembershipsByChannel(sql, pair.channelName, pair.channelFamily);
     dropped++;
   }
+
   return dropped;
 }

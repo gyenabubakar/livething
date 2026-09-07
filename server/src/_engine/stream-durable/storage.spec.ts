@@ -25,6 +25,7 @@ describe('durable-stream/storage', () => {
     expect(row).not.toBeNull();
     expect(row!.kind).toBe('recorded');
     expect(row!.status).toBe('active');
+
     expect(row!.maxChunks).toBe(10);
   });
 
@@ -47,6 +48,7 @@ describe('durable-stream/storage', () => {
         now: 1_000 + seq,
       });
     }
+
     const chunks = Storage.readChunksSince(sql, { userId: 'u-1', streamId: 's-1', since: 2 });
     expect(chunks.map((c) => c.seq)).toEqual([3, 4, 5]);
   });
@@ -142,6 +144,7 @@ describe('durable-stream/storage', () => {
       kind: 'recorded' as const,
       now: 1_000,
     };
+
     Storage.insertStream(sql, input);
     // A second insert on the same (user_id, stream_id) hits the real PRIMARY
     // KEY constraint, which the helper surfaces as StreamIdCollision.

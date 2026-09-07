@@ -116,6 +116,7 @@ test.describe('channel-dynamic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     // Bob subscribes to BOTH channels so he's the positive-signal receiver
@@ -125,6 +126,7 @@ test.describe('channel-dynamic', () => {
     await b.getByTestId('sub-vip').click();
     await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
     await expect(b.getByTestId('subscribe-ok')).toContainText('room:general');
+
     await expect(b.getByTestId('subscribe-ok')).toContainText('room:vip');
 
     // Alice publishes to general. Bob (on both) MUST see it on general —
@@ -146,11 +148,13 @@ test.describe('channel-dynamic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
     await a.getByTestId('sub-general').click();
     await b.getByTestId('sub-general').click();
     await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
+
     await expect(b.getByTestId('subscribe-ok')).toContainText('room:general');
 
     await a.getByTestId('send-general').click();
@@ -168,6 +172,7 @@ test.describe('channel-dynamic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await a.getByTestId('sub-general').click();
     await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
@@ -188,6 +193,7 @@ test.describe('channel-dynamic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await a.getByTestId('sub-general').click();
     await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
@@ -244,6 +250,7 @@ test.describe('channel-dynamic', () => {
     const errors = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -254,6 +261,7 @@ test.describe('channel-dynamic', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({
           event: '__subscribe__',
@@ -263,6 +271,7 @@ test.describe('channel-dynamic', () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 300));
       ws.onmessage = original;
+
       return got.filter((message) => message.event === '__error__');
     });
 
@@ -363,14 +372,17 @@ test.describe('channel-dynamic', () => {
             }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
             ws.onerror = (e) => reject(e);
           });
         }
+
         const a = await open('slow-user-a');
         const b = await open('slow-user-b');
+
         return { a, b };
       },
       { room },
@@ -386,6 +398,7 @@ test.describe('channel-dynamic', () => {
           payload: {},
           __wskit: { channel: `room:${room}`, channelFamily: 'room' },
         };
+
         handles.a!.ws.send(JSON.stringify(frame));
         handles.b!.ws.send(JSON.stringify(frame));
       },
@@ -519,6 +532,7 @@ test.describe('channel-dynamic', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
 
@@ -547,6 +561,7 @@ test.describe('channel-dynamic', () => {
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -557,12 +572,14 @@ test.describe('channel-dynamic', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       const polluted = JSON.parse(
         '{"event":"__subscribe__","payload":{"__proto__":{"role":"admin"}},"__wskit":{"channel":"proto:x","channelFamily":"proto-probe"}}',
       );
       ws.send(JSON.stringify(polluted));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return got;
     });
 
@@ -582,6 +599,7 @@ test.describe('channel-dynamic', () => {
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -592,6 +610,7 @@ test.describe('channel-dynamic', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({
           event: '__subscribe__',
@@ -601,6 +620,7 @@ test.describe('channel-dynamic', () => {
       );
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return got;
     });
 
@@ -624,6 +644,7 @@ test.describe('channel-dynamic', () => {
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -634,6 +655,7 @@ test.describe('channel-dynamic', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({
           event: 'trigger-server-subscribe-dynamic',
@@ -644,8 +666,10 @@ test.describe('channel-dynamic', () => {
       while (Date.now() < deadline) {
         if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room:auto'))
           break;
+
         await new Promise((r) => setTimeout(r, 20));
       }
+
       return got;
     });
 
@@ -728,8 +752,10 @@ test.describe('channel-dynamic', () => {
               const members = (m.payload.members as { connectionId: string }[] | undefined) ?? [];
               for (const mb of members) ids.add(mb.connectionId);
             }
+
             if (m.event === '__memberJoin__') ids.add(String(m.payload.connectionId));
           }
+
           return ids;
         }
 
@@ -742,6 +768,7 @@ test.describe('channel-dynamic', () => {
             banned.every((s) => s.messages.some((m) => m.event === '__error__'));
           const complete = allowed.every((s) => seenIds(s).size >= allowedCount - 1);
           if (settled && complete) break;
+
           await new Promise((r) => setTimeout(r, 50));
         }
 
@@ -750,6 +777,7 @@ test.describe('channel-dynamic', () => {
         const bannedErr = banned.map((s) => s.messages.some((m) => m.event === '__error__'));
         const seenCounts = allowed.map((s) => seenIds(s).size);
         const unionSeen = new Set<string>();
+
         for (const s of allowed) for (const id of seenIds(s)) unionSeen.add(id);
 
         return { allowedOk, bannedOk, bannedErr, seenCounts, unionSize: unionSeen.size };

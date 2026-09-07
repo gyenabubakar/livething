@@ -31,6 +31,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 

@@ -56,6 +56,7 @@ describe('tag member index', () => {
     const eng = createConnection('eng');
     const sales = createConnection('sales');
     addConnectionTag(tagMembers, eng, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, sales, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
     const runtime = createRuntime(tagMembers, sent);
@@ -86,6 +87,7 @@ describe('tag member index', () => {
     const a = createConnection('a');
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
     buildGroupHandle(createRuntime(tagMembers, sent), a, { kind: 'ephemeral', group: 'team' }).send(
@@ -142,6 +144,7 @@ describe('group handle reflection methods', () => {
     const a = createConnection('a');
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
@@ -162,6 +165,7 @@ describe('group handle reflection methods', () => {
     const b = createConnection('b');
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
     addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
+
     addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
     const runtime = createRuntime(tagMembers, []);

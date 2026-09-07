@@ -21,6 +21,7 @@ async function startCapture(page: Page) {
     const ws = w.__ws!;
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') return;
+
       w.__frames!.push(JSON.parse(ev.data));
     });
   });

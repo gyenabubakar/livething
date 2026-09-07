@@ -42,6 +42,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -81,6 +82,7 @@ describe('request/runtime', () => {
       logger: { error },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -130,6 +132,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -167,6 +170,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -203,6 +207,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -235,6 +240,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const request = {
       __wskit: 'request',
@@ -267,6 +273,7 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline: vi.fn(() => true),
     };
+
     const connection = createConnection();
     let seen: string | undefined;
     const request = {
@@ -301,9 +308,11 @@ describe('request/runtime', () => {
       logger: { error: vi.fn() },
       sendThroughPipeline,
     };
+
     const connection = createConnection();
     const shared = new Map<PropertyKey, unknown>();
     const key = Symbol('provided');
+
     const ctx = {
       provide(localKey: PropertyKey, value: unknown) {
         shared.set(localKey, value);
@@ -312,6 +321,7 @@ describe('request/runtime', () => {
         return shared.get(localKey);
       },
     };
+
     ctx.provide(key, { tag: 'top' });
     const request = {
       __wskit: 'request',

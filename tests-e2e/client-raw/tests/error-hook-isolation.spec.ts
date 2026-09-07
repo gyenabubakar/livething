@@ -24,6 +24,7 @@ test.describe('error-hook-isolation', () => {
       }[] = [];
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data !== 'string') return;
+
         received.push(JSON.parse(ev.data));
       });
       ws.send(
@@ -40,8 +41,10 @@ test.describe('error-hook-isolation', () => {
           (m) => m.event === '__error__' && m.__wskit?.correlationId === correlationId,
         );
         if (match) return match;
+
         await new Promise((r) => setTimeout(r, 25));
       }
+
       return null;
     });
 

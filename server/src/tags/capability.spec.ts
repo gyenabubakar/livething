@@ -14,6 +14,7 @@ function tagGroupsPrimitive(
     (p) => p.__wskit === 'tag-groups' && (p as { kind?: string }).kind === kind,
   );
   if (!found) throw new Error(`no ${kind} tag-groups primitive`);
+
   return found as unknown as TagGroupsPrimitive;
 }
 
@@ -31,6 +32,7 @@ describe('tags() capability', () => {
     const primitive = tagGroupsPrimitive(handler.primitives, 'ephemeral');
     expect(primitive.groups.map((g) => g.name)).toEqual(['role', 'color']);
     expect(primitive.groups.find((g) => g.name === 'role')?.schema).toBeUndefined();
+
     expect(primitive.groups.find((g) => g.name === 'color')?.schema).toBeDefined();
   });
 

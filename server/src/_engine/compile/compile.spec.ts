@@ -301,6 +301,7 @@ describe('boot-time same-kind duplicate guard', () => {
     roomA.on('msg', { run() {} });
     const roomB = base.channel('room', {});
     roomB.on('msg2', { run() {} });
+
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [roomA, roomB] }))).toThrow(
       /Duplicate channel declaration for "room"/,
     );

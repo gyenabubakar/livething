@@ -32,6 +32,7 @@ function mockEnvironment() {
       };
     },
   });
+
   return {
     environment: instance,
     visUnsub,
@@ -57,6 +58,7 @@ function makeSignalCapture(signal: 'visibility' | 'online' = 'visibility'): {
       return { id: 'signal-capture' };
     },
   };
+
   return { primitive, received };
 }
 
@@ -68,6 +70,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -192,11 +195,13 @@ describe('signal handler isolation (#20)', () => {
         return { id: 'signal-thrower' };
       },
     };
+
     const { socket } = build(
       platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
       thrower,
       second.primitive,
     );
+
     socket.onError((error) => errors.push(error));
 
     m.setOnline(true);

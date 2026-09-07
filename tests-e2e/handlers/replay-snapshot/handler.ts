@@ -22,6 +22,7 @@ function reduceSnapshot(
   next: ReplaySnapshotValue,
 ): ReplaySnapshotValue | null {
   if (next.event === 'doc-deleted') return null;
+
   if (next.event !== 'counter-snapshot') return next;
 
   const previousTotal = previous?.event === 'counter-snapshot' ? Number(previous.payload.total) : 0;
@@ -95,6 +96,7 @@ export const handleBurstCounter = base.on('burst-counter', {
     for (let i = 0; i < payload.count; i += 1) {
       ctx.send('counter-snapshot', { key: payload.key, total: 1 });
     }
+
     ctx.send('burst-done', { key: payload.key, sent: payload.count });
   },
 });

@@ -47,7 +47,9 @@ function connected() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   socket.on('message', () => {});
+
   return ws;
 }
 
@@ -61,6 +63,7 @@ function trafficFor(count: number): string[] {
         : JSON.stringify({ event: `__${ids[i % 5]}::tick`, payload: { n: i } }),
     );
   }
+
   return frames;
 }
 

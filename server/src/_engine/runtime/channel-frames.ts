@@ -74,6 +74,7 @@ export function getChannelMembers(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelFamily),
   );
   if (!members) return [];
+
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 

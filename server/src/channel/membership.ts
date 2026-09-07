@@ -33,6 +33,7 @@ type SubscribeFromServerFn = (ref: PublicApi.ConnectionRef, opts: OptsParameter)
  */
 export function persistMembership(core: EngineCore, key: MembershipKey): void {
   if (!key.userId) return;
+
   ChannelStorage.insertMembership(core.storage.sql, key);
 }
 
@@ -43,6 +44,7 @@ export function persistMembership(core: EngineCore, key: MembershipKey): void {
  */
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!key.userId) return;
+
   ChannelStorage.deleteMembership(core.storage.sql, key);
 }
 
@@ -52,6 +54,7 @@ export function deleteDurableMembership(core: EngineCore, key: MembershipKey): v
  */
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
   if (!key.userId) return false;
+
   return ChannelStorage.membershipExists(core.storage.sql, key);
 }
 
@@ -69,6 +72,7 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
 
   for (const connection of core.connections.values()) {
     if (connection.userId !== userId) continue;
+
     for (const membership of connection.channelMemberships.values()) {
       channels.set(
         ChannelPrimitive.createChannelMembershipKey(
@@ -93,6 +97,7 @@ export async function purgeChannelMembership(core: EngineCore, userId: string): 
     id: userId,
     instance: core.engineInstanceId,
   };
+
   for (const { channelName, channelFamily } of channels.values()) {
     await core.channelService?.kickChannelMembers(core, {
       channelName,
@@ -127,6 +132,7 @@ export async function autoRejoinIdentity(
           instance: core.engineInstanceId,
           userId: target.userId,
         };
+
         return subscribeFromServer(ref, opts);
       },
       sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),

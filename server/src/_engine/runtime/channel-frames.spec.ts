@@ -87,6 +87,7 @@ describe('getChannelMembers scope isolation', () => {
     const familyMember = createConnection('family');
     const otherFamilyMember = createConnection('other');
     addMembership(channelMembers, staticMember, { channelName: 'lobby', channelFamily: null });
+
     addMembership(channelMembers, familyMember, { channelName: 'lobby', channelFamily: 'rooms' });
     addMembership(channelMembers, otherFamilyMember, {
       channelName: 'lobby',

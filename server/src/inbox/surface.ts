@@ -55,6 +55,7 @@ export function buildInboxSurface<
           receivedThrough: row.receivedThrough,
           oldestHeldAt: row.oldestHeldAt,
         };
+
         const entry: InboxBacklogEntry = lastSeen
           ? { ...base, lastSeenAt: lastSeen.at(row.userId) }
           : base;

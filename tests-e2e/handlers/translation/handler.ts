@@ -23,6 +23,7 @@ const foreignProtocol = translator(() => {
     input: ForeignFrame,
     inbound(frame) {
       if (frame.name === 'throw') throw new Error('inbound failure');
+
       if (frame.name === 'echo') {
         const body = frame.body as { text: string };
         return JSON.stringify({
@@ -30,11 +31,13 @@ const foreignProtocol = translator(() => {
           payload: { text: body.text, translatorSequence: ++sequence },
         });
       }
+
       return JSON.stringify({ event: frame.name, payload: {} });
     },
     outbound(outgoing) {
       const frame = JSON.parse(outgoing) as { event: string; payload: unknown };
       if (frame.event === 'outbound-throw') throw new Error('outbound failure');
+
       return JSON.stringify({ type: 'message', name: frame.event, body: frame.payload });
     },
   };

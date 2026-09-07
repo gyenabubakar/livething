@@ -8,8 +8,11 @@ type Quality = 'excellent' | 'good' | 'degraded' | 'poor';
 /** Map a round-trip time in milliseconds to a readable connection quality. */
 function qualityFromLatency(latency: number): Quality {
   if (latency < 100) return 'excellent';
+
   if (latency < 300) return 'good';
+
   if (latency < 1000) return 'degraded';
+
   return 'poor';
 }
 
@@ -100,6 +103,7 @@ export function createKeepaliveMonitor(
   return {
     watch(connectionId) {
       if (watched.has(connectionId)) return;
+
       if (!supervise) return;
 
       const connection: WatchedConnection = { recentLatencies: [], latency: null };
@@ -110,6 +114,7 @@ export function createKeepaliveMonitor(
 
     touch(connectionId) {
       if (!supervise) return;
+
       engine.refreshConnectionIdleTimeout(connectionId, timings.idleTimeoutMs);
     },
 

@@ -131,24 +131,32 @@ async function runAdminBuiltIn(
   switch (op) {
     case 'connection-count':
       return admin.connectionCount();
+
     case 'list-connections':
       return (await admin.listConnections()).map((info) => ({
         id: info.id,
         userId: info.userId,
         hasRef: 'ref' in info,
       }));
+
     case 'send-to-connection':
       return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
+
     case 'send-to-user':
       return admin.sendToUser(userId, 'notified', { text });
+
     case 'close-user':
       return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
+
     case 'broadcast':
       return admin.broadcast('announced', { text }) ?? null;
+
     case 'channel-broadcast':
       return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
+
     case 'channel-members':
       return (await admin.channelMembers(channel)).map((info) => info.userId);
+
     case 'channel-kick':
       return (
         (await admin.channelKick(
@@ -157,6 +165,7 @@ async function runAdminBuiltIn(
           { reason: 'admin kick' },
         )) ?? null
       );
+
     default:
       return UNKNOWN_OP;
   }
@@ -288,10 +297,12 @@ export default {
       const admin = await env.ADMIN_SERVER.get(id).admin();
       const text = url.searchParams.get('text') ?? '';
       const userId = url.searchParams.get('userId') ?? '';
+
       const channel = url.searchParams.get('channel') ?? 'lobby';
 
       const result = await runAdminOp(admin, op, { text, userId, channel, url });
       if (result === UNKNOWN_OP) return new Response(`unknown admin op: ${op}`, { status: 404 });
+
       return Response.json({ result });
     }
 
@@ -302,10 +313,12 @@ export default {
       const admin = await env.ADMIN_SERVER.get(id).admin();
       const text = url.searchParams.get('text') ?? '';
       const userId = url.searchParams.get('userId') ?? '';
+
       const channel = url.searchParams.get('channel') ?? 'lobby';
 
       const result = await runAdminBuiltIn(admin, op, { text, userId, channel, url });
       if (result === UNKNOWN_OP) return new Response(`unknown builtin op: ${op}`, { status: 404 });
+
       return Response.json({ result });
     }
 
@@ -332,6 +345,7 @@ export default {
       } catch {
         /* ctx.abort() tears down the instance, so the RPC stub rejects — expected. */
       }
+
       return new Response(null, { status: 204 });
     }
 
@@ -342,6 +356,7 @@ export default {
       } catch {
         /* expected — see above */
       }
+
       return new Response(null, { status: 204 });
     }
 
@@ -352,6 +367,7 @@ export default {
       } catch {
         /* expected — see above */
       }
+
       return new Response(null, { status: 204 });
     }
 
@@ -362,6 +378,7 @@ export default {
       } catch {
         /* expected — see above */
       }
+
       return new Response(null, { status: 204 });
     }
 
@@ -411,6 +428,7 @@ export default {
       } catch {
         /* expected — ctx.abort() tears down the instance */
       }
+
       return new Response(null, { status: 204 });
     }
 
@@ -421,6 +439,7 @@ export default {
       } catch {
         /* expected — see above */
       }
+
       return new Response(null, { status: 204 });
     }
 

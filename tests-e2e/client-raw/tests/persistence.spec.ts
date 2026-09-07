@@ -30,6 +30,7 @@ async function installRig(page: Page) {
       const ws = new WebSocket(url);
       sockets.set(id, ws);
       frames.set(id, []);
+
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
           try {
@@ -39,6 +40,7 @@ async function installRig(page: Page) {
           }
         }
       });
+
       return new Promise((resolve, reject) => {
         ws.addEventListener('open', () => resolve({ id, frames: frames.get(id)! }));
         ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -88,8 +90,10 @@ async function waitForFrame(
     const all = await frames(page, id);
     const found = all.find(match);
     if (found) return found;
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('frame not received in time');
 }
 
@@ -477,6 +481,7 @@ test.describe('persistence', () => {
           };
           w.__anon ??= new Map();
           const frames: WireFrame[] = [];
+
           w.__anon.set(sid, { ws, frames });
           ws.addEventListener('message', (ev) => {
             if (typeof ev.data === 'string') {
@@ -487,6 +492,7 @@ test.describe('persistence', () => {
               }
             }
           });
+
           return new Promise<void>((resolve, reject) => {
             ws.addEventListener('open', () => resolve());
             ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -543,8 +549,10 @@ test.describe('persistence', () => {
         subscribed = true;
         break;
       }
+
       await page.waitForTimeout(50);
     }
+
     expect(subscribed).toBe(true);
 
     await closeAnon('a1');
@@ -611,6 +619,7 @@ test.describe('persistence', () => {
           };
           w.__anon ??= new Map();
           const frames: WireFrame[] = [];
+
           w.__anon.set(sid, { ws, frames });
           ws.addEventListener('message', (ev) => {
             if (typeof ev.data === 'string') {
@@ -621,6 +630,7 @@ test.describe('persistence', () => {
               }
             }
           });
+
           return new Promise<void>((resolve, reject) => {
             ws.addEventListener('open', () => resolve());
             ws.addEventListener('error', () => reject(new Error('ws error')));

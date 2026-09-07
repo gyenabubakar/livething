@@ -8,12 +8,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-meta?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -23,11 +25,13 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'who-am-i-result') echoed = data.payload?.username ?? '';
 			if (data.event === 'members-list-result') {
 				membersList = (data.payload?.members ?? []).join(', ');
 			}
+
 			if (data.event === 'broadcast-identity-received') {
 				broadcastReceived = data.payload?.from ?? '';
 			}

@@ -73,17 +73,20 @@ export function createStore<T>(
     store,
     set(next) {
       if (Object.is(next, value)) return;
+
       value = next;
 
       // Listeners are read before any of them runs, so subscribing from inside
       // one only takes effect on the next change. A single listener — the common
       // case for a framework binding — gets there without copying the set.
       if (listeners.size === 0) return;
+
       if (listeners.size === 1) {
         const only = listeners.values().next().value;
         if (only) notify(only, value, onListenerError);
         return;
       }
+
       for (const listener of [...listeners]) notify(listener, value, onListenerError);
     },
   };

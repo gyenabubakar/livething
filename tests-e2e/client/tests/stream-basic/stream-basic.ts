@@ -45,11 +45,13 @@ export function setup(): void {
     const handle = await socket.stream('start-tokens', { count: 3 });
     el('stream-ok').textContent = 'yes';
     el('stream-id').textContent = handle.streamId;
+
     const indices: number[] = [];
     for await (const chunk of handle) {
       indices.push(chunk.index);
       el('chunk-indices').textContent = indices.join(',');
     }
+
     el('stream-end').textContent = 'yes';
   });
 
@@ -81,9 +83,11 @@ export function setup(): void {
     const handle = await socket.stream('start-empty', {});
     el('stream-ok').textContent = 'yes';
     const indices: number[] = [];
+
     for await (const chunk of handle) {
       indices.push(chunk.index);
     }
+
     el('chunk-indices').textContent = indices.join(',');
     el('stream-end').textContent = 'yes';
   });
@@ -98,6 +102,7 @@ export function setup(): void {
       count += 1;
       break;
     }
+
     el('break-count').textContent = String(count);
   });
 
@@ -118,6 +123,7 @@ export function setup(): void {
     for await (const chunk of one) void chunk;
     const two = await socket.stream('start-tokens', { count: 1 });
     el('stream-id-2').textContent = two.streamId;
+
     for await (const chunk of two) void chunk;
     el('ids-distinct').textContent = one.streamId !== two.streamId ? 'yes' : 'no';
   });

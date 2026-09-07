@@ -26,11 +26,14 @@ export function setup(): void {
     // marker, and stamps order '-1' so declaration order can be proven.
     intercept((message) => {
       if (message.event !== 'echoed') return;
+
       const payload = message.payload as { text: string };
       if (payload.text === 'top:rewrite-me') {
         return { ...message, payload: { text: 'rewritten-by-client' } };
       }
+
       if (payload.text === 'top:block-me') throw Block;
+
       if (payload.text === 'top:order-me') {
         return { ...message, payload: { text: `${payload.text}-1` } };
       }
@@ -39,6 +42,7 @@ export function setup(): void {
     // never see a blocked frame.
     intercept((message) => {
       if (message.event !== 'echoed') return;
+
       const payload = message.payload as { text: string };
       if (payload.text === 'top:order-me-1') {
         return { ...message, payload: { text: `${payload.text}-2` } };

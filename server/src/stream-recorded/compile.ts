@@ -23,6 +23,7 @@ export function compileRecordedStreamDef(
       `[wskit] No handler assembled for recordedStream('${def.name}'). Include the value returned by base.recordedStream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   return recordedGenerateFactory({
     event: def.name,
     validator: def.payload,

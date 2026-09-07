@@ -14,6 +14,7 @@ test.describe('surface-area gaps', () => {
     for (let i = 0; i < 3; i += 1) {
       await send(page, a, { event: 'tick', payload: {} });
     }
+
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'tock').length >= 3,
@@ -30,6 +31,7 @@ test.describe('surface-area gaps', () => {
     const topErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
+
     expect(topErrors.length).toBeGreaterThanOrEqual(1);
 
     // Layer 2 — channel cap (rooms channel max=50, looser than contract).

@@ -36,6 +36,7 @@ function buildAccess(
  */
 export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () => unknown): void {
   if (core.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
+
   core.installedFeatures.add(SCHEDULED_RUNTIME_KEY);
 
   registerAlarmSource(core, SCHEDULED_RUNTIME_KEY, () => {
@@ -43,6 +44,7 @@ export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () =
     for (const run of core.scheduledRuns.values()) {
       if (next === null || run.time < next) next = run.time;
     }
+
     return next;
   });
 

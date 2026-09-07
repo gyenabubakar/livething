@@ -19,6 +19,7 @@ describe('assertPositiveInteger', () => {
     } catch (error) {
       captured = error;
     }
+
     expect(isWSKitConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/maxChunks.*must be a positive safe integer/);
   });
@@ -84,6 +85,7 @@ describe('assertOneOf', () => {
     } catch (error) {
       captured = error;
     }
+
     expect(isWSKitConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/durability.*must be one of 'strict', 'best-effort'/);
   });

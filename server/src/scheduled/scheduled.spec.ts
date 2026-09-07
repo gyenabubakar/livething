@@ -5,6 +5,7 @@ import { scheduled } from './scheduled.ts';
 describe('scheduled', () => {
   it('creates a handler-backed scheduled primitive', () => {
     function handler() {}
+
     const dataSchema = v.object({ roomId: v.string() });
     const primitive = scheduled('cleanup', (t) => t.data(dataSchema).retry(true).run(handler));
 
@@ -13,6 +14,7 @@ describe('scheduled', () => {
     expect(primitive.__identity[1]).toBe('cleanup');
     expect(primitive.__requires).toEqual({});
     expect(primitive.handler).toBe(handler);
+
     expect(primitive.hasData).toBe(true);
     expect(primitive.dataSchema).toBe(dataSchema);
     expect(primitive.options).toEqual({
@@ -22,6 +24,7 @@ describe('scheduled', () => {
 
   it('creates no-data tasks without a data schema', () => {
     function handler() {}
+
     const primitive = scheduled('cleanup', (t) => t.retry(false).run(handler));
 
     expect(primitive.handler).toBe(handler);
@@ -36,6 +39,7 @@ describe('scheduled', () => {
 
   describe('.every() input validation', () => {
     function handler() {}
+
     function build(value: number) {
       return () => scheduled('tick', (t) => t.every(value).run(handler));
     }
@@ -67,6 +71,7 @@ describe('scheduled', () => {
 
   describe('.retry([...]) input validation', () => {
     function handler() {}
+
     function build(value: readonly number[]) {
       return () => scheduled('tick', (t) => t.retry(value).run(handler));
     }

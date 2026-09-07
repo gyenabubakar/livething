@@ -15,8 +15,10 @@ async function waitForRawFrame(
       const frame = JSON.parse(raw) as Record<string, unknown>;
       if (match(frame)) return frame;
     }
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('timed out waiting for frame');
 }
 
@@ -34,6 +36,7 @@ async function closeAfterForeignFrame(
         ws.onopen = () => ws.send(JSON.stringify(currentFrame));
         ws.onclose = (event) => resolve(event.code);
         ws.onerror = () => reject(new Error('WebSocket failed'));
+
         setTimeout(() => reject(new Error('timed out waiting for close')), 5_000);
       }),
     { currentPath: path, currentRoom: room, currentFrame: frame },

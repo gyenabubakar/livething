@@ -41,6 +41,7 @@ function getState(platform: Platform): NodePluginState {
     };
     stateByServer.set(platform.server, state);
   }
+
   return state;
 }
 
@@ -101,6 +102,7 @@ h.onConnect((ctx) => {
     username: typeof meta.username === 'string' ? meta.username : null,
     tags: (self?.tags ?? []).map((tag) => ({ group: tag.group, key: tag.key })),
   };
+
   ctx.send('drizzle-ready', { tables: ['records'] });
 });
 
@@ -222,6 +224,7 @@ h.scheduled('drizzle-flaky', {
     const state = getState(ctx.platform as Platform);
     state.flakyAttempts++;
     if (state.flakyAttempts < 3) throw new Error('module flaky failure');
+
     ctx.broadcast('plugin-flaky-result', { attempts: state.flakyAttempts });
     state.flakyAttempts = 0;
   },

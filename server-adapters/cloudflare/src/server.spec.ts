@@ -127,6 +127,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     function ref(kind: 'ephemeral', group: string, key: string) {
       return { __wskit: 'tag-ref' as const, kind, group, key };
     }
+
     fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
@@ -149,6 +150,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
       { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
     ]);
     expect(fake.calls.create).toHaveLength(1);
+
     expect(fake.calls.create[0]).toMatchObject({
       logger: expect.any(Object),
       platform: expect.any(Object),
@@ -271,6 +273,7 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(state.acceptWebSocket).toHaveBeenCalledTimes(1);
     expect(state.acceptWebSocket.mock.calls[0]![0]).toBe(server);
     expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
+
     expect(server.accept).not.toHaveBeenCalled();
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
@@ -494,6 +497,7 @@ describe('engine wiring in the constructor', () => {
     expect(fake.engine.setInstanceId).toHaveBeenCalledWith('fake-instance');
     expect(engineOptions.storage).toBeDefined();
     expect(engineOptions.platform).toMatchObject({ env });
+
     expect(engineOptions.timers).toBeDefined();
     expect(engineOptions.logger).toBeDefined();
 
@@ -524,6 +528,7 @@ describe('engine wiring in the constructor', () => {
     fake.setRestoreFailure(failure);
     const sockA = { tag: 'a' } as unknown;
     const sockB = { tag: 'b' } as unknown;
+
     const state = makeFakeDOState({ getWebSockets: vi.fn(() => [sockA, sockB]) });
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const ready = (instance as unknown as { ready: Promise<void> }).ready;
@@ -568,6 +573,7 @@ describe('engine wiring in the constructor', () => {
     function onUnhandled(reason: unknown) {
       unhandled.push(reason);
     }
+
     const processLike = (
       globalThis as unknown as {
         process: {
@@ -717,6 +723,7 @@ describe('WSKitDurableObject admin()', () => {
       ctx: DurableObjectState,
       env: unknown,
     ) => DOInstance;
+
     const instance = new Cls(makeFakeDOState() as unknown as DurableObjectState, {});
     const admin = await instance.admin();
     admin.broadcast('evt', { n: 1 });

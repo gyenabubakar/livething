@@ -34,7 +34,9 @@ export async function openMember(browser: Browser, opts: OpenOptions): Promise<M
   await page.goto(`${opts.path}?room=${opts.room}`);
   await page.getByTestId('username').fill(opts.username);
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('connected');
+
   return { page, close: () => ctx.close() };
 }
 

@@ -46,18 +46,21 @@ export function assertValidWSKitIdentifier(
   if (typeof name !== 'string' || name.length === 0) {
     throw new Error(`[wskit] ${kind} must be a non-empty string.`);
   }
+
   if (name.startsWith('__')) {
     throw new Error(
       `[wskit] ${kind} '${name}' starts with the reserved '__' prefix. ` +
         `That prefix is reserved for wskit protocol and plugin identifiers — pick a different name.`,
     );
   }
+
   if (name.endsWith('__')) {
     throw new Error(
       `[wskit] ${kind} '${name}' ends with the reserved '__' suffix. ` +
         `That suffix is reserved for wskit protocol identifiers — pick a different name.`,
     );
   }
+
   if (maxLength !== undefined && name.length > maxLength) {
     throw new Error(
       `[wskit] ${kind} is ${name.length} characters; the wire protocol limit is ${maxLength}. ` +

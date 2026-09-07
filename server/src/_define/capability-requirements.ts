@@ -84,10 +84,12 @@ export function resolveCapabilityRequirements(
       if (!inPlugin) {
         for (const kind of primitive.__requiresCapabilities ?? []) {
           if (present.has(kind) || channelLocal?.has(kind)) continue;
+
           if (options.scoped && HOST_ONLY_CAPABILITY_KINDS.has(kind)) {
             hostDependencies.add(kind);
             continue;
           }
+
           const name = capabilityDisplayName(kind);
           // A channel-only capability (inbox, readReceipts) can only ever be
           // listed inside a channel's own `capabilities`; a host-only one
@@ -104,13 +106,16 @@ export function resolveCapabilityRequirements(
               ? `this channel's capabilities, or to define({ capabilities: [...] })`
               : 'capabilities';
           }
+
           throw new Error(
             `[wskit] The ${name} capability is required by ${neededBy(primitives, kind)} but is not listed. Add ${name} to ${where}.`,
           );
         }
       }
+
       const nested = nestedPrimitives(primitive);
       if (nested.length === 0) continue;
+
       walk(
         nested,
         primitive.__wskit === 'channel' ? channelCapabilityKinds(primitive) : channelLocal,
@@ -120,6 +125,7 @@ export function resolveCapabilityRequirements(
   }
 
   walk(primitives, undefined, false);
+
   return { hostDependencies: [...hostDependencies] };
 }
 

@@ -54,6 +54,7 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-2', channelName: 'admin', channelFamily: null }, 3000);
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(1);
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(2);
+
     expect(listMembershipsByUser(sql, 'unknown')).toHaveLength(0);
   });
 
@@ -63,6 +64,7 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-2', channelName: 'lobby', channelFamily: null }, 3000);
     purgeMembershipsByUser(sql, 'u-1');
     expect(listMembershipsByUser(sql, 'u-1')).toHaveLength(0);
+
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(1);
   });
 
@@ -72,6 +74,7 @@ describe('channel membership storage', () => {
     insertMembership(sql, { userId: 'u-3', channelName: 'lobby', channelFamily: null }, 3000);
     insertMembership(sql, { userId: 'u-1', channelName: 'room', channelFamily: 'room:42' }, 4000);
     deleteMembershipsByChannel(sql, 'lobby', null);
+
     expect(listMembershipsByUser(sql, 'u-1').map((r) => r.channelName)).toEqual(['room']);
     expect(listMembershipsByUser(sql, 'u-2')).toHaveLength(0);
     expect(listMembershipsByUser(sql, 'u-3')).toHaveLength(0);

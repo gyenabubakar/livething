@@ -30,6 +30,7 @@ async function installRig(page: Page) {
       const ws = new WebSocket(url);
       sockets.set(id, ws);
       frames.set(id, []);
+
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
           try {
@@ -39,6 +40,7 @@ async function installRig(page: Page) {
           }
         }
       });
+
       return new Promise((resolve, reject) => {
         ws.addEventListener('open', () => resolve({ id, frames: frames.get(id)! }));
         ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -59,15 +61,19 @@ async function connect(page: Page, username: string, room: string): Promise<stri
     [username, room],
   );
 }
+
 async function send(page: Page, id: string, frame: WireFrame) {
   await page.evaluate(([sid, f]) => window.__wsSend!(sid, f as WireFrame), [id, frame] as const);
 }
+
 async function close(page: Page, id: string) {
   await page.evaluate((sid) => window.__wsClose!(sid), id);
 }
+
 async function frames(page: Page, id: string): Promise<WireFrame[]> {
   return page.evaluate((sid) => window.__wsFrames!(sid), id);
 }
+
 async function waitForFrame(
   page: Page,
   id: string,
@@ -79,8 +85,10 @@ async function waitForFrame(
     const all = await frames(page, id);
     const found = all.find(match);
     if (found) return found;
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('frame not received in time');
 }
 
@@ -111,6 +119,7 @@ test.describe('typed tags', () => {
     });
     await page.waitForTimeout(100);
     await send(page, c, { event: 'list-my-tags', payload: {} });
+
     const list = await waitForFrame(page, c, (f) => f.event === 'tags-list');
     const tagList = list.payload.tags as { kind: string; group: string; key: string }[];
     expect(tagList).toContainEqual({ kind: 'ephemeral', group: 'role', key: 'admin' });
@@ -128,6 +137,7 @@ test.describe('typed tags', () => {
     });
     await page.waitForTimeout(150);
     await close(page, c1);
+
     await page.waitForTimeout(200);
 
     const c2 = await connect(page, 'alice', room);
@@ -152,6 +162,7 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
     });
+
     await page.waitForTimeout(100);
 
     const carol = await connect(page, 'carol', room);
@@ -216,6 +227,7 @@ test.describe('typed tags', () => {
       event: 'add-tag',
       payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
     });
+
     await page.waitForTimeout(100);
 
     await send(page, alice, { event: 'count-by-tag', payload: { group: 'role', key: 'admin' } });
@@ -260,6 +272,7 @@ test.describe('typed tags', () => {
     expect(stats.payload.has).toBe(true);
     expect(stats.payload.count).toBe(2);
     expect(stats.payload.connections).toBe(2);
+
     expect((stats.payload.keys as string[]).sort()).toEqual(['admin', 'viewer']);
 
     // A key alice does not hold reports has=false but the group totals stay.
@@ -311,6 +324,7 @@ test.describe('typed tags', () => {
       event: 'remove-tag',
       payload: { kind: 'persistent', group: 'favorite', key: 'room-99' },
     });
+
     await page.waitForTimeout(120);
     await close(page, c1);
     await page.waitForTimeout(200);

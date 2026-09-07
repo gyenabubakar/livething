@@ -32,6 +32,7 @@ describe('rateLimit primitive', () => {
     } catch (err) {
       caught = err;
     }
+
     expect(RateLimited.matches(caught)).toBe(true);
     expect(caught.detail.retryAfterMs).toBeGreaterThanOrEqual(1_000);
   });

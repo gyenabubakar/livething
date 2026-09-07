@@ -33,6 +33,7 @@ test.describe('purgeUser resilience (Worker→DO stub, real Durable Object)', ()
         `/ws/admin/purge?room=${encodeURIComponent(currentRoom)}&userId=carol`,
         { method: 'POST' },
       );
+
       return { closed: await closed, status: res.status };
     }, room);
 
@@ -75,6 +76,7 @@ test.describe('purgeUser resilience (Worker→DO stub, real Durable Object)', ()
       });
       const closed = await targetClosed;
       await new Promise((r) => setTimeout(r, 500));
+
       return { closed, bystanderClosed, bystanderState: bystander.readyState };
     }, room);
 

@@ -88,6 +88,7 @@ function encode(value: unknown): string {
 
 function decode(value: string): unknown {
   if (value === 'undefined') return undefined;
+
   return JSON.parse(value) as unknown;
 }
 

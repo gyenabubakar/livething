@@ -13,12 +13,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-kv?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -28,11 +30,13 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'kv-result') {
 				const { key, value } = data.payload ?? {};
 				lastValueForKey = { ...lastValueForKey, [key]: value === null ? 'null' : String(value) };
 			}
+
 			if (data.event === 'kv-list-result') {
 				listKeys = data.payload?.keys ?? [];
 			}
@@ -42,18 +46,23 @@
 	function kvSet(key: string, value: string, ttlMs?: number) {
 		ws?.send(JSON.stringify({ event: 'kv-set', payload: { key, value, ttlMs } }));
 	}
+
 	function kvGet(key: string) {
 		ws?.send(JSON.stringify({ event: 'kv-get', payload: { key } }));
 	}
+
 	function kvDelete(key: string) {
 		ws?.send(JSON.stringify({ event: 'kv-delete', payload: { key } }));
 	}
+
 	function kvSetGet(key: string, value: string) {
 		ws?.send(JSON.stringify({ event: 'kv-set-get', payload: { key, value } }));
 	}
+
 	function kvListProbe(prefix: string) {
 		ws?.send(JSON.stringify({ event: 'kv-list-probe', payload: { prefix } }));
 	}
+
 	function kvTtlZeroProbe(key: string, value: string) {
 		ws?.send(JSON.stringify({ event: 'kv-ttl-zero-probe', payload: { key, value } }));
 	}

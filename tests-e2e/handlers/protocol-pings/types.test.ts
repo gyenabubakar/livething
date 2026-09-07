@@ -8,6 +8,7 @@ describe('ProtocolPingsClient — no-any guard', () => {
     expectTypeOf<ProtocolPingsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['streams']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['channels']>().not.toBeAny();
+
     expectTypeOf<ProtocolPingsClient['errors']>().not.toBeAny();
   });
 });

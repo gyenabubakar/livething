@@ -14,10 +14,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		closeCode = null;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/lifecycle-hooks?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -32,26 +34,33 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'connected') connectedUser = data.payload?.username ?? '';
 			if (data.event === 'disconnected') {
 				disconnectedUsers = [...disconnectedUsers, data.payload?.username ?? ''];
 			}
+
 			if (data.event === 'validation-error-fired') {
 				validationErrorFired = data.payload?.event ?? '';
 			}
+
 			if (data.event === 'error-fired') {
 				errorMessage = data.payload?.message ?? '';
 			}
+
 			if (data.event === 'upgrade-meta') {
 				upgradeMeta = data.payload?.username ?? '';
 			}
+
 			if (data.event === 'connect-count') {
 				connectCount = String(data.payload?.count ?? '');
 			}
+
 			if (data.event === 'async-hook-complete') {
 				asyncHookComplete = data.payload?.complete ? 'yes' : 'no';
 			}
+
 			if (data.event === 'disconnect-close') {
 				disconnectCloseEntries = [
 					...disconnectCloseEntries,

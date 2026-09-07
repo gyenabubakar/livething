@@ -92,6 +92,7 @@ const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
     let shutdownPromise: Promise<void> | undefined;
     const pendingUpgrades = new Set<Promise<void>>();
     const pendingUpgradeSockets = new Set<Duplex>();
+
     const signalHandlers = new Map<ShutdownSignal, () => void>();
 
     const engine = createEngine({
@@ -114,6 +115,7 @@ const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
       const task = ready
         .then(() => {
           if (shuttingDown) return;
+
           return upgrade(request, socket, head);
         })
         .catch((error: unknown) => {
@@ -151,6 +153,7 @@ const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
       for (const [signal, handler] of signalHandlers) {
         process.off(signal, handler);
       }
+
       signalHandlers.clear();
     }
 
@@ -194,6 +197,7 @@ const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
 
           if (startupError !== undefined) throw startupError;
         })();
+
         return shutdownPromise;
       },
     };
@@ -209,6 +213,7 @@ const buildServe = adapter<NodeServerOptions, NodeServer<unknown>>({
             });
           });
         }
+
         signalHandlers.set(signal, handler);
         process.once(signal, handler);
       }
@@ -235,6 +240,7 @@ function listen(server: Server, port: number | string, host?: string): Promise<v
 
 function closeServer(server: Server): Promise<void> {
   if (!server.listening) return Promise.resolve();
+
   return new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });

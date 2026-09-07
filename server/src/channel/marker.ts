@@ -28,6 +28,7 @@ export function membershipMarker(durable: boolean): MembershipMarkerPrimitive {
     __setup(engine) {
       const scope = engine.getScopeInfo();
       if (!scope.channelKey) return;
+
       engine.setChannelDurable(scope.channelKey, durable);
     },
   };

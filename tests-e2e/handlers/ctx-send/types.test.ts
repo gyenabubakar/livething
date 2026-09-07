@@ -8,6 +8,7 @@ describe('CtxSendClient — no-any guard', () => {
     expectTypeOf<CtxSendClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxSendClient['streams']>().not.toBeAny();
     expectTypeOf<CtxSendClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxSendClient['errors']>().not.toBeAny();
   });
 });

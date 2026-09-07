@@ -8,6 +8,7 @@ describe('PluginsClient — no-any guard', () => {
     expectTypeOf<PluginsClient['clientRequests']>().not.toBeAny();
     expectTypeOf<PluginsClient['streams']>().not.toBeAny();
     expectTypeOf<PluginsClient['channels']>().not.toBeAny();
+
     expectTypeOf<PluginsClient['errors']>().not.toBeAny();
   });
 

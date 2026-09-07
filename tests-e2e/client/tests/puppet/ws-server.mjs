@@ -20,6 +20,7 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify({ count: counts.get(room) ?? 0 }));
     return;
   }
+
   res.writeHead(404);
   res.end();
 });
@@ -68,6 +69,7 @@ wss.on('connection', (ws, req) => {
       } catch {
         return;
       }
+
       if (frame.event === 'hello') {
         ws.send(
           JSON.stringify({
@@ -88,6 +90,7 @@ wss.on('connection', (ws, req) => {
       } catch {
         return;
       }
+
       if (frame.event === '__future:plugin::trigger-plugin-error') {
         ws.send(
           JSON.stringify({
@@ -111,20 +114,24 @@ wss.on('connection', (ws, req) => {
       if (behavior === 'pong') ws.send('pong');
       return;
     }
+
     let frame;
     try {
       frame = JSON.parse(data.toString());
     } catch {
       return;
     }
+
     // drop-on-demand: terminate when the client asks, so a test controls the
     // exact moment the socket dies (no timing races).
     if (frame.event === 'drop') {
       ws.terminate();
       return;
     }
+
     // pong server only answers pings — never echoes app frames.
     if (behavior === 'pong') return;
+
     // echo: bounce the payload back under a fixed event name.
     ws.send(JSON.stringify({ event: 'echoed', payload: frame.payload }));
   });

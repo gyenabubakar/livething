@@ -123,6 +123,7 @@ function readCursors(
 
   const loaded = queryCursors(sql, query);
   cache.set(key, loaded);
+
   return loaded;
 }
 
@@ -170,6 +171,7 @@ export function advanceReceivedThrough(
     },
     cache,
   );
+
   return { receivedThrough, readThrough: current.readThrough, changed: true };
 }
 
@@ -205,6 +207,7 @@ export function advanceReadThrough(
     },
     cache,
   );
+
   return { receivedThrough, readThrough, changed: true, receivedChanged };
 }
 

@@ -37,10 +37,13 @@ export function gaps(): GapsPrimitive {
           scopedHandlers = new Set();
           handlers.set(key, scopedHandlers);
         }
+
         scopedHandlers.add(callback);
         let active = true;
+
         return () => {
           if (!active) return;
+
           active = false;
           scopedHandlers.delete(callback);
           if (scopedHandlers.size === 0 && handlers.get(key) === scopedHandlers) {
@@ -62,9 +65,11 @@ export function gaps(): GapsPrimitive {
             const key = channel === undefined ? '' : channelKey(channelFamily, channel);
             const info: GapInfo = { missedThrough };
             if (channel !== undefined) info.channel = channel;
+
             if (channelFamily !== undefined) info.channelFamily = channelFamily;
             dispatchToHandlers(handlers.get(key), helpers.log, info);
           }
+
           return null;
         },
         install(socket) {

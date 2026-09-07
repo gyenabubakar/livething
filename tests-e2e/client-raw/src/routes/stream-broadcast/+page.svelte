@@ -11,15 +11,18 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		indices = [];
 		streamEnd = false;
 		roomIndices = [];
+
 		roomStreamEnd = false;
 		roomScopeSeen = '';
 		roomSubscribed = false;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-broadcast?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -32,17 +35,21 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === '__subscribeOk__' && data.__wskit?.channelFamily === 'rooms') {
 				roomSubscribed = true;
 			}
+
 			if (data.event === '__streamEnd__') {
 				if (data.__wskit?.channelFamily === 'rooms') roomStreamEnd = true;
 				else streamEnd = true;
 			}
+
 			if (data.event === 'start-broadcast' && typeof data.payload?.index === 'number') {
 				indices = [...indices, data.payload.index];
 			}
+
 			if (data.event === 'start-room-broadcast' && typeof data.payload?.index === 'number') {
 				roomIndices = [...roomIndices, data.payload.index];
 				if (typeof data.__wskit?.channelFamily === 'string') {

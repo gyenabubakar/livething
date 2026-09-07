@@ -53,6 +53,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'acknowledged-only',
     );
     const acknowledgedSeq = acknowledged.__wskit?.seq as number;
+
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: acknowledgedSeq },
@@ -71,6 +72,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
         __wskit: { channel: 'count' },
       });
     }
+
     await bob.page.waitForTimeout(300);
     const queued = await probe(bob.page);
     expect(queued.rows).toBe(2);
@@ -116,6 +118,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'acknowledged',
     );
     const acknowledgedSeq = acknowledged.__wskit?.seq as number;
+
     await send(alice.page, {
       event: '__received__',
       payload: { receivedThrough: acknowledgedSeq },
@@ -131,6 +134,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
         __wskit: { channel: 'count' },
       });
     }
+
     await bob.page.waitForTimeout(500);
     const queued = await probe(bob.page);
     expect(queued.rows).toBe(2);
@@ -144,6 +148,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     const missedThrough = gap.payload.missedThrough as number;
     expect(missedThrough).toBeGreaterThan(acknowledgedSeq);
     expect(missedThrough).toBe(queued.maxEvictedThrough);
+
     const surviving = await waitForFrame(
       alice.page,
       (frame) => frame.event === 'room-msg' && frame.payload.text === 'undelivered-3',
@@ -174,6 +179,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await closeSocket(alice.page);
     await reconnect(alice.page);
     await alice.page.waitForTimeout(100);
+
     expect((await frames(alice.page)).some((frame) => frame.event === '__gap__')).toBe(false);
 
     await alice.close();
@@ -233,6 +239,7 @@ test.describe('inbox retention (raw wire, real Cloudflare alarm)', () => {
     await closeSocket(alice.page);
     await reconnect(alice.page);
     await alice.page.waitForTimeout(200);
+
     expect((await frames(alice.page)).filter((frame) => frame.event === '__gap__')).toHaveLength(0);
 
     await alice.close();

@@ -8,6 +8,7 @@ describe('KeepaliveClient — no-any guard', () => {
     expectTypeOf<KeepaliveClient['clientRequests']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['streams']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['channels']>().not.toBeAny();
+
     expectTypeOf<KeepaliveClient['errors']>().not.toBeAny();
   });
 });

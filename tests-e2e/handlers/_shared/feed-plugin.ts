@@ -132,6 +132,7 @@ const echo = h.request('echo', {
   input: v.object({ text: v.string() }),
   run(_ctx, payload) {
     if (payload.text === 'boom') throw RoomFull({ limit: 5 });
+
     return { echoed: payload.text };
   },
 });

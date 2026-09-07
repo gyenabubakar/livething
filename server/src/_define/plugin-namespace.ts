@@ -79,9 +79,11 @@ function collectShortErrorCodes(primitives: readonly Primitive[]): Set<string> {
   const codes = new Set<string>();
   for (const primitive of primitives) {
     if (primitive.__wskit !== 'errors') continue;
+
     const defs = (primitive as unknown as { defs: ErrorDefWithFactory<string, any>[] }).defs;
     for (const def of defs) codes.add(def.code);
   }
+
   return codes;
 }
 
@@ -89,6 +91,7 @@ function collectShortErrorCodes(primitives: readonly Primitive[]): Set<string> {
 function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
   const { id, shortCodes } = scope;
   if (!EVENT_KINDS.has(primitive.__wskit)) return primitive;
+
   const event = (primitive as { event?: string }).event;
   if (event === undefined) return primitive;
 
@@ -113,6 +116,7 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
       nudges: stream.nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) })),
     };
   }
+
   const nudges = (primitive as { nudges?: { event: string }[] }).nudges;
   if (nudges) {
     copy.nudges = nudges.map((n) => ({ ...n, event: pluginWireName(id, n.event) }));
@@ -124,12 +128,14 @@ function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
       handler(scopePluginContext(id, ctx), payload),
     );
   }
+
   const run = (primitive as { run?: (ctx: any, ...rest: any[]) => unknown }).run;
   if (run) {
     copy.run = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
       run(scopePluginContext(id, ctx), ...rest),
     );
   }
+
   return copy as unknown as Primitive;
 }
 
@@ -192,6 +198,7 @@ function renamedServerRequests(
 
   for (const primitive of primitives) {
     if (primitive.__wskit !== 'server-requests') continue;
+
     const map = (primitive as { __serverRequests?: ReadonlyMap<string, ResolvedServerRequest> })
       .__serverRequests;
     if (!map || map.size === 0) continue;
@@ -207,8 +214,10 @@ function renamedServerRequests(
           : channelKey;
       next.set(serverRequestKey(nextChannelKey, pluginWireName(id, event)), value);
     }
+
     renamed.set(primitive, next);
   }
+
   return renamed;
 }
 
@@ -233,17 +242,26 @@ export function namespacePluginPrimitives(
         }
       ).__withServerRequests(declarations);
     }
+
     if ((primitive as { __scopedUpgrade?: boolean }).__scopedUpgrade) {
       return namespaceUpgrade(id, primitive);
     }
+
     const lifecycleKind = LIFECYCLE_KINDS[primitive.__wskit];
     if (lifecycleKind) return namespaceLifecycle(scope, lifecycleKind, primitive);
+
     if (primitive.__wskit === 'scheduled') return namespaceScheduled(scope, primitive);
+
     if (primitive.__wskit === 'channel') return namespaceChannel(scope, primitive);
+
     if (primitive.__wskit === 'tag-groups') return namespaceTagGroups(id, primitive);
+
     if (primitive.__wskit === 'errors') return namespaceErrors(id, primitive);
+
     if (primitive.__wskit === 'intercept') return ownHook(scope, primitive);
+
     if (primitive.__wskit === 'outgoingHook') return ownOutgoingHook(scope, primitive);
+
     return namespaceOne(scope, primitive);
   });
 }
@@ -289,6 +307,7 @@ function ownOutgoingHook(scope: PluginScope, primitive: Primitive): Primitive {
     origHandler(scopeHookCtx(id, ctx), frame),
   );
   const owner = { kind: 'plugin' as const, id };
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __owner: { kind: 'plugin', id },
@@ -309,6 +328,7 @@ function namespaceScheduled(scope: PluginScope, primitive: Primitive): Primitive
   const wireTask = pluginWireName(id, taskId);
   const [key] = primitive.__identity;
   const handler = (primitive as unknown as { handler: (ctx: any, data?: any) => unknown }).handler;
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     taskId: wireTask,
@@ -392,8 +412,11 @@ function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
     // throw its declared errors.
     primitives: channel.primitives.map((child) => {
       if (child.__wskit === 'intercept') return ownHook(scope, child);
+
       if (child.__wskit === 'outgoingHook') return ownOutgoingHook(scope, child);
+
       if (CHANNEL_LIFECYCLE_REGISTER[child.__wskit]) return scopeChannelLifecycle(scope, child);
+
       return namespaceOne(scope, child);
     }),
   } as unknown as Primitive;
@@ -415,6 +438,7 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
   const scoped = scopePluginThrow(id, shortCodes, (ctx: any, ...rest: any[]) =>
     handler(scopePluginContext(id, ctx), ...rest),
   );
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,
@@ -436,6 +460,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
     const [request, helpers] = args;
     const result = await handler(request, scopeUpgradeHelpers(id, helpers));
     if (!result?.tags) return result;
+
     return {
       ...result,
       tags: result.tags.map((ref) =>
@@ -443,6 +468,7 @@ function namespaceUpgrade(id: string, primitive: Primitive): Primitive {
       ),
     };
   }
+
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
     __plugin: id,

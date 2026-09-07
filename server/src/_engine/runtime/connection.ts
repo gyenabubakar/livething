@@ -140,11 +140,13 @@ function addConnectionToUserIndex(
 ): void {
   const key = userKeyOf(connection);
   if (key === null) return;
+
   let members = usersByKey.get(key);
   if (!members) {
     members = new Set();
     usersByKey.set(key, members);
   }
+
   members.add(connection);
 }
 
@@ -158,9 +160,12 @@ function removeConnectionFromUserIndex(
 ): void {
   const key = userKeyOf(connection);
   if (key === null) return;
+
   const members = usersByKey.get(key);
   if (!members) return;
+
   members.delete(connection);
+
   if (members.size === 0) usersByKey.delete(key);
 }
 
@@ -183,6 +188,7 @@ function rollbackConnectionIndexes(
   for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
     ChannelPrimitive.removeChannelMembership(runtime.channelMembers, connection, membership);
   }
+
   removeConnectionFromTagIndex(runtime.tagMembers, connection);
 }
 
@@ -308,9 +314,11 @@ function createHandle(
         await waitForLifecycle();
         const translated = translateInbound(runtime, connection, data);
         if (translated === undefined) return;
+
         await runtime.processTextMessage(connection, translated);
       } catch (error) {
         if (isTranslatorConfigError(error)) throw error;
+
         await reportCallbackError(error);
       }
     },
@@ -380,10 +388,12 @@ function rethrowTranslatorConfigError(
   // affected connection, then rethrow so the host process can see the error.
   markTranslatorConfigError(error);
   if (connection?.closing) throw error;
+
   if (connection) {
     connection.closing = true;
     connection.preserveStateOnClose = true;
   }
+
   descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] translator configuration failed');
   throw error;
 }
@@ -392,10 +402,12 @@ function assertTranslator(value: unknown): Translator {
   if (!value || typeof value !== 'object' || typeof (value as Translator).inbound !== 'function') {
     throw new WSKitConfigError('translator factory did not return inbound(raw).');
   }
+
   const translator = value as Translator;
   if (translator.outbound !== undefined && typeof translator.outbound !== 'function') {
     throw new WSKitConfigError('translator outbound must be a function when provided.');
   }
+
   if (
     translator.hibernation !== undefined &&
     (!translator.hibernation ||
@@ -407,6 +419,7 @@ function assertTranslator(value: unknown): Translator {
       'translator hibernation must provide both serialize() and restore().',
     );
   }
+
   return translator;
 }
 
@@ -415,6 +428,7 @@ function createTranslator(
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): Translator | null | undefined {
   if (!runtime.translatorFactory) return undefined;
+
   try {
     return assertTranslator(
       assertSynchronousResult(runtime.translatorFactory(), 'translator factory'),
@@ -445,6 +459,7 @@ function translatedDescriptor(
 ): EngineAdapterTypes.ConnectionDescriptor {
   const { runtime, descriptor, translator, getConnection } = options;
   if (!translator) return descriptor;
+
   const translated: EngineAdapterTypes.ConnectionDescriptor = {
     send(data) {
       if (getConnection()?.closing) return false;
@@ -459,6 +474,7 @@ function translatedDescriptor(
           if (translated !== null && typeof translated !== 'string') {
             throw new Error('[wskit] translator outbound must return a string or null.');
           }
+
           if (translated !== null) outgoing = translated;
         } catch (error) {
           const connection = getConnection();
@@ -480,6 +496,7 @@ function translatedDescriptor(
         closeForTranslationFailure({ runtime, descriptor, connection, stage: 'outbound', error });
         return false;
       }
+
       return descriptor.send(outgoing);
     },
     close(code, reason) {
@@ -490,11 +507,15 @@ function translatedDescriptor(
     },
     userId: descriptor.userId,
   };
+
   if (descriptor.backpressureSupported !== undefined) {
     translated.backpressureSupported = descriptor.backpressureSupported;
   }
+
   if (descriptor.meta !== undefined) translated.meta = descriptor.meta;
+
   if (descriptor.tags !== undefined) translated.tags = descriptor.tags;
+
   return translated;
 }
 
@@ -504,7 +525,9 @@ function translateInbound(
   data: string,
 ): string | undefined {
   if (connection.closing) return undefined;
+
   if (!connection.translator) return data;
+
   try {
     const translated = assertSynchronousResult(
       connection.translator.inbound(data),
@@ -513,8 +536,10 @@ function translateInbound(
     if (translated !== null && typeof translated !== 'string') {
       throw new Error('[wskit] translator inbound must return a string or null.');
     }
+
     runtime.persistAttachment(connection);
     if (connection.closing) return undefined;
+
     return translated ?? data;
   } catch (error) {
     rethrowTranslatorConfigError(error, connection.descriptor, connection);
@@ -548,6 +573,7 @@ export async function runConnectionLifecycle(
       for (const entry of runtime.pluginConnectHooks ?? []) {
         await entry.handler(ctx);
       }
+
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
       }
@@ -555,6 +581,7 @@ export async function runConnectionLifecycle(
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
       }
+
       // Outbound onion: the app tears down first, then plugins unwind LIFO.
       const disconnects = runtime.pluginDisconnectHooks ?? [];
       for (let i = disconnects.length - 1; i >= 0; i -= 1) {
@@ -577,16 +604,19 @@ export async function cancelActiveStreamsForConnection(
 ): Promise<void> {
   for (const activeStream of [...runtime.activeStreams.values()]) {
     if (activeStream.connectionId !== connectionId) continue;
+
     if (activeStream.onDisconnect === 'keep-running') {
       activeStream.detached = true;
       continue;
     }
+
     activeStream.closed = true;
     // Fire the stop signal before return() so slow awaited work tied to
     // ctx.stream.signal stops first; the generator's finally still runs.
     if (activeStream.abortController && !activeStream.abortController.signal.aborted) {
       activeStream.abortController.abort('aborted');
     }
+
     try {
       // A user-supplied generator may throw from its `finally` block. Log
       // and move on — the rest of connection-close cleanup (running
@@ -662,6 +692,7 @@ export async function handleConnectionClose(
   removeConnectionFromUserIndex(runtime.usersByKey, connection);
   pendingEvictions.delete(connection);
   runtime.wsToConnectionId.delete(connection.wsKey);
+
   if (!connection.preserveStateOnClose) {
     runtime.deleteConnectionState?.(connection.id);
   }
@@ -775,6 +806,7 @@ export function acceptConnection(
         normalizedDescriptor.close(CloseCodes.CAPACITY, 'connection limit reached for this user');
         return closedHandle();
       }
+
       // `replace`: evict the oldest connection(s) — set iteration is insertion
       // order — until admitting the newcomer would sit at the cap. The real
       // close event lands later, so the evicted socket is dropped from the
@@ -783,9 +815,11 @@ export function acceptConnection(
       let toEvict = held - usersPolicy.maxConnections + 1;
       for (const oldest of existing ?? []) {
         if (toEvict <= 0) break;
+
         // Removed from the index the moment it's picked, so it can never be
         // picked again by this or a later burst round.
         if (pendingEvictions.has(oldest)) continue;
+
         pendingEvictions.add(oldest);
         removeConnectionFromUserIndex(runtime.usersByKey, oldest);
         oldest.descriptor.close(CloseCodes.DUPLICATE, 'replaced by a newer connection');
@@ -816,6 +850,7 @@ export function acceptConnection(
 
   for (const ref of normalizedDescriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
+
     addConnectionTag(runtime.tagMembers, connection, {
       kind: 'ephemeral',
       group: ref.group,
@@ -842,6 +877,7 @@ export function acceptConnection(
     runtime.deleteConnectionState?.(connection.id);
     throw error;
   }
+
   connection.pendingWrites = { active: true };
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -875,6 +911,7 @@ export function acceptConnection(
         connection.pendingWrites.active = false;
         connection.pendingWrites = undefined;
       }
+
       runtime.persistAttachment(connection);
     });
 
@@ -895,12 +932,14 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
         key: tag.key,
       });
     }
+
     for (const membership of row?.ephemeral_memberships ?? []) {
       ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
         channelName: membership.channelName,
         channelFamily: membership.channelFamily,
       });
     }
+
     runtime.reloadPersistentTags?.(connection);
 
     for (const streamId of restoredStreamIds) {
@@ -916,6 +955,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
         runtime.deleteConnectionState?.(connection.id);
         return false;
       }
+
       if (sent !== false) connection.activeStreamIds?.delete(streamId);
     }
 
@@ -927,6 +967,7 @@ function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
         return false;
       }
     }
+
     return true;
   } catch (error) {
     rollbackConnectionIndexes(runtime, connection);
@@ -963,6 +1004,7 @@ export function wakeHibernatedConnection(
     wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] hibernation restore failed');
     throw error;
   }
+
   const attachmentId =
     attachment &&
     typeof attachment === 'object' &&
@@ -990,6 +1032,7 @@ export function wakeHibernatedConnection(
     wsLike.close?.(CloseCodes.INTERNAL_ERROR, '[wskit] duplicate hibernation connection id');
     throw new Error(`[wskit] hibernation restore found duplicate connection id "${id}".`);
   }
+
   const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
     __wskit: 'tag-ref' as const,
     kind: 'ephemeral' as const,
@@ -1026,6 +1069,7 @@ export function wakeHibernatedConnection(
     if (row) runtime.deleteConnectionState?.(row.connection_id);
     return closedHandle();
   }
+
   const translatorHibernation = translator?.hibernation;
   if (translatorHibernation) {
     try {
@@ -1107,12 +1151,15 @@ export async function handleUpgrade(
               'A user id has exactly one owner per connection — the app or one plugin, never both.',
           );
         }
+
         userIdOwner = owner;
         resolvedUserId = result.userId;
       }
+
       if (result.meta) {
         mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
       }
+
       if (result.tags) {
         for (const ref of result.tags) {
           if (ref.kind === 'persistent') {
@@ -1120,27 +1167,33 @@ export async function handleUpgrade(
               `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
             );
           }
+
           if (!runtime.isTagGroupDeclared('ephemeral', ref.group)) {
             throw new Error(
               `[wskit] onUpgrade returned an ephemeral tag for group '${ref.group}', which is not declared under tags (ephemeral). Add it to the tags(...) capability or check for a typo.`,
             );
           }
+
           mergedTags.push(ref);
         }
       }
     }
+
     for (const entry of pluginUpgradeHooks) {
       apply(
         (await entry.handler(request, runtime.upgradeHelpers)) ?? {},
         `plugin '${entry.pluginId}'`,
       );
     }
+
     for (const hook of runtime.upgradeHooks) {
       apply((await hook(request, runtime.upgradeHelpers)) ?? {}, 'an internal hook');
     }
+
     if (runtime.builderUpgradeHook) {
       apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {}, 'the app');
     }
+
     return {
       userId: resolvedUserId,
       meta: mergedMeta,
@@ -1160,6 +1213,7 @@ export async function handleUpgrade(
           reason: (error as { reason: string }).reason,
         };
       }
+
       runtime.logger?.error('[wskit] invalid upgrade rejection code; rejecting with HTTP 403', {
         code,
       });
@@ -1252,6 +1306,7 @@ export async function handleShutdown(
   for (const connection of draining) {
     connection.descriptor.close(CloseCodes.GOING_AWAY, 'Server shutting down');
   }
+
   await Promise.all(
     draining.map(async (connection) => {
       try {

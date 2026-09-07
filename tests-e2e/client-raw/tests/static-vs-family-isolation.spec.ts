@@ -28,6 +28,7 @@ async function startCapture(page: Page) {
     const ws = w.__ws!;
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data !== 'string') return;
+
       w.__frames!.push(JSON.parse(ev.data));
     });
   });
@@ -67,6 +68,7 @@ test.describe('static-vs-family-isolation', () => {
     const ctxB = await browser.newContext();
     const ctxC = await browser.newContext();
     const a = await ctxA.newPage();
+
     const b = await ctxB.newPage();
     const c = await ctxC.newPage();
 
@@ -75,6 +77,7 @@ test.describe('static-vs-family-isolation', () => {
     await setupClient(c, 'carol', room);
     await startCapture(a);
     await startCapture(b);
+
     await startCapture(c);
 
     await subscribeStatic(a, 'general');
@@ -124,6 +127,7 @@ test.describe('static-vs-family-isolation', () => {
     const ctxB = await browser.newContext();
     const ctxC = await browser.newContext();
     const a = await ctxA.newPage();
+
     const b = await ctxB.newPage();
     const c = await ctxC.newPage();
 
@@ -132,6 +136,7 @@ test.describe('static-vs-family-isolation', () => {
     await setupClient(c, 'admin', room);
     await startCapture(a);
     await startCapture(b);
+
     await startCapture(c);
 
     // Both A and B carry the same self-applied tag 'troll'.
@@ -199,6 +204,7 @@ test.describe('static-vs-family-isolation', () => {
     const ctxB = await browser.newContext();
     const ctxC = await browser.newContext();
     const a = await ctxA.newPage();
+
     const b = await ctxB.newPage();
     const c = await ctxC.newPage();
 
@@ -207,6 +213,7 @@ test.describe('static-vs-family-isolation', () => {
     await setupClient(c, 'admin2', room);
     await startCapture(a);
     await startCapture(b);
+
     await startCapture(c);
 
     await send(a, { event: 'tag-self', payload: { tag: 'goblin' } });

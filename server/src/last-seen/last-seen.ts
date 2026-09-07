@@ -33,6 +33,7 @@ function resolveLastSeenOptions(config: LastSeenOptions): ResolvedLastSeenOption
   });
   const throttleMs = config.throttleMs ?? DEFAULT_LAST_SEEN_THROTTLE_MS;
   assertPositiveInteger(throttleMs, 'throttleMs', 'lastSeen()');
+
   return { track, throttleMs };
 }
 
@@ -116,6 +117,7 @@ function stampFromContext(engine: EngineAccess, ctx: unknown): void {
   ];
   const userId = connection?.userId ?? '';
   if (!userId) return;
+
   stampLastSeen(engine.storage.sql, { userId, now: Date.now() });
 }
 
@@ -130,9 +132,11 @@ function registerActivityStamp(engine: EngineAccess, throttleMs: number): void {
   engine.onMessageActivity((connectionId) => {
     const userId = engine.getConnectionIdentity(connectionId);
     if (!userId) return;
+
     const now = Date.now();
     const previous = lastStampByUserId.get(userId);
     if (previous !== undefined && now - previous < throttleMs) return;
+
     lastStampByUserId.set(userId, now);
     stampLastSeen(engine.storage.sql, { userId, now });
   });

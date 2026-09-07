@@ -217,6 +217,7 @@ everything.channel('room').onStream('ch-stream', { onChunk: () => {} });
 interface ReceiveOnly {
   incoming: { tick: { n: number } };
 }
+
 const recv = client<ReceiveOnly>()(connect('wss://example.com'));
 recv.on('tick', (data) => expectTypeOf(data).toEqualTypeOf<{ n: number }>());
 // @ts-expect-error — no outgoing, so send() is missing
@@ -225,15 +226,18 @@ recv.send;
 interface PingApiTypeFn extends TypeFn {
   readonly _api: { ping(): number };
 }
+
 function pingPrimitive(): Primitive<PingApiTypeFn> {
   return { _tag: 'ping-test' };
 }
+
 const withApi = client<ReceiveOnly>()(connect('wss://example.com'), pingPrimitive());
 expectTypeOf(withApi.ping()).toBeNumber();
 
 function noop(): Primitive<EmptyTypeFn> {
   return { _tag: 'noop-test' };
 }
+
 const plain = client<ReceiveOnly>()(connect('wss://example.com'), noop());
 // @ts-expect-error — noop adds no methods
 plain.ping;
@@ -241,6 +245,7 @@ plain.ping;
 function needsChannels(): Primitive<EmptyTypeFn, { channels: Record<string, any> }> {
   return { _tag: 'needs-channels' };
 }
+
 // @ts-expect-error — ReceiveOnly has no `channels`
 client<ReceiveOnly>()(connect('wss://example.com'), needsChannels());
 
@@ -333,6 +338,7 @@ interface MixedFamily {
     };
   };
 }
+
 const mixedFamily = client<MixedFamily>()(connect('wss://example.com'), channels(), inbox());
 const mixedFamilyMember = mixedFamily.channel('rooms', 'general');
 expectTypeOf(mixedFamilyMember.receivers.get()).toEqualTypeOf<ReadonlyMap<string, number>>();

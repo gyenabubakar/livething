@@ -59,6 +59,7 @@ function makeTagGroupBuilder<TKind extends TagKind>(kind: TKind): TagGroupBuilde
       schema: isStandardSchema(type) ? type : undefined,
     };
   }
+
   return builder as TagGroupBuilder<TKind>;
 }
 
@@ -92,6 +93,7 @@ function validateGroupRegistrations(kind: TagKind, groups: readonly TagGroupRegi
   if (groups.length === 0) {
     throw new Error(`[wskit] tagGroups('${kind}', ...) requires at least one group name.`);
   }
+
   const seen = new Set<string>();
   for (const { name } of groups) {
     assertValidWSKitIdentifier(name, `tagGroups('${kind}', ...) name`);
@@ -100,6 +102,7 @@ function validateGroupRegistrations(kind: TagKind, groups: readonly TagGroupRegi
         `[wskit] tagGroups('${kind}', ...): '${name}' declared twice in the same call.`,
       );
     }
+
     seen.add(name);
   }
 }

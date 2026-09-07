@@ -65,6 +65,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
           };
           channels.set(key, state);
         }
+
         return state;
       }
 
@@ -72,8 +73,10 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
         const state = stateFor(key);
         const previous = state.byUserId.get(userId) ?? 0;
         if (readThrough <= previous) return;
+
         state.byUserId.set(userId, readThrough);
         state.store.set(projectCursor(state.byUserId));
+
         for (const listener of [...state.listeners]) {
           try {
             listener(userId, readThrough);
@@ -96,11 +99,13 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
         onIncoming(message) {
           const channel = message.__wskit?.channel;
           if (channel === undefined) return message;
+
           const key = channelKey(message.__wskit?.channelFamily, channel);
 
           if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
             if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
               return message;
+
             clearScope(key);
             return message;
           }
@@ -114,6 +119,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
             if (typeof payload?.userId === 'string' && typeof payload.readThrough === 'number') {
               applyRead(key, payload.userId, payload.readThrough);
             }
+
             return null;
           }
 
@@ -123,6 +129,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
               if (seq > (ownReceived.get(key) ?? 0)) ownReceived.set(key, seq);
             }
           }
+
           return message;
         },
 
@@ -147,6 +154,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
                 }) ?? null;
               if (status?.get() === 'failed') clearScope(key, state);
             }
+
             const readApi: ChannelReadReceiptsApi = {
               readers: { get: state.store.store.get, subscribe: state.store.store.subscribe },
               onRead: (callback) => {
@@ -169,6 +177,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
                 });
               },
             };
+
             Object.assign(messaging, readApi);
           });
         },
@@ -183,6 +192,7 @@ function projectCursor(byUserId: ReadonlyMap<string, number>): CursorList {
   for (const [userId, cursor] of byUserId) {
     if (cursor > 0) list.set(userId, cursor);
   }
+
   return list;
 }
 

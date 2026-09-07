@@ -40,6 +40,7 @@ describe('isReservedEventName', () => {
     expect(isReservedEventName('__error__')).toBe(true);
     expect(isReservedEventName('')).toBe(true);
     expect(isReservedEventName('chat')).toBe(false);
+
     expect(isReservedEventName('ping-pong')).toBe(false);
   });
 

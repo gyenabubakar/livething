@@ -99,6 +99,7 @@ export function createUpgradeHandler(options: NodeUpgradeHandlerOptions): NodeUp
           '[wskit] connection setup failed',
         );
       }
+
       throw error;
     }
   };

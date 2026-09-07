@@ -34,6 +34,7 @@ function buildWithStream(opts?: StreamOptions) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -42,6 +43,7 @@ function buildWithStreamAndChannels(opts?: StreamOptions) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -61,6 +63,7 @@ async function start(
     __wskit: { streamId: sid, streamKind: options?.streamKind ?? 'ephemeral' },
   });
   const handle = await promise;
+
   return { handle, sid };
 }
 
@@ -416,6 +419,7 @@ describe('broadcast terminal-frame routing (eventName)', () => {
     const endFeedB = vi.fn();
     const errAskAi = vi.fn();
     socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi, onError: errAskAi });
+
     socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
 
     ws.emit({

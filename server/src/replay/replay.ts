@@ -106,12 +106,14 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     assertOptionalPositiveInteger(opts.retention.maxAgeMs, 'retention.maxAgeMs', 'replay()');
     assertOptionalPositiveInteger(opts.retention.maxMessages, 'retention.maxMessages', 'replay()');
   }
+
   if (opts.durability !== undefined) {
     assertOneOf(opts.durability, ['strict', 'best-effort'] as const, {
       field: 'durability',
       context: 'replay()',
     });
   }
+
   if (opts.type !== undefined) {
     assertOneOf(opts.type, ['history', 'snapshot'] as const, {
       field: 'type',
@@ -257,6 +259,7 @@ class ReplayInstaller {
       ) {
         return {};
       }
+
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.assertReplaySendContract(event, payload, {
           channel: scope.channelName ?? undefined,

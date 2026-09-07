@@ -53,6 +53,7 @@ describe('chunkForBind', () => {
     } catch (error) {
       captured = error;
     }
+
     expect(isWSKitConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/10/);
     expect(String(captured)).toMatch(/11/);

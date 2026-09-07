@@ -80,6 +80,7 @@ function buildEngine(options: ServerOptions = {}): Engine {
     },
   });
   server(handler, {} as never);
+
   return engine;
 }
 
@@ -89,6 +90,7 @@ async function connect(engine: Engine) {
   const handle = engine.accept(Symbol('ws'), socket.descriptor);
   // `accept` starts the connect lifecycle without awaiting it.
   await Promise.resolve();
+
   return { socket, handle };
 }
 

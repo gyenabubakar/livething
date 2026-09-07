@@ -19,12 +19,14 @@ export function serializeJsonOrThrow(value: unknown, context: string): string {
         `A toJSON() method that returns undefined is the usual cause.`,
     );
   }
+
   return json;
 }
 
 /** Parse a nullable JSON storage value, recovering to undefined when it is invalid. */
 export function parseJsonOrUndefined(value: string | null): unknown {
   if (value === null) return undefined;
+
   try {
     return JSON.parse(value) as unknown;
   } catch {

@@ -17,16 +17,19 @@
 		streamEnd = false;
 		pauseTopLevelLeak = '';
 		lastError = '';
+
 		lastErrorStreamId = '';
 		nudgeSawEvents = '';
 	}
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		reset();
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-nudges?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -40,6 +43,7 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
@@ -54,22 +58,28 @@
 							}),
 						);
 					}
+
 					break;
+
 				case '__streamEnd__':
 					streamEnd = true;
 					break;
+
 				case 'start-nudge-stream':
 					if (typeof data.payload?.token === 'string') tokens += data.payload.token;
 					break;
+
 				case 'pause-top-level-fired':
 					pauseTopLevelLeak = String(data.payload?.leak ?? '');
 					break;
+
 				case 'nudge-saw': {
 					const events = Array.isArray(data.payload?.events) ? data.payload.events : [];
 					// Append per iteration so the test can assert across multiple drains.
 					nudgeSawEvents += (nudgeSawEvents ? '|' : '') + events.join(',');
 					break;
 				}
+
 				case '__error__':
 					lastError = String(data.payload?.code ?? '');
 					lastErrorStreamId = String(data.__wskit?.streamId ?? '');
@@ -82,9 +92,11 @@
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-nudge-stream', payload: { prompt } }));
 	}
+
 	function pause() {
 		ws?.send(JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }));
 	}
+
 	function startThenPause() {
 		reset();
 		autoPauseOnStreamOk = true;
@@ -95,6 +107,7 @@
 			}),
 		);
 	}
+
 	function pauseMultiple(count: number) {
 		for (let i = 0; i < count; i++) {
 			ws?.send(
@@ -102,11 +115,13 @@
 			);
 		}
 	}
+
 	function speedUp(factor: number) {
 		ws?.send(
 			JSON.stringify({ event: 'speed-up', payload: { factor }, __wskit: { streamId: lastStreamId } }),
 		);
 	}
+
 	function malformedPause() {
 		ws?.send(
 			JSON.stringify({

@@ -19,6 +19,7 @@ function buildDedup() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -37,6 +38,7 @@ describe('dedup', () => {
     socket.on('trade', handler);
     ws.emit({ event: 'trade', payload: { id: 'a' }, __wskit: { messageId: 'm1' } });
     ws.emit({ event: 'trade', payload: { id: 'a' }, __wskit: { messageId: 'm1' } });
+
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -46,6 +48,7 @@ describe('dedup', () => {
     socket.on('trade', handler);
     ws.emit({ event: 'trade', payload: { id: 'a' } });
     ws.emit({ event: 'trade', payload: { id: 'a' } });
+
     expect(handler).toHaveBeenCalledTimes(2);
   });
 });
@@ -63,6 +66,7 @@ describe('replay', () => {
       const first = MockWebSocket.last();
       first.open();
       first.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { seq: 5 } });
+
       first.serverClose(1006, 'dropped');
 
       vi.advanceTimersByTime(1500);

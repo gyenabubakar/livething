@@ -68,6 +68,7 @@ function scopeMatches(
   envelope: WSKitEnvelope | undefined,
 ): boolean {
   if (!scope) return envelope?.channel === undefined;
+
   return scope.channel === envelope?.channel && scope.channelFamily === envelope?.channelFamily;
 }
 
@@ -139,6 +140,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function startChunkTimer(state: StreamState): void {
         if (state.timer) clearTimeout(state.timer);
         if (timeout <= 0) return;
+
         state.timer = setTimeout(() => {
           helpers.log.info(`stream '${state.streamId}' timed out`);
           finishStream(state, Timeout());
@@ -150,15 +152,18 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // stream that already released its hold on a drop can't double-release.
       function finishStream(state: StreamState, error?: unknown): void {
         if (!state.active) return;
+
         state.active = false;
         if (state.timer) clearTimeout(state.timer);
         state.timer = null;
         if (state.resumeTimer) clearTimeout(state.resumeTimer);
+
         state.resumeTimer = null;
         streams.delete(state.streamId);
         resumeOutbox.delete(state.streamId);
         cancelOutbox.delete(state.streamId);
         releaseStreamHold(state);
+
         if (error) state.queue.abort(error);
         else state.queue.end();
       }
@@ -169,11 +174,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // be corrupted for unrelated consumers.
       function acquireStreamHold(state: StreamState): void {
         if (state.hasLazyHold) return;
+
         state.hasLazyHold = true;
         helpers.lazyAcquire();
       }
+
       function releaseStreamHold(state: StreamState): void {
         if (!state.hasLazyHold) return;
+
         state.hasLazyHold = false;
         helpers.lazyRelease();
       }
@@ -184,19 +192,24 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function failTrigger(streamId: string, error: unknown): void {
         const trigger = triggers.get(streamId);
         if (!trigger) return;
+
         if (trigger.timer) clearTimeout(trigger.timer);
         triggers.delete(streamId);
         triggerOutbox.delete(streamId);
+
         helpers.lazyRelease();
         trigger.reject(error);
       }
 
       function settleNudge(id: string | undefined, run: (pending: PendingNudge) => void): void {
         if (id === undefined) return;
+
         const pending = pendingNudges.get(id);
         if (!pending) return;
+
         if (pending.timer) clearTimeout(pending.timer);
         pendingNudges.delete(id);
+
         run(pending);
       }
 
@@ -214,8 +227,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           const { event, payload } = details;
           const eventError = wireIdError(event, event, 'event');
           if (eventError) return Promise.reject(eventError);
+
           const streamNudgeId = idGenerator(helpers)('nudge');
           let result: SendResult;
+
           try {
             result = helpers.rawSend({
               // A plugin stream's nudge event needs the same `__id::` prefix its
@@ -230,9 +245,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             // turn a throw into a rejection so nudge() always returns a Promise.
             return Promise.reject(error);
           }
+
           // Not open: fail fast rather than drop the frame and wait out the timeout.
           if (result !== 'sent') return Promise.reject(Disconnected());
+
           const timeoutMs = details.timeout ?? nudgeTimeout;
+
           return new Promise<void>((resolve, reject) => {
             const timer =
               timeoutMs > 0
@@ -250,6 +268,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             payload: {},
             __wskit: { streamId: state.streamId, ...state.markers },
           };
+
           const result = helpers.rawSend(frame);
           // Connecting/reconnecting: hold the cancel and keep the stream alive so its
           // durable row isn't orphaned. It flushes (and the stream finishes) on open.
@@ -257,6 +276,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             cancelOutbox.set(state.streamId, frame);
             return;
           }
+
           finishStream(state); // a cancel ends the loop without throwing
         },
       };
@@ -272,13 +292,16 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const idError =
           wireIdError(event, event, 'event') ?? wireIdError(event, streamId, 'streamId');
         if (idError) return Promise.reject(idError);
+
         helpers.ensureConnected();
         helpers.lazyAcquire();
         const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
+
         const owner: FrameOwner = {
           isPending: () => triggers.has(streamId),
           reject: (error) => failTrigger(streamId, error),
         };
+
         // Send through the normal path so buffering can take it — queued while
         // offline, or held behind a draining staggered flush so it keeps order. With
         // no buffering, hold it only while a connect is in progress (flushed on
@@ -292,6 +315,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           // throws synchronously — its contract is to always return a Promise.
           return Promise.reject(error);
         }
+
         if (result === 'connecting') {
           triggerOutbox.set(streamId, { message: frame, owner });
         } else if (result === 'closed' || result === 'blocked') {
@@ -325,6 +349,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           finishStream(errored, idError);
           return buildStreamHandle(errored, handleDependencies);
         }
+
         let state = streams.get(streamId);
         if (!state) {
           state = new StreamState(streamId, event, context.markers);
@@ -332,7 +357,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           streams.set(streamId, state);
           acquireStreamHold(state);
         }
+
         startChunkTimer(state);
+
         const frame = resumeFrame(state, context.options?.lastKnownSeq);
         let result: SendResult;
         try {
@@ -344,12 +371,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           finishStream(state, error);
           return buildStreamHandle(state, handleDependencies);
         }
+
         if (result === 'connecting') {
           resumeOutbox.set(streamId, frame);
         } else if (result === 'closed') {
           // Closed, non-lazy: settle now; the queue buffers the abort for a late iterator.
           finishStream(state, Disconnected());
         }
+
         return buildStreamHandle(state, handleDependencies);
       }
 
@@ -364,13 +393,16 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           subscribers = new Set();
           broadcastSubs.set(event, subscribers);
         }
+
         const subscriber: BroadcastSub = { handlers, scope };
         subscribers.add(subscriber);
         // Guard so calling this unsubscribe more than once releases the lazy hold
         // only once — a second call must not steal another listener's hold.
         let released = false;
+
         return () => {
           if (released) return;
+
           released = true;
           subscribers.delete(subscriber);
           if (subscribers.size === 0) broadcastSubs.delete(event);
@@ -384,16 +416,20 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const seq = envelope?.seq;
         const subscribers = broadcastSubs.get(event);
         if (!subscribers || subscribers.size === 0) return;
+
         const recipients = [...subscribers].filter((subscriber) =>
           scopeMatches(subscriber.scope, envelope),
         );
         if (recipients.length === 0) return;
+
         let run = broadcastRuns.get(streamId);
         if (!run) {
           run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null };
           broadcastRuns.set(streamId, run);
         }
+
         if (seq !== undefined && seq <= run.lastSeq) return;
+
         if (seq !== undefined) run.lastSeq = seq;
         if (run.timer) clearTimeout(run.timer);
         if (timeout > 0) {
@@ -405,6 +441,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                 callStreamHandler(helpers.log, () => subscriber.handlers.onTimeout?.(streamId));
           }, timeout);
         }
+
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
         for (const subscriber of recipients)
           callStreamHandler(helpers.log, () => subscriber.handlers.onChunk(payload, streamId));
@@ -425,6 +462,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         // is left alone; fanning out to every subscriber would misdeliver it.
         const event = active?.event ?? envelope?.eventName;
         if (event === undefined) return;
+
         for (const subscriber of broadcastSubs.get(event) ?? [])
           if (scopeMatches(subscriber.scope, envelope))
             callStreamHandler(helpers.log, () => notify(subscriber.handlers));
@@ -438,11 +476,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             clearTimeout(resumed.resumeTimer);
             resumed.resumeTimer = null;
           }
+
           return null;
         }
+
         if (trigger.timer) clearTimeout(trigger.timer);
         triggers.delete(streamId);
         triggerOutbox.delete(streamId);
+
         const state = new StreamState(streamId, trigger.event, trigger.markers);
         state.hasLazyHold = true;
         state.resumable = envelope?.streamKind === 'persistent';
@@ -452,9 +493,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
           );
         }
+
         streams.set(streamId, state);
+
         startChunkTimer(state);
         trigger.resolve(buildStreamHandle(state, handleDependencies));
+
         return null;
       }
 
@@ -464,6 +508,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         envelope: WSKitEnvelope | undefined,
       ): WireMessage | null {
         if (envelope?.correlationId !== undefined) return message;
+
         const streamEvent =
           triggers.get(streamId)?.event ??
           streams.get(streamId)?.event ??
@@ -474,13 +519,16 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
           return null;
         }
+
         if (triggers.has(streamId)) {
           failTrigger(streamId, error);
           return null;
         }
+
         const state = streams.get(streamId);
         if (state) finishOrResumeAfterError(state, error);
         endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
+
         return null;
       }
 
@@ -494,6 +542,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           helpers.rawSend(resumeFrame(state));
           return;
         }
+
         finishStream(state, error);
       }
 
@@ -503,6 +552,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         envelope: WSKitEnvelope | undefined,
       ): WireMessage {
         if (isProtocolFrameEvent(message.event)) return message;
+
         const seq = envelope?.seq;
         const state = streams.get(streamId);
         if (state && (seq === undefined || seq > state.lastSeq)) {
@@ -510,12 +560,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             clearTimeout(state.resumeTimer);
             state.resumeTimer = null;
           }
+
           if (seq !== undefined) state.lastSeq = seq;
           if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
           state.queue.push(message.payload);
           startChunkTimer(state);
         }
+
         deliverBroadcast(message, streamId);
+
         return message;
       }
 
@@ -530,6 +583,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           switch (message.event) {
             case '__streamOk__':
               return handleStreamOk(streamId, envelope);
+
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
@@ -539,12 +593,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               );
               return null;
             }
+
             case '__nudgeOk__': {
               settleNudge(envelope?.streamNudgeId, (pending) => pending.resolve());
               return null;
             }
+
             case '__error__':
               return handleStreamError(message, streamId, envelope);
+
             default:
               return handleStreamChunk(message, streamId, envelope);
           }
@@ -574,8 +631,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
 
           if (resumeOutbox.size === 0) return null;
+
           const frames = [...resumeOutbox.values()];
           resumeOutbox.clear();
+
           return frames;
         },
 
@@ -585,6 +644,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             // A queued cancel wins over resume — don't revive a stream the user
             // already asked to cancel; onOpen flushes the cancel instead.
             if (cancelOutbox.has(state.streamId)) continue;
+
             if (state.active && state.resumable) {
               acquireStreamHold(state);
               frames.push(resumeFrame(state));
@@ -601,6 +661,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               }
             }
           }
+
           return frames.length ? frames : null;
         },
 
@@ -611,6 +672,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             helpers.lazyRelease();
             trigger.reject(Disconnected());
           }
+
           triggers.clear();
           triggerOutbox.clear();
           resumeOutbox.clear();
@@ -619,6 +681,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             if (pending.timer) clearTimeout(pending.timer);
             pending.reject(Disconnected());
           }
+
           pendingNudges.clear();
 
           for (const state of [...streams.values()]) {
@@ -654,6 +717,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             helpers.lazyRelease();
             trigger.reject(Disconnected());
           }
+
           triggers.clear();
           triggerOutbox.clear();
 

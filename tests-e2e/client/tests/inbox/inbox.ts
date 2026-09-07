@@ -62,6 +62,7 @@ export function setup(): void {
   button('send-m2', () => {
     chat.send('send-room-msg', { text: 'm2' });
   });
+
   button('send-m3', () => {
     chat.send('send-room-msg', { text: 'm3' });
   });

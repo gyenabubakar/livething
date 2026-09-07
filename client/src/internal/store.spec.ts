@@ -103,6 +103,7 @@ describe('createStore — a throwing listener is isolated and reported', () => {
     store.subscribe(() => {
       throw boom;
     });
+
     store.subscribe(survivor);
 
     set(1);

@@ -164,8 +164,10 @@ function membersToTargets(
   const targets: Array<{ connectionId: string; from: PublicApi.ConnectionRef }> = [];
   for (const member of members) {
     if (excludeId !== undefined && member.id === excludeId) continue;
+
     targets.push({ connectionId: member.id, from: member.ref() });
   }
+
   return targets;
 }
 
@@ -184,10 +186,13 @@ function infoMatchesRecipient(
   switch (to.__wskit) {
     case 'connection-ref':
       return ref.instance === to.instance && info.id === to.id;
+
     case 'user-ref':
       return ref.instance === to.instance && info.userId !== '' && info.userId === to.id;
+
     case 'tag-ref':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group && t.key === to.key);
+
     case 'group-handle':
       return info.tags.some((t) => t.kind === to.kind && t.group === to.group);
   }
@@ -219,6 +224,7 @@ function createOutgoingRequestRuntime(
   function settle(connectionId: string, frame: SettleFrameParameter): boolean {
     const correlationId = frame.wskit?.correlationId;
     if (correlationId === undefined) return false;
+
     const entry = pending.get(correlationId);
     if (!entry) return false;
 
@@ -248,10 +254,12 @@ function createOutgoingRequestRuntime(
       } catch {
         entry.reject(RequestInvalidResponse({ event: entry.event, issues: [] }));
       }
+
       return true;
     }
 
     entry.resolve(undefined);
+
     return true;
   }
 
@@ -287,6 +295,7 @@ function createOutgoingRequestRuntime(
       } else {
         response = undefined;
       }
+
       if (valid) {
         finishBroadcast(group, () => group.resolve({ response, from: entry.from }));
         return true;
@@ -301,16 +310,19 @@ function createOutgoingRequestRuntime(
   /** Resolve/reject a broadcast once, cancelling its timer and every live leg. */
   function finishBroadcast(group: BroadcastGroup, settle: () => void): void {
     if (group.settled) return;
+
     group.settled = true;
     clearTimeout(group.timer);
     for (const legId of group.legs) pending.delete(legId);
     group.legs.clear();
+
     settle();
   }
 
   function rejectForConnection(connectionId: string): void {
     for (const [correlationId, entry] of pending) {
       if (entry.connectionId !== connectionId) continue;
+
       if (entry.kind === 'broadcast') {
         // One target dropping does NOT fail the broadcast — others may still
         // answer. Just retire this leg; the timer rejects only if all go quiet.
@@ -318,6 +330,7 @@ function createOutgoingRequestRuntime(
         entry.group.legs.delete(correlationId);
         continue;
       }
+
       pending.delete(correlationId);
       clearTimeout(entry.timer);
       entry.reject(Disconnected());
@@ -330,9 +343,11 @@ function createOutgoingRequestRuntime(
     if (!serverRequests.has(declarationKey)) {
       return Promise.reject(RequestNotDeclared(event));
     }
+
     const declaration = serverRequests.get(declarationKey)!;
 
     const correlationId = engine.generateId('sreq');
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(correlationId);
@@ -381,6 +396,7 @@ function createOutgoingRequestRuntime(
     if (!serverRequests.has(declarationKey)) {
       return Promise.reject(RequestNotDeclared(event));
     }
+
     const declaration = serverRequests.get(declarationKey)!;
 
     return new Promise((resolve, reject) => {
@@ -393,6 +409,7 @@ function createOutgoingRequestRuntime(
         settled: false,
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
       };
+
       group.timer = setTimeout(() => {
         finishBroadcast(group, () => group.reject(Timeout()));
       }, options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS);
@@ -532,6 +549,7 @@ export function makeServerRequestsPrimitive(
               declarationChannelKey: null,
             });
         }
+
         if (ctx.user) attachUserRequest(ctx.user);
         const users = ctx.users;
         if (users && typeof users.get === 'function') {
@@ -565,6 +583,7 @@ export function makeServerRequestsPrimitive(
               channel: channelHandle.name,
               channelFamily: channelHandle.family ?? null,
             };
+
             const declarationChannelKey = channelDeclarationKey(channelHandle);
 
             // A `to` recipient asks matching members instead of the caller. When
@@ -575,6 +594,7 @@ export function makeServerRequestsPrimitive(
               if (to.__wskit === 'connection-ref' || to.__wskit === 'user-ref') {
                 assertLocalRef(to, ctx.connection?.instance, 'ctx.channel.request({ to })');
               }
+
               return runtime
                 .sendBroadcastRequest({
                   targets: membersToTargets(
@@ -597,6 +617,7 @@ export function makeServerRequestsPrimitive(
             });
           };
         }
+
         if (channelHandle && !channelScope?.isSubscribeGate) {
           channelHandle.broadcastRequest = (
             event: string,

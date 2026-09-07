@@ -7,10 +7,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const url = new URL(location.href);
 		const username = url.searchParams.get('username') ?? 'testuser';
 		const room = url.searchParams.get('room') ?? 'default';
+
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(
 			`${proto}//${location.host}/ws/channel-check-commit?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
@@ -22,13 +24,16 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const msg = JSON.parse(ev.data);
 			if (msg.event === '__subscribeOk__') {
 				subscribeOks = [...subscribeOks, msg.__wskit?.channel ?? ''];
 			}
+
 			if (msg.event === '__error__' && msg.__wskit?.channel) {
 				subscribeErrors = [...subscribeErrors, msg.__wskit.channel];
 			}
+
 			if (msg.event === 'joined') {
 				joinedMessages = [...joinedMessages, msg.payload?.username ?? ''];
 			}

@@ -29,6 +29,7 @@ export function createAdminContext(
     get(name: string, instance?: string): PublicApi.AdminChannelHandle {
       const resolved = deps.resolveChannel(toTarget(name, instance));
       if (!resolved) throw ChannelNotFound();
+
       const { channelName, channelFamily } = resolved;
       return {
         broadcast: (event, payload) =>
@@ -73,6 +74,7 @@ export function createAdminContext(
     closeConnections: (filter, code, reason) => {
       for (const connection of deps.connections.values()) {
         if (filter?.userId !== undefined && connection.userId !== filter.userId) continue;
+
         connection.descriptor.close(code, reason);
       }
     },

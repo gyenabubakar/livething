@@ -178,6 +178,7 @@ describe('handleUpgrade', () => {
     function ref(key: string) {
       return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
+
     const result = await handleUpgrade(
       {
         upgradeHooks: [
@@ -200,6 +201,7 @@ describe('handleUpgrade', () => {
     function ref(key: string) {
       return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
     }
+
     const result = await handleUpgrade(
       {
         upgradeHooks: [],
@@ -528,6 +530,7 @@ describe('Block at dispatch', () => {
       if (payload === 1) await release.promise;
       events.push(`end:${payload}`);
     });
+
     const runtime = baseDispatchRuntime({
       compiled: {
         ...baseCompiled(),
@@ -569,6 +572,7 @@ describe('Block at dispatch', () => {
       payload: 2,
       wskit: undefined,
     });
+
     await Promise.resolve();
 
     expect(events).toEqual(['start:1']);
@@ -855,6 +859,7 @@ describe('processTextMessage protocol branches', () => {
     const generator = {
       return: vi.fn(async () => ({ value: undefined, done: true as const })),
     };
+
     const activeStreams = new Map([
       [
         'stream_1',

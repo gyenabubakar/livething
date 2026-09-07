@@ -127,6 +127,7 @@ test.describe('stream-durable scoped (channel)', () => {
     expect(resumedRows).not.toContain(2);
     expect(resumedRows[0]).toBeGreaterThanOrEqual(3);
     expect(resumedRows[resumedRows.length - 1]).toBe(10);
+
     const expectedTail = Array.from(
       { length: resumedRows.length },
       (_, i) => 10 - resumedRows.length + 1 + i,

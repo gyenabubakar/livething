@@ -12,12 +12,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 		};
@@ -27,30 +29,38 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
 				case 'echoed':
 					echoResult = data.payload?.text ?? '';
 					break;
+
 				case 'block-reply':
 					blockReply = `leaked:${data.payload?.leaked}`;
 					break;
+
 				case 'defer-result':
 					deferResult = 'deferred-received';
 					break;
+
 				case 'defer-exhausted-result':
 					deferExhausted = `${data.payload?.event}:retries=${data.payload?.retries}`;
 					break;
+
 				case 'validation-error-fired':
 					validationError = `validation-error:${data.payload?.event}`;
 					break;
+
 				case '__subscribeOk__':
 					chatSubscribed = true;
 					break;
+
 				case '__error__':
 					if (data.__wskit?.streamId) {
 						streamError = `${data.payload.code}:${data.__wskit.streamId}`;
 					}
+
 					break;
 			}
 		};

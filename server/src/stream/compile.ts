@@ -13,6 +13,7 @@ export function compileStreamDef(
       `[wskit] No handler assembled for stream('${def.name}'). Include the value returned by base.stream(...) in base.assemble({ handlers: [...] }).`,
     );
   }
+
   const streamPrim = streamFactory(
     {
       event: def.name,

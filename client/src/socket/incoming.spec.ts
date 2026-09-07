@@ -248,6 +248,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
 
     const conditional = incomingPrimitive((msg) => {
       if (shouldThrow) throw new Error('first frame crash');
+
       return msg;
     });
 

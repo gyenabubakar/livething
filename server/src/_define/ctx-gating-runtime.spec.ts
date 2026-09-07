@@ -21,6 +21,7 @@ function makeStorage() {
       return fn(sql);
     },
   };
+
   return { sql, kv: { get() {}, put() {}, delete() {}, list: () => [] } } as any;
 }
 
@@ -43,6 +44,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -77,8 +79,10 @@ async function captureCtx(server: ProbeServer): Promise<any> {
   server.slot.fn = (ctx: any) => {
     captured = ctx;
   };
+
   await conn.handleMessage(JSON.stringify({ event: 'probe', payload: {} }));
   if (!captured) throw new Error('probe handler did not run');
+
   return captured;
 }
 
@@ -89,6 +93,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
     expect('cancelScheduled' in ctx).toBe(false);
     expect('latency' in ctx).toBe(false);
     expect('quality' in ctx).toBe(false);
+
     expect('plugin' in ctx).toBe(false);
     // matches / unsafeCast are core, not gated — they ride on every ctx.
     expect('matches' in ctx).toBe(true);

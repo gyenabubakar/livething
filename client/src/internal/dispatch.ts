@@ -20,6 +20,7 @@ export function runMessageHook(
     return hook(message);
   } catch (error) {
     if (error === Block) return null;
+
     onError(error);
     return message;
   }
@@ -37,6 +38,7 @@ export function dispatchToHandlers<A extends unknown[]>(
   ...args: A
 ): void {
   if (!handlers) return;
+
   const snapshot = [...handlers];
   for (const handler of snapshot) {
     try {

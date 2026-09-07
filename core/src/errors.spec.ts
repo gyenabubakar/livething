@@ -31,11 +31,13 @@ describe('CloseCodes', () => {
     expect(CloseCodes.PROTOCOL_ERROR).toBe(1002);
     expect(CloseCodes.UNSUPPORTED_DATA).toBe(1003);
     expect(CloseCodes.INTERNAL_ERROR).toBe(1011);
+
     expect(CloseCodes.AUTH_EXPIRED).toBe(4001);
     expect(CloseCodes.AUTH_INVALID).toBe(4002);
     expect(CloseCodes.DUPLICATE).toBe(4003);
     expect(CloseCodes.IDLE).toBe(4004);
     expect(CloseCodes.RATE_LIMITED).toBe(4005);
+
     expect(CloseCodes.BANNED).toBe(4009);
     expect(CloseCodes.CAPACITY).toBe(4010);
   });
@@ -709,6 +711,7 @@ describe('error() reserved-code guard', () => {
     expect(() => error('channel-not-found')).toThrow(/reserved/);
     expect(() => error('cross-instance-ref')).toThrow(/reserved/);
     expect(() => error('stream-aborted')).toThrow(/reserved/);
+
     expect(() => error('connection-busy')).toThrow(/reserved/);
     expect(() => error(DurableStreamRequiresUser.code)).toThrow(/reserved/);
   });

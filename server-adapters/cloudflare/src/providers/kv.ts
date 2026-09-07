@@ -38,6 +38,7 @@ export function createKv(state: DurableObjectState, logger: Logger): KVProvider 
           '[wskit] kv.set called with { ttl: 0 } — Cloudflare treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
         );
       }
+
       await state.storage.put(key, {
         value,
         expiresAt: options?.ttl ? Date.now() + options.ttl : undefined,

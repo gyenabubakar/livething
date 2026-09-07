@@ -34,6 +34,7 @@ test.describe('durable-config', () => {
         [a, i],
       );
     }
+
     const beforeSeq = Math.max(...tockSeqs(await frames(page, a)));
     expect(beforeSeq).toBeGreaterThan(0);
 
@@ -77,6 +78,7 @@ test.describe('durable-config', () => {
     expect(texts).toContain('b1');
     expect(texts).toContain('c1');
     expect(texts).toContain('a2'); // evicted id re-dispatched
+
     expect(texts).not.toContain('c2'); // still-cached id dropped
   });
 });

@@ -8,6 +8,7 @@ describe('ChannelStaticClient — no-any guard', () => {
     expectTypeOf<ChannelStaticClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['channels']>().not.toBeAny();
+
     expectTypeOf<ChannelStaticClient['errors']>().not.toBeAny();
   });
 });

@@ -53,6 +53,7 @@ describe('resolveCapabilityRequirements', () => {
     });
     expect(hostDependencies).toContain('sequence');
     expect(hostDependencies).toContain('dedup');
+
     expect(hostDependencies).not.toContain('channels');
   });
 
@@ -124,6 +125,7 @@ describe('resolveCapabilityRequirements', () => {
       primitives: [nestedReadReceipts],
     });
     const capabilities = [makeCapability('sequence')];
+
     expect(() =>
       resolveCapabilityRequirements([inboxChannel, readReceiptsChannel], capabilities, {
         scoped: false,

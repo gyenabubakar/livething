@@ -47,6 +47,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
       set = new Set();
       usersByKey.set(key, set);
     }
+
     set.add(c);
   }
 
@@ -148,6 +149,7 @@ describe('UserHandle.setMeta — applies to all live tabs', () => {
     tab1.meta = { theme: 'dark' };
     tab2.meta = { theme: 'light' };
     const deps = baseDeps([tab1, tab2]);
+
     const ctx = buildConnectionContext(deps, tab1);
 
     ctx.users.get('alice').setMeta({ nickname: 'A' });

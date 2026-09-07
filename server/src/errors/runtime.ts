@@ -73,6 +73,7 @@ export function normalizeRuntimeError(
     if (declaredErrorCodes && !declaredErrorCodes.has(error.code)) {
       return { payload: { code: InternalError.code }, wskit };
     }
+
     return { payload: { code: error.code, detail: error.detail }, wskit };
   }
 

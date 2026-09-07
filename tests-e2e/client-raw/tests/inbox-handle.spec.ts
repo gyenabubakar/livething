@@ -17,11 +17,13 @@ async function askHandle(page: Page, channel: string, seq: number): Promise<Fram
   function match(f: Frame): boolean {
     return f.event === 'handle-answer' && f.payload.channel === channel;
   }
+
   const already = (await frames(page)).filter(match).length;
   await send(page, { event: 'ask-handle', payload: { channel, seq }, __wskit: {} });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
+
   return (await frames(page)).filter(match).at(-1)!;
 }
 
@@ -29,11 +31,13 @@ async function askBacklog(page: Page, channel: string): Promise<Frame> {
   function match(f: Frame): boolean {
     return f.event === 'backlog-answer' && f.payload.channel === channel;
   }
+
   const already = (await frames(page)).filter(match).length;
   await send(page, { event: 'ask-backlog', payload: { channel }, __wskit: {} });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
+
   return (await frames(page)).filter(match).at(-1)!;
 }
 
@@ -124,6 +128,7 @@ test.describe('inbox().backlog() (raw wire, via the handle-augmenter)', () => {
     const bobEntry = entries.find((entry) => entry.userId === 'bob');
     expect(bobEntry).toBeDefined();
     expect(bobEntry?.online).toBe(true);
+
     expect(bobEntry?.heldRows).toBeGreaterThanOrEqual(1);
     expect(typeof bobEntry?.oldestHeldAt).toBe('number');
     expect(typeof bobEntry?.lastSeenAt).toBe('number');

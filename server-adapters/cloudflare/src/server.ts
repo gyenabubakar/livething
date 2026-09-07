@@ -154,6 +154,7 @@ const buildServe = adapter<
           send: (data: string) => socket.send(data),
           close: (code?: number, reason?: string) => {
             if (closed) return;
+
             closed = true;
             socket.close(code, reason);
           },
@@ -224,6 +225,7 @@ const buildServe = adapter<
           descriptor.close(CloseCodes.INTERNAL_ERROR, '[wskit] connection setup failed');
           throw error;
         }
+
         this.liveConnections.set(server, connection);
 
         if (!hibernating) {
@@ -312,6 +314,7 @@ const buildServe = adapter<
             this.engine.handleHibernationWake(ws);
           }
         }
+
         await this.engine.handleShutdown();
       }
 
@@ -334,6 +337,7 @@ const buildServe = adapter<
             this.engine.handleHibernationWake(ws);
           }
         }
+
         return buildAdmin(this.engine.admin(), this.ctx.id.toString());
       }
     };

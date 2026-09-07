@@ -49,6 +49,7 @@ describe('inbox overflow gap surfacing', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const roomGap: GapInfo[] = [];
+
     const socketGap: GapInfo[] = [];
     socket.channel('room').onGap((info) => roomGap.push(info));
     socket.onGap((info) => socketGap.push(info));
@@ -69,10 +70,12 @@ describe('inbox overflow gap surfacing', () => {
         };
       };
     }
+
     const socket = client<FamilyC>()(connect('wss://test'), channels(), dedup(), inbox(), gaps());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
+
     const roomGap: GapInfo[] = [];
     socket.channel('rooms', 'room-1').onGap((info) => roomGap.push(info));
 
@@ -91,6 +94,7 @@ describe('inbox overflow gap surfacing', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const onMessage = vi.fn();
+
     socket.channel('room').on('__gap__' as never, onMessage);
 
     // No gap listener exists, and reserved frames never reach application handlers.

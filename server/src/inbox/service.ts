@@ -61,17 +61,20 @@ export function registerInboxRuntime(engine: EngineAccess): void {
         } catch (error) {
           failures.push(error);
         }
+
         try {
           clearCacheEntriesForUser(engineCore.inboxMemberCounts, userId);
         } catch (error) {
           failures.push(error);
         }
+
         try {
           await rescheduleAlarm(engineCore);
         } catch (error) {
           failures.push(error);
         }
       }
+
       if (failures.length > 0) {
         throw new AggregateError(failures, `Inbox purge for '${userId}' was incomplete`);
       }

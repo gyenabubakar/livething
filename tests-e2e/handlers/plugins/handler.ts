@@ -37,11 +37,13 @@ export function createPluginsHandler<
   const GetRecord = v.object({ id: v.number() });
   const DeleteRecord = v.object({ id: v.number() });
   const GetRecordCount = v.object({});
+
   const GetMessageCount = v.object({});
   const GetOutgoingCount = v.object({});
   const GetDisconnectCount = v.object({});
   const GetGeneratedId = v.object({});
   const GetLastState = v.object({});
+
   const GetShutdownCount = v.object({});
   const PluginRewriteProbe = v.object({ text: v.string(), rewritten: v.optional(v.boolean()) });
 

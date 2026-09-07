@@ -20,6 +20,7 @@ test.describe('stream-basic (conformance)', () => {
     await expect(page.getByTestId('stream-ok')).toHaveText('yes');
     await expect(page.getByTestId('stream-id')).not.toHaveText('');
     await expect(page.getByTestId('chunk-indices')).toHaveText('0,1,2');
+
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 

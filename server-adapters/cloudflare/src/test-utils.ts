@@ -41,6 +41,7 @@ export function makeFakeWebSocket(): FakeWebSocket {
       for (const fn of bucket) fn(event);
     },
   };
+
   return ws;
 }
 
@@ -57,6 +58,7 @@ export function installWebSocketPair(): { pairs: Array<[FakeWebSocket, FakeWebSo
     const server = makeFakeWebSocket();
     const pair: [FakeWebSocket, FakeWebSocket] = [client, server];
     pairs.push(pair);
+
     return pair;
   } as unknown as new () => [FakeWebSocket, FakeWebSocket];
   return { pairs };
@@ -116,6 +118,7 @@ function baseFakeState(): FakeDOState {
         for (const [k, v] of storageMap) {
           if (!prefix || k.startsWith(prefix)) out.set(k, v);
         }
+
         return out;
       }),
       setAlarm: vi.fn(async (time: number) => {
@@ -206,6 +209,7 @@ export function makeFakeEngine(): FakeEngine {
     userId: 'u1',
     ref: () => ({ __wskit: 'connection-ref', id: 'c1', instance: undefined, userId: 'u1' }),
   };
+
   const connectionSend = vi.fn(() => true);
   const userSend = vi.fn(() => 2);
   const userClose = vi.fn();
@@ -214,6 +218,7 @@ export function makeFakeEngine(): FakeEngine {
     members: vi.fn(() => [adminConnection]),
     kick: vi.fn(async () => {}),
   };
+
   const adminApi: Record<string, unknown> = {
     broadcast: vi.fn(),
     purgeUser: vi.fn(async () => {}),

@@ -32,6 +32,7 @@ export interface RestorePersistentTagsOptions {
 export function restorePersistentTags(opts: RestorePersistentTagsOptions): void {
   const { sql, tagMembers, connection } = opts;
   if (!connection.userId) return;
+
   for (const tag of listTagsByUser(sql, connection.userId)) {
     if (opts.isGroupDeclared && !opts.isGroupDeclared(tag.group)) {
       // The group was removed from the contract since this row was written.
@@ -44,6 +45,7 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
       );
       continue;
     }
+
     const schema = opts.getSchema?.(tag.group);
     if (schema) {
       try {
@@ -53,6 +55,7 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
         // async validator) or any other throw propagates rather than silently
         // deleting valid persisted data.
         if (!ValidationFailed.matches(error)) throw error;
+
         deleteTag(sql, { userId: connection.userId, group: tag.group, key: tag.key });
         opts.logger?.error('[wskit] dropped a stored persistent tag that failed validation', {
           group: tag.group,
@@ -61,6 +64,7 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
         continue;
       }
     }
+
     addConnectionTag(tagMembers, connection, {
       kind: 'persistent',
       group: tag.group,

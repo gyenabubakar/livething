@@ -332,6 +332,7 @@ describe('createTimers', () => {
     const alarmGate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     let alarmFinished = false;
 
     try {
@@ -453,6 +454,7 @@ describe('createTimers', () => {
     const sql = createSql();
     const logger = createMockLogger();
     let failures = 1;
+
     const callback = vi.fn(async () => {
       if (failures-- > 0) throw new Error('retry was not persisted');
     });
@@ -525,6 +527,7 @@ describe('createTimers', () => {
       for (const delay of [2_000, 4_000, 8_000, 16_000, 32_000, 64_000]) {
         await vi.advanceTimersByTimeAsync(delay);
       }
+
       expect(callback).toHaveBeenCalledTimes(7);
 
       await timers.setAlarm(Date.now() + 1);
@@ -578,6 +581,7 @@ describe('createTimers', () => {
       const replacementWritten = new Promise<void>((resolve) => {
         markReplacementWritten = resolve;
       });
+
       const onAlarm = vi.fn(async () => {
         active += 1;
         maxActive = Math.max(maxActive, active);
@@ -586,6 +590,7 @@ describe('createTimers', () => {
           markReplacementWritten();
           await gate;
         }
+
         active -= 1;
       });
 
@@ -700,11 +705,13 @@ function createFakeSqlProvider(): SQLProvider {
     maxStatementBytes: 1,
     maxValueBytes: 1,
   };
+
   const result: SqlResult = {
     toArray: () => [],
     one: () => null,
     raw: () => [],
   };
+
   return {
     exec<TRow = unknown>() {
       return result as SqlResult<TRow>;

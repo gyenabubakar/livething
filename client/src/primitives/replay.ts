@@ -38,6 +38,7 @@ export function replay(): Primitive<EmptyTypeFn> {
         if (typeof payload?.missedThrough === 'number') {
           remember(payload.missedThrough, message.__wskit?.channel, message.__wskit?.channelFamily);
         }
+
         return message;
       }
 
@@ -51,18 +52,22 @@ export function replay(): Primitive<EmptyTypeFn> {
             "replay() is on the client, but the server doesn't support replay — reconnect catch-up won't work. Enable replay on the server, or remove replay() from the client.",
           );
         }
+
         return message;
       }
 
       function handleIncoming(message: WireMessage): WireMessage {
         if (message.event === '__gap__') return handleGap(message);
+
         if (message.event === '__error__') return handleError(message);
+
         if (message.__wskit?.streamId !== undefined) return message;
 
         const seq = message.__wskit?.seq;
         if (typeof seq === 'number') {
           remember(seq, message.__wskit?.channel, message.__wskit?.channelFamily);
         }
+
         return message;
       }
 
@@ -79,12 +84,14 @@ export function replay(): Primitive<EmptyTypeFn> {
               wskit.channel = info.channel;
               if (info.channelFamily) wskit.channelFamily = info.channelFamily;
             }
+
             requests.push({
               event: '__replay__',
               payload: { lastKnownSeq: info.seq },
               __wskit: wskit,
             });
           }
+
           return requests;
         },
       };

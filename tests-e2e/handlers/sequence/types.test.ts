@@ -8,6 +8,7 @@ describe('SequenceClient — no-any guard', () => {
     expectTypeOf<SequenceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<SequenceClient['streams']>().not.toBeAny();
     expectTypeOf<SequenceClient['channels']>().not.toBeAny();
+
     expectTypeOf<SequenceClient['errors']>().not.toBeAny();
   });
 });

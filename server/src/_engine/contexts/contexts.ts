@@ -141,6 +141,7 @@ function buildUserHandle(
           delivered += 1;
         }
       }
+
       return delivered;
     },
 
@@ -280,6 +281,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
       persistAttachment: deps.persistAttachment,
       getStorage: deps.getStorage,
     };
+
     Object.defineProperty(proto, 'tags', {
       configurable: true,
       enumerable: true,
@@ -290,6 +292,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
   }
 
   contextPrototypes.set(deps, proto);
+
   return proto;
 }
 
@@ -370,12 +373,15 @@ export function toConnectionInfo(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.userId, instanceId),
   };
+
   if ('lastSeen' in (opts ?? {})) {
     return { ...info, lastSeen: opts!.lastSeen ?? null };
   }
+
   if (opts?.lastSeenAt) {
     return { ...info, lastSeen: opts.lastSeenAt(connection.userId) };
   }
+
   return info;
 }
 

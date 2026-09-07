@@ -15,15 +15,18 @@
 		chunkIndices = [];
 		streamError = '';
 		streamEnd = false;
+
 		cancelObserved = false;
 	}
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		reset();
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-basic?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -37,20 +40,25 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
 					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
 					break;
+
 				case '__streamEnd__':
 					streamEnd = true;
 					break;
+
 				case '__error__':
 					if (data.__wskit?.streamId) {
 						streamError = `stream-error:${data.payload.code}`;
 					}
+
 					break;
+
 				case 'start-tokens':
 				case 'start-boom':
 				case 'start-boom-immediate':
@@ -59,7 +67,9 @@
 					if (typeof data.payload?.index === 'number') {
 						chunkIndices = [...chunkIndices, data.payload.index];
 					}
+
 					break;
+
 				case 'cancel-observed':
 					cancelObserved = true;
 					break;
@@ -71,26 +81,32 @@
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-tokens', payload: { count } }));
 	}
+
 	function startBoom() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-boom', payload: {} }));
 	}
+
 	function startBoomImmediate() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-boom-immediate', payload: {} }));
 	}
+
 	function startTypedError() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-typed-error', payload: {} }));
 	}
+
 	function startCancelObserve() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-cancel-observe', payload: {} }));
 	}
+
 	function startEmpty() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-empty', payload: {} }));
 	}
+
 	function cancelStream() {
 		ws?.send(
 			JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: lastStreamId } }),

@@ -132,6 +132,7 @@ test.describe('custom replay handler', () => {
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await page.getByTestId('since-input').fill(String(since));
+
     await page.getByTestId('replay-btn').click();
 
     await expect(async () => {
@@ -175,6 +176,7 @@ test.describe('custom replay handler', () => {
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await page.getByTestId('room-join-btn').click();
+
     await waitForText(page, 'room-subscribed', 'subscribed');
     await page.getByTestId('room-since-input').fill(String(since));
     await page.getByTestId('room-replay-btn').click();

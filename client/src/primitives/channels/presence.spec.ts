@@ -23,6 +23,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -37,6 +38,7 @@ async function subscribeChannel(socket: BuiltSocket, ws: MockWebSocket, channelN
     __wskit: { source: 'client', channel: channelName },
   });
   await p;
+
   return room;
 }
 
@@ -318,6 +320,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     });
     expect(room.members.get().size).toBe(1);
     room.unsubscribe();
+
     return { socket, ws, room };
   }
 
@@ -337,6 +340,7 @@ describe('presence frames are ignored while a leave is pending', () => {
     const onOnline = vi.fn();
     room.onMemberJoin(onJoin);
     room.onMemberOnline(onOnline);
+
     ws.emit({
       event: '__memberJoin__',
       payload: { connectionId: 'c3', meta: {} },
@@ -363,6 +367,7 @@ describe('resyncMembers() fire-and-forget request', () => {
       .filter((f) => f.event === '__memberSync__')
       .at(-1);
     expect(frame).toBeDefined();
+
     expect(frame?.__wskit?.channel).toBe('general');
     expect(frame?.__wskit?.source).toBe('client');
   });
@@ -386,6 +391,7 @@ describe('presence frames after the channel has been left', () => {
       payload: {},
       __wskit: { channel: 'general', unsubscribeId: leave?.__wskit?.unsubscribeId },
     });
+
     return { room, ws };
   }
 

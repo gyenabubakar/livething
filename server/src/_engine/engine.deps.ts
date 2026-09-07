@@ -105,6 +105,7 @@ function depsMemoFor(core: EngineCore): DepsMemo {
     memo = {};
     depsMemo.set(core, memo);
   }
+
   return memo;
 }
 
@@ -160,6 +161,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
         assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.send({ to })');
       }
+
       const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {
         channelName: opts.channelName,
         channelFamily: opts.channelFamily,
@@ -174,6 +176,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
         });
         if (sent) delivered += 1;
       }
+
       return delivered;
     },
     getChannelMembers: (channelName, channelFamily) =>
@@ -182,6 +185,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (opts.target.__wskit === 'user-ref') {
         assertLocalRef(opts.target, core.engineInstanceId, 'channelHandle.kick(target)');
       }
+
       return core.channelService?.kickChannelMembers(core, opts) ?? Promise.resolve();
     },
     subscribeConnectionAsServer: (ref, opts) =>
@@ -190,11 +194,15 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
+
         return { channelName: target, channelFamily: null, params: {} };
       }
+
       const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
+
       if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, target.name)) return undefined;
+
       return {
         channelName: target.name,
         channelFamily: target.family,
@@ -516,6 +524,7 @@ function buildConnectionRuntime(core: EngineCore) {
         core.freshBoot = false;
         return Promise.resolve();
       }
+
       // Restore persistent tags before channel auto-rejoin so its check/revalidate
       // hooks can read them via `ctx.tags.persistent(...)`. Independent of
       // `channelMembershipService` — a handler with `tags()` and no `channels()`
@@ -537,6 +546,7 @@ function buildConnectionRuntime(core: EngineCore) {
       // Drain the reconnecting member's owed inbox rows after the rejoin
       // loop has restored its channel memberships.
       if (!core.inboxService) return rejoined;
+
       return rejoined.then(() => core.inboxService?.drainOnReconnect(core, connection));
     },
   };
@@ -567,6 +577,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
     sendServerRequest: (connectionId, opts) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return false;
+
       return OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, {
         routing: {
           correlationId: opts.correlationId,

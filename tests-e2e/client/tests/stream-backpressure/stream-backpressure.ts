@@ -34,10 +34,12 @@ export function setup(): void {
     const handle = await socket.stream('drain-feed', { count: 5 });
     el('stream-ok').textContent = 'yes';
     const indices: number[] = [];
+
     for await (const chunk of handle) {
       indices.push(chunk.index);
       el('chunk-indices').textContent = indices.join(',');
     }
+
     el('stream-end').textContent = 'yes';
   });
 

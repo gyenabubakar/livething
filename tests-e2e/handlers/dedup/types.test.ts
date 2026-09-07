@@ -8,6 +8,7 @@ describe('DedupClient — no-any guard', () => {
     expectTypeOf<DedupClient['clientRequests']>().not.toBeAny();
     expectTypeOf<DedupClient['streams']>().not.toBeAny();
     expectTypeOf<DedupClient['channels']>().not.toBeAny();
+
     expectTypeOf<DedupClient['errors']>().not.toBeAny();
   });
 });

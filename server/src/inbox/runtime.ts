@@ -125,6 +125,7 @@ export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void 
     event: opts.event,
     payload: opts.payload,
   };
+
   insertInboxRows(sql, {
     userIds,
     channelName: opts.channelName,
@@ -211,6 +212,7 @@ export function sweepInboxRetention(
       pruned += 1;
     }
   }
+
   return pruned;
 }
 
@@ -230,6 +232,7 @@ export function memberCountKey(
  */
 export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConnection): void {
   if (!connection.userId) return;
+
   const { sql } = core.storage;
 
   const watermarks = loadInboxWatermarks(sql, connection.userId);
@@ -282,7 +285,9 @@ export function applyInboxAck(sql: Pick<SQLProvider, 'exec'>, opts: InboxAckOpti
 /** Drop a member's rows for a channel it has left. */
 export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): void {
   if (!key.userId) return;
+
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
+
   const { sql } = core.storage;
   const { userId } = key;
   deleteInboxRowsForChannel(sql, {
@@ -290,6 +295,7 @@ export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): voi
     channelName: key.channelName,
     channelFamily: key.channelFamily,
   });
+
   deleteInboxWatermarkForChannel(sql, {
     userId,
     channelName: key.channelName,
@@ -314,7 +320,9 @@ export function backfillInbox(
   opts: InboxBackfillOptions,
 ): void {
   if (!opts.userId) return;
+
   if (opts.frames.length === 0) return;
+
   insertInboxRowsForUserId(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -324,6 +332,7 @@ export function backfillInbox(
   });
 
   if (!opts.retention) return;
+
   applyInboxRetention(sql, {
     userId: opts.userId,
     channelName: opts.channelName,

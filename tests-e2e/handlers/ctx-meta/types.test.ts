@@ -8,6 +8,7 @@ describe('CtxMetaClient — no-any guard', () => {
     expectTypeOf<CtxMetaClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['streams']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxMetaClient['errors']>().not.toBeAny();
   });
 });

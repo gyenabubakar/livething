@@ -33,6 +33,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -59,6 +60,7 @@ describe('subscribe / unsubscribe', () => {
       payload: {},
       __wskit: { source: 'client', channel: 'general' },
     });
+
     await expect(promise).resolves.toBeUndefined();
   });
 
@@ -85,6 +87,7 @@ describe('subscribe / unsubscribe', () => {
       __wskit: { source: 'client', channel: 'general' },
     });
     await p;
+
     room.send('send-message', { text: 'hi' });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: 'send-message',
@@ -103,6 +106,7 @@ describe('subscribe / unsubscribe', () => {
       __wskit: { source: 'client', channel: 'general' },
     });
     await p;
+
     const onUnsub = vi.fn();
     room.onUnsubscribed(onUnsub);
     const leave = room.unsubscribe();
@@ -112,6 +116,7 @@ describe('subscribe / unsubscribe', () => {
       payload: {},
       __wskit: { channel: 'general' },
     });
+
     const unsubscribeId = frame.__wskit.unsubscribeId;
     expect(typeof unsubscribeId).toBe('string');
     expect(onUnsub).toHaveBeenCalled();
@@ -136,6 +141,7 @@ describe('subscribe / unsubscribe', () => {
     const onUnsubscribed = vi.fn();
     room.onUnsubscribed(onUnsubscribed);
     const first = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -150,6 +156,7 @@ describe('subscribe / unsubscribe', () => {
     );
     socket.connect();
     const reopened = MockWebSocket.last();
+
     reopened.open();
 
     expect(reopened.sentFrames().filter((frame) => frame.event === '__subscribe__')).toEqual([]);
@@ -198,6 +205,7 @@ describe('subscribe / unsubscribe', () => {
     function countSubscribeFrames() {
       return ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
     }
+
     const before = countSubscribeFrames();
 
     // The re-subscribe is queued behind the pending leave — it must wait for the
@@ -233,6 +241,7 @@ describe('routing', () => {
     const handler = vi.fn();
     room.on('message', handler);
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -249,6 +258,7 @@ describe('routing', () => {
     const handler = vi.fn();
     room.on('message', handler);
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -265,6 +275,7 @@ describe('routing', () => {
     const handler = vi.fn();
     room.on('feed', handler);
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -287,6 +298,7 @@ describe('membership and presence', () => {
     const onJoin = vi.fn();
     const onOnline = vi.fn();
     room.onMemberJoin(onJoin);
+
     room.onMemberOnline(onOnline);
     const p = room.subscribe();
     ws.emit({
@@ -300,6 +312,7 @@ describe('membership and presence', () => {
       payload: { members: [{ connectionId: 'c1', meta: { name: 'Ada' } }] },
       __wskit: { channel: 'general' },
     });
+
     expect(room.members.get().get('c1')).toEqual({ meta: { name: 'Ada' } });
     expect(onJoin).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
     expect(onOnline).toHaveBeenCalledWith('c1', { meta: { name: 'Ada' } });
@@ -311,6 +324,7 @@ describe('membership and presence', () => {
     const onLeave = vi.fn();
     room.onMemberLeave(onLeave);
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -328,6 +342,7 @@ describe('membership and presence', () => {
       payload: { connectionId: 'c2' },
       __wskit: { channel: 'general' },
     });
+
     expect(room.members.get().has('c2')).toBe(false);
     expect(onLeave).toHaveBeenCalledWith('c2');
   });
@@ -338,6 +353,7 @@ describe('membership and presence', () => {
     const onKicked = vi.fn();
     room.onKicked(onKicked);
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -365,6 +381,7 @@ describe('dynamic families and scope handles', () => {
       payload: {},
       __wskit: { source: 'client', channel: 'room-1', channelFamily: 'rooms' },
     });
+
     await p;
     room.send('send-message', { text: 'hi' });
     expect(ws.sentFrames().at(-1).__wskit).toEqual({ channel: 'room-1', channelFamily: 'rooms' });
@@ -403,6 +420,7 @@ describe('dynamic families and scope handles', () => {
     const familyHandler = vi.fn();
     family.on('message', familyHandler);
     const room = family('room-7');
+
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -416,6 +434,7 @@ describe('dynamic families and scope handles', () => {
       __wskit: { channel: 'room-7', channelFamily: 'rooms' },
     });
     expect(familyHandler).toHaveBeenCalledWith({ text: 'yo' }, 'room-7');
+
     expect(family.list()).toEqual(['room-7']);
   });
 });
@@ -440,6 +459,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       const first = MockWebSocket.last();
       first.open();
       socket.channel('general').subscribe();
+
       first.emit({
         event: '__subscribeOk__',
         payload: {},
@@ -449,6 +469,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
+
       expect(second.sentFrames()).toContainEqual({
         event: '__subscribe__',
         payload: {},
@@ -467,6 +488,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
@@ -482,6 +504,7 @@ describe('server-initiated subscriptions and reconnection', () => {
       second.open();
       const leaveFrame = second.sentFrames().find((f) => f.event === '__unsubscribe__');
       expect(leaveFrame).toMatchObject({ payload: {}, __wskit: { channel: 'general' } });
+
       expect(typeof leaveFrame.__wskit.unsubscribeId).toBe('string');
 
       // The server's already-queued auto-rejoin __subscribeOk__ arrives late — it
@@ -515,6 +538,7 @@ describe('reliable leave', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
@@ -544,6 +568,7 @@ describe('reliable leave', () => {
           .sentFrames()
           .some((f) => f.event === '__unsubscribe__' && f.__wskit.unsubscribeId === id),
       ).toBe(true);
+
       expect(
         third
           .sentFrames()
@@ -573,6 +598,7 @@ describe('reliable leave', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
@@ -600,6 +626,7 @@ describe('reliable leave', () => {
       stale,
     );
     const p = room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -699,6 +726,7 @@ describe('reliable leave', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
@@ -797,6 +825,7 @@ describe('scoped request and ack', () => {
       __wskit: { source: 'client', channel: 'general' },
     });
     await p;
+
     const reqPromise = room.request('history', { before: 'x' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.__wskit.channel).toBe('general');
@@ -806,6 +835,7 @@ describe('scoped request and ack', () => {
       payload: { items: ['a'] },
       __wskit: { correlationId: frame.__wskit.correlationId },
     });
+
     await expect(reqPromise).resolves.toEqual({ items: ['a'] });
   });
 
@@ -838,6 +868,7 @@ describe('stream-error routing (order-independent)', () => {
       payload: {},
       __wskit: { source: 'client', channel: 'general' },
     });
+
     await p;
 
     const onSubFailed = vi.fn();
@@ -879,6 +910,7 @@ describe('lazy hold lifecycle (no leak)', () => {
       payload: { code: 'forbidden' },
       __wskit: { channel: 'general' },
     });
+
     await expect(p).rejects.toBeDefined();
 
     vi.advanceTimersByTime(1000);
@@ -892,6 +924,7 @@ describe('lazy hold lifecycle (no leak)', () => {
     const room = socket.channel('general');
     const p = room.subscribe();
     const ws = MockWebSocket.last();
+
     ws.open();
     ws.emit({
       event: '__subscribeOk__',
@@ -1018,6 +1051,7 @@ describe('plugin-channel namespace delivery (A3)', () => {
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
+
     return { socket, ws };
   }
 
@@ -1123,6 +1157,7 @@ describe('protocol frame forwarding stays channel-scoped', () => {
     });
     await p;
     const onKicked = vi.fn();
+
     room.onKicked(onKicked);
 
     ws.emit({ event: '__kicked__', payload: { reason: 'spam' }, __wskit: { channel: 'general' } });

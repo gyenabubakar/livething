@@ -33,6 +33,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -274,6 +275,7 @@ describe('channels-reconnect-rejoin-before-queued-ops', () => {
       const reqIdx = events.indexOf('history');
       expect(subIdx).toBeGreaterThanOrEqual(0);
       expect(reqIdx).toBeGreaterThanOrEqual(0);
+
       expect(subIdx).toBeLessThan(reqIdx);
     } finally {
       vi.useRealTimers();
@@ -379,6 +381,7 @@ describe('channels-reconnect-payload-refresh-failure-reaches-onError (#22)', () 
       void room.subscribe(() => {
         calls++;
         if (calls > 1) throw new Error('token refresh boom');
+
         return {};
       });
 
@@ -739,6 +742,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       const first = MockWebSocket.last();
       first.open();
       first.serverClose(1006); // drop before __subscribeOk__ — subscribe never activates
+
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().open();
       vi.advanceTimersByTime(2000);
@@ -760,11 +764,13 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
         payload: {},
         __wskit: { source: 'client', channel: 'general', channelMembership: 'persistent' },
       });
+
       MockWebSocket.last().serverClose(1006);
       vi.advanceTimersByTime(1500);
       MockWebSocket.last().open();
       socket.disconnect();
       socket.connect();
+
       const fresh = MockWebSocket.last();
       fresh.open();
       vi.advanceTimersByTime(6000);
@@ -783,6 +789,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
       const first = MockWebSocket.last();
       first.open();
       const room = socket.channel('general');
+
       room.subscribe();
       first.emit({
         event: '__subscribeOk__',
@@ -809,6 +816,7 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
         payload: {},
         __wskit: { source: 'client', channel: 'general' },
       });
+
       second.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
@@ -834,6 +842,7 @@ describe('reconnection give-up tears down active channels', () => {
     const onUnsub = vi.fn();
     room.onUnsubscribed(onUnsub);
     room.subscribe();
+
     const ws = MockWebSocket.last();
     ws.open();
     ws.emit({
@@ -869,6 +878,7 @@ describe('member join deltas after a failed rejoin', () => {
         payload: {},
         __wskit: { source: 'client', channel: 'general' },
       });
+
       first.emit({
         event: '__memberSync__',
         payload: { members: [{ connectionId: 'a' }] },
@@ -914,6 +924,7 @@ describe('member join deltas after a failed rejoin', () => {
     const joins: string[] = [];
     room.onMemberJoin((id) => joins.push(id));
     room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -939,6 +950,7 @@ describe('member join deltas after a failed rejoin', () => {
       payload: {},
       __wskit: { source: 'client', channel: 'general' },
     });
+
     second.emit({
       event: '__memberSync__',
       payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
@@ -1010,6 +1022,7 @@ describe('duplicate subscribe confirmation', () => {
     const onSub = vi.fn();
     room.onSubscribed(onSub);
     room.subscribe();
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},

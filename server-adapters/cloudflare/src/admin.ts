@@ -63,7 +63,9 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
    */
   #localTarget(target: UserRef | TagRef): UserRef | TagRef {
     if (target.__wskit !== 'user-ref' || target.instance !== undefined) return target;
+
     if (this.#instanceId === undefined) return target;
+
     return { ...target, instance: this.#instanceId };
   }
 
@@ -119,6 +121,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean {
     const ref = this.#refOf(connectionId);
     if (!ref) return false;
+
     return this.#ctx.connections.get(ref).send(event, payload);
   }
 
@@ -183,5 +186,6 @@ export function buildAdmin<TApi, TMeta>(
   for (const [key, value] of devMethods) {
     proto[key] = value;
   }
+
   return new Extended(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
 }

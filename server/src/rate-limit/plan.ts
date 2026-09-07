@@ -64,11 +64,15 @@ interface MergeRuleOptions {
 function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
   const { parent, self, alloc, context } = opts;
   if (self === undefined) return parent;
+
   if (!self.enabled) return null;
+
   const windowMs = self.windowMs ?? parent?.windowMs ?? RATE_LIMIT_DEFAULTS.windowMs;
   const max = self.max ?? parent?.max ?? RATE_LIMIT_DEFAULTS.max;
+
   assertPositiveInteger(windowMs, 'windowMs', `rateLimit at ${context}`);
   assertPositiveInteger(max, 'max', `rateLimit at ${context}`);
+
   return {
     id: alloc.next(),
     windowMs,
@@ -126,6 +130,7 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
           context: `channel "${channelKey(ch.pattern)}"`,
         });
         scopeRules.set(key, rule);
+
         walk(ch.definitions, rule, key);
       }
     }
@@ -148,6 +153,7 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
       eventMap.set(event, rule);
       hasAnyOverride = true;
     }
+
     if (eventMap.size > 0) eventOverrides.set(scopeKey, eventMap);
   }
 

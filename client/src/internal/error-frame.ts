@@ -21,6 +21,7 @@ export function toWSKitError(payload: unknown): WSKitError {
  */
 export function unscopeErrorCode(source: string | undefined, error: unknown): unknown {
   if (source === undefined || !(error instanceof WSKitError)) return error;
+
   const prefix = namespacePrefixOf(source);
   return prefix && error.code.startsWith(prefix)
     ? new WSKitError(error.code.slice(prefix.length), error.detail)

@@ -40,6 +40,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -84,6 +85,7 @@ function buildHandler() {
     revalidate: undefined,
     subscribe: undefined,
   };
+
   const handles: {
     gate: Record<string, unknown> | undefined;
     normal: Record<string, unknown> | undefined;
@@ -155,6 +157,7 @@ function buildHandler() {
   });
 
   const handler = base.assemble({ handlers: [chat] });
+
   return { handler, sightings, handles };
 }
 
@@ -165,6 +168,7 @@ function buildDynamicHandler() {
     revalidate: undefined,
     subscribe: undefined,
   };
+
   const handles: {
     gate: Record<string, unknown> | undefined;
     normal: Record<string, unknown> | undefined;
@@ -416,6 +420,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasReplay: true,
       hasTags: true,
     };
+
     expect(sightings.check).toEqual(gateSighting);
     expect(sightings.commit).toEqual(gateSighting);
 
@@ -473,6 +478,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
         revalidate: undefined,
         subscribe: undefined,
       };
+
     function recordPlugin(key: keyof typeof sightings, ctx: unknown): void {
       const raw = ctx as {
         channel: Record<string, unknown>;
@@ -499,6 +505,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
         hasTags: false,
       };
     }
+
     const room = pluginBase.channel('chat', {
       capabilities: [
         serverRequests({
@@ -533,6 +540,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
     core.connections.set(connection.id, connection);
     const channelName = '__acme:gate-feed::chat';
     expect(core.compiled.channels.has(channelName)).toBe(true);
+
     expect(core.hooks.check.has(channelName)).toBe(true);
     await ChannelRuntime.subscribeConnection(channelRuntime(core), connection, {
       channelName,
@@ -558,6 +566,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       hasReplay: false,
       hasTags: false,
     };
+
     expect(sightings.check).toEqual(gateSighting);
     expect(sightings.commit).toEqual(gateSighting);
 

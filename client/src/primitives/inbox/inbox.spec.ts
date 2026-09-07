@@ -33,6 +33,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -47,6 +48,7 @@ function buildFamilyReceived() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -246,6 +248,7 @@ describe('inbox — scope forgetting on leave', () => {
     const room = socket.channel('room');
     const subscribed = room.subscribe();
     subscribeOk(ws, 'room', true);
+
     await subscribed;
     expect(room.status.get()).toBe('subscribed');
 
@@ -262,6 +265,7 @@ describe('inbox — scope forgetting on leave', () => {
       __wskit: { channel: 'room', unsubscribeId },
     });
     await leave;
+
     expect(room.status.get()).toBe('unsubscribed');
 
     // A later message on the left channel must not be acked.
@@ -298,6 +302,7 @@ describe('inbox — reconnect re-ack', () => {
     subscribeOk(ws, 'room', true);
     ws.emit({ event: 'msg', payload: { text: 'a' }, __wskit: { channel: 'room', seq: 6 } });
     await flush();
+
     expect(receivedFrames(ws)).toHaveLength(1);
 
     ws.serverClose(1006, 'dropped');
@@ -335,6 +340,7 @@ function buildReceived(inboxOptions?: { timeout?: number }) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -350,6 +356,7 @@ async function subscribedReceived(
     __wskit: { source: 'client', channel: 'room', inbox: true },
   });
   await p;
+
   return room;
 }
 
@@ -395,6 +402,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
     });
     const snapshotAfterFirst = room.receivers.get();
     const events: Array<[string, number]> = [];
+
     room.onReceived((userId, receivedThrough) => events.push([userId, receivedThrough]));
 
     // A duplicate value.
@@ -458,6 +466,7 @@ describe('inbox — receivers store from __received__ fan-out', () => {
       __wskit: { channel: 'room', unsubscribeId },
     });
     await leave;
+
     expect(room.receivers.get().size).toBe(0);
   });
 });
@@ -678,6 +687,7 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
       __wskit: { channel: 'room', unsubscribeId: leave1Id },
     });
     await leave1;
+
     ws.emit({
       event: '__subscribeOk__',
       payload: {},
@@ -716,6 +726,7 @@ describe('inbox — a stale __unsubscribeOk__ arriving after a rejoin is already
       payload: { missedThrough: 20 },
       __wskit: { channel: 'room' },
     });
+
     await flush();
     expect(receivedFrames(ws).at(-1)).toEqual({
       event: '__received__',

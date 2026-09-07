@@ -49,12 +49,15 @@ function resolveInboxOptions(config: InboxOptions): ResolvedInboxOptions {
       "[wskit] inbox `onDelivered: 'retain'` requires `retention` so kept rows can age out.",
     );
   }
+
   if (config.retention) {
     assertOptionalPositiveInteger(config.retention.maxAgeMs, 'retention.maxAgeMs', 'inbox()');
     assertOptionalPositiveInteger(config.retention.maxMessages, 'retention.maxMessages', 'inbox()');
   }
+
   const broadcastReceipts = config.broadcastReceipts ?? false;
   const maxReceiptAudience = config.maxReceiptAudience ?? DEFAULT_MAX_RECEIPT_AUDIENCE;
+
   return config.retention
     ? { onDelivered, retention: config.retention, broadcastReceipts, maxReceiptAudience }
     : { onDelivered, broadcastReceipts, maxReceiptAudience };
@@ -85,6 +88,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
           '[wskit] inbox requires `sequence: { persist: true }` for durable delivery.',
         );
       }
+
       if (view.channelKey && !view.isChannelDurable(view.channelKey)) {
         throw new Error(
           `[wskit] Channel "${view.channelKey}" has inbox() but is not persistent, so guaranteed ` +
@@ -121,6 +125,7 @@ export function inbox(config: InboxOptions): InboxPrimitive {
           });
         });
       }
+
       if (options.retention) {
         // Run every configured retention bound at boot. This matters when a
         // deployment changes maxMessages while the object is quiet: count-only
@@ -175,6 +180,7 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
       channelName: scope?.channelName ?? channelKey,
       channelFamily: scope?.channelFamily ?? null,
     });
+
     return {};
   };
 }
@@ -183,6 +189,7 @@ function buildReceivedHandler(deps: BuildReceivedHandlerDepsParameter) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__received__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -239,6 +246,7 @@ function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter)
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__receivedQuery__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -259,12 +267,14 @@ function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter)
       channel: channelName,
       correlationId: frame.__wskit.correlationId,
     };
+
     if (channelFamily !== null) wskit.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__receivedQuery__',
       payload: { userIds },
       wskit,
     });
+
     return true;
   };
 }

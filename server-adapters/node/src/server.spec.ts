@@ -83,6 +83,7 @@ function fakeWebSocketServer(): NodeWebSocketServer {
     on: vi.fn(),
     send: vi.fn(),
   };
+
   return {
     handleUpgrade: vi.fn((...args: Parameters<NodeWebSocketServer['handleUpgrade']>) => {
       args[3](webSocket as never, incomingRequest());
@@ -194,6 +195,7 @@ describe('server()', () => {
     await vi.runOnlyPendingTimersAsync();
     expect(fake.handleAlarm).toHaveBeenCalledOnce();
     const admin = await service.admin();
+
     expect(fake.admin).toHaveBeenCalledOnce();
     expect(admin).toBe(fake.admin.mock.results[0]?.value);
 
@@ -210,6 +212,7 @@ describe('server()', () => {
       releaseAlarm = resolve;
     });
     fake.handleAlarm.mockImplementation(() => alarmRunning);
+
     const service = server({} as never, { server: httpServer as unknown as Server });
 
     try {

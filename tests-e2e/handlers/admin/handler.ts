@@ -74,12 +74,14 @@ export const adminHandler = base.assemble({
     pokeConnection(connectionId: string, text: string): boolean {
       const target = ctx.connections.all().find((info) => info.id === connectionId);
       if (!target) return false;
+
       return ctx.connections.get(target.ref()).send('poked', { text });
     },
 
     closeConnection(connectionId: string, code: number, reason: string): boolean {
       const target = ctx.connections.all().find((info) => info.id === connectionId);
       if (!target) return false;
+
       ctx.connections.get(target.ref()).close(code, reason);
       return true;
     },

@@ -24,6 +24,7 @@ const topLevelReplay = handleReplay({
       const _afterGuard: string = message.wire.channel.toUpperCase();
       void _afterGuard;
     }
+
     void [_ctx, _message, _seq, _messageId, _channel, _channelFamily];
   },
   onReplay(ctx, since) {
@@ -56,6 +57,7 @@ const channelReplay = handleReplay<'channel'>({
       const _afterGuard: string = message.wire.channelFamily.toUpperCase();
       void _afterGuard;
     }
+
     void [_ctx, _message, _seq, _messageId, _channel, _channelFamily];
   },
   onReplay(ctx, since) {

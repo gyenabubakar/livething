@@ -28,6 +28,7 @@ test.describe('harness: DO restart (ctx.abort)', () => {
         .toBeGreaterThan(beforeSeq);
       beforeSeq = Number((await page.getByTestId('last-seq').textContent()) || '0');
     }
+
     expect(beforeSeq).toBeGreaterThanOrEqual(3);
 
     // Restart the DO: ctx.abort() tears down the in-memory instance (and the

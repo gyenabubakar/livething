@@ -56,6 +56,7 @@ async function buildEngine(
   });
   server(handler, {} as never);
   await engine.initialize();
+
   return { engine, sql };
 }
 
@@ -83,6 +84,7 @@ function createScheduledRuntime(
   const runsPersisted = new Map<string, string>();
   const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
+
   const sql = createTestSql();
   const timers = {
     setAlarm: vi.fn(async () => {}),
@@ -280,6 +282,7 @@ describe('scheduled/runtime', () => {
         scheduleTaskRun(runtime, { taskId: 'flush', time: bad, data: undefined }),
       ).toThrow(/must be a positive safe integer/);
     }
+
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
 
@@ -635,6 +638,7 @@ describe('scheduled/runtime', () => {
     expect(dlq).toBeDefined();
     expect(typeof dlq!.error.message).toBe('string');
     expect(dlq!.error.message).toBe('1');
+
     now.mockRestore();
   });
 });

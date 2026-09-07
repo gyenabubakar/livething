@@ -33,5 +33,6 @@ export function runConnectionWork<T>(
       queue.pending -= 1;
     },
   );
+
   return next;
 }

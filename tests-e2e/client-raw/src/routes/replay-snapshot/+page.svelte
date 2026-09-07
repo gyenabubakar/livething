@@ -19,10 +19,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		replayRequested = false;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/replay-snapshot?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -42,6 +44,7 @@
 
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
+
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
 				payload: Record<string, unknown>;

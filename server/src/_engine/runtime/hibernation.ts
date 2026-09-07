@@ -27,7 +27,9 @@ export function persistAttachment(
   options: PersistAttachmentOptions = {},
 ): void {
   if (!options.force && connection.pendingWrites?.active) return;
+
   if (!core.hibernationEnabled) return;
+
   if (!options.force && connection.closing) return;
 
   const scope = getInvocationScope(core.asyncContext);
@@ -51,6 +53,7 @@ export function flushDirtyAttachment(
   options: PersistAttachmentOptions = {},
 ): void {
   if (!core.hibernationEnabled) return;
+
   if (!options.force && connection.closing) return;
 
   let state: ConnectionStore.SerializedTranslatorState;
@@ -58,9 +61,11 @@ export function flushDirtyAttachment(
     state = translatorState(connection);
   } catch (error) {
     if (options.force && connection.closing) return;
+
     if (isWSKitConfigError(error)) {
       closeForTranslatorStateFailure(connection, error);
     }
+
     closeForConnectionStateFailure(core, connection, error);
     return;
   }
@@ -130,8 +135,10 @@ export function readConnectionState(
   connectionId: string,
 ): ConnectionStore.StoredConnectionRow | null {
   if (!core.hibernationEnabled) return null;
+
   const preloaded = core.preloadedConnectionRows;
   if (preloaded) return preloaded.get(connectionId) ?? null;
+
   return ConnectionStore.readConnectionRow(core.storage.sql, connectionId);
 }
 
@@ -146,6 +153,7 @@ export function withPreloadedConnectionRows(core: EngineCore, run: () => void): 
     run();
     return;
   }
+
   core.preloadedConnectionRows = ConnectionStore.readAllConnectionRows(core.storage.sql);
   try {
     run();
@@ -160,6 +168,7 @@ export function withPreloadedConnectionRows(core: EngineCore, run: () => void): 
  */
 export function deleteConnectionState(core: EngineCore, connectionId: string): void {
   if (!core.hibernationEnabled) return;
+
   // Drop this connection's pending row write first — without it, the write that
   // runs when this engine call finishes would re-create the row we just deleted.
   const scope = getInvocationScope(core.asyncContext);
@@ -171,6 +180,7 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
       }
     }
   }
+
   ConnectionStore.deleteConnectionRow(core.storage.sql, connectionId);
 }
 
@@ -180,5 +190,6 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
  */
 export function reconcileConnections(core: EngineCore, surviving: ReadonlySet<string>): void {
   if (!core.hibernationEnabled) return;
+
   ConnectionStore.reconcileConnectionRows(core.storage.sql, surviving);
 }

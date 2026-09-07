@@ -21,6 +21,7 @@ describe('CloseCodes', () => {
     expect(CloseCodes.DUPLICATE).toBe(4003);
     expect(CloseCodes.IDLE).toBe(4004);
     expect(CloseCodes.RATE_LIMITED).toBe(4005);
+
     expect(CloseCodes.BANNED).toBe(4009);
     expect(CloseCodes.CAPACITY).toBe(4010);
   });
@@ -97,6 +98,7 @@ describe('DeferExhausted', () => {
     expect(err.code).toBe('defer-exhausted');
     expect(err.detail.event).toBe('send-message');
     expect(err.detail.payload).toEqual({ text: 'hello' });
+
     expect(err.detail.retries).toBe(3);
   });
 

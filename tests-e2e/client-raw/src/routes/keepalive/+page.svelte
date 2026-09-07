@@ -6,10 +6,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		closeCode = null;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const url = new URL(location.href);
+
 		const room = url.searchParams.get('room') ?? 'default';
 		// With ?autopong=1 the page answers the server's keepalive "ping" text
 		// frame with "pong" — a live-but-app-silent client. Without it, the raw

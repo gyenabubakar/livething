@@ -126,6 +126,7 @@ describe('autoRejoinIdentity', () => {
     expect(sent[0]!.event).toBe('__error__');
     expect(sent[0]!.wskit.channel).toBe('team-eng');
     expect(sent[0]!.payload.code).toBe('rejoin-rejected');
+
     expect((sent[0]!.payload.detail as { message: string }).message).toBe('not on the eng team');
   });
 

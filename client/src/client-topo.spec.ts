@@ -31,6 +31,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -71,6 +72,7 @@ describe('topoSort — dependency ordering', () => {
       payload: { text: 'hello' },
       __wskit: { messageId: 'id-1', seq: 5 },
     };
+
     const dup = {
       event: 'msg',
       payload: { text: 'hello' },
@@ -195,6 +197,7 @@ describe('topoSort — optionalAfter ordering', () => {
     const rep = events.indexOf('__replay__');
     expect(sub).toBeGreaterThanOrEqual(0);
     expect(rep).toBeGreaterThanOrEqual(0);
+
     expect(sub).toBeLessThan(rep);
   });
 
@@ -204,6 +207,7 @@ describe('topoSort — optionalAfter ordering', () => {
     const rep = events.indexOf('__replay__');
     expect(sub).toBeGreaterThanOrEqual(0);
     expect(rep).toBeGreaterThanOrEqual(0);
+
     expect(sub).toBeLessThan(rep);
   });
 });

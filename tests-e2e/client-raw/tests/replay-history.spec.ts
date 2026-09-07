@@ -30,6 +30,7 @@ test.describe('replay handler', () => {
     const result = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -53,6 +54,7 @@ test.describe('replay handler', () => {
       ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return got;
     });
 
@@ -91,17 +93,20 @@ test.describe('replay handler', () => {
     const errors = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: { event: string; payload: Record<string, unknown> }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(
         JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 'abc' }, __wskit: {} }),
       );
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
+
       return got.filter((m) => m.event === '__error__');
     });
 
@@ -121,6 +126,7 @@ test.describe('replay handler', () => {
     const result = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -131,11 +137,13 @@ test.describe('replay handler', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(JSON.stringify({ event: 'start-tiny-stream', payload: {} }));
       await new Promise((r) => setTimeout(r, 300));
       ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
+
       return got;
     });
 
@@ -264,6 +272,7 @@ test.describe('replay handler', () => {
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await page.getByTestId('room-join-btn').click();
+
     await waitForText(page, 'room-subscribed', 'subscribed');
 
     await page.evaluate((since) => {
@@ -309,6 +318,7 @@ test.describe('replay handler', () => {
     const frame = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
+
       const got: {
         event: string;
         payload: Record<string, unknown>;
@@ -319,9 +329,11 @@ test.describe('replay handler', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
+
       ws.send(JSON.stringify({ event: 'inject-family-replay', payload: {} }));
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
+
       return got.find((m) => m.event === 'room-msg' && m.payload.text === 'family-injected');
     });
 
@@ -453,6 +465,7 @@ test.describe('replay handler', () => {
       await new Promise((r) => setTimeout(r, 500));
 
       ws.onmessage = original;
+
       return replayed.filter((m) => m.event === 'room-msg');
     });
 
@@ -483,6 +496,7 @@ test.describe('replay handler', () => {
     await a.getByTestId('connect-btn').click();
     await waitForText(a, 'status', 'connected');
     await a.getByTestId('room-join-btn').click();
+
     await waitForText(a, 'room-subscribed', 'subscribed');
     await a.getByTestId('room-send-btn').click();
     await waitForText(a, 'room-messages', /room hello/);
@@ -511,6 +525,7 @@ test.describe('replay handler', () => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
     await page.getByTestId('send-msg-btn').click();
+
     await waitForText(page, 'messages', /hello from replay/);
     const oldSeq = Number(await page.getByTestId('last-seq').textContent());
     expect(oldSeq).toBeGreaterThan(0);

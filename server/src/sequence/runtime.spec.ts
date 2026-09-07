@@ -15,6 +15,7 @@ function sequenceDb() {
   });
   ensureSequenceSchema(sql);
   calls.length = 0;
+
   return { calls, sql };
 }
 

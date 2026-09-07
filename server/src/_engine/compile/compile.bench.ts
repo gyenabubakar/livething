@@ -102,6 +102,7 @@ const heavyHandlers: any[] = [];
 for (const name of ['a', 'b', 'c', 'd', 'e']) {
   heavyHandlers.push(heavyBase.on(name, { input: Empty, run() {} }));
 }
+
 for (const name of ['r-a', 'r-b', 'r-c']) {
   heavyHandlers.push(
     heavyBase.request(name, {
@@ -112,6 +113,7 @@ for (const name of ['r-a', 'r-b', 'r-c']) {
     }),
   );
 }
+
 for (const name of ['s-a', 's-b']) {
   heavyHandlers.push(
     heavyBase.stream(name, {
@@ -123,6 +125,7 @@ for (const name of ['s-a', 's-b']) {
     }),
   );
 }
+
 heavyHandlers.push(
   heavyBase.resumableStream('rs-a', {
     input: Empty,
@@ -148,6 +151,7 @@ for (const n of [1, 2, 3, 4, 5]) {
     ch.on(`c${n}-edit`, { input: Text, run() {} }),
   );
 }
+
 for (const n of [1, 2, 3, 4, 5]) {
   const ch = heavyBase.channel([`rooms-${n}`, `r${n}:{id}`], {
     capabilities: [emits(channelEmits(`r${n}`))],
@@ -157,6 +161,7 @@ for (const n of [1, 2, 3, 4, 5]) {
     ch.on(`r${n}-edit`, { input: Text, run() {} }),
   );
 }
+
 const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('compileHandlerDefinition', () => {

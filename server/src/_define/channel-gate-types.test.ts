@@ -121,6 +121,7 @@ describe('channel gate surface typing', () => {
         expectTypeOf(ctx.channel.broadcast).toBeFunction();
         expectTypeOf(ctx.channel.members).toBeFunction();
         expectTypeOf(ctx.request).toBeFunction();
+
         expectTypeOf(ctx.broadcastRequest).toBeFunction();
         expectTypeOf(ctx.tags.ephemeral('role').broadcastRequest).toBeFunction();
         // @ts-expect-error — stream generators have their own ctx, not a gate ctx.

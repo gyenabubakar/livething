@@ -92,6 +92,7 @@ bare.on('__acme:presence::here', (data) => expectTypeOf(data).toEqualTypeOf<{ wh
 interface NoChatContract {
   incoming: { 'app-notice': { text: string } };
 }
+
 // @ts-expect-error — NoChatContract has no __acme:chat:: names, so Chat can't register
 client<NoChatContract>()(connect('wss://example.com'), clientRequests(), Chat());
 

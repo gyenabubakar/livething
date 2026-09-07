@@ -34,6 +34,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { id: 'a' });
@@ -63,6 +64,7 @@ describe('send-and-await frames respect the buffering flush order', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { id: 'a' });
@@ -117,6 +119,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
       );
       await Promise.resolve();
       await Promise.resolve();
+
       expect(settled).toHaveBeenCalledWith('disconnected');
     } finally {
       vi.useRealTimers();
@@ -134,6 +137,7 @@ describe('send-and-await frames fail fast on a closed socket (no buffering)', ()
       );
       await Promise.resolve();
       await Promise.resolve();
+
       expect(settled).toHaveBeenCalledWith('disconnected');
     } finally {
       vi.useRealTimers();

@@ -196,6 +196,7 @@ const NODE_ADAPTER_MARKER = '[wskit] Node server options need either server or p
 function importStar(path) {
   return `import * as m from ${JSON.stringify(path)};\nexport { m };`;
 }
+
 function importNamed(path, ...names) {
   return `import { ${names.join(', ')} } from ${JSON.stringify(path)};\nexport { ${names.join(', ')} };`;
 }
@@ -295,6 +296,7 @@ async function runSuite(suite, scenarios) {
         );
       }
     }
+
     // 2. Drift: an engine we expect (own or documented dependency) is missing —
     //    either the marker was renamed or the dependency genuinely changed. Fix
     //    the marker, or update `owns`/`alsoPulls` for this scenario.
@@ -327,6 +329,7 @@ async function assertMarkersResolve(distDir, engines, failures) {
     failures.push(`  could not read ${distDir} — run the package build first (pnpm build)`);
     return;
   }
+
   const haystack = (await Promise.all(files.map((f) => readFile(f, 'utf8')))).join('\n');
   for (const [id, { marker }] of Object.entries(engines)) {
     if (!haystack.includes(marker)) {
@@ -346,6 +349,7 @@ async function collectJsFiles(dir) {
     if (entry.isDirectory()) out.push(...(await collectJsFiles(full)));
     else if (entry.name.endsWith('.js')) out.push(full);
   }
+
   return out;
 }
 
@@ -377,6 +381,7 @@ async function main() {
     );
     process.exit(1);
   }
+
   console.log(
     '\nbundle-check: all entries clean — optional feature code is only included where it is needed.',
   );

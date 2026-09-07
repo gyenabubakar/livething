@@ -57,7 +57,10 @@ export function createWebSocketBridge(options: NodeWebSocketBridgeOptions): Conn
 
 function rawDataToString(data: RawData): string {
   if (typeof data === 'string') return data;
+
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString();
+
   if (Array.isArray(data)) return Buffer.concat(data).toString();
+
   return data.toString();
 }

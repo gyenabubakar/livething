@@ -34,6 +34,7 @@ const room = base.channel('room', {
     const { token } = input;
     const role = token ? TOKEN_ROLES[token] : undefined;
     if (!role) throw new Error('unknown or missing token');
+
     return { role };
   },
   // TypeScript infers `role` from what check returned — no manual annotation needed.
@@ -106,8 +107,10 @@ const nonceRoom = base.channel('nonce-room', {
     // reconnect lands here and is refused; a freshly generated one passes.
     const { token } = input;
     if (!token) throw new Error('missing token');
+
     const key = `nonce:${token}`;
     if (await ctx.kv.get(key)) throw new Error('token already used');
+
     await ctx.kv.set(key, true);
   },
 });

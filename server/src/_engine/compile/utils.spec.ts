@@ -21,6 +21,7 @@ describe('collectUnique', () => {
     } catch (error) {
       captured = error;
     }
+
     expect(isWSKitConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/duplicate outgoing "ready"/);
   });
@@ -51,9 +52,11 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       } catch (err) {
         thrown = err;
       }
+
       expect(thrown).toBeInstanceOf(WSKitError);
       const wsErr = thrown as WSKitError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
+
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);
       expect(typeof wsErr.detail.issues[0].message).toBe('string');
@@ -74,9 +77,11 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       } catch (err) {
         thrown = err;
       }
+
       expect(thrown).toBeInstanceOf(WSKitError);
       const wsErr = thrown as WSKitError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
+
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);
       expect(typeof wsErr.detail.issues[0].message).toBe('string');

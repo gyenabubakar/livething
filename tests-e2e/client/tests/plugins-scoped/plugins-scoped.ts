@@ -113,6 +113,7 @@ const Feed = plugin<FeedWire, FeedApi>()({
     const saidCbs = new Set<(text: string) => void>();
     const channelPingCbs = new Set<() => void>();
     const channelPongCbs = new Set<() => void>();
+
     const pluginFailureCbs = new Set<(code: string, reason: string) => void>();
     const roomFullErrorCbs = new Set<(code: string) => void>();
 
@@ -295,6 +296,7 @@ export function setup(): void {
   button('nudge', async () => {
     el('nudge-result').textContent = await feed.boost();
   });
+
   button('join-room', () => {
     feed.onSaid((text) => {
       el('said').textContent = text;
@@ -329,6 +331,7 @@ export function setup(): void {
     }),
   );
   button('trigger-plugin-failure', () => feed.triggerPluginFailure());
+
   button('trigger-room-full-error', () => feed.triggerRoomFullError());
 
   ready();

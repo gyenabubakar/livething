@@ -40,6 +40,7 @@ test.describe('ctx-meta', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'broadcaster');
     await openPage(b, room, 'listener');
 
@@ -59,6 +60,7 @@ test.describe('ctx-meta', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await openPage(a, room, 'client-a');
     await openPage(b, room, 'client-b');
 

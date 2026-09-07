@@ -59,6 +59,7 @@ export function setup(): void {
       indices.push(chunk.idx);
       el('feed-chunks').textContent = indices.join(',');
     }
+
     el('feed-end').textContent = 'yes';
   });
 

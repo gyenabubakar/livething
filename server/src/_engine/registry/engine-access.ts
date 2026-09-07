@@ -78,6 +78,7 @@ export function createEngineAccess(
     timers: core.timers,
     installOnce: (key, install) => {
       if (core.installedFeatures.has(key)) return;
+
       core.installedFeatures.add(key);
       install();
     },
@@ -145,6 +146,7 @@ export function createEngineAccess(
           '[wskit] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
         );
       }
+
       onUpgradeCalled = true;
       core.hooks.upgrade.push(handler);
     },
@@ -154,6 +156,7 @@ export function createEngineAccess(
           '[wskit] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
         );
       }
+
       core.hooks.builderUpgrade = handler;
     },
     onValidationError: (handler) => {
@@ -239,6 +242,7 @@ export function createEngineAccess(
           `[wskit] Plugin id '${id}' is registered more than once. Each plugin id must be unique.`,
         );
       }
+
       core.pluginApiFactories.set(id, factory);
     },
     getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
@@ -257,6 +261,7 @@ export function createEngineAccess(
             `[wskit] tagGroups.${kind} group '${group.name}' declared more than once in this contract.`,
           );
         }
+
         core.declaredTagGroups[kind].add(group.name);
         if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
       }
@@ -266,6 +271,7 @@ export function createEngineAccess(
     getLogger: () => core.logger,
     enableIncomingDedup: (cap) => {
       if (!Number.isFinite(cap) || cap <= 0) return;
+
       core.incomingDedupCap = Math.max(core.incomingDedupCap, Math.floor(cap));
     },
     registerErrorDefinitions: (defs) => {
@@ -280,6 +286,7 @@ export function createEngineAccess(
       if (connection.keepaliveTimer !== undefined) {
         clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
       }
+
       connection.keepaliveTimer = setTimeout(() => {
         connection.descriptor.close(CloseCodes.IDLE, 'Keepalive timeout');
       }, timeoutMs);
@@ -324,11 +331,13 @@ export function createEngineAccess(
     sendReplay: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendReplay(core, connection, options);
     },
     sendGap: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendGap(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
@@ -342,6 +351,7 @@ export function createEngineAccess(
     rawSend: (connectionId, event, payload) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendProtocolMessage(core, connection, {
         event,
         payload: payload as Record<string, unknown>,
@@ -351,6 +361,7 @@ export function createEngineAccess(
     sendProtocolFrame: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
+
       sendProtocolMessage(core, connection, {
         event: options.event,
         payload: options.payload as Record<string, unknown>,
@@ -403,6 +414,7 @@ export function createEngineAccess(
     },
     isUserOnline: (userId) => {
       if (!userId) return false;
+
       const members = core.usersByKey.get(userId);
       return members !== undefined && members.size > 0;
     },

@@ -12,12 +12,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${proto}//${location.host}/ws/channel-family-isolation?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
@@ -28,34 +30,41 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			if (data.event === 'public-members-result') {
 				publicMembers = `${data.payload.name}:${data.payload.count}`;
 			}
+
 			if (data.event === 'private-members-result') {
 				privateMembers = `${data.payload.name}:${data.payload.count}`;
 			}
+
 			if (data.event === 'kick-acknowledged') {
 				kickAck = data.payload.where;
 			}
+
 			if (data.event === '__kicked__') {
 				kicked = [
 					...kicked,
 					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel}:${data.payload.reason ?? ''}`,
 				];
 			}
+
 			if (data.event === '__memberLeave__') {
 				memberLeaves = [
 					...memberLeaves,
 					`${data.__wskit?.channelFamily ?? 'static'}:${data.__wskit?.channel ?? ''}:${data.payload.connectionId ?? ''}`,
 				];
 			}
+
 			if (data.event === 'room-message') {
 				publicMessages = [
 					...publicMessages,
 					`${data.payload.family}:${data.payload.name}:${data.payload.text}`,
 				];
 			}
+
 			if (data.event === 'private-message') {
 				privateMessages = [
 					...privateMessages,

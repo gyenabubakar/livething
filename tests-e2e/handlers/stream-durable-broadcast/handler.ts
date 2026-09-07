@@ -74,6 +74,7 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { token: `t${i}` });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },

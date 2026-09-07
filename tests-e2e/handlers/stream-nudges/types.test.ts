@@ -8,6 +8,7 @@ describe('StreamNudgesClient — no-any guard', () => {
     expectTypeOf<StreamNudgesClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['streams']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['channels']>().not.toBeAny();
+
     expectTypeOf<StreamNudgesClient['errors']>().not.toBeAny();
   });
 });

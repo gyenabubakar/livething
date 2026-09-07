@@ -8,6 +8,7 @@ describe('channel lifecycle primitives', () => {
     const engine = {
       onCheck: vi.fn(),
     };
+
     const handler = vi.fn();
     const validator = v.object({ token: v.string() });
     const primitive = check(handler, { validator });
@@ -48,6 +49,7 @@ describe('channel lifecycle primitives', () => {
       onSubscribe: vi.fn(),
       onUnsubscribe: vi.fn(),
     };
+
     const subscribe = vi.fn();
     const unsubscribe = vi.fn();
 

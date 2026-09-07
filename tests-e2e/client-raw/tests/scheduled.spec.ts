@@ -108,6 +108,7 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('connection-id')).not.toHaveText('');
     await page.getByTestId('schedule-send-to-self').click();
     await expect(page.getByTestId('send-to-conn-delivery')).toHaveText('from-task');
+
     await expect(page.getByTestId('send-to-conn-status')).toContainText('delivered:true');
   });
 

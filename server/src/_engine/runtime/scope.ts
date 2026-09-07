@@ -18,9 +18,11 @@ export function resolveChannel(
     if (wskit.channelFamily !== null) {
       const family = compiled.channelFamilies.get(wskit.channelFamily);
       if (!family) throw ChannelNotFound();
+
       if (!ChannelPrimitive.matchesFamilyPattern(family.pattern, wskit.channel)) {
         throw ChannelNotFound();
       }
+
       return {
         channel: family,
         channelName: wskit.channel,
@@ -30,6 +32,7 @@ export function resolveChannel(
 
     const channel = compiled.channels.get(wskit.channel);
     if (!channel) throw ChannelNotFound();
+
     return {
       channel,
       channelName: wskit.channel,
@@ -49,6 +52,7 @@ export function routingFromWSKit(
   wskit: Protocol.WSKitRouting | undefined,
 ): Protocol.WSKitRouting | undefined {
   if (!wskit) return undefined;
+
   const routing: Protocol.WSKitRouting = {};
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   // Echo a client-originated exchange's source so an error reply to a client
@@ -62,5 +66,6 @@ export function routingFromWSKit(
     routing.channel = wskit.channel;
     routing.channelFamily = wskit.channelFamily ?? null;
   }
+
   return Object.keys(routing).length > 0 ? routing : undefined;
 }

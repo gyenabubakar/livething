@@ -72,6 +72,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   (socket as { connect(): void }).connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -298,6 +299,7 @@ describe('scoped send — send() and request()', () => {
       payload: {},
       __wskit: { source: 'client', channel: '__acme:chat::room' },
     });
+
     await subscribed;
 
     expect(rooms.static.send('ping', {})).toBe(true);
@@ -323,6 +325,7 @@ describe('scoped send — send() and request()', () => {
     });
     await dynamicSubscribed;
     expect(rooms.dynamic.send('ping', {})).toBe(true);
+
     expect(rooms.dynamic.send('pong', {})).toBe(true);
     expect(rooms.dynamic.send('', {})).toBe(false);
     expect(
@@ -532,6 +535,7 @@ describe('scoped stream and onRequest', () => {
       streams: { feed: { payload: { from: number }; chunk: { row: number } } };
       errors: { 'feed-gone': { why: string } };
     }
+
     interface Host {
       streams: { '__acme:feed::feed': { payload: { from: number }; chunk: { row: number } } };
       errors: { '__acme:feed::feed-gone': { why: string } };
@@ -579,6 +583,7 @@ describe('scoped stream and onRequest', () => {
         };
       };
     }
+
     interface Host {
       streams: {
         '__acme:feed::feed': {
@@ -659,6 +664,7 @@ describe('scoped channels — dynamic families', () => {
         family.onSubscribed((name) => subscribed.push(name));
         const one = socket.channel('thread', 'thread:1');
         one.on('post', (m) => posts.push(m.text));
+
         return { api: () => ({ open: () => one.subscribe(), rooms: () => family.list() }) };
       },
     });
@@ -704,6 +710,7 @@ describe('scoped channels — dynamic families', () => {
         };
       };
     }
+
     interface Host {
       channels: {
         '__acme:chat::room': {
@@ -787,6 +794,7 @@ describe('scoped channels — dynamic families', () => {
       channels: { room: { incoming: { joined: { who: string } } } };
       errors: { 'room-locked': { reason: string } };
     }
+
     interface Host {
       channels: { '__acme:chat::room': { incoming: { joined: { who: string } } } };
       errors: { '__acme:chat::room-locked': { reason: string } };
@@ -834,6 +842,7 @@ describe('scoped channels — missing receipt primitives', () => {
         };
       };
     }
+
     interface ReceiptHost {
       channels: {
         '__acme:receipts::room': {
@@ -872,6 +881,7 @@ describe('scoped channels — missing receipt primitives', () => {
         };
       };
     }
+
     interface ReceiptHost {
       channels: {
         '__acme:a::room': ReceiptWire['channels']['room'];
@@ -1050,6 +1060,7 @@ describe('generic message handlers and lifecycle', () => {
     });
     const { socket, ws } = build(Chat());
     socket.onError((error) => errors.push(error));
+
     socket.on('welcome', later);
 
     ws.emit({ event: '__acme:chat::message', payload: { text: 'x' } });

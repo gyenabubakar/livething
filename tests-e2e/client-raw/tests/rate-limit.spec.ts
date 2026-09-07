@@ -54,6 +54,7 @@ test.describe('rate-limit', () => {
     for (let i = 0; i < 10; i += 1) {
       await page.getByTestId('send-no-limit').click();
     }
+
     await expect(page.getByTestId('no-limit-msg-count')).toHaveText('10');
     await expect(page.getByTestId('rate-limited-count')).toHaveText('0');
   });
@@ -127,6 +128,7 @@ test.describe('rate-limit', () => {
       await pageA.getByTestId('tick').click();
       await pageA.getByTestId('tick').click();
       await expect(pageA.getByTestId('tock-count')).toHaveText('3');
+
       await expect(pageA.getByTestId('rate-limited-count')).toHaveText('1');
 
       // B's bucket is untouched.

@@ -19,6 +19,7 @@ function clock(): Clock {
       return this.now;
     },
   };
+
   return c;
 }
 
@@ -73,6 +74,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
+
     const verdict = rt.check({ id: 'c1' }, 'e');
     expect(verdict).not.toBeNull();
     expect(verdict!.retryAfterMs).toBeGreaterThanOrEqual(1_000);
@@ -99,6 +101,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
 
     c.advance(20_000);
@@ -163,6 +166,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
     rt.check({ id: 'c1' }, 'e');
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
 
     // Sleep way longer than one window. Bucket should be capped at max, not larger.
@@ -170,6 +174,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     for (let i = 0; i < 3; i += 1) {
       expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     }
+
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
   });
 
@@ -182,6 +187,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1', user: { id: 'u-42' } }, 'e')).toBeNull();
     expect(rt.check({ id: 'c2', user: { id: 'u-42' } }, 'e')).toBeNull();
     expect(rt.check({ id: 'c3', user: { id: 'u-42' } }, 'e')).not.toBeNull();
+
     expect(rt.check({ id: 'c4', user: { id: 'u-99' } }, 'e')).toBeNull();
   });
 
@@ -197,6 +203,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'e')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'e')).not.toBeNull();
     expect(rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e')).toBeNull();
+
     expect(
       rt.check({ id: 'c1', channel: { name: 'room-a', family: 'rooms' } }, 'e'),
     ).not.toBeNull();
@@ -214,6 +221,7 @@ describe('RateLimitRuntime — token bucket math', () => {
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'exempt')).toBeNull();
+
     expect(rt.check({ id: 'c1' }, 'other')).toBeNull();
     expect(rt.check({ id: 'c1' }, 'other')).not.toBeNull();
   });

@@ -22,6 +22,7 @@ test.describe('admin() over the Worker→DO stub', () => {
       await fetch(`/ws/admin/purge?room=${encodeURIComponent(currentRoom)}&userId=alice`, {
         method: 'POST',
       });
+
       return closed;
     }, room);
 
@@ -49,7 +50,9 @@ test.describe('admin() over the Worker→DO stub', () => {
       await fetch(`/ws/admin/announce?room=${encodeURIComponent(currentRoom)}&text=hello`, {
         method: 'POST',
       });
+
       await new Promise((resolve) => setTimeout(resolve, 500));
+
       return frames;
     }, room);
 

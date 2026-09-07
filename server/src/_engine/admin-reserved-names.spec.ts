@@ -45,6 +45,7 @@ function engineWithApi(makeApi: (ctx: unknown) => object) {
     },
   });
   build(handler as never, {});
+
   return created as { initialize(): Promise<void>; admin(): unknown };
 }
 
@@ -76,6 +77,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
   it('rejects an own constructor that spoofs a prototype marker during boot', async () => {
     const api = Object.create(null) as Record<string, unknown>;
     function AppConstructor() {}
+
     AppConstructor.prototype = api;
     Object.defineProperty(api, 'constructor', {
       value: AppConstructor,
@@ -108,6 +110,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
         return 'pong';
       }
     }
+
     const engine = engineWithApi(() => new AdminApi());
     await expect(engine.initialize()).resolves.toBeUndefined();
     expect((engine.admin() as { ping(): string }).ping()).toBe('pong');
@@ -123,6 +126,7 @@ describe('VERIFY · reserved admin api names fail at boot', () => {
         return 'pong';
       }
     }
+
     const engine = engineWithApi(() => new NullPrototypeApi());
 
     await expect(engine.initialize()).resolves.toBeUndefined();

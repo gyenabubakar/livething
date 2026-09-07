@@ -46,6 +46,7 @@ function createConnectionHandle(): {
       calls.errors.push(error);
     }),
   };
+
   return { handle, calls };
 }
 
@@ -82,6 +83,7 @@ describe('createWebSocketBridge', () => {
     expect(descriptor?.userId).toBe('user-1');
     expect(descriptor?.meta).toBe(meta);
     expect(descriptor?.tags).toBe(tags);
+
     expect(descriptor?.backpressureSupported).toBe(true);
 
     descriptor?.send('outgoing');
@@ -133,6 +135,7 @@ describe('createWebSocketBridge', () => {
       handleClose: vi.fn(async () => {}),
       handleError: vi.fn(async () => {}),
     };
+
     const engine = { accept: vi.fn(() => handle) };
 
     createWebSocketBridge({ engine, socket, decision: { userId: '' } });

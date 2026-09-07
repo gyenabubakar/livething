@@ -25,9 +25,11 @@ export function normalizeCloseReason(reason?: string): string | undefined {
   for (const character of reason) {
     const characterBytes = encoder.encode(character).byteLength;
     if (bytes + characterBytes > MAX_CLOSE_REASON_BYTES) break;
+
     limited += character;
     bytes += characterBytes;
   }
+
   return limited;
 }
 
@@ -47,6 +49,7 @@ export function normalizeConnectionDescriptor(
         descriptor.close(CloseCodes.INTERNAL_ERROR, 'Internal error');
         return;
       }
+
       descriptor.close(closeCode, normalizeCloseReason(reason));
     },
     bufferedAmount() {

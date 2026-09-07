@@ -26,6 +26,7 @@ import type { SocketContract } from '~/types.ts';
  */
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
+
   throw new WSKitConfigError(
     `a plugin dependency must be a primitive factory with a static 'tag' (e.g. [clientRequests, channels]).`,
   );
@@ -47,6 +48,7 @@ function registerPlugin(socket: WSKitSocket, id: string, build: () => unknown): 
     byId = new Map();
     pluginRegistries.set(socket, byId);
   }
+
   byId.set(id, { build });
 }
 
@@ -57,6 +59,7 @@ function usePlugin(socket: object, id: string): unknown {
       `plugin '${id}' is not registered on this socket, or it exposes no API. Pass it to client().`,
     );
   }
+
   if (!entry.result) {
     try {
       entry.result = { ok: true, api: entry.build() };
@@ -64,7 +67,9 @@ function usePlugin(socket: object, id: string): unknown {
       entry.result = { ok: false, error };
     }
   }
+
   if (!entry.result.ok) throw entry.result.error;
+
   return entry.result.api;
 }
 
@@ -120,6 +125,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         `plugin '${id}' registered ${name}() twice — use a single callback.`,
       );
     }
+
     return handler;
   }
 
@@ -162,6 +168,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       messaging.onReceived = missingReceiptMethod('onReceived', 'inbox');
       messaging.receiversOf = missingReceiptMethod('receiversOf', 'inbox');
     }
+
     if (messaging.readers === undefined) {
       const missingReadReceipts = missingReceiptMethod('readers', 'readReceipts');
       messaging.readers = { get: missingReadReceipts, subscribe: missingReadReceipts };
@@ -199,10 +206,13 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         set = new Set();
         handlers.set(event, set);
       }
+
       set.add(handler);
       let released = false;
+
       return () => {
         if (released) return;
+
         released = true;
         set.delete(handler);
         if (set.size === 0) handlers.delete(event);
@@ -212,6 +222,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     send(event: string, payload: unknown, options?: PluginSendOptions): boolean {
       if (typeof event !== 'string' || event.length === 0) return false;
+
       const result = helpers.send({ event: namespacedName(id, event), payload }, options);
       return result === 'sent' || result === 'buffered';
     },
@@ -233,8 +244,10 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       const handler = typeof codeOrHandler === 'function' ? codeOrHandler : maybeHandler;
       if (!handler)
         throw new TypeError(`[wskit] plugin '${id}' onServerError requires a callback.`);
+
       const registration = { code, handler };
       errorHandlers.add(registration);
+
       return () => errorHandlers.delete(registration);
     },
 
@@ -256,6 +269,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   function dispatch(name: string, payload: unknown): void {
     const set = handlers.get(name);
     if (!set) return;
+
     for (const handler of set) {
       try {
         handler(payload);
@@ -269,6 +283,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
   // stamp each with the plugin's namespace so it lands in the plugin's own space.
   function namespaceFrames(frames: WireMessage[] | void): WireMessage[] | null {
     if (!frames) return null;
+
     return frames.map((frame) => ({ ...frame, event: namespacedName(id, frame.event) }));
   }
 
@@ -283,6 +298,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
         report(e);
       }
     }
+
     return matching.length > 0;
   }
 
@@ -297,18 +313,22 @@ function createPluginRuntime<P extends SocketContract, TApi>(
    */
   function claimError(message: WireMessage): boolean {
     if (message.event !== '__error__' || !ownsFrame(message)) return false;
+
     const payload = message.payload as { code?: unknown; detail?: unknown } | null;
     if (typeof payload?.code !== 'string' || !payload.code.startsWith(ownPrefix)) return false;
+
     const error = toWSKitError({
       code: payload.code.slice(ownPrefix.length),
       detail: payload.detail,
     });
     if (!dispatchError(error)) helpers.reportServerError(toWSKitError(message.payload));
+
     return true;
   }
 
   function runDispose(): void {
     if (disposed) return;
+
     disposed = true;
     try {
       instance?.dispose?.();
@@ -334,23 +354,29 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       if (userIncoming) {
         const result = runMessageHook(userIncoming, current, report);
         if (result === null) return null;
+
         current = result;
       }
+
       if (current.event.startsWith(ownPrefix) && ownsFrame(current)) {
         dispatch(current.event.slice(ownPrefix.length), current.payload);
         return null;
       }
+
       if (claimError(current)) return null;
+
       return current;
     },
 
     onOutgoing(message) {
       if (!userOutgoing) return message;
+
       return runMessageHook(userOutgoing, message, report);
     },
 
     onOpen() {
       if (!userOpen) return null;
+
       try {
         return namespaceFrames(userOpen());
       } catch (error) {
@@ -361,6 +387,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
     onReconnect() {
       if (!userReconnect) return null;
+
       try {
         return namespaceFrames(userReconnect());
       } catch (error) {
@@ -378,13 +405,16 @@ function createPluginRuntime<P extends SocketContract, TApi>(
           report(error);
         }
       }
+
       // A platform suspend pauses the session and resumes it as the same socket,
       // so it must not dispose — even though the socket goes to 'closed'.
       if (suspended) return;
+
       // A lazy socket reopens on demand, so no close is ever "finished for good":
       // disposing on one would tear the plugin down while it's still usable, then
       // keep delivering to a disposed plugin after the next reopen.
       if (helpers.config.lazy) return;
+
       if (intentional) {
         runDispose();
       } else {
@@ -457,6 +487,7 @@ export function plugin<P extends SocketContract = {}, TApi = void>() {
           dependencies,
           setup: (helpers: PrimitiveHelpers) => createPluginRuntime(def, helpers),
         };
+
         return spec;
       },
       {

@@ -16,10 +16,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		reset();
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/stream-backpressure?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -32,19 +34,23 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
 				case '__streamOk__':
 					streamOkReceived = true;
 					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
 					break;
+
 				case '__streamEnd__':
 					streamEnded = true;
 					break;
+
 				case 'drain-feed':
 					if (typeof data.payload?.index === 'number') {
 						chunkIndices = [...chunkIndices, data.payload.index];
 					}
+
 					break;
 			}
 		};
@@ -54,6 +60,7 @@
 		reset();
 		ws?.send(JSON.stringify({ event: 'drain-feed', payload: { count: 5 } }));
 	}
+
 	function disconnect() {
 		ws?.close();
 	}

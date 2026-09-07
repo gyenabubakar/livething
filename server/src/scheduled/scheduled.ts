@@ -125,6 +125,7 @@ export class ScheduledBuilder<
         `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     this._dataSchema = dataSchema as unknown as Validator<TData>;
     return this as unknown as ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun>;
   }
@@ -150,6 +151,7 @@ export class ScheduledBuilder<
         `[wskit] scheduled("${this._taskId}") cannot combine .every(...) with .data(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     this._options = { ...this._options, every: everyMs };
     return this as unknown as this;
   }
@@ -171,10 +173,12 @@ export class ScheduledBuilder<
       if (retry.length === 0) {
         throw new Error('[wskit] .retry([...]) requires at least one entry.');
       }
+
       for (const entry of retry) {
         assertPositiveInteger(entry, '.retry([ms])', `scheduled("${this._taskId}")`);
       }
     }
+
     this._options = { ...this._options, retry };
     return this;
   }
@@ -203,6 +207,7 @@ export class ScheduledBuilder<
         `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
+
     return {
       __wskit: 'scheduled',
       __kind: 'infrastructure',
@@ -277,6 +282,7 @@ export function makeScheduledPrimitive<TCtx = TaskContext>(
       `[wskit] scheduled("${taskId}") cannot combine data with every. Recurring tasks have no caller to supply the payload.`,
     );
   }
+
   return {
     __wskit: 'scheduled',
     __kind: 'infrastructure',

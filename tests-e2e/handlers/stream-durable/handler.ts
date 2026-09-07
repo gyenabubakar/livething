@@ -96,6 +96,7 @@ const handleBufferFullDemo = base.recordedStream('buffer-full-demo', {
         if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') {
           return;
         }
+
         throw err;
       }
     }
@@ -138,6 +139,7 @@ const handleCountTokensNudged = base.recordedStream('count-tokens-nudged', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { idx: i });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
@@ -154,6 +156,7 @@ const handlePaginateNudged = base.resumableStream('paginate-nudged', {
     for (let i = startAt + 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },

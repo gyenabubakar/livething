@@ -34,6 +34,7 @@ export function createShutdownContext(
       });
     }
   }
+
   return {
     closeAll: (code, reason) => {
       for (const connection of deps.connections.values()) {

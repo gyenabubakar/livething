@@ -8,6 +8,7 @@ describe('StaticVsFamilyIsolationClient — no-any guard', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['channels']>().not.toBeAny();
+
     expectTypeOf<StaticVsFamilyIsolationClient['errors']>().not.toBeAny();
   });
 });

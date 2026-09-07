@@ -44,6 +44,7 @@ describe('WebEnvironment — with DOM globals', () => {
         listeners[type] = (listeners[type] ?? []).filter((registered) => registered !== handler);
       },
     };
+
     (globalThis as unknown as Record<string, unknown>).document = {
       get visibilityState() {
         return state.visibility;
@@ -52,6 +53,7 @@ describe('WebEnvironment — with DOM globals', () => {
       removeEventListener: target.removeEventListener,
     };
     (globalThis as unknown as Record<string, unknown>).window = target;
+
     Object.defineProperty(globalThis, 'navigator', {
       configurable: true,
       get() {
@@ -62,6 +64,7 @@ describe('WebEnvironment — with DOM globals', () => {
         };
       },
     });
+
     return {
       listeners,
       setOnLine(value: boolean) {

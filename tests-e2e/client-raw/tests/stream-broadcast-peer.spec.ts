@@ -21,6 +21,7 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
     const pageA = await ctxA.newPage();
     const pageB = await ctxB.newPage();
     await pageA.goto('/stream-broadcast');
+
     await installRig(pageA);
     await pageB.goto('/stream-broadcast');
     await installRig(pageB);
@@ -48,8 +49,10 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
         expect(f.__wskit?.streamKind).toBe('ephemeral');
         expect(typeof f.__wskit?.seq).toBe('number');
       }
+
       const seqs = chunks.map((f) => f.__wskit?.seq as number);
       expect(seqs[0]).toBeLessThan(seqs[1]!);
+
       expect(seqs[1]).toBeLessThan(seqs[2]!);
 
       // ...and a terminal __streamEnd__ for the same stream.
@@ -73,6 +76,7 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
     const pageA = await ctxA.newPage();
     const pageB = await ctxB.newPage();
     await pageA.goto('/stream-broadcast');
+
     await installRig(pageA);
     await pageB.goto('/stream-broadcast');
     await installRig(pageB);
@@ -116,6 +120,7 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
     const pageA = await ctxA.newPage();
     const pageB = await ctxB.newPage();
     await pageA.goto('/stream-broadcast');
+
     await installRig(pageA);
     await pageB.goto('/stream-broadcast');
     await installRig(pageB);

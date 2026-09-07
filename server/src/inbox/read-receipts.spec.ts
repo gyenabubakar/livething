@@ -50,6 +50,7 @@ function harness(
   } as unknown as EngineAccess;
 
   readReceipts(options).__setup!(engine as never);
+
   return { sql, handlers, broadcasts, sentFrames, invalidateInboxMemberCount };
 }
 
@@ -99,6 +100,7 @@ describe('readReceipts __read__ handler', () => {
       broadcastReceipts: true,
       maxReceiptAudience: 256,
     };
+
     const { sql, handlers, broadcasts, invalidateInboxMemberCount } = harness(
       { maxReceiptAudience: 256 },
       { inboxConfig },
@@ -134,6 +136,7 @@ describe('readReceipts __read__ handler', () => {
       broadcastReceipts: false,
       maxReceiptAudience: 256,
     };
+
     const { sql, handlers, broadcasts } = harness({ maxReceiptAudience: 256 }, { inboxConfig });
     insertInboxRows(sql, {
       userIds: ['alice'],
@@ -274,6 +277,7 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'other', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'other'),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
@@ -291,6 +295,7 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
@@ -308,6 +313,7 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
     };
+
     const frame = {
       event: '__read__',
       payload: { readThrough: 5 },
@@ -325,6 +331,7 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: 'rooms' },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha', { channelFamily: 'rooms' }),
     };
+
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },
@@ -342,6 +349,7 @@ describe('readReceipts scope isolation', () => {
       [ENGINE_CHANNEL_META]: { channelName: 'alpha', channelFamily: null },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection('c1', 'alpha'),
     };
+
     const frame = {
       event: '__readQuery__',
       payload: { seq: 5 },

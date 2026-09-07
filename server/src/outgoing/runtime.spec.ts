@@ -447,6 +447,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const b = peer('B', () => {
       throw new Error('InvalidStateError: socket is CLOSING');
     });
+
     const c = peer('C', (frame) => delivered.push(`C:${frame}`));
 
     expect(() =>
@@ -480,6 +481,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const a = peer('A', () => {
       throw translatedConfigError;
     });
+
     const b = peer('B', (frame) => delivered.push(frame));
 
     expect(() =>
@@ -532,6 +534,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const sent: string[] = [];
     const a = peer('A', (frame) => sent.push(frame));
     const b = peer('B', (frame) => sent.push(frame));
+
     const bad = { toJSON: () => undefined } as unknown as Record<string, unknown>;
 
     expect(() =>
@@ -602,6 +605,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       latency: null,
       quality: 'good',
     };
+
     addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
     return conn;
   }
@@ -614,6 +618,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       throw new Error('InvalidStateError: socket is CLOSING');
     });
     const c = peer(channelMembers, 'C', () => {});
+
     const connections = new Map<string, RuntimeConnection>([
       [a.id, a],
       [b.id, b],
@@ -687,6 +692,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       latency: null,
       quality: 'good',
     };
+
     addChannelMembership(channelMembers, conn, { channelName: 'general', channelFamily: null });
     return conn;
   }
@@ -807,7 +813,9 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       inboxPeer(channelMembers, 'A', (f) => sent.push(f));
       inboxPeer(channelMembers, 'B', (f) => sent.push(f));
       const runtime = inboxRuntime(withFanOut ? { inboxFanOut: () => {} } : {}, channelMembers);
+
       broadcastOnce(runtime);
+
       return sent;
     }
 
@@ -864,6 +872,7 @@ describe('broadcastToChannel — stamp once, inbox reads the shared seq/messageI
       latency: null,
       quality: 'good',
     };
+
     inboxPeer(channelMembers, 'A', (f) => sent.push(f));
     addChannelMembership(channelMembers, secondTab, {
       channelName: 'general',

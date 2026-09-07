@@ -17,11 +17,13 @@ async function askLastSeen(page: Page, identity: string): Promise<Frame> {
   function match(f: Frame): boolean {
     return f.event === 'last-seen-answer' && f.payload.identity === identity;
   }
+
   const already = (await frames(page)).filter(match).length;
   await send(page, { event: 'ask-last-seen', payload: { identity }, __wskit: {} });
   await expect
     .poll(async () => (await frames(page)).filter(match).length, { timeout: 15_000 })
     .toBeGreaterThan(already);
+
   return (await frames(page)).filter(match).at(-1)!;
 }
 

@@ -72,6 +72,7 @@ base.scheduled('flaky-task', {
   run(ctx) {
     flakyAttempts += 1;
     if (flakyAttempts < 3) throw new Error('flaky');
+
     ctx.broadcast('flaky-task-result', { attempts: flakyAttempts });
     flakyAttempts = 0;
   },
@@ -81,6 +82,7 @@ base.scheduled('default-retry-task', {
   run(ctx) {
     defaultRetryAttempts += 1;
     if (defaultRetryAttempts < 2) throw new Error('retry-once');
+
     ctx.broadcast('default-retry-result', { attempts: defaultRetryAttempts });
     defaultRetryAttempts = 0;
   },

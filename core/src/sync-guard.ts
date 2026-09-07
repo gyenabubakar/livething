@@ -55,5 +55,6 @@ export function assertSynchronousResult<T>(
         : `async callbacks are not supported (${label}). Use a synchronous callback.`,
     );
   }
+
   return result as T;
 }

@@ -88,6 +88,7 @@ function buildReadReceiptsContext(engine: EngineAccess, channelKey: string) {
       channelName: scope?.channelName ?? channelKey,
       channelFamily: scope?.channelFamily ?? null,
     });
+
     return {};
   };
 }
@@ -102,6 +103,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__read__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -153,6 +155,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
         });
       }
     }
+
     return true;
   };
 }
@@ -167,6 +170,7 @@ function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__readQuery__') return false;
+
     const scope = (ctx as { [ENGINE_CHANNEL_META]?: EngineChannelMeta })[ENGINE_CHANNEL_META];
     if (!scopeMatchesChannel(scope, channelKey)) return false;
 
@@ -187,12 +191,14 @@ function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
       channel: channelName,
       correlationId: frame.__wskit.correlationId,
     };
+
     if (channelFamily !== null) wskit.channelFamily = channelFamily;
     engine.sendProtocolFrame(connection.id, {
       event: '__readQuery__',
       payload: { userIds },
       wskit,
     });
+
     return true;
   };
 }
@@ -210,6 +216,7 @@ function settleInboxOnRead(
 ): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
   if (!inboxConfig) return undefined;
+
   applyInboxAck(engine.storage.sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -218,6 +225,7 @@ function settleInboxOnRead(
     onDelivered: inboxConfig.onDelivered,
   });
   engine.invalidateInboxMemberCount?.(opts.channelName, opts.channelFamily, opts.userId);
+
   return inboxConfig;
 }
 

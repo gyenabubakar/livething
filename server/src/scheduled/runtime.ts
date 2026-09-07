@@ -75,7 +75,9 @@ function deserializeRetry(value: unknown): boolean | readonly number[] {
       // fall through
     }
   }
+
   if (value === 0 || value === false) return false;
+
   return true;
 }
 
@@ -107,6 +109,7 @@ function serializeError(error: unknown): ScheduledDeadLetter['error'] {
 
 function dataMatchesFilter(data: unknown, filter?: Record<string, unknown>): boolean {
   if (!filter) return true;
+
   if (!data || typeof data !== 'object') return false;
 
   const object = data as Record<string, unknown>;
@@ -119,12 +122,14 @@ function dataMatchesFilter(data: unknown, filter?: Record<string, unknown>): boo
 
 function getRetryDelay(attempts: number, retry: boolean | readonly number[]): number | undefined {
   if (retry === false) return undefined;
+
   const schedule = Array.isArray(retry) ? retry : DEFAULT_BACKOFF_MS;
   return schedule[attempts];
 }
 
 function serializeRetry(retry: ScheduledRun['retry']): number | string {
   if (Array.isArray(retry)) return JSON.stringify(retry);
+
   return retry ? 1 : 0;
 }
 
@@ -230,6 +235,7 @@ function getClaimedRunIds(runtime: ScheduledRuntimeAccess): Set<string> {
     claimed = new Set();
     claimedRunIds.set(scheduledRuns, claimed);
   }
+
   return claimed;
 }
 
@@ -260,6 +266,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const deadLetters = runtime.getScheduledDlq();
   const runsSnapshot = runtime.getScheduledRunsPersisted();
   const dlqSnapshot = runtime.getScheduledDlqPersisted();
+
   const claimed = getClaimedRunIds(runtime);
 
   const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns).filter(
@@ -282,6 +289,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         tx.exec('DELETE FROM __wskit_scheduled WHERE id = ?', op.id);
         continue;
       }
+
       if (op.kind === 'insert') {
         tx.exec(
           `INSERT INTO __wskit_scheduled
@@ -291,6 +299,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         );
         continue;
       }
+
       // update — id is at position 0 of the columns tuple; rebind it as the
       // WHERE clause and skip it in the SET list so the row stays addressable.
       const [, taskId, time, data, everyMs, attempts, recurring, retry] = op.columns as [
@@ -323,6 +332,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         tx.exec('DELETE FROM __wskit_scheduled_dlq WHERE id = ?', op.id);
         continue;
       }
+
       if (op.kind === 'insert') {
         tx.exec(
           `INSERT INTO __wskit_scheduled_dlq
@@ -332,6 +342,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         );
         continue;
       }
+
       const [, taskId, time, failedAt, data, attempts, error] = op.columns as [
         string,
         string,
@@ -385,6 +396,7 @@ function summarizeOps(ops: readonly DiffOp[]): {
     else if (op.kind === 'update') updates += 1;
     else deletes += 1;
   }
+
   return { inserts, updates, deletes };
 }
 
@@ -481,6 +493,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
       runsSnapshot.set(String(row.id), 'orphan');
       continue;
     }
+
     const run: ScheduledRun = {
       id: String(row.id),
       taskId,
@@ -491,6 +504,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
       recurring: row.recurring === 1 || row.recurring === true,
       retry: deserializeRetry(row.retry),
     };
+
     scheduledRuns.set(run.id, run);
     // Seed the snapshot with what we just read so the next persist diff
     // treats these rows as already-on-disk and skips re-writing them.
@@ -517,6 +531,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
           ? (JSON.parse(row.error) as ScheduledDeadLetter['error'])
           : { message: 'Unknown scheduled task failure' },
     };
+
     deadLetters.set(entry.id, entry);
     dlqSnapshot.set(entry.id, fingerprint(serializeDlqColumns(entry)));
   }
@@ -592,6 +607,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
           await (task.handler as (ctx: unknown) => void | Promise<void>)(ctx);
         }
       }
+
       return run;
     }),
   );
@@ -613,6 +629,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
           attempts: 0,
         });
       }
+
       continue;
     }
 
@@ -644,6 +661,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       // recurring run alive even after one of its attempts dead-letters.
       const task = runtime.getScheduledTask(run.taskId);
       if (!task) continue;
+
       // Recurring tasks cannot declare .data(...) — the builder rejects
       // the combination at registration. The re-queue always has an
       // undefined payload.
@@ -689,8 +707,10 @@ export function scheduleTaskRun(
   if (!task) {
     throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);
   }
+
   assertPositiveInteger(time, 'time', `ctx.schedule("${taskId}", ...)`);
   const id = runtime.generateId('task');
+
   let normalizedData = data;
 
   if (task.hasData) {
@@ -737,6 +757,7 @@ export function cancelScheduledRuns(
       }
     }
   }
+
   const scheduledRuns = runtime.getScheduledRuns();
   const taskExists = !!runtime.getScheduledTask(taskId);
   let removed = 0;
@@ -749,6 +770,7 @@ export function cancelScheduledRuns(
         scheduledRuns.delete(id);
         removed += 1;
       }
+
       continue;
     }
 
@@ -760,5 +782,6 @@ export function cancelScheduledRuns(
 
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
+
   return { taskExists, removed };
 }

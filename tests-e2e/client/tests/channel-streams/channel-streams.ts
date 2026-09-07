@@ -47,6 +47,7 @@ export function setup(): void {
         rows.push(chunk.row);
         renderRows();
       }
+
       el('rows-ended').textContent = 'yes';
     } catch (err) {
       el('error-code').textContent = errorCode(err);
@@ -80,6 +81,7 @@ export function setup(): void {
       idx.push(chunk.idx);
       el('history').textContent = idx.join(',');
     }
+
     el('history-ended').textContent = 'yes';
   });
 

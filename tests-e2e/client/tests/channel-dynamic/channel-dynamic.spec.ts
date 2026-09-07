@@ -36,6 +36,7 @@ test.describe('channel-dynamic (conformance)', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('open');
     await page.getByTestId('sub-general').click();
+
     await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
 
     await page.getByTestId('fail-general').click();
@@ -83,6 +84,7 @@ test.describe('channel-dynamic (conformance)', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -107,6 +109,7 @@ test.describe('channel-dynamic (conformance)', () => {
     const ctxB = await browser.newContext();
     const a = await ctxA.newPage();
     const b = await ctxB.newPage();
+
     await open(a, room, 'alice');
     await open(b, room, 'bob');
 
@@ -117,6 +120,7 @@ test.describe('channel-dynamic (conformance)', () => {
     await b.getByTestId('sub-vip').click();
     await expect(a.getByTestId('sub-general-ok')).toHaveText('room:general');
     await expect(b.getByTestId('sub-general-ok')).toHaveText('room:general');
+
     await expect(b.getByTestId('sub-vip-ok')).toHaveText('room:vip');
 
     // Alice publishes to general. Bob (on both) must see it on general — that

@@ -93,6 +93,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (key === 'schedule' || key === 'cancelScheduled') {
         const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
         if (typeof original !== 'function') return original;
+
         return (task: unknown, ...rest: unknown[]) =>
           original(pluginWireName(id, task as string), ...rest);
       }
@@ -115,6 +116,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (key === 'kv') {
         const realKv = Reflect.get(target, key, receiver) as Record<PropertyKey, unknown> | null;
         if (!realKv || typeof realKv !== 'object') return realKv;
+
         const privileged = (realKv as { [PRIVILEGED_KV]?: Record<PropertyKey, unknown> })[
           PRIVILEGED_KV
         ];
@@ -128,6 +130,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (key === 'channel') {
         const realChannel = Reflect.get(target, key, receiver);
         if (!realChannel || typeof realChannel !== 'object') return realChannel;
+
         return scopeHandleEvents(
           id,
           realChannel as Record<PropertyKey, unknown>,
@@ -138,6 +141,7 @@ export function scopePluginContext(id: string, ctx: any): any {
       if (key === 'channels') {
         const realChannels = Reflect.get(target, key, receiver);
         if (!realChannels || typeof realChannels !== 'object') return realChannels;
+
         return scopeChannelsApi(id, realChannels as Record<PropertyKey, unknown>);
       }
 
@@ -155,6 +159,7 @@ export function scopePluginContext(id: string, ctx: any): any {
 
       const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
       if (typeof original !== 'function') return original;
+
       if (position === 'event-first') {
         return (event: unknown, ...rest: unknown[]) =>
           original(pluginWireName(id, event as string), ...rest);
@@ -173,6 +178,7 @@ function rethrowNamespaced(id: string, shortCodes: Set<string>, error: unknown):
   if (error instanceof WSKitError && shortCodes.has(error.code)) {
     throw new WSKitError(pluginWireName(id, error.code), error.detail);
   }
+
   throw error;
 }
 
@@ -189,6 +195,7 @@ export function scopePluginThrow<TArgs extends unknown[], TReturn>(
   fn: (...args: TArgs) => TReturn,
 ): (...args: TArgs) => TReturn {
   if (shortCodes.size === 0) return fn;
+
   return (...args: TArgs): TReturn => {
     let result: TReturn;
     try {
@@ -196,11 +203,13 @@ export function scopePluginThrow<TArgs extends unknown[], TReturn>(
     } catch (error) {
       rethrowNamespaced(id, shortCodes, error);
     }
+
     if (result && typeof (result as { then?: unknown }).then === 'function') {
       return (result as unknown as Promise<unknown>).catch((error) =>
         rethrowNamespaced(id, shortCodes, error),
       ) as unknown as TReturn;
     }
+
     return result;
   };
 }
@@ -221,6 +230,7 @@ function scopeHandleEvents(
       if (typeof key !== 'string' || !methods.has(key) || typeof original !== 'function') {
         return original;
       }
+
       return (event: unknown, ...rest: unknown[]) =>
         (original as (...args: unknown[]) => unknown)(pluginWireName(id, event as string), ...rest);
     },
@@ -238,18 +248,22 @@ function scopeHandleEvents(
  */
 function scopeChannelGetArgs(id: string, args: unknown[]): unknown[] {
   if (args.length >= 2) return [pluginWireName(id, args[0] as string), ...args.slice(1)];
+
   const arg = args[0];
   if (arg && typeof arg === 'object') {
     if ('__wskitChannelRef' in arg) {
       const ref = arg as unknown as { family: string; name: string };
       return [{ ...ref, family: pluginWireName(id, ref.family) }];
     }
+
     if ('__wskitChannel' in arg) {
       const decl = arg as unknown as { __key: string };
       return [{ ...decl, __key: pluginWireName(id, decl.__key) }];
     }
+
     return [arg];
   }
+
   return [pluginWireName(id, arg as string)];
 }
 
@@ -264,6 +278,7 @@ function scopeChannelsApi(id: string, channels: Record<PropertyKey, unknown>): u
     get(target, key, receiver) {
       const original = Reflect.get(target, key, receiver);
       if (key !== 'get' || typeof original !== 'function') return original;
+
       const call = original as (...args: unknown[]) => Record<PropertyKey, unknown>;
       return (...args: unknown[]) =>
         scopeHandleEvents(id, call(...scopeChannelGetArgs(id, args)), SCOPED_CHANNEL_SENDS);
@@ -284,6 +299,7 @@ function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
       if (typeof key !== 'string' || !SCOPED_KV_KEYS.has(key) || typeof original !== 'function') {
         return original;
       }
+
       const call = original as (...args: unknown[]) => unknown;
       // `list(prefix?)` is optional; a bare `list()` scopes to the plugin's whole
       // namespace so it never sees the app's or another plugin's keys.
@@ -293,9 +309,11 @@ function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
             | string[]
             | undefined;
           if (!Array.isArray(keys)) return keys;
+
           return keys.map((k) => (k.startsWith(nsPrefix) ? k.slice(nsPrefix.length) : k));
         };
       }
+
       return (keyArg: unknown, ...rest: unknown[]) =>
         call(pluginWireName(id, keyArg as string), ...rest);
     },
@@ -312,6 +330,7 @@ function scopeKvApi(id: string, kv: Record<PropertyKey, unknown>): unknown {
 export function scopeUpgradeHelpers(id: string, helpers: any): any {
   const tags = helpers?.tags;
   if (!tags || typeof tags !== 'object') return helpers;
+
   return { ...helpers, tags: scopeTagsApi(id, tags as Record<PropertyKey, unknown>) };
 }
 
@@ -339,10 +358,12 @@ function scopeTagsApi(id: string, tags: Record<PropertyKey, unknown>): unknown {
 /** Scope a tag-group handle's `broadcastRequest`, recursing through `.ref(key)`. */
 function scopeTagHandle(id: string, handle: unknown): unknown {
   if (!handle || typeof handle !== 'object') return handle;
+
   return new Proxy(handle as Record<PropertyKey, unknown>, {
     get(target, key, receiver) {
       const original = Reflect.get(target, key, receiver);
       if (typeof original !== 'function') return original;
+
       if (key === 'broadcastRequest') {
         return (event: unknown, ...rest: unknown[]) =>
           (original as (...args: unknown[]) => unknown)(
@@ -350,10 +371,12 @@ function scopeTagHandle(id: string, handle: unknown): unknown {
             ...rest,
           );
       }
+
       if (key === 'ref') {
         return (refKey: unknown) =>
           scopeTagHandle(id, (original as (k: unknown) => unknown)(refKey));
       }
+
       return original;
     },
   });

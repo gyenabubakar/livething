@@ -98,6 +98,7 @@ test.describe('channel check/commit', () => {
             ws.onerror = (e) => reject(e);
           });
         }
+
         const a = await open('filler-a');
         const b = await open('filler-b');
         const frame = JSON.stringify({
@@ -105,6 +106,7 @@ test.describe('channel check/commit', () => {
           payload: { token: 'tok-member' },
           __wskit: { channel: 'room' },
         });
+
         a.send(frame);
         b.send(frame);
         // Wait for both to be fully admitted before the next client tries.

@@ -199,6 +199,7 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
         const normalized: ValidationIssue = {
           message: issue.message,
         };
+
         const path = issue.path
           ?.map((segment: ValidationPathSegment) => segment.key)
           .filter(
@@ -210,6 +211,7 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
       }),
     });
   }
+
   return ValidationFailed({
     event,
     issues: [{ message: error instanceof Error ? error.message : String(error) }],
@@ -247,6 +249,7 @@ function isDuplicateIncoming(
   ring.buf[ring.writePtr] = messageId;
   ring.set.add(messageId);
   ring.writePtr = (ring.writePtr + 1) % ring.cap;
+
   return false;
 }
 
@@ -259,15 +262,19 @@ function buildInterceptRouting(
   wskit: Protocol.WSKitProtocol | undefined,
 ): InterceptPrimitive.InterceptRouting {
   if (!wskit) return {};
+
   const routing: InterceptRoutingFields = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
+
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
     routing.channelFamily = wskit.channelFamily ?? null;
   }
+
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
+
   return routing;
 }
 
@@ -340,6 +347,7 @@ export async function dispatchIncoming(
       return;
     }
   }
+
   if (
     scope.channelName &&
     !connectionHoldsMembership(connection, scope.channelName, scope.channelFamily ?? null)
@@ -404,6 +412,7 @@ export async function dispatchIncoming(
         routing: interceptRouting,
         owner: frameOwner(event),
       };
+
       frame = await runtime.runIntercepts(runtime, connection, {
         intercepts: runtime.compiled.intercepts,
         frame,
@@ -450,6 +459,7 @@ export async function dispatchIncoming(
       fromIncomingHandler = true;
       await runConnectionWork(connection, incoming.allowInterleaving ?? false, () => {
         if (connection.closing) return;
+
         return withConnectionContext(runtime.asyncContext, connection.id, () =>
           incoming.handler(getCtx(), payloadValue),
         );
@@ -460,6 +470,7 @@ export async function dispatchIncoming(
     if (request) {
       await runConnectionWork(connection, request.allowInterleaving ?? true, () => {
         if (connection.closing) return;
+
         return runtime.requestDispatch?.(runtime, connection, {
           connection,
           ctx: getCtx(),
@@ -649,12 +660,15 @@ async function dispatchProtocolFrame(
       case '__subscribe__':
         await runtime.handleSubscribe(connection, frame);
         return;
+
       case '__unsubscribe__':
         await runtime.handleUnsubscribe(connection, frame);
         return;
+
       case '__memberSync__':
         runtime.handleMemberSync(connection, frame);
         return;
+
       case '__streamCancel__': {
         await runtime.streamCancel?.(runtime, connection, frame.__wskit.streamId);
         if (runtime.durableStream && runtime.sql) {
@@ -669,16 +683,20 @@ async function dispatchProtocolFrame(
             });
             return;
           }
+
           await runtime.durableStream.cancel(runtime, connection, {
             streamId: frame.__wskit.streamId,
             cancelScope,
           });
         }
+
         return;
       }
+
       case '__resumeStream__':
         await handleResumeStream(runtime, connection, frame);
         return;
+
       case '__replay__': {
         const handlers = runtime.protocolHandlers.get('__replay__') ?? [];
         const scope = resolveChannel(runtime.compiled, frame.__wskit);
@@ -687,6 +705,7 @@ async function dispatchProtocolFrame(
           const handled = await handler(ctx, frame);
           if (handled) return;
         }
+
         // No replay handler owns this scope — replay is off, or off for this
         // channel. Tell the client instead of silently dropping the request.
         await runtime.handleRuntimeError(connection, {
@@ -696,6 +715,7 @@ async function dispatchProtocolFrame(
         });
         return;
       }
+
       case '__received__':
       case '__read__':
       case '__receivedQuery__':
@@ -710,6 +730,7 @@ async function dispatchProtocolFrame(
         for (const handler of handlers) {
           if (await handler(ctx, frame)) return;
         }
+
         return;
       }
     }
@@ -792,6 +813,7 @@ async function runPluginConnectionHooks(
 async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
   const { runtime, connection, event, frame, wskit, triggerScope } = input;
   if (!wskit?.streamId) return false;
+
   const activeStream = runtime.activeStreams.get(wskit.streamId);
   if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
     const storedScope = activeStream.scope ?? {};
@@ -826,6 +848,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
     function getCtx(): Record<PropertyKey, unknown> {
       return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
     }
+
     try {
       let intercepted: InterceptPrimitive.InterceptFrame = {
         event,
@@ -834,6 +857,7 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         routing: buildInterceptRouting(wskit),
         owner: frameOwner(event),
       };
+
       intercepted = await runtime.runIntercepts(runtime, connection, {
         intercepts: topIntercepts,
         frame: intercepted,
@@ -846,10 +870,12 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
           getCtx,
         });
       }
+
       payload = intercepted.payload;
     } catch (error) {
       rethrowIfConfigError(error);
       if (error === Block) return true;
+
       if (
         error &&
         typeof error === 'object' &&
@@ -861,8 +887,10 @@ async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boole
         );
         return true;
       }
+
       const routing: Protocol.WSKitRouting = { streamId: wskit.streamId, streamTerminated: false };
       if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
+
       await runtime.handleRuntimeError(connection, { error, event, routing });
       return true;
     }
@@ -910,6 +938,7 @@ export async function processTextMessage(
         ctx: runtime.buildConnectionContext(connection),
       });
     }
+
     await runConnectionHooks(runtime.appPingHooks, 'ping', observed);
     return;
   }
@@ -922,6 +951,7 @@ export async function processTextMessage(
         ctx: runtime.buildConnectionContext(connection),
       });
     }
+
     await runConnectionHooks(runtime.appPongHooks, 'pong', observed);
     return;
   }
@@ -967,6 +997,7 @@ export async function processTextMessage(
         for (const hook of runtime.answerFrameHooks) {
           if (hook(connection.id, { event, payload, wskit: declineWskit })) return;
         }
+
         return;
       }
     }
@@ -988,6 +1019,7 @@ export async function processTextMessage(
       });
       return;
     }
+
     wskit = frame.__wskit;
 
     // A user-event frame echoing a `correlationId` may be the client's answer to a
@@ -1019,6 +1051,7 @@ export async function processTextMessage(
     } catch (error) {
       scopeError = error;
     }
+
     // A scoped frame whose channel doesn't match the declared scope must not
     // silently fall through to top-level nudge buffering — that lets a wrong
     // channel deliver into a same-named top-level stream. If the frame carries
@@ -1038,6 +1071,7 @@ export async function processTextMessage(
       });
       return;
     }
+
     const triggerScoped = triggerScope.channel;
     const isStreamTrigger = triggerScoped
       ? triggerScoped.streams.has(event) ||

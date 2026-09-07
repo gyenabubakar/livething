@@ -129,6 +129,7 @@ function buildLatencySurface(engine: EngineAccess, baseCtx: unknown): Record<str
     },
     get quality() {
       if (engine.getHibernationEnabled() || connection.latency === null) return null;
+
       return connection.quality;
     },
   };

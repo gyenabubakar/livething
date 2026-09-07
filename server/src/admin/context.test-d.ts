@@ -19,6 +19,7 @@ app.assemble({
     expectTypeOf(ctx).toHaveProperty('closeConnections');
     expectTypeOf(ctx).toHaveProperty('sql');
     expectTypeOf(ctx).toHaveProperty('connections');
+
     expectTypeOf(ctx).toHaveProperty('users');
     expectTypeOf(ctx.connectionCount).toEqualTypeOf<number>();
 

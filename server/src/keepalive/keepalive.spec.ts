@@ -15,6 +15,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
   const cleanupHandlers: Array<(connectionId: string) => void> = [];
   const activityHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
   const pongHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
+
   const pingHandlers: Array<(connectionId: string) => void | Promise<void>> = [];
   const contextExtenders: Array<(baseCtx: unknown) => Record<string, unknown>> = [];
   const installed = new Set<symbol>();
@@ -26,6 +27,7 @@ function createFakeEngine(options: { hibernating?: boolean } = {}) {
   const engine = {
     installOnce(key: symbol, install: () => void) {
       if (installed.has(key)) return;
+
       installed.add(key);
       install();
     },

@@ -46,11 +46,13 @@ export function setup(): void {
       // Never resolve: the server's request must hit its timeout.
       return new Promise<{ allowed: boolean }>(() => {});
     }
+
     if (mode === 'bad') {
       // Violates the response schema { allowed: boolean } so the server rejects
       // with request-invalid-response.
       return { allowed: 'nope' } as unknown as { allowed: boolean };
     }
+
     return { allowed: true };
   });
 

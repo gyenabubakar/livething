@@ -44,8 +44,10 @@ export class MessageBuffer {
         `buffering maxSize must be a positive integer, got ${this.maxSize}.`,
       );
     }
+
     this.ttlConfig = options.ttl;
     this.flushInterval = options.flushInterval ?? 0;
+
     this.ring = new Array(this.maxSize).fill(null);
   }
 
@@ -97,6 +99,7 @@ export class MessageBuffer {
     // rejects the owner so the op fails instead of hanging, and is also reported.
     function sendOne(buffered: BufferedMessage): void {
       if (buffered.owner && !buffered.owner.isPending()) return;
+
       try {
         send(buffered.message);
       } catch (error) {
@@ -116,6 +119,7 @@ export class MessageBuffer {
         sendOne(buffered);
         buffered = this.dequeue();
       }
+
       onComplete?.();
       return;
     }
@@ -127,6 +131,7 @@ export class MessageBuffer {
         onComplete?.();
         return;
       }
+
       sendOne(buffered);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
@@ -146,6 +151,7 @@ export class MessageBuffer {
       if (buffered?.owner?.isPending()) buffered.owner.reject(Disconnected());
       this.ring[index] = null;
     }
+
     this.head = 0;
     this.count = 0;
     this.stopFlush();
@@ -175,10 +181,12 @@ export class MessageBuffer {
   /** Remove and return the oldest message, or `null` when the buffer is empty. */
   private dequeue(): BufferedMessage | null {
     if (this.count === 0) return null;
+
     const buffered = this.ring[this.head]!;
     this.ring[this.head] = null;
     this.head = (this.head + 1) % this.maxSize;
     this.count--;
+
     return buffered;
   }
 
@@ -207,16 +215,21 @@ export class MessageBuffer {
       result.push(this.ring[index]!);
       this.ring[index] = null;
     }
+
     this.head = 0;
     this.count = 0;
+
     return result;
   }
 
   /** Pick the TTL: a per-call value wins, then per-event, then a global number, else none. */
   private resolveTTL(event: string, perCallTtl?: number): number | null {
     if (perCallTtl !== undefined) return perCallTtl;
+
     if (typeof this.ttlConfig === 'number') return this.ttlConfig;
+
     if (typeof this.ttlConfig === 'object') return this.ttlConfig[event] ?? null;
+
     return null;
   }
 }

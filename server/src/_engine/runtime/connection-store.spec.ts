@@ -200,6 +200,7 @@ describe('connection-store', () => {
     expect(row?.meta).toEqual({});
     expect(row?.ephemeral_tags).toEqual([]);
     expect(row?.ephemeral_memberships).toEqual([]);
+
     expect(row?.active_stream_ids).toEqual([]);
   });
 
@@ -213,6 +214,7 @@ describe('connection-store', () => {
           buildConnectionRow(fakeConnection({ id: `conn_${i}`, userId: `user_${i}` })),
         );
       }
+
       return batchedSql;
     }
 

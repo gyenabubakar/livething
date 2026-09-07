@@ -236,6 +236,7 @@ describe('durable stream runtime', () => {
     runtime.sendProtocolMessage = vi.fn(() => {
       connection.closing = true;
     });
+
     let generatorStarted = false;
 
     await runDurableStream(runtime as never, connection, {
@@ -275,6 +276,7 @@ describe('durable stream runtime', () => {
                 caughtReason = err.detail.reason;
                 return;
               }
+
               throw err;
             }
           }
@@ -588,6 +590,7 @@ describe('durable stream runtime', () => {
         now: Date.now(),
       });
     }
+
     Storage.markEnded(sql, { userId: 'u1', streamId: 's-replay', now: Date.now() });
 
     await resumeDurableStream(runtime as never, connection, {
@@ -784,6 +787,7 @@ describe('durable stream runtime', () => {
     function cursorValidator(raw: unknown): { idx: number } {
       const obj = raw as Record<string, unknown>;
       if (typeof obj.idx !== 'number') throw new Error('idx must be a number');
+
       return { idx: obj.idx };
     }
 
@@ -859,6 +863,7 @@ describe('durable stream runtime', () => {
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
     expect(err?.wskit.streamId).toBe('s-bad');
     expect(generatorSpy).not.toHaveBeenCalled();
+
     expect(pipelineSends).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
   });
@@ -927,6 +932,7 @@ describe('durable stream runtime', () => {
     // A gate that holds the generator open so the assertion can run while
     // the stream is mid-flight.
     function noop(): void {}
+
     let release: () => void = noop;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -969,6 +975,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     function noop(): void {}
+
     let release: () => void = noop;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1010,6 +1017,7 @@ describe('durable stream runtime', () => {
     const { runtime, pipelineSends, protocolMessages } = createRuntime(sql);
     const creator = createConnection('c-creator', 'u-creator');
     const peer = createConnection('c-peer', 'u-peer');
+
     runtime.connections.set(creator.id, creator);
     runtime.connections.set(peer.id, peer);
 
@@ -1051,6 +1059,7 @@ describe('durable stream runtime', () => {
     const { runtime, protocolMessages } = createRuntime(sql);
     const creator = createConnection('c-creator', 'u-creator');
     const peer = createConnection('c-peer', 'u-peer');
+
     runtime.connections.set(creator.id, creator);
     runtime.connections.set(peer.id, peer);
 
@@ -1106,6 +1115,7 @@ describe('durable stream runtime', () => {
         now: Date.now(),
       });
     }
+
     Storage.updateLastSeq(sql, {
       userId: '__bcast:top__',
       streamId: 'b-1',
@@ -1329,6 +1339,7 @@ describe('durable stream runtime', () => {
     const { runtime, pipelineSends } = createRuntime(sql);
     const creator = createConnection('c-creator', 'u-creator');
     const peer = createConnection('c-peer', 'u-peer');
+
     runtime.connections.set(creator.id, creator);
 
     await runDurableStream(runtime as never, creator, {
@@ -1348,6 +1359,7 @@ describe('durable stream runtime', () => {
                 caughtUpSeq: 2,
               });
             }
+
             yield ctx.stream.withCursor({ i }, { idx: i });
           }
         },
@@ -1524,6 +1536,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     function noopRelease(): void {}
+
     let release: () => void = noopRelease;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1567,6 +1580,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection('c-orig', 'u1');
 
     function noopRelease(): void {}
+
     let release: () => void = noopRelease;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1609,6 +1623,7 @@ describe('durable stream runtime', () => {
     const reconnect = createConnection('c-new', 'u1');
 
     function noopRelease(): void {}
+
     let release: () => void = noopRelease;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1680,6 +1695,7 @@ describe('durable stream runtime', () => {
     const { runtime } = createRuntime(sql);
     const original = createConnection('c-orig', 'u1');
     const reconnect = createConnection('c-new', 'u1');
+
     reconnect.descriptor.send = vi.fn(() => false);
 
     let release!: () => void;
@@ -1728,6 +1744,7 @@ describe('durable stream runtime', () => {
     const { runtime } = createRuntime(sql);
     const original = createConnection('c-orig', 'u1');
     const reconnect = createConnection('c-new', 'u1');
+
     runtime.sendProtocolMessage = () => {
       throw new WSKitConfigError('translator outbound is invalid');
     };
@@ -1772,6 +1789,7 @@ describe('durable stream runtime', () => {
     const reconnect = createConnection('c-new', 'u1');
 
     function noopRelease(): void {}
+
     let release: () => void = noopRelease;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -1984,6 +2002,7 @@ describe('durable stream runtime', () => {
     const connection = createConnection();
 
     function noop(): void {}
+
     let release: () => void = noop;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -2063,6 +2082,7 @@ describe('durable stream runtime', () => {
     const { runtime } = createRuntime(sql);
     const creator = createConnection('c-creator', 'u-creator');
     const anonA = createConnection('c-anon-a', '');
+
     const anonB = createConnection('c-anon-b', '');
     runtime.connections.set(creator.id, creator);
     runtime.connections.set(anonA.id, anonA);

@@ -204,6 +204,7 @@ export const handleRequestRoomHistory = replayRoom.on('request-room-history', {
     if (!sendReplay) {
       throw new Error('channel replay is not active for replay-room');
     }
+
     sendReplay(
       'room-msg',
       { text: 'injected-room-history', from: 'system' },

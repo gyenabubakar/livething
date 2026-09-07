@@ -137,11 +137,13 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
   const seen = new Set<string>();
   for (const spec of specs) {
     if (REPEATABLE_TAGS.has(spec._tag)) continue;
+
     if (seen.has(spec._tag)) {
       throw new WSKitConfigError(
         `duplicate ${spec._tag}() — register each primitive at most once.`,
       );
     }
+
     seen.add(spec._tag);
   }
 }
@@ -160,6 +162,7 @@ function assertUniquePluginIds(pluginSpecs: readonly Primitive[]): void {
         `plugin '${id}' is registered more than once. Each plugin id owns a namespace and must be unique.`,
       );
     }
+
     seen.add(id);
   }
 }
@@ -190,23 +193,28 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
     if (group) group.push(spec);
     else byTag.set(spec._tag, [spec]);
   }
+
   const sorted: Primitive[] = [];
   const state = new Map<Primitive, 'visiting' | 'done'>();
 
   function visit(spec: Primitive): void {
     const status = state.get(spec);
     if (status === 'done') return;
+
     if (status === 'visiting') {
       throw new WSKitConfigError(`circular primitive dependency detected at ${spec._tag}.`);
     }
+
     state.set(spec, 'visiting');
     for (const dependency of [...(spec.dependencies ?? []), ...(spec.optionalAfter ?? [])]) {
       for (const dependencySpec of byTag.get(dependency) ?? []) visit(dependencySpec);
     }
+
     state.set(spec, 'done');
     sorted.push(spec);
   }
 
   for (const spec of specs) visit(spec);
+
   return sorted;
 }

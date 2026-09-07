@@ -53,12 +53,14 @@ function scheduleIdleFixtureShutdown(key: string, fixture: Fixture): void {
 
 async function shutdownKnownFixture(key: string, fixture: Fixture): Promise<void> {
   if (fixtures.get(key) !== fixture) return;
+
   if (fixture.shutdown) return fixture.shutdown;
 
   if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
   fixture.shutdown = fixture.service.shutdown().finally(() => {
     if (fixtures.get(key) === fixture) fixtures.delete(key);
   });
+
   return fixture.shutdown;
 }
 
@@ -94,13 +96,16 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
       leases: new Set<string>(),
       activeHttpRequests: 0,
     };
+
     fixtures.set(key, fixture);
     scheduleIdleFixtureShutdown(key, fixture);
+
     return fixture;
   })().finally(() => {
     if (fixtureCreations.get(key) === creation) fixtureCreations.delete(key);
   });
   fixtureCreations.set(key, creation);
+
   return creation;
 }
 
@@ -115,10 +120,12 @@ async function acquireHttpFixture(
   fixture.activeHttpRequests += 1;
 
   let released = false;
+
   return {
     fixture,
     release() {
       if (released) return;
+
       released = true;
       fixture.activeHttpRequests -= 1;
       if (fixture.sockets.size === 0 && fixture.leases.size === 0) {
@@ -198,26 +205,34 @@ async function runAdminBuiltIn(admin: AnyAdmin, op: string, args: AdminOpArgs): 
   switch (op) {
     case 'connection-count':
       return admin.connectionCount();
+
     case 'list-connections':
       return ((await admin.listConnections()) as Record<string, unknown>[]).map((info) => ({
         id: info.id,
         userId: info.userId,
         hasRef: 'ref' in info,
       }));
+
     case 'send-to-connection':
       return admin.sendToConnection(url.searchParams.get('connectionId') ?? '', 'poked', { text });
+
     case 'send-to-user':
       return admin.sendToUser(userId, 'notified', { text });
+
     case 'close-user':
       return admin.closeUser(userId, 4321, 'booted by admin') ?? null;
+
     case 'broadcast':
       return admin.broadcast('announced', { text }) ?? null;
+
     case 'channel-broadcast':
       return admin.channelBroadcast(channel, 'room-notice', { text }) ?? null;
+
     case 'channel-members':
       return ((await admin.channelMembers(channel)) as Record<string, unknown>[]).map(
         (info) => info.userId,
       );
+
     case 'channel-kick':
       return (
         (await admin.channelKick(
@@ -226,6 +241,7 @@ async function runAdminBuiltIn(admin: AnyAdmin, op: string, args: AdminOpArgs): 
           { reason: 'admin kick' },
         )) ?? null
       );
+
     default:
       return UNKNOWN_OP;
   }
@@ -294,7 +310,9 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       } else {
         await admin.announce(url.searchParams.get('text') ?? '');
       }
+
       writeText(response, 204, '');
+
       return;
     }
 
@@ -316,6 +334,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       } else {
         writeJson(response, 200, { result });
       }
+
       return;
     }
 
@@ -337,6 +356,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       } else {
         writeJson(response, 200, { result });
       }
+
       return;
     }
 
@@ -365,6 +385,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const admin = await adminOf(fixture);
       await admin.seedStaleReceipt();
       writeText(response, 204, '');
+
       return;
     }
 
@@ -382,6 +403,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const admin = await adminOf(fixture);
       await admin.dropInboxTable();
       writeText(response, 204, '');
+
       return;
     }
 
@@ -394,6 +416,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         Number(url.searchParams.get('seq') ?? 0),
       );
       writeJson(response, 200, { users });
+
       return;
     }
 
@@ -407,6 +430,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       } catch {
         writeText(response, 500, '');
       }
+
       return;
     }
 
@@ -441,6 +465,7 @@ async function handleUpgrade(
   const fixture = await getFixture(url.pathname, room);
   if (fixture.idleTimer) clearTimeout(fixture.idleTimer);
   fixture.idleTimer = undefined;
+
   fixture.sockets.add(socket);
   const lease = url.searchParams.get('__wskitFixtureLease');
   if (lease) fixture.leases.add(lease);

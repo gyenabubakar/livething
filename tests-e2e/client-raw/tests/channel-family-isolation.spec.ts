@@ -17,6 +17,7 @@ test.describe('channel-family-isolation', () => {
     const ctxPriv = await browser.newContext();
     const ctxAsk = await browser.newContext();
     const pub = await ctxPub.newPage();
+
     const priv = await ctxPriv.newPage();
     const ask = await ctxAsk.newPage();
 
@@ -49,6 +50,7 @@ test.describe('channel-family-isolation', () => {
     const ctxOtherFamily = await browser.newContext();
     const ctxAdmin = await browser.newContext();
     const target = await ctxTarget.newPage();
+
     const otherFamily = await ctxOtherFamily.newPage();
     const admin = await ctxAdmin.newPage();
 
@@ -116,6 +118,7 @@ test.describe('channel-family-isolation', () => {
     await setupClient(late, 'late', room);
     await late.getByTestId('sub-public').click();
     await late.waitForTimeout(200);
+
     await late.getByTestId('replay-from-zero').click();
     await expect(late.getByTestId('public-messages')).toContainText('publicRooms:room:1:pub-hello');
 

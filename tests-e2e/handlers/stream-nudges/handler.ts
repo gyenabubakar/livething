@@ -69,6 +69,7 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
           signal.removeEventListener('abort', complete);
           resolve();
         }
+
         overflowGates.set(ctx.connection.id, complete);
         if (signal.aborted) {
           complete();
@@ -91,7 +92,9 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
       if (nudges.length > 0) {
         ctx.send('nudge-saw', { events: nudges.map((n) => n.event) });
       }
+
       if (nudges.some((n) => n.event === 'pause')) return;
+
       const speedUp = nudges.find((n) => n.event === 'speed-up');
       if (
         speedUp &&
@@ -101,6 +104,7 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
       ) {
         delay = Math.max(1, delay / (speedUp.payload as { factor: number }).factor);
       }
+
       await new Promise((r) => setTimeout(r, delay));
     }
   },

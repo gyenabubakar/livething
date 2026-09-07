@@ -35,6 +35,7 @@ const handleAddFiveTags = base.on('add-five-tags', {
     ctx.tags.ephemeral('batch').add('k3');
     ctx.tags.ephemeral('batch').add('k4');
     ctx.tags.ephemeral('batch').add('k5');
+
     ctx.send('tag-batch-done', { ok: true });
   },
 });
@@ -48,6 +49,7 @@ const handleRemoveFiveTags = base.on('remove-five-tags', {
     ctx.tags.ephemeral('batch').remove('k3');
     ctx.tags.ephemeral('batch').remove('k4');
     ctx.tags.ephemeral('batch').remove('k5');
+
     ctx.send('tag-batch-done', { ok: true });
   },
 });

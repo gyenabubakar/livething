@@ -24,6 +24,7 @@ import { plugin } from './plugins.ts';
 function findPrimitive(primitives: readonly any[], wskit: string, event?: string): any {
   const found = primitives.find((p) => p.__wskit === wskit && (event ? p.event === event : true));
   if (!found) throw new Error(`no ${wskit} primitive${event ? ` for ${event}` : ''}`);
+
   return found;
 }
 
@@ -120,6 +121,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const { __primitives } = plugin('acme:presence', { handler: h.assemble({ handlers: [] }) })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
     const registerPluginLifecycle = vi.fn();
+
     connectPrimitive.__setup({ registerPluginLifecycle });
     expect(registerPluginLifecycle).toHaveBeenCalledWith(
       'connect',
@@ -220,6 +222,7 @@ describe('plugin() — scoped handler + manifest', () => {
     const First = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
     const Second = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
     const base = define({ capabilities: [First(), Second()] });
+
     expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
@@ -288,6 +291,7 @@ describe('plugin() — hook ownership', () => {
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
     h.onOutgoing(() => {});
+
     return plugin('acme:obs', { handler: h.assemble({ handlers: [beat] }) });
   }
 
@@ -511,6 +515,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
     expect(hostKey).not.toBe(pluginKey);
     expect(hostSubscriber.channelMemberships.has(hostKey)).toBe(true);
     expect(hostSubscriber.channelMemberships.has(pluginKey)).toBe(false);
+
     expect(pluginSubscriber.channelMemberships.has(pluginKey)).toBe(true);
     expect(pluginSubscriber.channelMemberships.has(hostKey)).toBe(false);
 

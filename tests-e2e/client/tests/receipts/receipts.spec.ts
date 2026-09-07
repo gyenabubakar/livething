@@ -41,6 +41,7 @@ test.describe('receipts (received + read cursors)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     // Carol broadcasts; the channel excludes the sender, so alice and bob receive
@@ -92,6 +93,7 @@ test.describe('receipts (received + read cursors)', () => {
     await carol.page.getByTestId('sub').click();
     await expect(alice.page.getByTestId('subscribed')).toHaveText('yes');
     await expect(bob.page.getByTestId('subscribed')).toHaveText('yes');
+
     await expect(carol.page.getByTestId('subscribed')).toHaveText('yes');
 
     await carol.page.getByTestId('send').click();

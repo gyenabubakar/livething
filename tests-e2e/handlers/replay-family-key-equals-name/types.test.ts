@@ -8,6 +8,7 @@ describe('ReplayFamilyKeyEqualsNameClient — no-any guard', () => {
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['channels']>().not.toBeAny();
+
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().not.toBeAny();
   });
 });

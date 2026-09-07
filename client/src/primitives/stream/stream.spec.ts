@@ -35,6 +35,7 @@ function buildStream(s = stream()) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -43,6 +44,7 @@ function buildStreamChannels() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -67,6 +69,7 @@ async function start(
     __wskit: { streamId: sid, streamKind: options?.streamKind ?? 'ephemeral' },
   });
   const handle = await promise;
+
   return { handle, sid };
 }
 
@@ -91,6 +94,7 @@ describe('triggering and iterating', () => {
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
 
@@ -100,6 +104,7 @@ describe('triggering and iterating', () => {
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
+
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
@@ -161,6 +166,7 @@ describe('nudge and cancel', () => {
       payload: { context: 'ocean' },
       __wskit: { streamId: sid, streamNudgeId: expect.any(String) },
     });
+
     ws.emit({
       event: '__nudgeOk__',
       payload: {},
@@ -181,6 +187,7 @@ describe('nudge and cancel', () => {
       payload: { code: 'validation-failed' },
       __wskit: { streamId: sid, streamNudgeId, streamTerminated: false },
     });
+
     await expect(pending).rejects.toMatchObject({ code: 'validation-failed' });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
@@ -207,6 +214,7 @@ describe('nudge and cancel', () => {
       void _chunk;
       break;
     }
+
     expect(ws.sentFrames().at(-1).event).toBe('__streamCancel__');
   });
 });
@@ -218,6 +226,7 @@ describe('onStream (broadcast)', () => {
     const onEnd = vi.fn();
     socket.onStream('ask-ai', { onChunk, onEnd });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs1', seq: 1 } });
+
     expect(onChunk).toHaveBeenCalledWith({ text: 'a' }, 'bs1');
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs1', seq: 5 } });
     expect(onEnd).toHaveBeenCalledWith('bs1', 5);
@@ -233,6 +242,7 @@ describe('onStream (broadcast)', () => {
       payload: { code: 'internal-error' },
       __wskit: { streamId: 'bs2' },
     });
+
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'internal-error' }),
       'bs2',
@@ -265,11 +275,13 @@ describe('durable resume', () => {
       const first = MockWebSocket.last();
       first.open();
       const { sid } = await start(socket, first, { streamKind: 'persistent' });
+
       first.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 7 } });
       first.serverClose(1006, 'drop');
       vi.advanceTimersByTime(1500);
       const second = MockWebSocket.last();
       second.open();
+
       expect(second.sentFrames()).toContainEqual({
         event: '__resumeStream__',
         payload: { lastKnownSeq: 7 },
@@ -290,6 +302,7 @@ describe('durable resume', () => {
     });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'feed-1', seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: 'feed-1', seq: 2 } });
+
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'feed-1' } });
     expect(await collect(handle)).toEqual([{ text: 'a' }, { text: 'b' }]);
   });
@@ -304,6 +317,7 @@ describe('durable resume', () => {
       __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
+
     const handle = room.resumeStream('ask-ai', 'feed-2', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
@@ -331,11 +345,13 @@ describe('scoped streams', () => {
       __wskit: { source: 'client', channel: 'r1', channelFamily: 'rooms' },
     });
     await sub;
+
     const pending = room.stream('ask-ai', { prompt: 'hi' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.event).toBe('ask-ai');
     expect(frame.__wskit).toMatchObject({ channel: 'r1', channelFamily: 'rooms' });
     expect(typeof frame.__wskit.streamId).toBe('string');
+
     socket.disconnect();
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
@@ -353,6 +369,7 @@ describe('lazy consumer leak on failed send', () => {
     ws.send = (data: unknown) => {
       calls++;
       if (calls === 1) throw new Error('network error');
+
       original(data);
     };
 
@@ -394,6 +411,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
         code: 'validation-failed',
       });
     }
+
     expect(ws.sentFrames().some((f) => f.event === 'ping')).toBe(false);
   });
 
@@ -405,6 +423,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('ping', {}),
     ).rejects.toMatchObject({ code: 'validation-failed' });
     expect(ws.sentFrames().length).toBe(before);
+
     handle.cancel();
   });
 
@@ -416,6 +435,7 @@ describe('stream trigger and nudge reject reserved event names', () => {
     await expect(
       (handle.nudge as (e: string, p: unknown) => Promise<void>)('add-context', circular),
     ).rejects.toBeInstanceOf(TypeError);
+
     handle.cancel();
   });
 });
@@ -439,6 +459,7 @@ describe('stream wire-limit validation', () => {
     const pending = socket.stream('ask-ai', { prompt: 'hi' }, { streamId: atLimit });
     expect(ws.sentFrames().at(-1).__wskit.streamId).toBe(atLimit);
     socket.disconnect();
+
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
@@ -480,6 +501,7 @@ describe('one reconnect decision per close (#19)', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
+
     const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
     ws.emit({
       event: '__streamOk__',
@@ -504,6 +526,7 @@ describe('stream control frames while not open (#24)', () => {
     const ws = MockWebSocket.last();
     ws.open();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
+
     const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
     ws.emit({
       event: '__streamOk__',

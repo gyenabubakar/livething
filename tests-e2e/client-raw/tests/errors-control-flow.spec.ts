@@ -52,6 +52,7 @@ test.describe('errors-control-flow', () => {
           ws.send(JSON.stringify({ event: 'force-disconnect', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+
         ws.onerror = () => reject(new Error('ws failed'));
         setTimeout(() => reject(new Error('timeout')), 5_000);
       });
@@ -75,6 +76,7 @@ test.describe('errors-control-flow', () => {
           ws.send(JSON.stringify({ event: 'disconnect-intercept', payload: {} }));
         };
         ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+
         ws.onerror = () => reject(new Error('ws failed'));
         setTimeout(() => reject(new Error('timeout')), 5_000);
       });

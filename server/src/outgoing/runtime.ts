@@ -123,6 +123,7 @@ function runOutgoingHooks(
   }
 
   assertPayloadRecord(current.payload);
+
   return current;
 }
 
@@ -139,11 +140,14 @@ function buildWSKit(
   if (routing?.channelFamily !== null && routing?.channelFamily !== undefined) {
     wskit.channelFamily = routing.channelFamily;
   }
+
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
   if (routing?.source) wskit.source = routing.source;
+
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
   if (routing?.streamKind) wskit.streamKind = routing.streamKind;
+
   return wskit;
 }
 
@@ -157,6 +161,7 @@ function applyWSKitStampers(
   wskit: Record<string, unknown>,
 ): void {
   if (Protocol.isProtocolEventName(event)) return;
+
   for (const stamp of stampers) {
     const stamped = stamp(event);
     for (const key in stamped) {
@@ -353,6 +358,7 @@ function sendPrepared(
   // shared frame), so only an afterSend hook still needs the wire message.
   if (prepared.sharedFrame !== undefined) {
     if (connection.descriptor.send(prepared.sharedFrame) === false) return false;
+
     if (prepared.needsWireMessage) {
       invokeAfterSendHooks(runtime, {
         connectionId: connection.id,
@@ -362,6 +368,7 @@ function sendPrepared(
         meta: connection.meta,
       });
     }
+
     return true;
   }
 
@@ -392,6 +399,7 @@ function sendPrepared(
   if (wireMessage) {
     invokeAfterSendHooks(runtime, wireMessage);
   }
+
   return true;
 }
 
@@ -575,6 +583,7 @@ export function broadcastToChannel(
   for (const connection of members) {
     if (excludeConnectionId && !(includeSelf ?? false) && connection.id === excludeConnectionId)
       continue;
+
     // One bad peer must not stop the rest of the fanout — log and continue.
     try {
       sendPrepared(runtime, connection, prepared);
@@ -610,6 +619,7 @@ function soleExcludedMemberUserId(
       break;
     }
   }
+
   if (!excludedUserId) return undefined;
 
   for (const connection of members) {
@@ -617,5 +627,6 @@ function soleExcludedMemberUserId(
       return undefined;
     }
   }
+
   return excludedUserId;
 }

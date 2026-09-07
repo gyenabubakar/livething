@@ -31,6 +31,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -192,6 +193,7 @@ describe('keepalive — quality tier transitions', () => {
     const tiers: string[] = [];
     const latencies: Array<number | null> = [];
     socket.quality.subscribe((q) => tiers.push(q));
+
     socket.latency.subscribe((l) => latencies.push(l));
 
     vi.advanceTimersByTime(1000);
@@ -335,6 +337,7 @@ describe('socket.quality — state gating', () => {
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
+
     expect(socket.state.get()).toBe('reconnecting');
     expect(socket.quality.get()).toBe('disconnected');
   });
@@ -566,6 +569,7 @@ describe('keepalive — quality listener isolation (#20)', () => {
     const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 5 }));
     socket.onError((error) => errors.push(error));
     const second = vi.fn();
+
     socket.quality.subscribe(() => {
       throw new Error('listener boom');
     });

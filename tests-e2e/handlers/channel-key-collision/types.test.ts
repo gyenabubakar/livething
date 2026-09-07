@@ -8,6 +8,7 @@ describe('ChannelKeyCollisionClient — no-any guard', () => {
     expectTypeOf<ChannelKeyCollisionClient['clientRequests']>().not.toBeAny();
     expectTypeOf<ChannelKeyCollisionClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelKeyCollisionClient['channels']>().not.toBeAny();
+
     expectTypeOf<ChannelKeyCollisionClient['errors']>().not.toBeAny();
   });
 });

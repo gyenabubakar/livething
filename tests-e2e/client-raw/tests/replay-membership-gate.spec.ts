@@ -22,6 +22,7 @@ test.describe('replay-membership-gate', () => {
             const messages: { event: string; payload: Record<string, unknown> }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
@@ -31,6 +32,7 @@ test.describe('replay-membership-gate', () => {
 
         const member = await open('member');
         const snooper = await open('snooper');
+
         return { member, snooper };
       },
       { room },

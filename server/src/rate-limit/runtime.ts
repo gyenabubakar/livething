@@ -56,6 +56,7 @@ export function resolveScopeKey(ctx: any): string {
   const ch = ctx?.channel as { name?: string; family?: string | null } | undefined;
   const chKey = ch ? (ch.family ?? ch.name) : undefined;
   if (chKey) return `channel:${chKey}`;
+
   return 'top';
 }
 
@@ -109,6 +110,7 @@ export class RateLimitRuntime {
     }
 
     this.buckets.set(bucketKey, { tokens: tokens - 1, lastRefillMs: now });
+
     return null;
   }
 }

@@ -30,6 +30,7 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     for (const id of ids) {
       await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
     }
+
     for (const id of ids) {
       await waitForFrame(page, id, {
         match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',
@@ -79,9 +80,11 @@ test.describe('inbox at scale (raw wire, real Durable Object)', () => {
     for (let i = 0; i < MEMBERS; i++) {
       ids.push(await connect(page, { path: '/ws/inbox', username: `u${i}`, room }));
     }
+
     for (const id of ids) {
       await send(page, id, { event: '__subscribe__', payload: {}, __wskit: { channel: 'chat' } });
     }
+
     for (const id of ids) {
       await waitForFrame(page, id, {
         match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'chat',

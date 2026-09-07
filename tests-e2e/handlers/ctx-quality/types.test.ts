@@ -8,6 +8,7 @@ describe('CtxQualityClient — no-any guard', () => {
     expectTypeOf<CtxQualityClient['clientRequests']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['streams']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['channels']>().not.toBeAny();
+
     expectTypeOf<CtxQualityClient['errors']>().not.toBeAny();
   });
 });

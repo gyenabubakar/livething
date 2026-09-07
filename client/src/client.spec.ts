@@ -15,6 +15,7 @@ function connected(opts?: { lazy?: boolean }) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -48,6 +49,7 @@ describe('connection lifecycle', () => {
     socket.connect();
     expect(socket.state.get()).toBe('connecting');
     MockWebSocket.last().open();
+
     expect(socket.state.get()).toBe('open');
   });
 
@@ -57,6 +59,7 @@ describe('connection lifecycle', () => {
     socket.state.subscribe(() => seen.push(socket.state.get()));
     socket.connect();
     MockWebSocket.last().open();
+
     expect(seen).toEqual(['connecting', 'open']);
   });
 

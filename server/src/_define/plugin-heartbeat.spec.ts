@@ -18,6 +18,7 @@ function makeStorage() {
       return fn(sql);
     },
   };
+
   return { sql, kv: { get() {}, put() {}, delete() {}, list: () => [] } } as any;
 }
 
@@ -40,6 +41,7 @@ function buildEngine(handler: ServerDefinition): Engine {
   });
   server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
+
   return captured;
 }
 
@@ -62,6 +64,7 @@ describe('plugin onPing / onPong', () => {
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     ph.onPing(() => void seen.push('ping'));
     ph.onPong(() => void seen.push('pong'));
+
     const Probe = plugin('acme:probe', { handler: ph.assemble({ handlers: [beat] }) });
 
     const base = define({ capabilities: [Probe()] });

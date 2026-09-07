@@ -360,6 +360,7 @@ describe('ctx.connections.get(ref).send', () => {
       instance: 'engine-b',
       userId: 'peer',
     };
+
     try {
       ctx.connections.get(foreign).send('evt', {});
       throw new Error('expected a cross-instance ref error');
@@ -539,6 +540,7 @@ describe('ctx.channels.get(name).members()', () => {
         userId: 'c2',
       }),
     };
+
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
       getChannelMembers: vi.fn(() => [memberInfo]),
@@ -580,6 +582,7 @@ describe('ctx.channels.get(name).members()', () => {
         userId: 'c2',
       }),
     };
+
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'
         ? undefined
@@ -713,6 +716,7 @@ describe('persistAttachment', () => {
     const connection = createConnection('c1');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
+
     connection.tags.ephemeral.set('role', new Set(['vip']));
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',

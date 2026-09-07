@@ -32,6 +32,7 @@ export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
   if (options?.cap !== undefined) {
     assertPositiveInteger(options.cap, 'cap', 'dedup()');
   }
+
   const cap = options?.cap ?? DEDUP_DEFAULT_INCOMING_CAP;
 
   return {

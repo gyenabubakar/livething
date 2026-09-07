@@ -8,6 +8,7 @@ describe('StreamBasicClient — no-any guard', () => {
     expectTypeOf<StreamBasicClient['clientRequests']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['channels']>().not.toBeAny();
+
     expectTypeOf<StreamBasicClient['errors']>().not.toBeAny();
   });
 });
@@ -112,6 +113,7 @@ describe('StreamBasicClient — stream kind', () => {
     expectTypeOf<
       StreamBasicClient['streams']['start-tokens']['kind']
     >().toEqualTypeOf<'ephemeral'>();
+
     expectTypeOf<
       StreamBasicClient['streams']['start-typed-error']['kind']
     >().toEqualTypeOf<'ephemeral'>();

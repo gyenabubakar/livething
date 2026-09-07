@@ -46,6 +46,7 @@ function setup(taggedCount: number, totalConnections: number) {
   } as unknown as TagsRuntime;
 
   const owner = connections.values().next().value!;
+
   return { connections, runtime, owner };
 }
 
@@ -85,6 +86,7 @@ describe('tag index churn · 1000 add/remove cycles', () => {
     for (const connection of connections) {
       addConnectionTag(tagMembers, connection, { kind: 'ephemeral', group: 'team', key: 'eng' });
     }
+
     for (const connection of connections) {
       removeConnectionTag(tagMembers, connection, { kind: 'ephemeral', group: 'team', key: 'eng' });
     }

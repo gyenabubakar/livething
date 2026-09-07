@@ -14,6 +14,7 @@ async function goConnect(page: Page, opts: GoConnectOptions) {
   await page.getByTestId('username').fill(username);
   await page.getByTestId('stream-id').fill(opts.streamId);
   await page.getByTestId('connect').click();
+
   await expect(page.getByTestId('status')).toHaveText('connected');
 }
 

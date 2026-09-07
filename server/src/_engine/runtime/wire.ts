@@ -47,6 +47,7 @@ export function sendProtocolMessage(
       return;
     }
   }
+
   connection.descriptor.send(wire);
 }
 
@@ -108,6 +109,7 @@ export function sendReplay(
     seq: wire.seq,
     messageId: wire.messageId,
   };
+
   if (resolvedChannel !== null) wskit.channel = resolvedChannel;
   if (channelFamily !== null) wskit.channelFamily = channelFamily;
 
@@ -133,5 +135,6 @@ export function sendReplay(
       return;
     }
   }
+
   connection.descriptor.send(frame);
 }

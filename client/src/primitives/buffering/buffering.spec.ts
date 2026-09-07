@@ -120,6 +120,7 @@ describe('MessageBuffer — owner settling', () => {
     buffer.flush(
       (m) => {
         if (m.event === 'bad') throw typeError;
+
         sent.push(m.event);
       },
       undefined,
@@ -205,6 +206,7 @@ describe('MessageBuffer — flush isolation (#25)', () => {
     const sent: string[] = [];
     function send(m: WireMessage): void {
       if (m.event === 'bad') throw new Error('serialize failed');
+
       sent.push(m.event);
     }
 
@@ -446,6 +448,7 @@ describe('buffering — live send during a staggered flush stays in order', () =
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     socket.send('typing', { channelId: 'a' });

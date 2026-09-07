@@ -45,6 +45,7 @@ export async function installRig(page: Page) {
       const ws = new WebSocket(url);
       sockets.set(id, ws);
       frames.set(id, []);
+
       rawFrames.set(id, []);
       ws.addEventListener('message', (ev) => {
         if (typeof ev.data === 'string') {
@@ -56,6 +57,7 @@ export async function installRig(page: Page) {
           }
         }
       });
+
       return new Promise((resolve, reject) => {
         ws.addEventListener('open', () => resolve({ id, frames: frames.get(id)! }));
         ws.addEventListener('error', () => reject(new Error('ws error')));
@@ -65,6 +67,7 @@ export async function installRig(page: Page) {
     window.__wskitSendRaw = (id, text) => sockets.get(id)?.send(text);
     window.__wskitClose = (id) => sockets.get(id)?.close();
     window.__wskitFrames = (id) => frames.get(id) ?? [];
+
     window.__wskitRawFrames = (id) => rawFrames.get(id) ?? [];
   });
 }
@@ -121,7 +124,9 @@ export async function waitForFrame(
     const all = await frames(page, id);
     const hit = all.find(match);
     if (hit) return hit;
+
     await page.waitForTimeout(50);
   }
+
   throw new Error('frame not received in time');
 }

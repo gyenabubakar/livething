@@ -15,6 +15,7 @@ describe('compileChannelTemplate — valid templates', () => {
     expect(match('room:{id}', 'room:general')).toEqual({ id: 'general' });
     expect(match('room:{id}', 'room:a:b:c')).toEqual({ id: 'a:b:c' });
     expect(match('room:{id}', 'room:')).toBeNull(); // needs >= 1 char
+
     expect(match('room:{id}', 'lobby:1')).toBeNull();
   });
 

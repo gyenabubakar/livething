@@ -24,6 +24,7 @@ describe('url-as-function / async url resolution', () => {
     socket.connect();
     await Promise.resolve();
     expect(urlFn).toHaveBeenCalledTimes(1);
+
     expect(MockWebSocket.last().url).toBe('wss://resolved-host/ws');
   });
 
@@ -194,6 +195,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
+
     expect(socket.state.get()).toBe('reconnecting');
   });
 
@@ -203,6 +205,7 @@ describe('connect-failed catch — reconnection handoff', () => {
     socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
+
     expect(socket.state.get()).toBe('closed');
   });
 
@@ -445,6 +448,7 @@ describe('searchParams URL separator', () => {
     socket.connect();
     await Promise.resolve();
     await Promise.resolve();
+
     expect(MockWebSocket.last().url).toBe('wss://host/ws?env=prod&token=xyz');
   });
 });

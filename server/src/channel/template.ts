@@ -72,6 +72,7 @@ export function compileChannelTemplate(
         i += 2;
         continue;
       }
+
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
         throw new WSKitConfigError(
@@ -79,6 +80,7 @@ export function compileChannelTemplate(
             `Write '{{' for a literal '{'.`,
         );
       }
+
       const name = template.slice(i + 1, end);
       if (name === '') {
         throw new WSKitConfigError(
@@ -86,26 +88,31 @@ export function compileChannelTemplate(
             `Name the parameter, e.g. '{id}'.`,
         );
       }
+
       if (!PARAM_NAME.test(name)) {
         throw new WSKitConfigError(
           `${source} template "${template}" has an invalid parameter name '${name}'. ` +
             `Use a plain identifier (letters, digits, underscore; not starting with a digit).`,
         );
       }
+
       if (paramNames.includes(name)) {
         throw new WSKitConfigError(
           `${source} template "${template}" declares the parameter '${name}' twice. ` +
             `Each parameter name must be unique.`,
         );
       }
+
       if (previousWasParam) {
         throw new WSKitConfigError(
           `${source} template "${template}" has two parameters with no text between them. ` +
             `Separate them with a literal, e.g. '{a}:{b}'.`,
         );
       }
+
       flushLiteral();
       regexSource += `(?<${name}>.+?)`;
+
       paramNames.push(name);
       previousWasParam = true;
       i = end + 1;
@@ -120,6 +127,7 @@ export function compileChannelTemplate(
         i += 2;
         continue;
       }
+
       throw new WSKitConfigError(
         `${source} template "${template}" has an unmatched '}'. ` + `Write '}}' for a literal '}'.`,
       );
@@ -160,6 +168,7 @@ export function fillChannelTemplate(
         i += 2;
         continue;
       }
+
       const end = template.indexOf('}', i + 1);
       if (end === -1) {
         throw new WSKitConfigError(
@@ -167,14 +176,17 @@ export function fillChannelTemplate(
             'compiled family template.',
         );
       }
+
       const name = template.slice(i + 1, end);
       const value = params[name];
+
       if (typeof value !== 'string' || value === '') {
         throw new WSKitConfigError(
           `${source} template "${template}" needs a non-empty '${name}' to resolve a ` +
             `channel name — got ${JSON.stringify(value)}.`,
         );
       }
+
       result += value;
       i = end + 1;
       continue;

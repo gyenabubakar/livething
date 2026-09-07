@@ -23,10 +23,12 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		replayRequested = false;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+
 		const sock = new WebSocket(
 			`${protocol}//${location.host}/ws/replay?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
@@ -34,23 +36,28 @@
 
 		sock.onopen = () => {
 			if (ws !== sock) return;
+
 			status = 'connected';
 			(window as unknown as Record<string, unknown>).__ws = sock;
 		};
 		sock.onclose = () => {
 			if (ws !== sock) return;
+
 			status = 'disconnected';
 			ws = null;
 		};
 		sock.onerror = () => {
 			if (ws !== sock) return;
+
 			status = 'disconnected';
 			ws = null;
 		};
 
 		sock.onmessage = (event) => {
 			if (ws !== sock) return;
+
 			if (event.data === 'pong') return;
+
 			rawLog = [...rawLog, String(event.data)].slice(-30);
 			const msg = JSON.parse(event.data as string) as {
 				event: string;

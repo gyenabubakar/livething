@@ -178,12 +178,14 @@ test.describe('plugins handler', () => {
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
+
           const parsed = JSON.parse(ev.data) as Msg;
           if (parsed.event === '__error__' && (parsed.payload as { code?: string }).code) {
             resolve(parsed);
             ws.close();
           }
         };
+
         ws.onerror = () => reject(new Error('ws failed'));
         setTimeout(() => reject(new Error('timeout')), 5_000);
       });
@@ -276,11 +278,13 @@ test.describe('plugins handler', () => {
     const offender = await browser.newPage();
     await observer.goto(`/plugins?room=${room}`);
     await offender.goto(`/plugins?room=${room}`);
+
     await observer.getByTestId('username-input').fill('observer');
     await observer.getByTestId('connect-btn').click();
     await waitForText(observer, 'status', 'connected');
     await offender.getByTestId('username-input').fill('offender');
     await offender.getByTestId('connect-btn').click();
+
     await waitForText(offender, 'status', 'connected');
 
     // Offender starts the stream whose finally throws, waits for at least
@@ -479,6 +483,7 @@ test.describe('plugins handler — inbox() on a plugin-owned dynamic channel fam
     expect(drained.__wskit?.channel).toBe(channel);
     expect(drained.__wskit?.channelFamily).toBe(FAMILY);
     const seq = drained.__wskit?.seq as number;
+
     expect(typeof seq).toBe('number');
 
     await send(page, aliceAgain, {

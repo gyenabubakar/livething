@@ -18,6 +18,7 @@ function build(options?: Parameters<typeof clientRequests>[0]) {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -40,6 +41,7 @@ describe('clientRequests — buffered frame ownership', () => {
     socket.connect();
     let ws = MockWebSocket.last();
     ws.open();
+
     ws.serverClose(1006);
 
     const settled = vi.fn();
@@ -96,6 +98,7 @@ describe('clientRequests', () => {
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
     ws.emit({ event: 'get-balance', payload: { balance: 5 }, __wskit: { correlationId: cid } });
     await expect(promise).resolves.toEqual({ balance: 5 });
+
     vi.useRealTimers();
   });
 
@@ -107,6 +110,7 @@ describe('clientRequests', () => {
         code: 'validation-failed',
       });
     }
+
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
@@ -125,6 +129,7 @@ describe('clientRequests', () => {
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
     expect(typeof cid).toBe('string');
     ws.emit({ event: 'get-balance', payload: { balance: 10 }, __wskit: { correlationId: cid } });
+
     await expect(promise).resolves.toEqual({ balance: 10 });
   });
 
@@ -233,6 +238,7 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
         };
       },
     };
+
     const socket = client<C>()(
       connect('wss://test'),
       clientRequests(),
@@ -240,7 +246,9 @@ describe('clientRequests — unmatched-correlationId passthrough', () => {
     );
     socket.connect();
     const ws = MockWebSocket.last();
+
     ws.open();
+
     return { socket, ws, seen };
   }
 

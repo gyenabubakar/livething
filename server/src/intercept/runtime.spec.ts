@@ -211,6 +211,7 @@ describe('intercept/runtime', () => {
       routing: { correlationId: 'abc-123' },
       owner: { kind: 'app' },
     };
+
     const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
       frame: start,
@@ -222,6 +223,7 @@ describe('intercept/runtime', () => {
     expect(seen[1]?.payload).toEqual({ stamped: true });
     expect(seen[1]?.kind).toBe('request');
     expect(seen[1]?.routing.correlationId).toBe('abc-123');
+
     expect(next.kind).toBe('request');
     expect(next.routing.correlationId).toBe('abc-123');
   });
@@ -245,6 +247,7 @@ describe('intercept/runtime', () => {
       routing: {},
       owner: { kind: 'app' },
     };
+
     const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
       frame: start,

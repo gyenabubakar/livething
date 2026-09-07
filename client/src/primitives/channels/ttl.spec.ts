@@ -40,6 +40,7 @@ async function buildActiveAndDrop(channelsOpts: ChannelsOptions, bufferingOpts: 
   await subscribePromise;
 
   ws.serverClose(1006, 'drop');
+
   return { socket, room };
 }
 

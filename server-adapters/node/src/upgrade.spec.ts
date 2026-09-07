@@ -47,6 +47,7 @@ describe('createUpgradeHandler', () => {
     const decision: UpgradeDecision = { userId: 'user-1' };
     const handleUpgrade = vi.fn(async () => decision);
     const onAccepted = vi.fn();
+
     const request = incomingRequest();
     const socket = fakeSocket();
     const head = Buffer.from('head');

@@ -117,6 +117,7 @@ describe('withInvocationScope', () => {
         connection.meta = { step };
         persistAttachment(core, connection);
       }
+
       expect(writes).toEqual([]);
     });
 
@@ -135,6 +136,7 @@ describe('withInvocationScope', () => {
       b.meta = { x: 1 };
       persistAttachment(core, b);
       a.meta = { x: 2 };
+
       persistAttachment(core, a);
       c.meta = { x: 1 };
       persistAttachment(core, c);
@@ -253,6 +255,7 @@ describe('withInvocationScope', () => {
     const close = vi.fn();
     connection.descriptor = { close } as never;
     const failure = new Error('async persist failed');
+
     (core.options as unknown as { hibernation: { persist: () => unknown } }).hibernation.persist =
       () => Promise.reject(failure);
 
@@ -286,6 +289,7 @@ describe('withInvocationScope', () => {
     const close = vi.fn();
     connection.descriptor = { close } as never;
     connection.closing = true;
+
     connection.translator = {
       inbound: (raw) => raw,
       hibernation: {

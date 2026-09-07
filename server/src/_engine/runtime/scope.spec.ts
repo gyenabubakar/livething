@@ -65,6 +65,7 @@ describe('resolveChannel', () => {
       recordedStreams: new Map(),
       intercepts: [],
     };
+
     const compiled = {
       channels: new Map(),
       channelFamilies: new Map([['rooms', family]]),

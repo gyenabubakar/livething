@@ -125,6 +125,7 @@ fullBase.on('full', {
     expectTypeOf(ctx.tags).not.toBeUndefined();
     expectTypeOf(ctx.channels).not.toBeUndefined();
     expectTypeOf(ctx.schedule).toBeFunction();
+
     expectTypeOf(ctx.plugin).toBeFunction();
     expectTypeOf(ctx.latency).toEqualTypeOf<number | null>();
     expectTypeOf(ctx.quality).toEqualTypeOf<'excellent' | 'good' | 'degraded' | 'poor' | null>();

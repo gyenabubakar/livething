@@ -126,6 +126,7 @@ const handlePausedFeed = rooms.resumableStream('paused-feed', {
     for (let i = startAt + 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
       if (nudges.some((n) => n.event === 'pause')) return;
+
       await new Promise((r) => setTimeout(r, 150));
     }
   },
@@ -139,6 +140,7 @@ const handleChannelTokens = rooms.stream('channel-tokens', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { token: `t${i}` });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },
@@ -155,6 +157,7 @@ const handleHistoryNudged = rooms.recordedStream('history-nudged', {
     for (let i = 1; i <= 20; i += 1) {
       const nudges = ctx.stream.nudges(yield { idx: i });
       if (nudges.some((n) => n.event === 'stop')) return;
+
       await new Promise((r) => setTimeout(r, 100));
     }
   },

@@ -29,10 +29,12 @@
 		const saw = payload.saw ?? '';
 		nudgeChunks = [...nudgeChunks, saw];
 		if (saw !== 'started' || !nudgeStreamId) return;
+
 		if (sendHintOnStarted) {
 			sendHintOnStarted = false;
 			sendNudge('hint', 'hello', { streamId: nudgeStreamId });
 		}
+
 		if (sendBlockHintOnStarted) {
 			sendBlockHintOnStarted = false;
 			sendNudge('hint', 'hint-block', { streamId: nudgeStreamId });
@@ -43,11 +45,13 @@
 		const saw = payload.saw ?? '';
 		chNudgeChunks = [...chNudgeChunks, saw];
 		if (saw !== 'started' || !chNudgeStreamId) return;
+
 		const wskit = { streamId: chNudgeStreamId, channel: 'room', channelFamily: null };
 		if (sendChHintOnStarted) {
 			sendChHintOnStarted = false;
 			sendNudge('ch-hint', 'hello', wskit);
 		}
+
 		if (sendChHintBlockOnStarted) {
 			sendChHintBlockOnStarted = false;
 			sendNudge('ch-hint', 'ch-hint-block', wskit);
@@ -64,6 +68,7 @@
 		'__streamOk__': (data) => {
 			const streamId = data.__wskit?.streamId;
 			if (!streamId) return;
+
 			if (data.__wskit.channel === 'room') chNudgeStreamId = streamId;
 			else nudgeStreamId = streamId;
 		},
@@ -77,12 +82,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/intercept?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		ws.onopen = () => {
 			status = 'connected';
 			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
@@ -93,6 +100,7 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+
 			const data = JSON.parse(ev.data);
 			eventHandlers[data.event]?.(data);
 		};
@@ -107,9 +115,11 @@
 			JSON.stringify(wskit ? { event: 'echo', payload, __wskit: wskit } : { event: 'echo', payload }),
 		);
 	}
+
 	function subscribeRoom() {
 		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
+
 	function subscribeDynamicRoom() {
 		ws?.send(
 			JSON.stringify({
@@ -119,6 +129,7 @@
 			}),
 		);
 	}
+
 	function startNudgeStream() {
 		nudgeChunks = [];
 		nudgeStreamEnd = false;
@@ -126,6 +137,7 @@
 		sendHintOnStarted = true;
 		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
 	}
+
 	function startNudgeStreamBlock() {
 		nudgeChunks = [];
 		nudgeStreamEnd = false;
@@ -133,6 +145,7 @@
 		sendBlockHintOnStarted = true;
 		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
 	}
+
 	function startChNudgeStream() {
 		chNudgeChunks = [];
 		chNudgeStreamEnd = false;
@@ -146,6 +159,7 @@
 			}),
 		);
 	}
+
 	function startChNudgeStreamBlock() {
 		chNudgeChunks = [];
 		chNudgeStreamEnd = false;

@@ -40,5 +40,6 @@ function createDefaultKv(database: NodeSqlDatabase | undefined, logger?: Logger)
       '[wskit] Node storage needs a SQLite database for ctx.kv. Provide a better-sqlite3 database or inject a KVProvider when using a custom SQLProvider.',
     );
   }
+
   return createKv(database, logger);
 }

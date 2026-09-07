@@ -8,6 +8,7 @@ describe('RateLimitClient — no-any guard', () => {
     expectTypeOf<RateLimitClient['clientRequests']>().not.toBeAny();
     expectTypeOf<RateLimitClient['streams']>().not.toBeAny();
     expectTypeOf<RateLimitClient['channels']>().not.toBeAny();
+
     expectTypeOf<RateLimitClient['errors']>().not.toBeAny();
   });
 });

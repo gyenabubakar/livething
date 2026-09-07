@@ -152,6 +152,7 @@ describe('replay', () => {
         },
         reduce(_previous, next) {
           if (next.event === 'message-deleted') return null;
+
           return next;
         },
       },
@@ -314,6 +315,7 @@ describe('replay', () => {
       connection: { id: 'c1' },
       [ENGINE_CHANNEL_META]: {},
     };
+
     extenders[0]!(ctx);
 
     (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
@@ -370,6 +372,7 @@ describe('replay', () => {
         channelFamily: 'rooms',
       },
     };
+
     const otherCtx: Record<PropertyKey, unknown> = {
       id: 'c2',
       channel: { name: 'other' },
@@ -489,6 +492,7 @@ describe('replay', () => {
         ],
       ]),
     };
+
     const matchingCtx = {
       connection: { id: 'c1' },
       [ENGINE_CHANNEL_META]: {
@@ -497,6 +501,7 @@ describe('replay', () => {
       },
       [ENGINE_INTERNAL_CONNECTION]: memberConnection,
     };
+
     const nonMemberCtx = {
       id: 'c3',
       [ENGINE_CHANNEL_META]: {
@@ -579,6 +584,7 @@ describe('replay', () => {
               // handler that reads the WRONG scope's watermark fails the test.
               const scopeKey = String(params[0] ?? '');
               if (isWatermarkRead) watermarkReads.push(scopeKey);
+
               return {
                 toArray() {
                   return [] as TRow[];
@@ -587,6 +593,7 @@ describe('replay', () => {
                   if (isWatermarkRead && scopeKey in watermarks) {
                     return { evicted_through_seq: watermarks[scopeKey] } as TRow;
                   }
+
                   return null;
                 },
                 raw() {
@@ -634,6 +641,7 @@ describe('replay', () => {
 
       const factory = type === 'snapshot' ? { type: 'snapshot' as const } : undefined;
       replay(factory).__setup?.(engine);
+
       return { handler: protocolHandlers[0]!, gaps, replays, watermarkReads };
     }
 
@@ -702,6 +710,7 @@ describe('replay', () => {
           ],
         ]),
       };
+
       const channelCtx = {
         connection: { id: 'c1' },
         [ENGINE_CHANNEL_META]: { channelName: 'room-1', channelFamily: 'rooms' },

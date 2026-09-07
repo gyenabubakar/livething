@@ -28,6 +28,7 @@ test.describe('channel-key-collision', () => {
             const messages: { event: string; payload: Record<string, unknown> }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
+
               messages.push(JSON.parse(ev.data));
             };
             ws.onopen = () => resolve({ ws, messages });
@@ -38,6 +39,7 @@ test.describe('channel-key-collision', () => {
         const memberA = await open('memberA');
         const memberB = await open('memberB');
         const broadcaster = await open('broadcaster');
+
         return { memberA, memberB, broadcaster };
       },
       { room },

@@ -70,6 +70,7 @@ test.describe('persistence (conformance)', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('open');
     await page.waitForTimeout(500);
+
     await expect(page.getByTestId('typing-server-rejoins')).toHaveText('0');
   });
 });

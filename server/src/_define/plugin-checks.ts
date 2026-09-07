@@ -36,8 +36,10 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
   for (const cap of capabilities) {
     const pluginCap = cap as Partial<PluginCapability>;
     if (!pluginCap.__pluginId || !pluginCap.__pluginRequiredKinds) continue;
+
     for (const kind of pluginCap.__pluginRequiredKinds) {
       if (present.has(kind)) continue;
+
       const name = capabilityDisplayName(kind);
       throw new Error(
         `[wskit] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
@@ -59,6 +61,7 @@ export function assertNoChannelOnlyCapabilities(capabilities: readonly AnyCapabi
   for (const cap of capabilities) {
     const kind = cap.__capabilityKind;
     if (!kind || !CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) continue;
+
     const name = capabilityDisplayName(kind);
     throw new Error(
       `[wskit] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
@@ -78,12 +81,14 @@ export function assertUniquePluginIds(capabilities: readonly AnyCapability[]): v
   for (const cap of capabilities) {
     const id = (cap as Partial<PluginCapability>).__pluginId;
     if (id === undefined) continue;
+
     if (seen.has(id)) {
       throw new Error(
         `[wskit] plugin('${id}') is listed more than once. Each plugin id owns a namespace and ` +
           'must be unique — list it once, or give the second one a different id.',
       );
     }
+
     seen.add(id);
   }
 }

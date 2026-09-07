@@ -161,6 +161,7 @@ export class ChannelState {
       set = new Set();
       this.handlers.set(event, set);
     }
+
     set.add(handler);
     return () => {
       set.delete(handler);
@@ -176,6 +177,7 @@ export class ChannelState {
   /** Prevent the socket from going idle for this subscription's lifetime. Only takes effect once. */
   holdLazy(acquire: () => void, release: () => void): void {
     if (this.lazyRelease) return;
+
     acquire();
     this.lazyRelease = release;
   }
@@ -216,6 +218,7 @@ export class ChannelState {
     // server-source ack racing the client's own) must not re-fire onSubscribed.
     // A reconnect rejoin is let through so it can re-confirm.
     if (this.active && !this.rejoining) return;
+
     this.active = true;
     this.rejoining = false;
     this.pendingSubscribeFrame = null;
@@ -227,6 +230,7 @@ export class ChannelState {
       this.pending = null;
       this.pendingPromise = null;
     }
+
     this.setStatus('subscribed');
     this.subscribed.each((callback) => callback(source));
   }
@@ -243,10 +247,12 @@ export class ChannelState {
    */
   failPendingSubscribe(error: unknown): void {
     if (!this.pending) return;
+
     this.pending.reject(error);
     this.pending = null;
     this.pendingPromise = null;
     this.pendingSubscribeFrame = null;
+
     this.releaseLazy();
     this.setStatus('failed');
   }
@@ -257,6 +263,7 @@ export class ChannelState {
    */
   beginLeave(unsubscribeId: string): Promise<void> {
     if (this.pendingLeavePromise) return this.pendingLeavePromise;
+
     const promise = new Promise<void>((resolve, reject) => {
       this.pendingLeave = { unsubscribeId, resolve, reject };
     });
@@ -264,6 +271,7 @@ export class ChannelState {
     // Pre-attach a no-op catch so an unobserved rejection (caller ignored the
     // returned promise) never surfaces as an unhandled rejection.
     void promise.catch(() => undefined);
+
     return promise;
   }
 
@@ -276,13 +284,16 @@ export class ChannelState {
   confirmLeave(unsubscribeId: string): { rejoinPending: boolean } | null {
     const leave = this.pendingLeave;
     if (!leave || leave.unsubscribeId !== unsubscribeId) return null;
+
     this.pendingLeave = null;
     this.pendingLeavePromise = null;
     leave.resolve();
+
     const deferred = this.deferredSubscribe;
     this.deferredSubscribe = null;
     const rejoinPending = deferred !== null;
     deferred?.();
+
     return { rejoinPending };
   }
 
@@ -308,6 +319,7 @@ export class ChannelState {
     this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
     this.roster.clear();
+
     this.publishMembers();
     this.priorMembers = null;
     // The subscription ended (unsubscribed or kicked) — release the idle-prevention
@@ -318,6 +330,7 @@ export class ChannelState {
     this.pending = null;
     this.pendingPromise = null;
     this.setStatus('unsubscribed');
+
     this.unsubscribed.each((callback) => callback());
   }
 
@@ -340,9 +353,11 @@ export class ChannelState {
       this.rejoining = false;
       this.roster.clear();
       this.publishMembers();
+
       this.priorMembers = null;
       this.setStatus('failed');
     }
+
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
@@ -372,9 +387,11 @@ export class ChannelState {
         this.memberJoin.each((callback) => callback(connectionId, member));
       this.memberOnline.each((callback) => callback(connectionId, member));
     }
+
     for (const connectionId of prev) {
       if (!next.has(connectionId)) this.memberLeave.each((callback) => callback(connectionId));
     }
+
     this.publishMembers();
   }
 
@@ -440,6 +457,7 @@ export class FamilyState {
       set = new Set();
       this.familyHandlers.set(event, set);
     }
+
     set.add(handler);
     return () => {
       set.delete(handler);

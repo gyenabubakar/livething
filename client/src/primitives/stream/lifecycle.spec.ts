@@ -29,6 +29,7 @@ function build() {
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -47,6 +48,7 @@ async function start(
     __wskit: { streamId: sid, streamKind: options?.streamKind ?? 'ephemeral' },
   });
   const handle = await promise;
+
   return { handle, sid };
 }
 
@@ -599,6 +601,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       socket.connect();
       const ws = MockWebSocket.last();
       ws.open();
+
       await start(socket, ws, { streamKind: 'persistent' });
       expect(warnedAboutKeepalive(warn)).toBe(true);
       socket.disconnect();
@@ -615,6 +618,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       socket.connect();
       const ws = MockWebSocket.last();
       ws.open();
+
       await start(socket, ws, { streamKind: 'persistent' });
       expect(warnedAboutKeepalive(warn)).toBe(false);
       socket.disconnect();
@@ -631,6 +635,7 @@ describe('resumable stream without keepalive warns in debug mode', () => {
       socket.connect();
       const ws = MockWebSocket.last();
       ws.open();
+
       await start(socket, ws, { streamKind: 'ephemeral' });
       expect(warnedAboutKeepalive(warn)).toBe(false);
       socket.disconnect();

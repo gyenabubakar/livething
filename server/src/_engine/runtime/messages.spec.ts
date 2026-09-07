@@ -458,6 +458,7 @@ describe('message runtime', () => {
     const handleRuntimeError = vi.fn();
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
+
     addMembership(channelMembers, connection, { channelName: 'room' });
 
     const channel = {
@@ -1731,6 +1732,7 @@ describe('declined server→client request routing (Major 1)', () => {
           frame: { event: string; payload: unknown; wskit?: { correlationId?: string } },
         ) => {
           if (frame.wskit?.correlationId !== 'sreq_1') return false;
+
           claimed.push({
             id,
             event: frame.event,

@@ -66,6 +66,7 @@ describe('scopePluginContext — kv (A4)', () => {
     await scoped.kv.set('a', 1);
     expect(set).toHaveBeenCalledWith('__acme:feed::a', 1);
     await scoped.kv.delete('a');
+
     expect(del).toHaveBeenCalledWith('__acme:feed::a');
 
     const result = await scoped.kv.list('pre');

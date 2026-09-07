@@ -91,6 +91,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
             );
             return { seq: persistentAllocator.next() };
           }
+
           return { seq: (current += 1) };
         });
       });

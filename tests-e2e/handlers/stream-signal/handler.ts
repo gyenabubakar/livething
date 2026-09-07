@@ -45,6 +45,7 @@ const handleSlowSignal = base.stream('slow-signal', {
           reject(new Error('aborted'));
           return;
         }
+
         signal.addEventListener(
           'abort',
           () => {

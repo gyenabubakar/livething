@@ -121,6 +121,7 @@ interface InboxPluginContract {
     };
   };
 }
+
 type InboxPluginSocket = PluginSocket<InboxPluginContract>;
 declare const inboxPlugin: InboxPluginSocket;
 expectTypeOf(inboxPlugin.channel('room').receivers.get()).toEqualTypeOf<

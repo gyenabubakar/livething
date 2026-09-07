@@ -14,6 +14,7 @@ import { channels } from './capability.ts';
 function channelPrimitive(primitives: readonly { __wskit: string }[]): any {
   const found = primitives.find((p) => p.__wskit === 'channel');
   if (!found) throw new Error('no channel primitive');
+
   return found;
 }
 
@@ -42,6 +43,7 @@ describe('channels() capability', () => {
     const handleChat = lobby.on('chat', { input: v.object({ text: v.string() }), run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleChat] }));
     const channel = compiled.channels.get('lobby');
+
     expect(channel?.incoming.has('chat')).toBe(true);
     expect(channel?.outgoing.has('joined')).toBe(true);
   });
@@ -96,6 +98,7 @@ describe('channels() capability', () => {
     room.subscribe(() => {});
     const handleSay = room.on('say', { input: v.object({}), run() {} });
     const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
+
     const childKinds = primitive.primitives.map((p: { __wskit: string }) => p.__wskit);
     expect(childKinds).toContain('onSubscribe');
     expect(childKinds).toContain('incoming');
@@ -132,6 +135,7 @@ describe('channels() capability', () => {
       },
     });
     const primitive = channelPrimitive(base.assemble({ handlers: [say] }).primitives);
+
     const incoming = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'incoming' && p.event === 'say',
     );
@@ -155,6 +159,7 @@ describe('channels() capability', () => {
       },
     });
     const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
+
     const checkChild = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'check');
     expect(checkChild.validator).toBeDefined();
     const result = await checkChild.handler({ channel: { scope: null } }, { token: 'x' });
@@ -176,6 +181,7 @@ describe('channels() capability', () => {
     const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const checkChild = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'check');
     expect(checkChild).toBeDefined();
+
     expect(checkChild.validator).toBeDefined();
     const ctx: { channel: { scope: null }; check?: unknown } = { channel: { scope: null } };
     const result = await checkChild.handler(ctx, { token: 'x' });
@@ -192,6 +198,7 @@ describe('channels() capability', () => {
     });
     const primitive = channelPrimitive(base.assemble({ handlers: [room] }).primitives);
     const child = primitive.primitives.find((p: { __wskit: string }) => p.__wskit === 'revalidate');
+
     await child.handler({ channel: { scope: null } });
     expect(ran).toBe(true);
   });
@@ -209,6 +216,7 @@ describe('channels() capability', () => {
     const requestChild = primitive.primitives.find(
       (p: { __wskit: string; event?: string }) => p.__wskit === 'request' && p.event === 'info',
     );
+
     const respond = vi.fn();
     await requestChild.handler({ respond, channel: { scope: null } }, {});
     expect(respond).toHaveBeenCalledWith({ ok: true });
@@ -220,6 +228,7 @@ describe('channels() capability', () => {
     const ordered = room.on('ordered', { run() {} });
     const interleaved = room.on('interleaved', { allowInterleaving: true, run() {} });
     const request = room.request('request', { allowInterleaving: false, run() {} });
+
     const compiled = compileHandlerDefinition(
       base.assemble({ handlers: [ordered, interleaved, request] }),
     );
@@ -244,10 +253,12 @@ describe('channels() capability', () => {
       (p: { __wskit: string; event?: string }) =>
         p.__wskit === 'stream-generate' && p.event === 'feed',
     );
+
     const ctx: any = {
       nudges: (value: unknown) => (Array.isArray(value) ? value : []),
       channel: { family: 'rooms' },
     };
+
     const iterator = streamChild.generator(ctx, {});
     const first = await iterator.next();
     expect(first.value).toEqual({ family: 'rooms' });

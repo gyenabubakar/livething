@@ -416,6 +416,7 @@ describe('connection runtime', () => {
     const wsToConnectionId = new Map();
     const channelMembers = new Map();
     const tagMembers = new Map();
+
     const deleted: string[] = [];
     const failure = new Error('persist failed');
     const wsKey = Symbol('ws');
@@ -668,10 +669,12 @@ describe('connection runtime', () => {
       send() {},
       close() {},
     };
+
     const connections = new Map();
     const usersByKey = new Map();
     const wsToConnectionId = new Map();
     const channelMembers = new Map();
+
     const tagMembers = new Map();
     const failure = new Error('persistent tag storage failed');
 
@@ -743,10 +746,12 @@ describe('connection runtime', () => {
       send: vi.fn(),
       close: vi.fn(),
     };
+
     const connections = new Map();
     const usersByKey = new Map();
     const channelMembers = new Map();
     const tagMembers = new Map();
+
     const deleted: string[] = [];
 
     const handle = wakeHibernatedConnection(
@@ -801,6 +806,7 @@ describe('connection runtime', () => {
     expect(connections.size).toBe(0);
     expect(usersByKey.size).toBe(0);
     expect(channelMembers.size).toBe(0);
+
     expect(tagMembers.size).toBe(0);
     expect(wsKey.send).not.toHaveBeenCalled();
     await expect(handle.handleMessage('ignored')).resolves.toBeUndefined();
@@ -1037,6 +1043,7 @@ describe('connection runtime', () => {
       latency: null,
       quality: 'good' as const,
     };
+
     const runtime = {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map([[connection.id, connection]]) as never,
@@ -1090,6 +1097,7 @@ describe('connection runtime', () => {
       latency: null,
       quality: 'good' as const,
     };
+
     // Connection is NOT in the connections map — simulating "already
     // cleaned up by an earlier handleConnectionClose call".
     const runtime = {
@@ -1147,6 +1155,7 @@ describe('connection runtime', () => {
       latency: null,
       quality: 'good' as const,
     };
+
     const runtime = {
       compiled: {
         channels: new Map(),
@@ -1194,6 +1203,7 @@ describe('connection runtime', () => {
     const clearTimeoutSpy = vi
       .spyOn(globalThis, 'clearTimeout')
       .mockImplementation(() => undefined);
+
     const connection = {
       id: 'c1',
       userId: 'c1',
@@ -1219,6 +1229,7 @@ describe('connection runtime', () => {
       quality: 'good' as const,
       keepaliveTimer: keepaliveHandle as unknown as number,
     };
+
     const runtime = {
       compiled: {
         channels: new Map(),
@@ -1279,6 +1290,7 @@ describe('connection runtime', () => {
       latency: null,
       quality: 'good' as const,
     };
+
     const observed: boolean[] = [];
     const runtime = {
       compiled: {

@@ -37,6 +37,7 @@ function openedSocket<const P extends readonly Primitive<any, any>[]>(
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
+
   return { socket, ws };
 }
 
@@ -47,6 +48,7 @@ describe('send rejects reserved event names', () => {
     for (const name of ['ping', 'pong', '__error__', '']) {
       expect(send(name, { id: 1 })).toBe(false);
     }
+
     expect(ws.sentFrames()).toHaveLength(0);
   });
 
@@ -63,6 +65,7 @@ describe('send rejects reserved event names', () => {
       __wskit: { source: 'client', channel: 'room' },
     });
     const before = ws.sentFrames().length;
+
     expect(room.send('ping', { value: 'x' })).toBe(false);
     expect(ws.sentFrames().length).toBe(before);
   });
@@ -79,8 +82,10 @@ describe('queued frame isolation on open (#10)', () => {
         { event: 'good', payload: { ok: 1 } },
       ],
     };
+
     const errors: unknown[] = [];
     const socket = buildSocket();
+
     socket.onError((error) => errors.push(error));
     socket._setPrimitives([framePrimitive]);
     socket.connect();

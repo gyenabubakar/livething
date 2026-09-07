@@ -7,12 +7,14 @@
 
 	function connect() {
 		if (ws) return;
+
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/inbox-retention?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+
 		const win = window as unknown as { __ws?: WebSocket; __frames?: Frame[] };
 		win.__frames = [];
 		ws.onmessage = (ev) => {

@@ -8,6 +8,7 @@ describe('PersistenceClient — no-any guard', () => {
     expectTypeOf<PersistenceClient['clientRequests']>().not.toBeAny();
     expectTypeOf<PersistenceClient['streams']>().not.toBeAny();
     expectTypeOf<PersistenceClient['channels']>().not.toBeAny();
+
     expectTypeOf<PersistenceClient['errors']>().not.toBeAny();
   });
 });

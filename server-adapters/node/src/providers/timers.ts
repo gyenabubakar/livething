@@ -24,6 +24,7 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
   let onAlarm: (() => Promise<void>) | undefined;
   let timeout: NodeJS.Timeout | undefined;
   let deliveryActive = false;
+
   let alarmRetryCount = 0;
   const inFlight = new Set<Promise<void>>();
 

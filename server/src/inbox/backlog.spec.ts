@@ -104,6 +104,7 @@ describe('inbox backlog()', () => {
       at: (identity) => (identity === 'alice' ? 4242 : null),
       online: () => false,
     };
+
     const { sql, surface } = harness({ lastSeen });
     seedRow(sql, { userId: 'alice', seq: 1, createdAt: 100 });
 

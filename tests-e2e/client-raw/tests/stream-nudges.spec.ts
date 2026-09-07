@@ -264,6 +264,7 @@ test.describe('stream-nudges', () => {
       ({ streamId }) => {
         const ws = (window as unknown as { __ws?: WebSocket }).__ws;
         if (!ws) throw new Error('no __ws on window');
+
         ws.send(
           JSON.stringify({
             event: 'speed-up',

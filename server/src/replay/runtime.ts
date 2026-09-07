@@ -109,6 +109,7 @@ const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
  */
 export function replayScopeKey(scope: ReplayStorageScope): string {
   if (scope.channel === null) return '';
+
   return JSON.stringify([scope.channelFamily, scope.channel]);
 }
 
@@ -129,8 +130,11 @@ function scopeMatchesReplayInstance(
   if (channelKey) {
     return channelFamily === channelKey || channelName === channelKey;
   }
+
   if (channelFamily && claimedChannelKeys.has(channelFamily)) return false;
+
   if (channelName && claimedChannelKeys.has(channelName)) return false;
+
   return true;
 }
 
@@ -169,7 +173,9 @@ export function isChannelReplayAuthorized(
   wskit: ReplayEnvelopeScope | undefined,
 ): boolean {
   if (!scope.channelName) return true;
+
   if (!connection) return false;
+
   return ChannelPrimitive.hasChannelMembership(
     connection,
     scope.channelName,
@@ -221,14 +227,18 @@ export function shouldStoreReplayMessage(
 ): boolean {
   const { channelKey, wskit, exclude, claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS } = options;
   if (exclude.has(event)) return false;
+
   // Protocol/control frames (presence, subscribe-ok, errors, …) are bookkeeping,
   // not user messages — they carry no sequence number, so storing them throws.
   // They're re-derived on reconnect (e.g. __memberSync__), so never record them.
   if (Protocol.isProtocolEventName(event)) return false;
+
   if (typeof wskit.correlationId === 'string') return false;
+
   if (typeof wskit.streamId === 'string') return false;
 
   const scope = readReplayScope(wskit);
+
   return scopeMatchesReplayInstance(
     channelKey,
     { channelFamily: scope.channelFamily, channelName: scope.channel },
@@ -494,6 +504,7 @@ export function persistReplayMessage(
     };
 
     storeReplayRow(tx, snapshotRow);
+
     return snapshotRow;
   });
 }
@@ -744,6 +755,7 @@ export class ReplayPruneGate {
       } else if (this.minCreatedAt === null || stamp < this.minCreatedAt) {
         this.minCreatedAt = stamp;
       }
+
       if (this.minCreatedAt !== null && this.minCreatedAt < stamp - retention.maxAgeMs) {
         pruneExpiredReplayRows(sql, retention, stamp);
         this.minCreatedAt = minReplayCreatedAt(sql);
@@ -794,6 +806,7 @@ export function buildLoadReplayQuery(
         params: [scope.channelName, since],
       };
     }
+
     return {
       sql: `
         SELECT

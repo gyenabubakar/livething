@@ -44,6 +44,7 @@ describe('scope() template compilation', () => {
     } catch (err) {
       thrown = err;
     }
+
     expect(thrown).toBeInstanceOf(WSKitConfigError);
     expect(isWSKitConfigError(thrown)).toBe(true);
   });

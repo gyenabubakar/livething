@@ -52,6 +52,7 @@ describe('resumableStream() capability', () => {
         withCursor: (chunk: unknown, cursor: unknown) => ({ chunk, cursor }),
       },
     };
+
     const iterator = primitive.generator(ctx, {});
     const first = await iterator.next();
 

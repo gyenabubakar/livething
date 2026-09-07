@@ -27,8 +27,10 @@ function wrapCursor<TRow = unknown>(
         `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
       );
     }
+
     consumed = method;
   }
+
   return {
     toArray: () => {
       claim('toArray');
@@ -80,6 +82,7 @@ export function createSql(state: DurableObjectState): SQLProvider {
             'implements transactionSync.',
         );
       }
+
       return state.storage.transactionSync(() =>
         fn({
           exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
