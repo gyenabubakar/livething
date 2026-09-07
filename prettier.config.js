@@ -29,7 +29,7 @@ const config = {
       // width keeps a snippet inside the rendered code column, where a line
       // that fits an editor would wrap and be hard to read.
       files: 'website/content/**/*.md',
-      options: { semi: false, printWidth: 80 },
+      options: { semi: false, printWidth: 70 },
     },
   ],
 };

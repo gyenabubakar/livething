@@ -70,8 +70,16 @@ export default defineNuxtConfig({
     'nuxt-studio',
   ],
 
+  // Markdown resolves a code fence as `ProsePre`. Register this directory
+  // without its `content` path prefix so the local Pierre renderer replaces
+  // Nuxt UI's default renderer for every documentation page.
+  components: [
+    { path: '~/components/content', pathPrefix: false, global: true },
+    '~/components',
+  ],
+
   colorMode: {
-    preference: 'dark',
+    preference: 'system',
   },
 
   fonts: {

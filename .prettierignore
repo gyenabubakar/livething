@@ -34,3 +34,5 @@ website/tsconfig.json
 website/wrangler.jsonc
 website/package.json
 website/README.md
+
+!/ignore-this.ts
