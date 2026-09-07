@@ -45,6 +45,51 @@ export function scopeMatchesChannel(
  */
 export const DEFAULT_MAX_RECEIPT_AUDIENCE = 256;
 
+interface InboxFanOutOptions {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  seq: number;
+  messageId: string;
+  excludeUserId?: string;
+}
+
+interface InboxRetentionDeadlineOptions {
+  channelKey: string;
+  maxAgeMs: number;
+}
+
+interface InboxRetentionSweepOptions {
+  channelKey: string;
+  retention: InboxRetention;
+  now: number;
+}
+
+interface InboxAckOptions {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  receivedThrough: number;
+  onDelivered: ResolvedInboxOptions['onDelivered'];
+}
+
+interface InboxMemberKey {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+}
+
+interface InboxBackfillOptions extends InboxMemberKey {
+  frames: readonly InboxFrame[];
+  retention?: InboxRetention;
+}
+
+interface InboxRetentionApplyOptions extends Omit<InboxMemberKey, 'userId'> {
+  userId: string;
+  retention: InboxRetention;
+}
+
 /** Resolve the channel key (family key for families, name for static channels). */
 export function channelKeyFor(channelName: string, channelFamily: string | null): string {
   return channelFamily ?? channelName;
@@ -64,18 +109,7 @@ export function channelKeyFor(channelName: string, channelFamily: string | null)
  * second, still-included connection in the channel is never passed here, and
  * gets its row as normal.
  */
-export function fanOutToInbox(
-  core: EngineCore,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-    seq: number;
-    messageId: string;
-    excludeUserId?: string;
-  },
-): void {
+export function fanOutToInbox(core: EngineCore, opts: InboxFanOutOptions): void {
   const config = core.inboxChannels.get(channelKeyFor(opts.channelName, opts.channelFamily));
   if (!config) return;
 
@@ -136,7 +170,7 @@ export function fanOutToInbox(
 /** Return the next age-retention deadline for one static channel or family. */
 export function nextInboxRetentionDeadline(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number },
+  params: InboxRetentionDeadlineOptions,
 ): number | null {
   return nextInboxRetentionAt(sql, params);
 }
@@ -148,7 +182,7 @@ export function nextInboxRetentionDeadline(
  */
 export function sweepInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  params: { channelKey: string; retention: InboxRetention; now: number },
+  params: InboxRetentionSweepOptions,
 ): number {
   const maxAgeMs = params.retention.maxAgeMs;
   if (maxAgeMs === undefined && params.retention.maxMessages === undefined) return 0;
@@ -228,16 +262,7 @@ export function drainInboxOnReconnect(core: EngineCore, connection: RuntimeConne
 }
 
 /** Apply a member's `__received__` ack: drop or mark-delivered up to `receivedThrough`. */
-export function applyInboxAck(
-  sql: Pick<SQLProvider, 'exec'>,
-  opts: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-    onDelivered: ResolvedInboxOptions['onDelivered'];
-  },
-): void {
+export function applyInboxAck(sql: Pick<SQLProvider, 'exec'>, opts: InboxAckOptions): void {
   ackInboxRows(sql, {
     userId: opts.userId,
     channelName: opts.channelName,
@@ -255,10 +280,7 @@ export function applyInboxAck(
 }
 
 /** Drop a member's rows for a channel it has left. */
-export function clearInboxForChannel(
-  core: EngineCore,
-  key: { userId: string; channelName: string; channelFamily: string | null },
-): void {
+export function clearInboxForChannel(core: EngineCore, key: InboxMemberKey): void {
   if (!key.userId) return;
   if (!core.inboxChannels.has(channelKeyFor(key.channelName, key.channelFamily))) return;
   const { sql } = core.storage;
@@ -289,13 +311,7 @@ export function clearInboxForChannel(
  */
 export function backfillInbox(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    frames: readonly InboxFrame[];
-    retention?: InboxRetention;
-  },
+  opts: InboxBackfillOptions,
 ): void {
   if (!opts.userId) return;
   if (opts.frames.length === 0) return;
@@ -328,12 +344,7 @@ export function backfillInbox(
  */
 function applyInboxRetention(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  opts: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-  },
+  opts: InboxRetentionApplyOptions,
 ): number | null {
   return pruneInboxRetentionAndBumpWatermark(sql, {
     userId: opts.userId,

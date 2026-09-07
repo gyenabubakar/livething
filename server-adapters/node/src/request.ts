@@ -9,8 +9,9 @@ export interface WebRequestOptions {
 /** Converts Node's incoming upgrade request into the standard Web API shape. */
 export function requestToWebRequest(
   request: IncomingMessage,
-  { signal, clientIp }: WebRequestOptions = {},
+  options: WebRequestOptions = {},
 ): Request {
+  const { signal, clientIp } = options;
   const encrypted = 'encrypted' in request.socket && request.socket.encrypted === true;
   const protocol = encrypted ? 'https' : 'http';
   const host = request.headers.host ?? 'localhost';

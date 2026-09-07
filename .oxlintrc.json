@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "unicorn"],
+  "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
   "categories": {
     "correctness": "off"
   },
@@ -89,10 +90,35 @@
     "no-useless-backreference": "error",
     "require-yield": "error",
     "no-nested-ternary": "error",
-    "complexity": ["error", { "max": 72, "variant": "classic" }],
-    "max-params": ["error", { "max": 3 }]
+    "complexity": ["error", { "max": 50, "variant": "classic" }],
+    "max-params": ["error", { "max": 3 }],
+    "eslint-js/no-restricted-syntax": [
+      "error",
+      {
+        "selector": "VariableDeclarator > Identifier > TSTypeAnnotation > TSTypeLiteral, :matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) Identifier > TSTypeAnnotation > TSTypeLiteral",
+        "message": "Extract inline object types into a named type or interface."
+      },
+      {
+        "selector": ":matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > :matches(ObjectPattern, ArrayPattern), :matches(FunctionDeclaration, FunctionExpression, ArrowFunctionExpression) > AssignmentPattern > :matches(ObjectPattern, ArrayPattern)",
+        "message": "Do not destructure function parameters; use a named parameter."
+      }
+    ]
   },
   "overrides": [
+    {
+      "files": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.test-d.ts",
+        "**/*.bench.ts",
+        "**/_test/**",
+        "**/test-utils.ts",
+        "tests-e2e/**"
+      ],
+      "rules": {
+        "eslint-js/no-restricted-syntax": "off"
+      }
+    },
     {
       "files": [".dependency-cruiser.cjs"],
       "rules": {

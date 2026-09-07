@@ -440,6 +440,43 @@ function fastParseUserEventFrame(input: unknown): UserEventFrame | null {
   return { event: input.event, payload: input.payload, __wskit: wskit };
 }
 
+function parseSource(input: Record<string, unknown>, out: WSKitProtocol): boolean {
+  if (input.source === undefined) return true;
+  if (input.source !== 'server' && input.source !== 'client') return false;
+  out.source = input.source;
+  return true;
+}
+
+function parseStreamKind(input: Record<string, unknown>, out: WSKitProtocol): boolean {
+  if (input.streamKind === undefined) return true;
+  if (input.streamKind !== 'ephemeral' && input.streamKind !== 'persistent') return false;
+  out.streamKind = input.streamKind;
+  return true;
+}
+
+function parseStreamTerminated(input: Record<string, unknown>, out: WSKitProtocol): boolean {
+  if (input.streamTerminated === undefined) return true;
+  if (typeof input.streamTerminated !== 'boolean') return false;
+  out.streamTerminated = input.streamTerminated;
+  return true;
+}
+
+function parseSequence(input: Record<string, unknown>, out: WSKitProtocol): boolean {
+  if (input.seq === undefined) return true;
+  const seq = input.seq;
+  if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0 || seq > Number.MAX_SAFE_INTEGER)
+    return false;
+  out.seq = seq;
+  return true;
+}
+
+function parseChannelFamily(input: Record<string, unknown>, out: WSKitProtocol): boolean {
+  if (input.channelFamily === undefined || input.channelFamily === null) return true;
+  if (!withinWireLimit(input.channelFamily, WIRE_LIMITS.channelFamily)) return false;
+  out.channelFamily = input.channelFamily;
+  return true;
+}
+
 function fastParseWSKit(input: unknown): WSKitProtocol | null {
   if (!isRecord(input)) return null;
   for (const key in input) {
@@ -457,34 +494,11 @@ function fastParseWSKit(input: unknown): WSKitProtocol | null {
     (out as Record<string, unknown>)[key] = value;
   }
 
-  if (input.source !== undefined) {
-    if (input.source !== 'server' && input.source !== 'client') return null;
-    out.source = input.source;
-  }
-  if (input.streamKind !== undefined) {
-    if (input.streamKind !== 'ephemeral' && input.streamKind !== 'persistent') return null;
-    out.streamKind = input.streamKind;
-  }
-  if (input.streamTerminated !== undefined) {
-    if (typeof input.streamTerminated !== 'boolean') return null;
-    out.streamTerminated = input.streamTerminated;
-  }
-  if (input.seq !== undefined) {
-    const seq = input.seq;
-    if (
-      typeof seq !== 'number' ||
-      !Number.isInteger(seq) ||
-      seq < 0 ||
-      seq > Number.MAX_SAFE_INTEGER
-    )
-      return null;
-    out.seq = seq;
-  }
-
-  if (input.channelFamily !== undefined && input.channelFamily !== null) {
-    if (!withinWireLimit(input.channelFamily, WIRE_LIMITS.channelFamily)) return null;
-    out.channelFamily = input.channelFamily;
-  }
+  if (!parseSource(input, out)) return null;
+  if (!parseStreamKind(input, out)) return null;
+  if (!parseStreamTerminated(input, out)) return null;
+  if (!parseSequence(input, out)) return null;
+  if (!parseChannelFamily(input, out)) return null;
 
   return out;
 }

@@ -23,69 +23,52 @@ export function replay(): Primitive<EmptyTypeFn> {
       // are their own keys so each channel catches up on its own.
       const lastSeq = new Map<string, { seq: number; channel?: string; channelFamily?: string }>();
 
+      function remember(
+        seq: number,
+        channel: string | undefined,
+        channelFamily: string | undefined,
+      ): void {
+        const key = channel === undefined ? '' : channelKey(channelFamily, channel);
+        const current = lastSeq.get(key);
+        if (!current || seq > current.seq) lastSeq.set(key, { seq, channel, channelFamily });
+      }
+
+      function handleGap(message: WireMessage): WireMessage {
+        const payload = message.payload as { missedThrough?: unknown } | null | undefined;
+        if (typeof payload?.missedThrough === 'number') {
+          remember(payload.missedThrough, message.__wskit?.channel, message.__wskit?.channelFamily);
+        }
+        return message;
+      }
+
+      function handleError(message: WireMessage): WireMessage {
+        const payload = message.payload as
+          | { code?: string; detail?: { event?: string } }
+          | null
+          | undefined;
+        if (payload?.code === 'unsupported-protocol' && payload.detail?.event === '__replay__') {
+          helpers.log.warn(
+            "replay() is on the client, but the server doesn't support replay — reconnect catch-up won't work. Enable replay on the server, or remove replay() from the client.",
+          );
+        }
+        return message;
+      }
+
+      function handleIncoming(message: WireMessage): WireMessage {
+        if (message.event === '__gap__') return handleGap(message);
+        if (message.event === '__error__') return handleError(message);
+        if (message.__wskit?.streamId !== undefined) return message;
+
+        const seq = message.__wskit?.seq;
+        if (typeof seq === 'number') {
+          remember(seq, message.__wskit?.channel, message.__wskit?.channelFamily);
+        }
+        return message;
+      }
+
       return {
         id: 'replay',
-        onIncoming(message) {
-          if (message.event === '__gap__') {
-            const payload = message.payload as { missedThrough?: unknown } | null | undefined;
-            const missedThrough = payload?.missedThrough;
-            if (typeof missedThrough === 'number') {
-              const channel = message.__wskit?.channel;
-              const channelFamily = message.__wskit?.channelFamily;
-              const key = channel === undefined ? '' : channelKey(channelFamily, channel);
-              // A gap means retention pruned everything up to missedThrough, even
-              // if no surviving row carried that seq. Advance the high-water mark
-              // here too, or the next reconnect asks from the same stale cursor
-              // and gets the same gap reported again forever.
-              const current = lastSeq.get(key);
-              if (!current || missedThrough > current.seq) {
-                lastSeq.set(key, { seq: missedThrough, channel, channelFamily });
-              }
-            }
-            return message;
-          }
-
-          // The server replied that it doesn't support replay (replay off, or
-          // off for this scope). Warn every time so the misconfig stays visible;
-          // the error still passes through to the socket's onServerError below.
-          if (message.event === '__error__') {
-            const payload = message.payload as
-              | { code?: string; detail?: { event?: string } }
-              | null
-              | undefined;
-            // Compared as a literal (not imported from core) so this primitive
-            // doesn't pull the UnsupportedProtocol ErrorDef and its valibot
-            // schema into the bundle just to read one code string.
-            if (
-              payload?.code === 'unsupported-protocol' &&
-              payload.detail?.event === '__replay__'
-            ) {
-              helpers.log.warn(
-                "replay() is on the client, but the server doesn't support replay — reconnect catch-up won't work. Enable replay on the server, or remove replay() from the client.",
-              );
-            }
-            return message;
-          }
-
-          // Stream chunks carry their own per-stream seq, unrelated to the
-          // per-scope replay sequence. Ignore them so one can't bump the replay
-          // high-water mark and make reconnect catch-up skip real channel messages.
-          if (message.__wskit?.streamId !== undefined) return message;
-
-          const seq = message.__wskit?.seq;
-          if (typeof seq !== 'number') return message;
-
-          const channel = message.__wskit?.channel;
-          const channelFamily = message.__wskit?.channelFamily;
-          // Key by scope + name so two channels that share a name in different
-          // families each catch up on their own, instead of collapsing into one.
-          const key = channel === undefined ? '' : channelKey(channelFamily, channel);
-          const current = lastSeq.get(key);
-          if (!current || seq > current.seq) {
-            lastSeq.set(key, { seq, channel, channelFamily });
-          }
-          return message;
-        },
+        onIncoming: handleIncoming,
         onReconnect() {
           if (lastSeq.size === 0) return null;
 

@@ -5,6 +5,10 @@ import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
+type BuildChannelHandleOptionsParameter = { to?: PublicApi.ChannelRecipient };
+type BuildChannelHandleOptionsParameter2 = { includeSelf?: boolean };
+type BuildChannelsApiOptionsParameter = { isSubscribeGate?: boolean };
+
 type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
   | 'broadcastToChannel'
@@ -41,7 +45,7 @@ export function buildChannelHandle(
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
-    send: (event: string, payload: unknown, options?: { to?: PublicApi.ChannelRecipient }) => {
+    send: (event: string, payload: unknown, options?: BuildChannelHandleOptionsParameter) => {
       if (options?.to) {
         return deps.sendToChannelRecipient({
           channelName: scope.channelName,
@@ -59,7 +63,7 @@ export function buildChannelHandle(
         ? 1
         : 0;
     },
-    broadcast: (event: string, payload: unknown, options?: { includeSelf?: boolean }) => {
+    broadcast: (event: string, payload: unknown, options?: BuildChannelHandleOptionsParameter2) => {
       deps.broadcastToChannel({
         channelName: scope.channelName,
         event,
@@ -126,7 +130,7 @@ function toChannelTarget(args: unknown[]): string | { family: string; name: stri
 export function buildChannelsApi(
   connection: EngineRuntimeTypes.RuntimeConnection,
   deps: ChannelsApiDeps,
-  options?: { isSubscribeGate?: boolean },
+  options?: BuildChannelsApiOptionsParameter,
 ): { get(...args: unknown[]): PublicApi.ChannelHandle } {
   return {
     get(...args: unknown[]) {

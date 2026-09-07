@@ -5,6 +5,11 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { ChannelBackfillMessage, ChannelInbox, InboxBacklogEntry } from '~/context.ts';
 import type { InboxFrame } from '~/inbox/storage.ts';
 
+interface InboxScope {
+  channelName: string;
+  channelFamily: string | null;
+}
+
 /**
  * Build the `ChannelInbox` surface for one concrete channel. Shared by the
  * owning-scope `ctx.channel.inbox` member and the handle-augmenter's
@@ -13,10 +18,7 @@ import type { InboxFrame } from '~/inbox/storage.ts';
  */
 export function buildInboxSurface<
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
->(
-  engine: EngineAccess,
-  scope: { channelName: string; channelFamily: string | null },
-): ChannelInbox<TOutgoing> {
+>(engine: EngineAccess, scope: InboxScope): ChannelInbox<TOutgoing> {
   const { channelName, channelFamily } = scope;
   return {
     backfill(userId: string, messages: readonly ChannelBackfillMessage<TOutgoing>[]): void {

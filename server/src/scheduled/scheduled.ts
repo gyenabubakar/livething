@@ -17,6 +17,12 @@ export interface ScheduledOptions {
   readonly retry?: boolean | readonly number[];
 }
 
+interface ScheduledDeclaration {
+  hasData: boolean;
+  dataSchema?: Validator;
+  options?: ScheduledOptions;
+}
+
 /**
  * An opaque handle returned when a task is enqueued.
  *
@@ -263,7 +269,7 @@ scheduled.__key = SCHEDULED_KEY;
  */
 export function makeScheduledPrimitive<TCtx = TaskContext>(
   taskId: string,
-  declaration: { hasData: boolean; dataSchema?: Validator; options?: ScheduledOptions },
+  declaration: ScheduledDeclaration,
   handler: (ctx: TCtx, data?: unknown) => void | Promise<void>,
 ): ScheduledPrimitive<string, unknown, boolean, TCtx> {
   if (declaration.dataSchema !== undefined && declaration.options?.every !== undefined) {

@@ -26,6 +26,30 @@ import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { BufferStreamNudgeOptions, RunStreamOptions } from '~/stream/runtime.ts';
 import type { TagsApi } from '~/tags/types.ts';
 
+type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
+type OptionsParameter3 = {
+  connection: RuntimeConnection;
+  ctx: Record<PropertyKey, unknown>;
+  scope: ResolvedChannel;
+  event: string;
+  request: any;
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+};
+type OptsParameter = { taskId: string; time: number; data: unknown };
+type OptsParameter2 = { taskId: string; filter?: Record<string, unknown> };
+type ScopeParameter = { channelName: string; channelFamily: string | null };
+type OptsParameter3 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  seq: number;
+  messageId: string;
+};
+type KeyParameter = { userId: string; channelName: string; channelFamily: string | null };
+
 /**
  * Build the `ctx.tags` surface for one connection. Set by the `tags()`
  * capability, so a handler with no tag groups never pulls the group-handle
@@ -82,32 +106,16 @@ export interface DurableStreamService {
     options: DurableTriggerOptions,
   ): Promise<void>;
   /** Handle a client `__resumeStream__` frame. */
-  resume(
-    runtime: any,
-    connection: RuntimeConnection,
-    options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
-  ): Promise<void>;
+  resume(runtime: any, connection: RuntimeConnection, options: OptionsParameter): Promise<void>;
   /** Handle the durable side of a `__streamCancel__` frame. */
-  cancel(
-    runtime: any,
-    connection: RuntimeConnection,
-    options: { streamId: string; cancelScope: ResolvedChannel },
-  ): Promise<void>;
+  cancel(runtime: any, connection: RuntimeConnection, options: OptionsParameter2): Promise<void>;
 }
 
 /** Execute a matched `.request(...)` handler. Set by the `serverRequests()` capability. */
 export type RequestDispatch = (
   runtime: any,
   connection: RuntimeConnection,
-  options: {
-    connection: RuntimeConnection;
-    ctx: Record<PropertyKey, unknown>;
-    scope: ResolvedChannel;
-    event: string;
-    request: any;
-    payload: unknown;
-    wskit: Protocol.WSKitProtocol | undefined;
-  },
+  options: OptionsParameter3,
 ) => Promise<void>;
 
 /**
@@ -145,16 +153,8 @@ export interface TagPersistenceService {
  */
 export interface ScheduledService {
   ensureRuntime(core: any, commonDeps: any): void;
-  scheduleTask(
-    core: any,
-    commonDeps: any,
-    opts: { taskId: string; time: number; data: unknown },
-  ): void;
-  cancelScheduled(
-    core: any,
-    commonDeps: any,
-    opts: { taskId: string; filter?: Record<string, unknown> },
-  ): ScheduledCancelResult;
+  scheduleTask(core: any, commonDeps: any, opts: OptsParameter): void;
+  cancelScheduled(core: any, commonDeps: any, opts: OptsParameter2): ScheduledCancelResult;
   rescheduleAlarm(core: any): void;
   createTaskContext(core: any, commonDeps: any): unknown;
 }
@@ -261,7 +261,7 @@ export interface LastSeenService {
  */
 export type ChannelHandleAugmenter = (
   handle: Record<PropertyKey, unknown>,
-  scope: { channelName: string; channelFamily: string | null },
+  scope: ScopeParameter,
 ) => void;
 
 /**
@@ -276,24 +276,11 @@ export interface InboxService {
    * the `seq`/`messageId` the broadcast already stamped so each row matches the
    * live frame the member also receives.
    */
-  fanOut(
-    core: any,
-    opts: {
-      channelName: string;
-      channelFamily: string | null;
-      event: string;
-      payload: Record<string, unknown>;
-      seq: number;
-      messageId: string;
-    },
-  ): void;
+  fanOut(core: any, opts: OptsParameter3): void;
   /** Re-deliver a user's owed rows after its socket reconnects. */
   drainOnReconnect(core: any, connection: RuntimeConnection): void;
   /** Drop a user's rows for a channel it has just left. */
-  clearChannel(
-    core: any,
-    key: { userId: string; channelName: string; channelFamily: string | null },
-  ): void;
+  clearChannel(core: any, key: KeyParameter): void;
 }
 
 /** The bag of optional feature slots the engine core carries. */

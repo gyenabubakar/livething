@@ -78,6 +78,24 @@ import type {
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
 
+type OptsParameter = { reason: string; revoke?: boolean };
+type DefineRequestConfigParameter = {
+  input?: Validator;
+  allowInterleaving?: boolean;
+  rateLimit?: RateLimitConfig;
+  run: (ctx: any, input: any) => unknown;
+};
+type DefineCParameter = {
+  input?: Validator;
+  allowInterleaving?: boolean;
+  run: DefineRequestConfigParameter['run'];
+};
+type DefineConfigParameter = { run: (ctx: any, data?: unknown) => void | Promise<void> };
+type DefineAssembleConfigParameter = {
+  handlers: readonly Contribution[];
+  api?: (ctx: unknown) => unknown;
+};
+
 /**
  * What an `upgrade(...)` function returns to accept a connection. Return a
  * `userId` (the stable per-user key) and optional `meta`. Throw
@@ -595,7 +613,7 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
    * `revoke: true` to also drop the durable membership row so the user does
    * not auto-rejoin on reconnect.
    */
-  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
+  kick(target: UserRef | TagRef, opts: OptsParameter): Promise<void>;
   /**
    * Inject a synthetic replay frame for one of this channel's outgoing events.
    * Used from a channel custom-replay handler; `wire` carries the seq/messageId
@@ -1891,6 +1909,61 @@ export function define(config: any): any {
     );
   }
 
+  function buildRateLimitPrimitive(
+    handlerPrimitives: readonly Primitive[],
+    channelObjects: ReadonlyMap<
+      { __build(selectedHandlers?: ReadonlySet<Primitive>): Primitive },
+      ReadonlySet<Primitive>
+    >,
+  ): Primitive | null {
+    let buildRateLimit: RateLimitCapability['__buildRateLimit'] | undefined;
+    for (const cap of config.capabilities ?? []) {
+      const build = (cap as Partial<RateLimitCapability>).__buildRateLimit;
+      if (!build) continue;
+      if (buildRateLimit) {
+        throw new Error(
+          '[wskit] rateLimit() is listed more than once. Set one global rule, or none.',
+        );
+      }
+      buildRateLimit = build;
+    }
+
+    const overrides = new Map<string, Map<string, RateLimitConfig>>();
+    const channelRules = new Map<string, RateLimitConfig>();
+    const topOverrides = new Map<string, RateLimitConfig>();
+    for (const handler of handlerPrimitives) {
+      const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
+      const event = (handler as { event?: string }).event;
+      if (override && event !== undefined) topOverrides.set(event, override);
+    }
+    if (topOverrides.size > 0) overrides.set('top', topOverrides);
+
+    const channelKeys = new Set<string>();
+    for (const [channel, handlers] of channelObjects) {
+      const source = channel as unknown as ChannelRateLimitSource;
+      channelKeys.add(source.__key);
+      if (source.__rateLimit) channelRules.set(source.__key, source.__rateLimit);
+      if (source.__rateLimitOverrides?.size) {
+        const channelOverrides = new Map<string, RateLimitConfig>();
+        for (const [handler, declaration] of source.__rateLimitOverrides) {
+          if (handlers.has(handler)) channelOverrides.set(declaration.event, declaration.config);
+        }
+        if (channelOverrides.size > 0) {
+          overrides.set(`channel:${source.__key}`, channelOverrides);
+        }
+      }
+    }
+
+    const hasOverrides = overrides.size > 0 || channelRules.size > 0;
+    if (!buildRateLimit && hasOverrides) {
+      throw new Error(
+        '[wskit] a per-handler rateLimit override needs the rateLimit() capability. ' +
+          'Add rateLimit() to capabilities.',
+      );
+    }
+    return buildRateLimit ? buildRateLimit({ overrides, channelRules, channelKeys }) : null;
+  }
+
   const base = {
     on(event: string, config: OnConfig<any, any, any, any> & { rateLimit?: RateLimitConfig }) {
       const primitive = incomingFactory(event, config.run as any, {
@@ -1902,23 +1975,8 @@ export function define(config: any): any {
       }
       return primitive;
     },
-    request(
-      event: string,
-      requestConfig: {
-        input?: Validator;
-        allowInterleaving?: boolean;
-        rateLimit?: RateLimitConfig;
-        run: (ctx: any, input: any) => unknown;
-      },
-    ) {
-      type Build = (
-        e: string,
-        c: {
-          input?: Validator;
-          allowInterleaving?: boolean;
-          run: typeof requestConfig.run;
-        },
-      ) => Primitive;
+    request(event: string, requestConfig: DefineRequestConfigParameter) {
+      type Build = (e: string, c: DefineCParameter) => Primitive;
       let build: Build | undefined;
       for (const cap of config.capabilities ?? []) {
         const candidate = (cap as { __buildClientRequest?: Build }).__buildClientRequest;
@@ -1939,7 +1997,7 @@ export function define(config: any): any {
       }
       return primitive;
     },
-    scheduled(taskId: string, config: { run: (ctx: any, data?: unknown) => void | Promise<void> }) {
+    scheduled(taskId: string, config: DefineConfigParameter) {
       if (scheduledBodies.has(taskId)) {
         throw new Error(
           `[wskit] Duplicate scheduled task '${taskId}' on this server. ` +
@@ -2057,10 +2115,7 @@ export function define(config: any): any {
       }
       registerOnce('replay', build(hooks));
     },
-    assemble(assembleConfig: {
-      handlers: readonly Contribution[];
-      api?: (ctx: unknown) => unknown;
-    }) {
+    assemble(assembleConfig: DefineAssembleConfigParameter) {
       const items = assembleConfig.handlers;
       const api = assembleConfig.api;
       assertUniquePluginIds(config.capabilities ?? []);
@@ -2099,9 +2154,7 @@ export function define(config: any): any {
       }
       assertUniqueHandlers(handlerPrimitives);
 
-      const channelPrimitives = [...channelObjects].map(([channel, handlers]) =>
-        channel.__build(handlers),
-      );
+      const channelPrimitives = [...channelObjects].map((entry) => entry[0].__build(entry[1]));
 
       const scheduledDeclarations = new Map<string, ScheduledDeclaration>();
       let buildScheduled: ScheduledCapability['__buildScheduled'] | undefined;
@@ -2119,62 +2172,7 @@ export function define(config: any): any {
         buildScheduled,
       );
 
-      let buildRateLimit: RateLimitCapability['__buildRateLimit'] | undefined;
-      for (const cap of config.capabilities ?? []) {
-        const build = (cap as Partial<RateLimitCapability>).__buildRateLimit;
-        if (build) {
-          if (buildRateLimit) {
-            throw new Error(
-              '[wskit] rateLimit() is listed more than once. Set one global rule, or none.',
-            );
-          }
-          buildRateLimit = build;
-        }
-      }
-      const overrides = new Map<string, Map<string, RateLimitConfig>>();
-      const channelRules = new Map<string, RateLimitConfig>();
-      let hasRateLimitConfig = false;
-
-      const topOverrides = new Map<string, RateLimitConfig>();
-      for (const handler of handlerPrimitives) {
-        const override = (handler as { __rateLimit?: RateLimitConfig }).__rateLimit;
-        const event = (handler as { event?: string }).event;
-        if (override && event !== undefined) topOverrides.set(event, override);
-      }
-      if (topOverrides.size > 0) {
-        overrides.set('top', topOverrides);
-        hasRateLimitConfig = true;
-      }
-
-      const channelKeys = new Set<string>();
-      for (const [channel, handlers] of channelObjects) {
-        const ch = channel as unknown as ChannelRateLimitSource;
-        channelKeys.add(ch.__key);
-        if (ch.__rateLimit) {
-          channelRules.set(ch.__key, ch.__rateLimit);
-          hasRateLimitConfig = true;
-        }
-        if (ch.__rateLimitOverrides && ch.__rateLimitOverrides.size > 0) {
-          const channelOverrides = new Map<string, RateLimitConfig>();
-          for (const [handler, { event, config }] of ch.__rateLimitOverrides) {
-            if (handlers.has(handler)) channelOverrides.set(event, config);
-          }
-          if (channelOverrides.size > 0) {
-            overrides.set(`channel:${ch.__key}`, channelOverrides);
-            hasRateLimitConfig = true;
-          }
-        }
-      }
-
-      if (!buildRateLimit && hasRateLimitConfig) {
-        throw new Error(
-          '[wskit] a per-handler rateLimit override needs the rateLimit() capability. ' +
-            'Add rateLimit() to capabilities.',
-        );
-      }
-      const rateLimitPrimitive = buildRateLimit
-        ? buildRateLimit({ overrides, channelRules, channelKeys })
-        : null;
+      const rateLimitPrimitive = buildRateLimitPrimitive(handlerPrimitives, channelObjects);
 
       const primitives: Primitive[] = [];
       if (config.upgrade) {

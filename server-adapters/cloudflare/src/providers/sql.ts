@@ -13,6 +13,10 @@ const CLOUDFLARE_SQL_LIMITS: SqlLimits = {
   maxValueBytes: 2 * 1024 * 1024,
 };
 
+interface CloudflareTransactionContext {
+  exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
+}
+
 function wrapCursor<TRow = unknown>(
   cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
 ): SqlResult<TRow> {
@@ -67,9 +71,7 @@ export function createSql(state: DurableObjectState): SQLProvider {
       return wrapCursor<TRow>(state.storage.sql.exec(query, ...params));
     },
     limits: CLOUDFLARE_SQL_LIMITS,
-    transaction<T>(
-      fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
-    ): T {
+    transaction<T>(fn: (tx: CloudflareTransactionContext) => T): T {
       if (typeof state.storage.transactionSync !== 'function') {
         throw new Error(
           '[wskit] this Cloudflare runtime does not support atomic transactions. ' +

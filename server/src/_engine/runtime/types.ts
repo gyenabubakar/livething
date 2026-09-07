@@ -9,6 +9,15 @@ import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Translator } from '~/translation/translator.ts';
 import type * as ValidationTypes from '~/types.ts';
 
+type MessageParameter = { event: string; payload: unknown };
+type FrameParameter = {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+};
+type OptsParameter = { lastSeen?: number | null };
+type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
+
 /**
  * One `check` hook plus its optional payload validator.
  *
@@ -157,7 +166,7 @@ export interface RegisteredEngineHooks {
   connectionCleanup: ((connectionId: string) => void)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
-  incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
+  incoming: ((message: MessageParameter) => unknown | void)[];
 
   /**
    * Settle a server→client request answer. A user-event frame carrying a
@@ -167,10 +176,7 @@ export interface RegisteredEngineHooks {
    * which stops routing. Owned by the `serverRequests()` capability so the core never
    * imports the pending-request map.
    */
-  answerFrame: ((
-    connectionId: string,
-    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
-  ) => boolean)[];
+  answerFrame: ((connectionId: string, frame: FrameParameter) => boolean)[];
 
   /**
    * Runs before wire serialization — can observe or rewrite the payload (event
@@ -621,11 +627,8 @@ export interface ConnectionMembersRuntime {
 
   toConnectionInfo(
     connection: RuntimeConnection,
-    opts?: { lastSeen?: number | null },
+    opts?: OptsParameter,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 }

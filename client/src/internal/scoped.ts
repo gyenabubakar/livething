@@ -1,6 +1,8 @@
 import type { WSKitEnvelope } from '~/internal/runtime.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
+type OptionsParameter = { ttl?: number };
+
 /** The `__wskit` fields that identify which scope a frame belongs to. */
 export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
 
@@ -13,7 +15,7 @@ export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelFamily'>;
  */
 export interface MessagingObject {
   on(event: string, handler: (data: unknown) => void): () => void;
-  send(event: string, payload: unknown, options?: { ttl?: number }): boolean;
+  send(event: string, payload: unknown, options?: OptionsParameter): boolean;
   [key: string]: unknown;
 }
 

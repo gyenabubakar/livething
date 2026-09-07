@@ -7,18 +7,17 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { MembershipKey } from '~/channel/storage.ts';
 import type * as PublicApi from '~/context.ts';
 
+type OptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  payload: unknown;
+  rejoining?: boolean;
+};
+
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
-type SubscribeFromServerFn = (
-  ref: PublicApi.ConnectionRef,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    payload: unknown;
-    rejoining?: boolean;
-  },
-) => Promise<void>;
+type SubscribeFromServerFn = (ref: PublicApi.ConnectionRef, opts: OptsParameter) => Promise<void>;
 
 /**
  * Write a durable channel-membership row. The caller should check

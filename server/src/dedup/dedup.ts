@@ -1,6 +1,8 @@
 import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type DedupOptionsParameter = { cap?: number };
+
 /** The TypeScript type returned by `dedup()`. */
 export interface DedupPrimitive extends Primitive<'dedup'> {}
 
@@ -26,7 +28,7 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
  * Enable this via `dedup: true` on the contract config instead of calling
  * this primitive directly.
  */
-export function dedup(options?: { cap?: number }): DedupPrimitive {
+export function dedup(options?: DedupOptionsParameter): DedupPrimitive {
   if (options?.cap !== undefined) {
     assertPositiveInteger(options.cap, 'cap', 'dedup()');
   }

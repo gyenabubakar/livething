@@ -21,6 +21,28 @@
 	let cancelNonexistentOk = $state(false);
 	let scheduleUnknownTaskResult = $state('');
 
+	const eventHandlers: Record<string, (payload: Record<string, any>) => void> = {
+		'cleanup-done': () => (cleanupFired = true),
+		'cleanup-cancelled': () => (cleanupCancelled = true),
+		'heartbeat-tick': () => (heartbeatCount += 1),
+		'flaky-task-result': (payload) => (flakyAttempts = payload.attempts ?? null),
+		'default-retry-result': (payload) => (defaultRetryAttempts = payload.attempts ?? null),
+		'dead-letter-result': (payload) =>
+			(deadLetter = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`),
+		'filtered-task-result': (payload) => (filteredLabels = [...filteredLabels, payload.label ?? '']),
+		'cancel-nothing-ok': () => (cancelNothingOk = true),
+		'schedule-guard-error': (payload) => (scheduleGuardError = payload.message ?? ''),
+		'schedule-send-to-conn-delivery': (payload) => (sendToConnDelivery = payload.text ?? ''),
+		'schedule-send-to-conn-status': (payload) =>
+			(sendToConnStatus = `id:${payload.connectionId},delivered:${payload.delivered}`),
+		'who-am-i-result': (payload) => (connectionId = payload.connectionId ?? ''),
+		'broadcast-result': (payload) => (broadcastResult = payload.text ?? ''),
+		'send-to-tag-result': (payload) => (sendToTagResult = payload.text ?? ''),
+		'cancel-nonexistent-ok': () => (cancelNonexistentOk = true),
+		'schedule-unknown-task-result': (payload) =>
+			(scheduleUnknownTaskResult = `${payload.rejected ? 'rejected' : 'accepted'}:${payload.message ?? ''}`),
+	};
+
 	function connect() {
 		if (ws) return;
 		status = 'connecting';
@@ -39,56 +61,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			switch (data.event) {
-				case 'cleanup-done':
-					cleanupFired = true;
-					break;
-				case 'cleanup-cancelled':
-					cleanupCancelled = true;
-					break;
-				case 'heartbeat-tick':
-					heartbeatCount += 1;
-					break;
-				case 'flaky-task-result':
-					flakyAttempts = data.payload?.attempts ?? null;
-					break;
-				case 'default-retry-result':
-					defaultRetryAttempts = data.payload?.attempts ?? null;
-					break;
-				case 'dead-letter-result':
-					deadLetter = `${data.payload?.taskId}:attempts=${data.payload?.attempts}:${data.payload?.error}`;
-					break;
-				case 'filtered-task-result':
-					filteredLabels = [...filteredLabels, data.payload?.label ?? ''];
-					break;
-				case 'cancel-nothing-ok':
-					cancelNothingOk = true;
-					break;
-				case 'schedule-guard-error':
-					scheduleGuardError = data.payload?.message ?? '';
-					break;
-				case 'schedule-send-to-conn-delivery':
-					sendToConnDelivery = data.payload?.text ?? '';
-					break;
-				case 'schedule-send-to-conn-status':
-					sendToConnStatus = `id:${data.payload?.connectionId},delivered:${data.payload?.delivered}`;
-					break;
-				case 'who-am-i-result':
-					connectionId = data.payload?.connectionId ?? '';
-					break;
-				case 'broadcast-result':
-					broadcastResult = data.payload?.text ?? '';
-					break;
-				case 'send-to-tag-result':
-					sendToTagResult = data.payload?.text ?? '';
-					break;
-				case 'cancel-nonexistent-ok':
-					cancelNonexistentOk = true;
-					break;
-				case 'schedule-unknown-task-result':
-					scheduleUnknownTaskResult = `${data.payload?.rejected ? 'rejected' : 'accepted'}:${data.payload?.message ?? ''}`;
-					break;
-			}
+			eventHandlers[data.event]?.(data.payload ?? {});
 		};
 	}
 

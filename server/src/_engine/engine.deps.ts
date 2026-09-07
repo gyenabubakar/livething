@@ -22,6 +22,68 @@ type ResolvedChannel = EngineRuntimeTypes.ResolvedChannel;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
 
+interface ConnectionInfoOptions {
+  lastSeen?: number | null;
+}
+
+interface PipelineOptions {
+  routing: RoutingTarget | undefined;
+  event: string;
+  payload: unknown;
+}
+
+interface InboxFanOutOptions {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  seq: number;
+  messageId: string;
+}
+
+interface PersistAttachmentOptions {
+  force?: boolean;
+}
+
+interface ProtocolMessageOptions {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+}
+
+interface ValidationErrorOptions {
+  event: string;
+  validationError: unknown;
+  scope?: ResolvedChannel;
+}
+
+interface RuntimeErrorOptions {
+  error: unknown;
+  event?: string;
+  routing?: Protocol.WSKitRouting;
+}
+
+interface ReplayWire {
+  seq: number;
+  messageId: string;
+  channel?: string;
+}
+
+interface ReplaySendOptions {
+  channelName: string | null;
+  channelFamily: string | null;
+  event: string;
+  payload: unknown;
+  wire: ReplayWire;
+}
+
+interface BroadcastConnectionsOptions {
+  event: string;
+  payload: unknown;
+  options?: BroadcastOptions;
+  excludeConnectionId?: string;
+}
+
 // Each dependency bag closes over `core` and is otherwise constant for the
 // engine's life — build it once per core and reuse it, rather than rebuilding
 // the whole tree on every message and every send.
@@ -200,7 +262,7 @@ function buildMemberRuntime(core: EngineCore) {
     asyncContext: core.asyncContext,
     connections: core.connections,
     channelMembers: core.channelMembers,
-    toConnectionInfo: (connection: RuntimeConnection, opts?: { lastSeen?: number | null }) =>
+    toConnectionInfo: (connection: RuntimeConnection, opts?: ConnectionInfoOptions) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, {
         hibernationEnabled: core.hibernationEnabled,
         lastSeenAt: core.lastSeenService
@@ -208,19 +270,10 @@ function buildMemberRuntime(core: EngineCore) {
           : undefined,
         ...(opts && 'lastSeen' in opts ? { lastSeen: opts.lastSeen } : {}),
       }),
-    sendThroughPipeline: (
-      connection: RuntimeConnection,
-      opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-    ) => OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
+    sendThroughPipeline: (connection: RuntimeConnection, opts: PipelineOptions) =>
+      OutgoingRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
     inboxFanOut: core.inboxService
-      ? (opts: {
-          channelName: string;
-          channelFamily: string | null;
-          event: string;
-          payload: Record<string, unknown>;
-          seq: number;
-          messageId: string;
-        }) => core.inboxService?.fanOut(core, opts)
+      ? (opts: InboxFanOutOptions) => core.inboxService?.fanOut(core, opts)
       : undefined,
   };
 }
@@ -248,28 +301,20 @@ function buildChannelRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
-    sendProtocolMessage: (
-      connection: RuntimeConnection,
-      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-    ) => sendProtocolMessage(core, connection, opts),
+    sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
+      sendProtocolMessage(core, connection, opts),
 
-    handleValidationError: (
-      connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-    ) =>
+    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
         connection,
         opts,
       ),
 
-    handleRuntimeError: (
-      connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-    ) =>
+    handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
         connection,
@@ -336,39 +381,23 @@ function buildDispatchRuntime(core: EngineCore) {
 
     buildConnectionContext: buildCtx,
 
-    sendProtocolMessage: (
-      connection: RuntimeConnection,
-      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-    ) => sendProtocolMessage(core, connection, opts),
+    sendProtocolMessage: (connection: RuntimeConnection, opts: ProtocolMessageOptions) =>
+      sendProtocolMessage(core, connection, opts),
 
-    sendReplay: (
-      connection: RuntimeConnection,
-      opts: {
-        channelName: string | null;
-        channelFamily: string | null;
-        event: string;
-        payload: unknown;
-        wire: { seq: number; messageId: string; channel?: string };
-      },
-    ) => sendReplay(core, connection, opts),
+    sendReplay: (connection: RuntimeConnection, opts: ReplaySendOptions) =>
+      sendReplay(core, connection, opts),
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
-    handleRuntimeError: (
-      connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-    ) =>
+    handleRuntimeError: (connection: RuntimeConnection, opts: RuntimeErrorOptions) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
         connection,
         opts,
       ),
 
-    handleValidationError: (
-      connection: RuntimeConnection,
-      opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-    ) =>
+    handleValidationError: (connection: RuntimeConnection, opts: ValidationErrorOptions) =>
       EngineErrorRuntime.handleValidationError(
         { core, buildConnectionContext: buildCtx },
         connection,
@@ -377,12 +406,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     broadcastToConnections: (
       connections: Iterable<RuntimeConnection>,
-      opts: {
-        event: string;
-        payload: unknown;
-        options?: BroadcastOptions;
-        excludeConnectionId?: string;
-      },
+      opts: BroadcastConnectionsOptions,
     ) => OutgoingRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
 
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
@@ -451,7 +475,7 @@ function buildConnectionRuntime(core: EngineCore) {
 
     generateId: (prefix?: string) => core.generateId(prefix),
 
-    persistAttachment: (connection: RuntimeConnection, options?: { force?: boolean }) =>
+    persistAttachment: (connection: RuntimeConnection, options?: PersistAttachmentOptions) =>
       EngineHibernation.persistAttachment(core, connection, options),
 
     flushAttachment: (connection: RuntimeConnection) =>

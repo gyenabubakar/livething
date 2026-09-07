@@ -40,6 +40,9 @@ importers:
       oxlint:
         specifier: ^1.81.0
         version: 1.81.0
+      oxlint-plugin-eslint:
+        specifier: ^1.81.0
+        version: 1.81.0
       prettier:
         specifier: ^3.5.3
         version: 3.8.1
@@ -11878,6 +11881,13 @@ packages:
       rolldown:
         optional: true
 
+  oxlint-plugin-eslint@1.81.0:
+    resolution:
+      {
+        integrity: sha512-rP192UkflmY1cAubbqlGccVRGpyK3MMSzZhN2V5njKzbNJW+KmJE/9JjJaVl9mQPq686xZ2Zc0xFcUAiP8oIMw==,
+      }
+    engines: { node: ^20.19.0 || >=22.12.0 }
+
   oxlint@1.81.0:
     resolution:
       {
@@ -23398,6 +23408,8 @@ snapshots:
       magic-regexp: 0.11.0
     optionalDependencies:
       oxc-parser: 0.135.0
+
+  oxlint-plugin-eslint@1.81.0: {}
 
   oxlint@1.81.0:
     optionalDependencies:

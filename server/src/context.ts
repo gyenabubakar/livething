@@ -3,6 +3,23 @@ import type { BackfillMessage } from './inbox/storage.ts';
 import type { InterceptFrame } from './intercept/intercept.ts';
 import type { LocalKey } from './local-key/local-key.ts';
 
+type OptionsParameter = { ttl?: number };
+type OptsParameter = { timeout?: number };
+type OptionsParameter2 = { to?: ChannelRecipient };
+type WireParameter = {
+  seq: number;
+  messageId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptsParameter2 = { reason: string; revoke?: boolean };
+type OptionsParameter3 = { time: number; data?: unknown };
+type OptionsParameter4 = { time: number; data?: unknown };
+type OptionsParameter5 = { time: number; data?: unknown };
+type OptsParameter3 = { reason: string; revoke?: boolean };
+type FilterParameter = { userId?: string };
+type OptionsParameter6 = { time: number; data?: unknown };
+
 /**
  * The result of running one SQL query through `ctx.sql.exec(...)`.
  *
@@ -127,7 +144,7 @@ export interface KVProvider {
   get(key: string): Promise<unknown>;
 
   /** Write one value. Optionally set a TTL in milliseconds after which the key expires. */
-  set(key: string, value: unknown, options?: { ttl?: number }): Promise<void>;
+  set(key: string, value: unknown, options?: OptionsParameter): Promise<void>;
 
   /** Remove one key. */
   delete(key: string): Promise<void>;
@@ -474,7 +491,7 @@ export interface UserHandle<Meta = Record<string, unknown>> {
   request?(
     event: string,
     payload: unknown,
-    opts?: { timeout?: number },
+    opts?: OptsParameter,
   ): Promise<{ response: unknown; from: ConnectionRef }>;
 
   /** Merge `patch` into every live connection's `meta` (fans the same patch out to all of the user's tabs/devices). */
@@ -558,7 +575,7 @@ export interface ScopeSendApi {
    * tag). Returns the number of sockets the frame was delivered to. To reach
    * every member instead, use `broadcast`.
    */
-  send(event: string, payload: unknown, options?: { to?: ChannelRecipient }): number;
+  send(event: string, payload: unknown, options?: OptionsParameter2): number;
 
   /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
@@ -579,11 +596,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
    * Provide replay wire metadata so reconnecting clients can request missed
    * messages and deduplicate anything they already received.
    */
-  sendReplay?(
-    event: string,
-    payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string; channelFamily?: string | null },
-  ): void;
+  sendReplay?(event: string, payload: unknown, wire: WireParameter): void;
 }
 
 /**
@@ -750,7 +763,7 @@ export interface ChannelHandle<
           readonly kind: 'ephemeral' | 'persistent';
           readonly group: string;
         },
-    opts: { reason: string; revoke?: boolean },
+    opts: OptsParameter2,
   ): Promise<void>;
 
   /**
@@ -922,7 +935,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
   channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter3): void;
 
   /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
@@ -1052,7 +1065,7 @@ export interface ShutdownContext<
   kv: KVProvider;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter4): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
@@ -1107,7 +1120,7 @@ export interface TaskContext<Meta = Record<string, unknown>, Platform = unknown>
   connectionCount: number;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter5): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
@@ -1141,7 +1154,7 @@ export interface AdminChannelHandle<Meta = Record<string, unknown>> {
    * `revoke: true` to also drop the durable membership row so the user does
    * not auto-rejoin on reconnect.
    */
-  kick(target: UserRef | TagRef, opts: { reason: string; revoke?: boolean }): Promise<void>;
+  kick(target: UserRef | TagRef, opts: OptsParameter3): Promise<void>;
 }
 
 /** Reach a channel by name from admin — the connectionless subset of `ctx.channels`. */
@@ -1211,7 +1224,7 @@ export interface AdminContext<
    * Close live connections. With no filter, closes every connection; with
    * `{ userId }`, closes only that user's sockets.
    */
-  closeConnections(filter?: { userId?: string }, code?: number, reason?: string): void;
+  closeConnections(filter?: FilterParameter, code?: number, reason?: string): void;
 
   /** Reach any specific connection by ref with `get(ref)`, or snapshot every live connection with `all()`. */
   connections: ConnectionsManager<Meta>;
@@ -1229,7 +1242,7 @@ export interface AdminContext<
   kv: KVProvider;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  schedule(taskId: string, options: OptionsParameter6): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;

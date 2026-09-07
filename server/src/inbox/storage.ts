@@ -2,6 +2,14 @@ import { chunkForBind } from '~/_engine/sql-batch.ts';
 import { familyFromDb, familyToDb } from '~/inbox/db-keys.ts';
 import type { SQLProvider } from '~/context.ts';
 
+type PruneInboxRetentionAndBumpWatermarkParamsParameter = {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  retention: InboxRetention;
+  now: number;
+};
+
 const CREATE_INBOX_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_inbox (
     user_id        TEXT NOT NULL,
@@ -100,6 +108,68 @@ export interface InboxRow {
   channelFamily: string | null;
 }
 
+interface InboxInsertParams {
+  userIds: readonly string[];
+  channelName: string;
+  channelFamily: string | null;
+  frame: InboxFrame;
+  now: number;
+}
+
+interface InboxBackfillParams {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  frames: readonly InboxFrame[];
+  now: number;
+}
+
+interface InboxAckParams {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+  receivedThrough: number;
+  onDelivered: OnDelivered;
+  now: number;
+}
+
+interface InboxChannelScope {
+  userId: string;
+  channelName: string;
+  channelFamily: string | null;
+}
+
+interface InboxRetentionLookupParams {
+  channelKey: string;
+  maxAgeMs: number;
+}
+
+interface InboxExpiredRetentionParams extends InboxRetentionLookupParams {
+  now: number;
+}
+
+interface InboxPruneParams extends InboxChannelScope {
+  retention: InboxRetention;
+  now: number;
+}
+
+interface InboxEvictionParams {
+  userId: string;
+  channelName: string;
+  family: string;
+  where: string;
+  bind: unknown[];
+}
+
+interface InboxWatermarkParams extends InboxChannelScope {
+  evictedThroughSeq: number;
+}
+
+interface InboxScopeSet {
+  staticNames: readonly string[];
+  familyKeys: readonly string[];
+}
+
 /** Bound parameters one inbox row contributes to a batched `INSERT`. */
 const INBOX_ROW_PARAMS = 8;
 
@@ -117,13 +187,7 @@ const INBOX_ROW_PARAMS = 8;
  */
 export function insertInboxRows(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  params: {
-    userIds: readonly string[];
-    channelName: string;
-    channelFamily: string | null;
-    frame: InboxFrame;
-    now: number;
-  },
+  params: InboxInsertParams,
 ): void {
   const { userIds, channelName, channelFamily, frame, now } = params;
   if (userIds.length === 0) return;
@@ -170,13 +234,7 @@ export function insertInboxRows(
  */
 export function insertInboxRowsForUserId(
   sql: Pick<SQLProvider, 'exec' | 'transaction' | 'limits'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    frames: readonly InboxFrame[];
-    now: number;
-  },
+  params: InboxBackfillParams,
 ): void {
   const { userId, channelName, channelFamily, frames, now } = params;
   if (frames.length === 0) return;
@@ -250,17 +308,7 @@ export function loadUndeliveredRows(sql: Pick<SQLProvider, 'exec'>, userId: stri
  * them out later. Both are idempotent — a repeated or lower `receivedThrough`
  * changes nothing already settled.
  */
-export function ackInboxRows(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-    onDelivered: OnDelivered;
-    now: number;
-  },
-): void {
+export function ackInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxAckParams): void {
   const { userId, channelName, channelFamily, receivedThrough, onDelivered, now } = params;
   const family = familyToDb(channelFamily);
 
@@ -296,7 +344,7 @@ export function ackInboxRows(
 /** Drop every inbox row a member has for one channel. Used when they leave it. */
 export function deleteInboxRowsForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
+  params: InboxChannelScope,
 ): void {
   sql.exec(
     `
@@ -310,10 +358,7 @@ export function deleteInboxRowsForChannel(
 }
 
 /** Count a member's inbox rows for one channel. */
-export function countInboxRows(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
-): number {
+export function countInboxRows(sql: Pick<SQLProvider, 'exec'>, params: InboxChannelScope): number {
   const row = sql
     .exec<{
       n: number;
@@ -335,7 +380,7 @@ export function countInboxRows(
  */
 export function nextInboxRetentionAt(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number },
+  params: InboxRetentionLookupParams,
 ): number | null {
   const row = sql
     .exec<{ next_at: number | null }>(
@@ -355,7 +400,7 @@ export function nextInboxRetentionAt(
 /** List concrete member/channel scopes with at least one expired inbox row. */
 export function listExpiredInboxRetentionTargets(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string; maxAgeMs: number; now: number },
+  params: InboxExpiredRetentionParams,
 ): InboxRetentionTarget[] {
   const cutoff = params.now - params.maxAgeMs;
   return sql
@@ -381,7 +426,7 @@ export function listExpiredInboxRetentionTargets(
 /** List every concrete member/channel scope under one configured channel key. */
 export function listInboxRetentionTargets(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelKey: string },
+  params: Pick<InboxRetentionLookupParams, 'channelKey'>,
 ): InboxRetentionTarget[] {
   return sql
     .exec<{ user_id: string; channel_name: string; channel_family: string }>(
@@ -411,13 +456,7 @@ export function listInboxRetentionTargets(
  */
 export function pruneInboxRetention(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: InboxPruneParams,
 ): number | null {
   return pruneInboxRetentionDetailed(sql, params).evictedThrough;
 }
@@ -429,13 +468,7 @@ interface InboxRetentionEviction {
 
 function pruneInboxRetentionDetailed(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: InboxPruneParams,
 ): InboxRetentionEviction {
   const { userId, channelName, channelFamily, retention, now } = params;
   const family = familyToDb(channelFamily);
@@ -501,13 +534,7 @@ function pruneInboxRetentionDetailed(
  */
 export function pruneInboxRetentionAndBumpWatermark(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    retention: InboxRetention;
-    now: number;
-  },
+  params: PruneInboxRetentionAndBumpWatermarkParamsParameter,
 ): number | null {
   return sql.transaction((tx) => {
     const eviction = pruneInboxRetentionDetailed(tx, params);
@@ -528,13 +555,7 @@ export function pruneInboxRetentionAndBumpWatermark(
 /** Delete the member's rows matching `where` and report delivered state. */
 function evictOldest(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    family: string;
-    where: string;
-    bind: unknown[];
-  },
+  params: InboxEvictionParams,
 ): InboxRetentionEviction {
   const { userId, channelName, family, where, bind } = params;
   const scope = [userId, channelName, family];
@@ -596,12 +617,7 @@ function maxNullable(first: number | null, second: number | null): number | null
  */
 export function bumpInboxWatermark(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    evictedThroughSeq: number;
-  },
+  params: InboxWatermarkParams,
 ): void {
   const { userId, channelName, channelFamily, evictedThroughSeq } = params;
   const family = familyToDb(channelFamily);
@@ -662,12 +678,7 @@ export function clearInboxWatermarks(sql: Pick<SQLProvider, 'exec'>, userId: str
 /** Drop a member's channel watermark once an acknowledgement covers its gap. */
 export function clearInboxWatermarkThrough(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    userId: string;
-    channelName: string;
-    channelFamily: string | null;
-    receivedThrough: number;
-  },
+  params: Omit<InboxAckParams, 'onDelivered' | 'now'>,
 ): void {
   sql.exec(
     `
@@ -690,7 +701,7 @@ export function clearInboxWatermarkThrough(
  */
 export function deleteInboxRowsOutsideScopes(
   sql: Pick<SQLProvider, 'exec' | 'transaction'>,
-  scopes: { staticNames: readonly string[]; familyKeys: readonly string[] },
+  scopes: InboxScopeSet,
 ): void {
   const staticNames = new Set(scopes.staticNames);
   const familyKeys = new Set(scopes.familyKeys);
@@ -744,7 +755,7 @@ export function deleteInboxRowsOutsideScopes(
  */
 export function deleteInboxWatermarkForChannel(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; channelName: string; channelFamily: string | null },
+  params: InboxChannelScope,
 ): void {
   sql.exec(
     `

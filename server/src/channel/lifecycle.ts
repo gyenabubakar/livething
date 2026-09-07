@@ -3,6 +3,10 @@ import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+interface CheckOptions<TData> {
+  validator?: Validator<TData>;
+}
+
 /**
  * Handler called after a client subscribes to a channel. Receives only the
  * handler context — the subscription is already confirmed at this point.
@@ -133,7 +137,7 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  */
 export function check<TCtx, TData = unknown, TResult = unknown>(
   handler: CheckHandler<TCtx, TData, TResult>,
-  options?: { validator?: Validator<TData> },
+  options?: CheckOptions<TData>,
 ): CheckPrimitive<TCtx, TData, TResult> {
   return {
     __wskit: 'check',

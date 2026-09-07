@@ -55,13 +55,46 @@ const REPLAY_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_REPLAY_WATERMARK_TABLE_SQL,
 ].join(';\n');
 
+interface ReplayStorageScope {
+  channel: string | null;
+  channelFamily: string | null;
+}
+
+interface ReplayScopeMatch {
+  channelFamily?: string | null;
+  channelName?: string | null;
+}
+
+interface ReplayRequestScope {
+  channelName?: string;
+  channelFamily?: string | null;
+}
+
+interface ReplayLoadScope {
+  channelName?: string;
+  channelFamily: string | null;
+}
+
+interface ReplayEnvelopeScope {
+  channelFamily?: string | null;
+}
+
+interface ReplayRowKeyIds {
+  messageId: string;
+  snapshotKey: string | null;
+}
+
+interface ReplayPruneOptions {
+  retention: ReplayOptions['retention'] | undefined;
+  scope: ReplayPayloadScope;
+  stamp: number;
+}
+
 /**
  * Create the SQLite tables and indexes the automatic replay primitive needs.
  * One round trip instead of three thanks to multi-statement `sql.exec`.
  */
-export function ensureReplaySchema(sql: {
-  exec(query: string, ...params: unknown[]): unknown;
-}): void {
+export function ensureReplaySchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(REPLAY_SCHEMA_SQL);
 }
 
@@ -74,10 +107,7 @@ const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
  * row always has a concrete `channel`, so a present `channel` marks a channel
  * scope even when `channelFamily` is null (a static channel).
  */
-export function replayScopeKey(scope: {
-  channel: string | null;
-  channelFamily: string | null;
-}): string {
+export function replayScopeKey(scope: ReplayStorageScope): string {
   if (scope.channel === null) return '';
   return JSON.stringify([scope.channelFamily, scope.channel]);
 }
@@ -92,7 +122,7 @@ export function replayScopeKey(scope: {
  */
 function scopeMatchesReplayInstance(
   channelKey: string | undefined,
-  scope: { channelFamily?: string | null; channelName?: string | null },
+  scope: ReplayScopeMatch,
   claimedChannelKeys: ReadonlySet<string>,
 ): boolean {
   const { channelFamily, channelName } = scope;
@@ -122,7 +152,7 @@ function scopeMatchesReplayInstance(
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
-  scope: { channelName?: string; channelFamily?: string | null },
+  scope: ReplayRequestScope,
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   return scopeMatchesReplayInstance(channelKey, scope, claimedChannelKeys);
@@ -135,8 +165,8 @@ export function matchesReplayScope(
  */
 export function isChannelReplayAuthorized(
   connection: RuntimeConnection | undefined,
-  scope: { channelName?: string },
-  wskit: { channelFamily?: string | null } | undefined,
+  scope: Pick<ReplayRequestScope, 'channelName'>,
+  wskit: ReplayEnvelopeScope | undefined,
 ): boolean {
   if (!scope.channelName) return true;
   if (!connection) return false;
@@ -251,9 +281,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
  * Load one replay row by its primary key.
  */
 export function getReplayRowByKey(
-  sql: {
-    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   rowKey: string,
 ): ReplayRow | null {
   const row = sql
@@ -294,12 +322,7 @@ export function getReplayRowByKey(
 /**
  * Delete one replay row by key.
  */
-export function deleteReplayRow(
-  sql: {
-    exec(query: string, ...params: unknown[]): unknown;
-  },
-  rowKey: string,
-): void {
+export function deleteReplayRow(sql: Pick<SQLProvider, 'exec'>, rowKey: string): void {
   sql.exec(
     `
       DELETE FROM __wskit_replay
@@ -384,19 +407,7 @@ export interface PersistReplayMessageOptions {
  * logical key, using the configured reducer when present.
  */
 export function persistReplayMessage(
-  sql: {
-    exec(query: string, ...params: unknown[]): unknown;
-    transaction<T>(
-      fn: (tx: {
-        exec<TRow = unknown>(
-          query: string,
-          ...params: unknown[]
-        ): {
-          one(): TRow | null;
-        };
-      }) => T,
-    ): T;
-  },
+  sql: Pick<SQLProvider, 'exec' | 'transaction'>,
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
   const { options, event, payload, wskit, now, scope, postFlush, validateReduced } = opts;
@@ -490,7 +501,7 @@ export function persistReplayMessage(
 function buildReplayRowKey(
   type: ReplayType,
   scope: ReplayPayloadScope,
-  ids: { messageId: string; snapshotKey: string | null },
+  ids: ReplayRowKeyIds,
 ): string {
   const { messageId, snapshotKey } = ids;
   if (type === 'history') return messageId;
@@ -506,12 +517,7 @@ function buildReplayRowKey(
 /**
  * Insert or replace one replay row.
  */
-export function storeReplayRow(
-  sql: {
-    exec(query: string, ...params: unknown[]): unknown;
-  },
-  row: ReplayRow,
-): void {
+export function storeReplayRow(sql: Pick<SQLProvider, 'exec'>, row: ReplayRow): void {
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_replay (
@@ -548,9 +554,7 @@ export function storeReplayRow(
  * tell "you missed evicted messages" from "nothing happened".
  */
 export function bumpReplayWatermark(
-  sql: {
-    exec(query: string, ...params: unknown[]): unknown;
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   scopeKey: string,
   evictedThroughSeq: number,
 ): void {
@@ -571,9 +575,7 @@ export function bumpReplayWatermark(
  * from that scope yet.
  */
 export function readReplayWatermark(
-  sql: {
-    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   scopeKey: string,
 ): number | null {
   const row = sql
@@ -592,9 +594,7 @@ export function readReplayWatermark(
 
 /** Delete replay rows older than the max age, first recording each scope's highest dropped seq as its watermark. */
 export function pruneExpiredReplayRows(
-  sql: {
-    exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   retention: ReplayOptions['retention'] | undefined,
   now: number,
 ): void {
@@ -650,9 +650,7 @@ export function pruneExpiredReplayRows(
  * for the whole server).
  */
 export function pruneReplayScopeRows(
-  sql: {
-    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   retention: ReplayOptions['retention'] | undefined,
   scope: ReplayPayloadScope,
 ): void {
@@ -701,7 +699,7 @@ export function pruneReplayScopeRows(
 
 /** Count the rows in one replay store (top-level or a single channel). */
 export function countReplayScopeRows(
-  sql: { exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null } },
+  sql: Pick<SQLProvider, 'exec'>,
   scope: ReplayPayloadScope,
 ): number {
   const row = sql
@@ -717,9 +715,7 @@ export function countReplayScopeRows(
 }
 
 /** The oldest `createdAt` across the whole replay table, or null when empty. */
-export function minReplayCreatedAt(sql: {
-  exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
-}): number | null {
+export function minReplayCreatedAt(sql: Pick<SQLProvider, 'exec'>): number | null {
   const row = sql
     .exec<{ m: number | null }>(`SELECT MIN(createdAt) AS m FROM __wskit_replay`)
     .one();
@@ -739,14 +735,7 @@ export class ReplayPruneGate {
   private minSeeded = false;
   private readonly scopeCounts = new Map<string, number>();
 
-  prune(
-    sql: Pick<SQLProvider, 'exec'>,
-    opts: {
-      retention: ReplayOptions['retention'] | undefined;
-      scope: ReplayPayloadScope;
-      stamp: number;
-    },
-  ): void {
+  prune(sql: Pick<SQLProvider, 'exec'>, opts: ReplayPruneOptions): void {
     const { retention, scope, stamp } = opts;
     if (retention?.maxAgeMs !== undefined) {
       if (!this.minSeeded) {
@@ -780,7 +769,7 @@ export class ReplayPruneGate {
  */
 export function buildLoadReplayQuery(
   since: number,
-  scope: { channelName?: string; channelFamily: string | null },
+  scope: ReplayLoadScope,
 ): { sql: string; params: unknown[] } {
   if (scope.channelName) {
     if (scope.channelFamily === null) {
@@ -857,11 +846,9 @@ export function buildLoadReplayQuery(
  * Load replay rows for the active scope after the client's last seen seq.
  */
 export function loadReplayRows(
-  sql: {
-    exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
-  },
+  sql: Pick<SQLProvider, 'exec'>,
   since: number,
-  scope: { channelName?: string; channelFamily: string | null },
+  scope: ReplayLoadScope,
 ): ReplayRow[] {
   const query = buildLoadReplayQuery(since, scope);
   const rows = sql.exec<ReplayRow>(query.sql, ...query.params);

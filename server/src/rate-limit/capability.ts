@@ -94,7 +94,8 @@ export const rateLimit = withCapabilityKind(function rateLimit(
   };
   writable.__hostOnly = true;
   writable.__rateLimit = rule;
-  writable.__buildRateLimit = ({ overrides, channelRules, channelKeys }) => {
+  writable.__buildRateLimit = (input) => {
+    const { overrides, channelRules, channelKeys } = input;
     // Each channel becomes a synthetic top-level channel definition so the
     // cascade resolver produces a `channel:<key>` scope rule for it. Channels
     // with no own rule still get a definition (with no rateLimit) so the

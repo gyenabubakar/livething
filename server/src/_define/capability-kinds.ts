@@ -63,7 +63,7 @@ export const CHANNEL_ONLY_CAPABILITY_KINDS: ReadonlySet<string> = new Set([
 
 /** Reverse lookup from a kind token to the factory name that produces it. @internal */
 const KIND_TO_NAME: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(CAPABILITY_KIND).map(([name, token]) => [token, name]),
+  Object.entries(CAPABILITY_KIND).map((entry) => [entry[1], entry[0]]),
 );
 
 /** Render a kind token as the capability factory call to show in an error. @internal */

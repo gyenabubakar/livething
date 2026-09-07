@@ -20,6 +20,14 @@ import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
+type HooksParameter = {
+  beforeSend?: unknown;
+  afterSend?: unknown;
+  replay: unknown;
+};
+type ConfigParameter = { input?: unknown; allowInterleaving?: boolean; run: any };
+type HooksParameter2 = { beforeSend?: any; afterSend?: any; replay: any };
+
 /** Builds one stream primitive from a `(event, config)` pair. Supplied by a stream capability. */
 type StreamBuild = (event: string, config: unknown) => Primitive;
 
@@ -58,18 +66,11 @@ export interface ChannelDeps {
     recorded?: StreamBuild;
   };
   /** Custom-replay builder, present only when `replay.custom()` is listed. */
-  readonly buildCustomReplay?: (hooks: {
-    beforeSend?: unknown;
-    afterSend?: unknown;
-    replay: unknown;
-  }) => Primitive;
+  readonly buildCustomReplay?: (hooks: HooksParameter) => Primitive;
   /** Built-in replay builder, present only when `replay.history()`/`replay.snapshot()` is listed. */
   readonly buildBuiltinReplay?: (replayConfig: unknown) => Primitive;
   /** Request builder, present only when the `clientRequests()` capability is listed. */
-  readonly buildClientRequest?: (
-    event: string,
-    config: { input?: unknown; allowInterleaving?: boolean; run: any },
-  ) => Primitive;
+  readonly buildClientRequest?: (event: string, config: ConfigParameter) => Primitive;
   /**
    * Merge channel `serverRequests(...)` declarations into the server→client
    * request table. Present only when `serverRequests()` is listed at the root.
@@ -247,7 +248,7 @@ export class ChannelBuilder {
     this.registerOnce('intercept', interceptFactory(withChannelCtx(handler) as any));
   }
 
-  replay(hooks: { beforeSend?: any; afterSend?: any; replay: any }): void {
+  replay(hooks: HooksParameter2): void {
     const build = this.deps.buildCustomReplay;
     if (!build) {
       throw new Error(

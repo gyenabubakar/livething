@@ -17,6 +17,14 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AdvancedReadCursors } from '~/inbox/receipts-storage.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildReadQueryHandlerDepsParameter = { engine: EngineAccess; channelKey: string };
+type SettleInboxOnReadOptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  userId: string;
+  cursors: AdvancedReadCursors;
+};
+
 /** The primitive type produced by the `readReceipts()` capability for one channel. */
 export interface ReadReceiptsPrimitive extends Primitive<'read-receipts'> {
   readonly options: ResolvedReadReceiptsOptions;
@@ -155,7 +163,7 @@ function buildReadHandler(deps: ReadHandlerDeps) {
  * silently, the same as an unauthorized ack. The reply reuses the `__readQuery__`
  * event name and echoes the query's correlationId.
  */
-function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+function buildReadQueryHandler(deps: BuildReadQueryHandlerDepsParameter) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__readQuery__') return false;
@@ -198,12 +206,7 @@ function buildReadQueryHandler(deps: { engine: EngineAccess; channelKey: string 
 function settleInboxOnRead(
   engine: EngineAccess,
   channelKey: string,
-  opts: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    cursors: AdvancedReadCursors;
-  },
+  opts: SettleInboxOnReadOptsParameter,
 ): ResolvedInboxOptions | undefined {
   const inboxConfig = engine.getInboxChannel(channelKey);
   if (!inboxConfig) return undefined;

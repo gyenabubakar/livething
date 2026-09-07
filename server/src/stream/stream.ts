@@ -3,6 +3,12 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+type StartOptionsParameter = {
+  broadcast?: boolean;
+  allowConcurrent?: boolean;
+  highWaterMark?: number;
+};
+
 /**
  * Declares one client→server event that can be sent to a running stream as a
  * mid-stream signal. Created by `nudge()` and collected into a `StreamPrimitive` by `stream()`.
@@ -341,7 +347,7 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
 export function start(
   name: string,
   validator?: Validator,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean; highWaterMark?: number },
+  options?: StartOptionsParameter,
 ): StreamStartDeclaration {
   return {
     event: name,

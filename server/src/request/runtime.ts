@@ -7,15 +7,14 @@ import type { ResolvedChannel, RoutingTarget, RuntimeConnection } from '~/_engin
 import type { Logger } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
+type OptsParameter = { routing: RoutingTarget | undefined; event: string; payload: unknown };
+
 interface RequestRuntime {
   asyncContext: EngineAsyncContext;
 
   logger: Pick<Logger, 'error'>;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter): boolean;
 }
 
 export interface HandleRequestOptions {

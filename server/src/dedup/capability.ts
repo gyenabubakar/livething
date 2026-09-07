@@ -2,6 +2,8 @@ import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { defineHostCapability } from '~/_define/capability.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
 
+type OptionsParameter = { cap?: number };
+
 /**
  * Drop duplicate incoming messages. The engine remembers the most recent
  * message ids per connection and silently ignores any frame whose id it has
@@ -18,6 +20,6 @@ import { dedup as dedupFactory } from '~/dedup/dedup.ts';
  * const base = define({ capabilities: [dedup({ cap: 256 })] });
  * ```
  */
-export const dedup = defineHostCapability(CAPABILITY_KIND.dedup, (options?: { cap?: number }) =>
+export const dedup = defineHostCapability(CAPABILITY_KIND.dedup, (options?: OptionsParameter) =>
   dedupFactory(options),
 );

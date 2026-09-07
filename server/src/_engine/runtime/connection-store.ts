@@ -4,6 +4,9 @@ import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
 
+type BuildConnectionRowOptionsParameter = { translatorState: unknown };
+type WriteConnectionRowOptionsParameter = { translatorStateJson?: string };
+
 const CREATE_CONNECTIONS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_connections (
     connection_id         TEXT PRIMARY KEY,
@@ -107,7 +110,7 @@ export function serializeTranslatorState(connection: RuntimeConnection): Seriali
 
 export function buildConnectionRow(
   connection: RuntimeConnection,
-  options?: { translatorState: unknown },
+  options?: BuildConnectionRowOptionsParameter,
 ): StoredConnectionRow {
   const ephemeral_tags: StoredEphemeralTag[] = [];
   for (const [group, keys] of connection.tags.ephemeral) {
@@ -135,7 +138,7 @@ export function buildConnectionRow(
 export function writeConnectionRow(
   sql: Pick<SQLProvider, 'exec'>,
   row: StoredConnectionRow,
-  options?: { translatorStateJson?: string },
+  options?: WriteConnectionRowOptionsParameter,
 ): void {
   sql.exec(
     `

@@ -78,9 +78,39 @@ export interface AdvancedReadCursors extends AdvancedCursors {
   receivedChanged: boolean;
 }
 
+interface ReceiptScope {
+  channelName: string;
+  channelFamily: string | null;
+  userId: string;
+}
+
+interface ReceiptQuery extends Omit<ReceiptScope, 'channelFamily'> {
+  family: string;
+}
+
+interface ReceivedAdvance extends ReceiptScope {
+  receivedThrough: number;
+  now: number;
+}
+
+interface ReadAdvance extends ReceiptScope {
+  readThrough: number;
+  now: number;
+}
+
+interface ReceiptWrite extends ReceiptScope {
+  receivedThrough: number;
+  readThrough: number;
+  now: number;
+}
+
+interface ReceiptLookupScope extends Omit<ReceiptScope, 'userId'> {
+  seq: number;
+}
+
 function readCursors(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelName: string; channelFamily: string | null; userId: string },
+  params: ReceiptScope,
   cache?: ReceiptCursorCache,
 ): ReceiptCursors {
   const family = familyToDb(params.channelFamily);
@@ -96,10 +126,7 @@ function readCursors(
   return loaded;
 }
 
-function queryCursors(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: { channelName: string; family: string; userId: string },
-): ReceiptCursors {
+function queryCursors(sql: Pick<SQLProvider, 'exec'>, params: ReceiptQuery): ReceiptCursors {
   const row = sql
     .exec<{ received_through: number; read_through: number }>(
       `
@@ -124,13 +151,7 @@ function queryCursors(
  */
 export function advanceReceivedThrough(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    receivedThrough: number;
-    now: number;
-  },
+  params: ReceivedAdvance,
   cache?: ReceiptCursorCache,
 ): AdvancedCursors {
   const current = readCursors(sql, params, cache);
@@ -160,13 +181,7 @@ export function advanceReceivedThrough(
  */
 export function advanceReadThrough(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    readThrough: number;
-    now: number;
-  },
+  params: ReadAdvance,
   cache?: ReceiptCursorCache,
 ): AdvancedReadCursors {
   const current = readCursors(sql, params, cache);
@@ -195,14 +210,7 @@ export function advanceReadThrough(
 
 function writeCursors(
   sql: Pick<SQLProvider, 'exec'>,
-  params: {
-    channelName: string;
-    channelFamily: string | null;
-    userId: string;
-    receivedThrough: number;
-    readThrough: number;
-    now: number;
-  },
+  params: ReceiptWrite,
   cache?: ReceiptCursorCache,
 ): void {
   const family = familyToDb(params.channelFamily);
@@ -228,7 +236,7 @@ function writeCursors(
 /** User ids whose `received_through` has reached `seq`. Backs `receiversOf(seq)`. */
 export function listReceivers(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelName: string; channelFamily: string | null; seq: number },
+  params: ReceiptLookupScope,
 ): string[] {
   return sql
     .exec<{ user_id: string }>(
@@ -245,10 +253,7 @@ export function listReceivers(
 }
 
 /** User ids whose `read_through` has reached `seq`. Backs `readersOf(seq)`. */
-export function listReaders(
-  sql: Pick<SQLProvider, 'exec'>,
-  params: { channelName: string; channelFamily: string | null; seq: number },
-): string[] {
+export function listReaders(sql: Pick<SQLProvider, 'exec'>, params: ReceiptLookupScope): string[] {
   return sql
     .exec<{ user_id: string }>(
       `

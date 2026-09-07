@@ -269,7 +269,8 @@ async function runNodeAdapterSuite() {
   return failures;
 }
 
-async function runSuite({ label, distDir, engines }, scenarios) {
+async function runSuite(suite, scenarios) {
+  const { label, distDir, engines } = suite;
   console.log(`\n${label}`);
   const failures = [];
 

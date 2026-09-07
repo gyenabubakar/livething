@@ -86,7 +86,8 @@ function collectShortErrorCodes(primitives: readonly Primitive[]): Set<string> {
 }
 
 /** Rewrite one routable primitive into its namespaced form for plugin `id`. */
-function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function namespaceOne(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   if (!EVENT_KINDS.has(primitive.__wskit)) return primitive;
   const event = (primitive as { event?: string }).event;
   if (event === undefined) return primitive;
@@ -139,10 +140,11 @@ function namespaceOne({ id, shortCodes }: PluginScope, primitive: Primitive): Pr
  * sends are namespaced like any other plugin send.
  */
 function namespaceLifecycle(
-  { id, shortCodes }: PluginScope,
+  scope: PluginScope,
   kind: PluginLifecycleKind,
   primitive: Primitive,
 ): Primitive {
+  const { id, shortCodes } = scope;
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;
   const scoped = scopePluginThrow(
@@ -262,7 +264,8 @@ function scopeHookCtx(id: string, ctx: any): any {
  * ctx. An intercept declares no event, so its event is not rewritten; its ctx
  * is namespaced so a hook can emit the plugin's own events and write its own kv.
  */
-function ownHook({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function ownHook(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const handler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown }).handler;
   return {
     ...(primitive as unknown as Record<PropertyKey, unknown>),
@@ -278,7 +281,8 @@ function ownHook({ id, shortCodes }: PluginScope, primitive: Primitive): Primiti
  * ctx, and rebuild its `__setup` so it registers with that owner. Like an
  * intercept, it declares no event, so its event is not rewritten.
  */
-function ownOutgoingHook({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function ownOutgoingHook(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const origHandler = (primitive as unknown as { handler: (ctx: any, frame: any) => unknown })
     .handler;
   const handler = scopePluginThrow(id, shortCodes, (ctx: any, frame: any) =>
@@ -299,7 +303,8 @@ function ownOutgoingHook({ id, shortCodes }: PluginScope, primitive: Primitive):
  * its body runs in a plugin-scoped context (sends prefixed; `ctx.schedule(...)`
  * resolves to the namespaced id).
  */
-function namespaceScheduled({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function namespaceScheduled(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const taskId = (primitive as unknown as { taskId: string }).taskId;
   const wireTask = pluginWireName(id, taskId);
   const [key] = primitive.__identity;
@@ -402,7 +407,8 @@ function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
  * child's own `__setup` closes over the raw handler, so we rebuild `__setup` to
  * register the scoped handler under the same engine hook.
  */
-function scopeChannelLifecycle({ id, shortCodes }: PluginScope, primitive: Primitive): Primitive {
+function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primitive {
+  const { id, shortCodes } = scope;
   const register = CHANNEL_LIFECYCLE_REGISTER[primitive.__wskit]!;
   const handler = (primitive as unknown as { handler: (ctx: any, ...rest: any[]) => unknown })
     .handler;

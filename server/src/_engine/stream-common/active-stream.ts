@@ -15,6 +15,11 @@ import type {
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
 
+type AbortActiveStreamActiveParameter = { abortController?: AbortController };
+type AssertNoConcurrentStreamRuntimeParameter = {
+  activeStreams: ReadonlyMap<string, ActiveStream>;
+};
+
 /** Validator handle used to type-narrow a registered nudge. */
 export interface NudgeBinding {
   readonly event: string;
@@ -208,7 +213,7 @@ export type StreamAbortReason = 'cancelled' | 'aborted' | 'unsubscribed' | 'shut
  * racing disconnect) is a no-op because the controller is already aborted.
  */
 export function abortActiveStream(
-  active: { abortController?: AbortController },
+  active: AbortActiveStreamActiveParameter,
   reason: StreamAbortReason,
 ): void {
   const controller = active.abortController;
@@ -248,7 +253,7 @@ export interface AssertNoConcurrentStreamOptions {
  * unless `allowConcurrent` is true. Mirrors plain stream's pre-flight check.
  */
 export function assertNoConcurrentStream(
-  runtime: { activeStreams: ReadonlyMap<string, ActiveStream> },
+  runtime: AssertNoConcurrentStreamRuntimeParameter,
   connection: RuntimeConnection,
   options: AssertNoConcurrentStreamOptions,
 ): void {

@@ -16,6 +16,15 @@ interface Pending {
   reject: (reason: unknown) => void;
 }
 
+interface RequestCallOptions {
+  markers: ScopeMarkers;
+  timeout?: number;
+}
+
+interface RequestOptions {
+  timeout?: number;
+}
+
 /**
  * Turns the usual one-way send into ask-and-wait: `socket.request(...)` sends a
  * message tagged with a unique id and returns a promise that resolves when the
@@ -50,7 +59,7 @@ export function clientRequests(
       function sendRequest(
         event: string,
         payload: unknown,
-        callOptions: { markers: ScopeMarkers; timeout?: number },
+        callOptions: RequestCallOptions,
       ): Promise<unknown> {
         const eventError = wireIdError(event, event, 'event');
         if (eventError) return Promise.reject(eventError);
@@ -173,15 +182,11 @@ export function clientRequests(
 
         install(socket) {
           // @ts-expect-error — install adds request() to the socket dynamically
-          socket.request = (event: string, payload: unknown, callOptions?: { timeout?: number }) =>
+          socket.request = (event: string, payload: unknown, callOptions?: RequestOptions) =>
             sendRequest(event, payload, { markers: {}, timeout: callOptions?.timeout });
 
           getAugmenters(socket).push((messaging, scope) => {
-            messaging.request = (
-              event: string,
-              payload: unknown,
-              callOptions?: { timeout?: number },
-            ) => {
+            messaging.request = (event: string, payload: unknown, callOptions?: RequestOptions) => {
               scope.assertReady?.();
               return sendRequest(scopedName(scope, event), payload, {
                 markers: scope.markers(),

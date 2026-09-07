@@ -21,8 +21,8 @@ export type NudgeMap = Record<string, Validator | null>;
  */
 export function toNudgeDefs(nudges?: NudgeMap): NudgeDef[] {
   if (!nudges) return [];
-  return Object.entries(nudges).map(([name, schema]) =>
-    schema ? nudge(name, schema as any) : nudge(name),
+  return Object.entries(nudges).map((entry) =>
+    entry[1] ? nudge(entry[0], entry[1] as any) : nudge(entry[0]),
   );
 }
 

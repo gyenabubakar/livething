@@ -18,6 +18,30 @@
 	function systemMessagesFor(channel: string) {
 		return (systemMessagesByChannel[channel] ?? []).join(',');
 	}
+	function recordRoomMessage(payload: Record<string, any>) {
+		const channel = payload.channel ?? '';
+		const entry = `${payload.from}:${payload.text}`;
+		const target = payload.kind === 'system' ? systemMessagesByChannel : userMessagesByChannel;
+		const next = { ...target, [channel]: [...(target[channel] ?? []), entry] };
+		if (payload.kind === 'system') systemMessagesByChannel = next;
+		else userMessagesByChannel = next;
+	}
+
+	const eventHandlers: Record<string, (data: any) => void> = {
+		'top-only-action-fired': (data) => (topOnlyActionFired = data.payload?.from ?? ''),
+		'validation-observed': (data) =>
+			(validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`),
+		'scoped-error-observed': (data) =>
+			(scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.family ?? ''}|${data.payload?.event ?? ''}`),
+		'__subscribeOk__': (data) => (subscribeOk = [...subscribeOk, data.__wskit?.channel ?? '']),
+		'__error__': (data) => {
+			if (!data.__wskit?.channel) return;
+			subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
+			subscribeErrorScope = data.__wskit.channelFamily ?? '';
+		},
+		'name-result': (data) => (nameResult = `${data.payload.name}|${data.payload.suffix}`),
+		'room-message': (data) => recordRoomMessage(data.payload ?? {}),
+	};
 
 	function connect() {
 		if (ws) return;
@@ -39,33 +63,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === 'top-only-action-fired') {
-				topOnlyActionFired = data.payload?.from ?? '';
-			}
-			if (data.event === 'validation-observed') {
-				validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`;
-			}
-			if (data.event === 'scoped-error-observed') {
-				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.family ?? ''}|${data.payload?.event ?? ''}`;
-			}
-			if (data.event === '__subscribeOk__') {
-				subscribeOk = [...subscribeOk, data.__wskit?.channel ?? ''];
-			}
-			if (data.event === '__error__' && data.__wskit?.channel) {
-				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
-				subscribeErrorScope = data.__wskit.channelFamily ?? '';
-			}
-			if (data.event === 'name-result') {
-				nameResult = `${data.payload.name}|${data.payload.suffix}`;
-			}
-			if (data.event === 'room-message') {
-				const ch = data.payload?.channel ?? '';
-				const entry = `${data.payload.from}:${data.payload.text}`;
-				const target = data.payload.kind === 'system' ? systemMessagesByChannel : userMessagesByChannel;
-				const next = { ...target, [ch]: [...(target[ch] ?? []), entry] };
-				if (data.payload.kind === 'system') systemMessagesByChannel = next;
-				else userMessagesByChannel = next;
-			}
+			eventHandlers[data.event]?.(data);
 		};
 	}
 

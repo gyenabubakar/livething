@@ -4,6 +4,12 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+};
+
 /**
  * Runtime surface for sending normalised `__error__` frames.
  */
@@ -26,10 +32,7 @@ interface RuntimeErrorDeps {
 
   logger: Pick<Logger, 'warn' | 'error'>;
 
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 }
 
 /**

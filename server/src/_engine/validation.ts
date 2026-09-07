@@ -1,5 +1,10 @@
 import { WSKitConfigError } from '@wskit/core';
 
+interface AllowedValueLocation {
+  field: string;
+  context: string;
+}
+
 /**
  * Reject numeric config that would silently break runtime math or unbound a
  * cap. `windowMs: 0` divides by zero in rate-limit refill; `maxChunks: 0`
@@ -56,7 +61,7 @@ export function assertOptionalPositiveInteger(
 export function assertOneOf<T extends string>(
   value: unknown,
   allowed: readonly T[],
-  where: { field: string; context: string },
+  where: AllowedValueLocation,
 ): asserts value is T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw new WSKitConfigError(

@@ -3,6 +3,12 @@ import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+interface RequestOptions<TPayload, TResponse> {
+  validator?: Validator<TPayload>;
+  responseSchema?: Validator<TResponse>;
+  allowInterleaving?: boolean;
+}
+
 /**
  * The `respond` callback injected into the handler context for `.request()`
  * handlers. Sends the response back to the requesting client.
@@ -65,11 +71,7 @@ const REQUEST_KEY = Symbol('request');
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
-  options?: {
-    validator?: Validator<TPayload>;
-    responseSchema?: Validator<TResponse>;
-    allowInterleaving?: boolean;
-  },
+  options?: RequestOptions<TPayload, TResponse>,
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
   assertValidWSKitIdentifier(event, 'request() event name');
   return {

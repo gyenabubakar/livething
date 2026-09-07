@@ -38,6 +38,19 @@ import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
 import type { DurableStreamKind } from './types.ts';
 
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+};
+type OptsParameter2 = { routing: RoutingTarget | undefined; event: string; payload: unknown };
+type OptionsParameter = { force?: boolean };
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type EnsureUniqueStreamIdOptsParameter = { streamId: string; storageUserId: string };
+type FindResumeRowOptsParameter = { resumeScope: ResolvedChannel; streamId: string };
+type SweepDurableStreamsRuntimeParameter = { sql: DurableStreamRuntime['sql'] };
+type CancelDurableStreamOptsParameter = { streamId: string; cancelScope: ResolvedChannel };
+
 /**
  * Synthetic key used as the storage row's `user_id` column for broadcast
  * durable streams. Encodes the scope (top-level / channel / channel-family)
@@ -78,29 +91,20 @@ export interface DurableStreamRuntime {
     scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 
   asyncContext: EngineAsyncContext;
 
-  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
+  persistAttachment(connection: RuntimeConnection, options?: OptionsParameter): void;
 
   /** SQLite handle. */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
   };
 
-  handleRuntimeError(
-    connection: RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-  ): Promise<void>;
+  handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
 }
 
 /** Engine-side snapshot of one nudge declaration: wire event + optional validator. */
@@ -208,7 +212,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 
 function ensureUniqueStreamId(
   runtime: DurableStreamRuntime,
-  opts: { streamId: string; storageUserId: string },
+  opts: EnsureUniqueStreamIdOptsParameter,
 ): void {
   const { streamId, storageUserId } = opts;
   if (runtime.activeStreams.has(streamId)) throw StreamIdCollision();
@@ -325,7 +329,7 @@ export async function runDurableStream(
 export function findResumeRow(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: { resumeScope: ResolvedChannel; streamId: string },
+  opts: FindResumeRowOptsParameter,
 ): Storage.DurableStreamRow | null {
   const { resumeScope, streamId } = opts;
 
@@ -643,7 +647,7 @@ export async function resumeDurableStream(
 }
 
 /** Delete suspended rows past `maxAgeMs` and ended rows past `retentionAfterEndMs`. */
-export function sweepDurableStreams(runtime: { sql: DurableStreamRuntime['sql'] }): number {
+export function sweepDurableStreams(runtime: SweepDurableStreamsRuntimeParameter): number {
   const now = Date.now();
   let deleted = 0;
   for (const candidate of Storage.findExpiredSuspended(runtime.sql, now)) {
@@ -1040,7 +1044,7 @@ function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknow
 export async function cancelDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  opts: { streamId: string; cancelScope: ResolvedChannel },
+  opts: CancelDurableStreamOptsParameter,
 ): Promise<void> {
   const { streamId, cancelScope } = opts;
   const realUserId = connectionStorageKeyOf(connection);

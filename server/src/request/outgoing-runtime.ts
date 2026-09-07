@@ -10,6 +10,41 @@ import type { Primitive } from '~/primitive.ts';
 import type { ResolvedServerRequest } from '~/request/capability.ts';
 import type { Validator } from '~/types.ts';
 
+type ValueParameter = { response: unknown; from: PublicApi.ConnectionRef };
+type ChannelDeclarationKeyHandleParameter = { name?: string; family?: unknown };
+type SettleFrameParameter = {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+};
+type SettleBroadcastLegArgsParameter = {
+  connectionId: string;
+  correlationId: string;
+  entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
+  frame: { event: string; payload: unknown };
+};
+type SendRequestArgsParameter = {
+  target: {
+    connectionId: string;
+    channel?: string;
+    channelFamily?: string | null;
+    /** The channel definition key whose declarations to resolve, or null for top-level. */
+    declarationChannelKey?: string | null;
+  };
+  event: string;
+  payload: unknown;
+  options: RequestOptions | undefined;
+};
+type SendBroadcastRequestArgsParameter = {
+  targets: ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }>;
+  event: string;
+  payload: unknown;
+  options: RequestOptions | undefined;
+  routing?: { channel?: string; channelFamily?: string | null };
+  /** The channel definition key whose declarations to resolve, or null for top-level. */
+  declarationChannelKey?: string | null;
+};
+
 /**
  * Thrown into a `ctx.request(...)` promise when no answer arrives before the
  * timeout. Shares the `'timeout'` code family with the client-side `Timeout` so
@@ -60,7 +95,7 @@ type PendingServerRequest =
 
 /** The shared race state for one `broadcastRequest` fan-out. */
 interface BroadcastGroup {
-  resolve: (value: { response: unknown; from: PublicApi.ConnectionRef }) => void;
+  resolve: (value: ValueParameter) => void;
   reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
   /** The event name, for the (unused-on-broadcast) invalid path symmetry. */
@@ -101,7 +136,7 @@ export function serverRequestKey(channelKey: string | null, event: string): stri
  * dynamic channel, its static name otherwise — matching how `serverRequests()` keys
  * the channel's own `serverRequests(...)` declarations. Top-level surfaces pass `null`.
  */
-function channelDeclarationKey(handle: { name?: string; family?: unknown }): string {
+function channelDeclarationKey(handle: ChannelDeclarationKeyHandleParameter): string {
   return typeof handle.family === 'string' ? handle.family : (handle.name ?? '');
 }
 
@@ -181,14 +216,7 @@ function createOutgoingRequestRuntime(
 ) {
   const pending = new Map<string, PendingServerRequest>();
 
-  function settle(
-    connectionId: string,
-    frame: {
-      event: string;
-      payload: unknown;
-      wskit: Protocol.WSKitProtocol | undefined;
-    },
-  ): boolean {
+  function settle(connectionId: string, frame: SettleFrameParameter): boolean {
     const correlationId = frame.wskit?.correlationId;
     if (correlationId === undefined) return false;
     const entry = pending.get(correlationId);
@@ -234,12 +262,7 @@ function createOutgoingRequestRuntime(
    * correlationId matched a leg we own — even an invalid answer must not fall
    * through to normal routing.
    */
-  function settleBroadcastLeg(args: {
-    connectionId: string;
-    correlationId: string;
-    entry: Extract<PendingServerRequest, { kind: 'broadcast' }>;
-    frame: { event: string; payload: unknown };
-  }): boolean {
+  function settleBroadcastLeg(args: SettleBroadcastLegArgsParameter): boolean {
     const { connectionId, correlationId, entry, frame } = args;
     // Only the leg's own target may answer it; a mismatched connection echoing
     // the leg's correlationId is claimed but ignored, leaving the leg live.
@@ -301,18 +324,7 @@ function createOutgoingRequestRuntime(
     }
   }
 
-  function sendRequest(args: {
-    target: {
-      connectionId: string;
-      channel?: string;
-      channelFamily?: string | null;
-      /** The channel definition key whose declarations to resolve, or null for top-level. */
-      declarationChannelKey?: string | null;
-    };
-    event: string;
-    payload: unknown;
-    options: RequestOptions | undefined;
-  }): Promise<unknown> {
+  function sendRequest(args: SendRequestArgsParameter): Promise<unknown> {
     const { target, event, payload, options } = args;
     const declarationKey = serverRequestKey(target.declarationChannelKey ?? null, event);
     if (!serverRequests.has(declarationKey)) {
@@ -361,15 +373,9 @@ function createOutgoingRequestRuntime(
    * case (nobody to ask = nobody volunteered). The caller resolves the targets
    * with the same enumeration the matching `broadcast`/tag-send uses.
    */
-  function sendBroadcastRequest(args: {
-    targets: ReadonlyArray<{ connectionId: string; from: PublicApi.ConnectionRef }>;
-    event: string;
-    payload: unknown;
-    options: RequestOptions | undefined;
-    routing?: { channel?: string; channelFamily?: string | null };
-    /** The channel definition key whose declarations to resolve, or null for top-level. */
-    declarationChannelKey?: string | null;
-  }): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
+  function sendBroadcastRequest(
+    args: SendBroadcastRequestArgsParameter,
+  ): Promise<{ response: unknown; from: PublicApi.ConnectionRef }> {
     const { targets, event, payload, options, routing } = args;
     const declarationKey = serverRequestKey(args.declarationChannelKey ?? null, event);
     if (!serverRequests.has(declarationKey)) {

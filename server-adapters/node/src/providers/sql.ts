@@ -20,6 +20,10 @@ export interface NodeSqlRuntime {
   close(): void;
 }
 
+interface NodeTransactionContext {
+  exec: SQLProvider['exec'];
+}
+
 /** Creates a SQL provider, using an in-memory database when no source is given. */
 export function createSql(source: NodeSqlSource = ':memory:'): NodeSqlRuntime {
   if (isSqlProvider(source)) {
@@ -68,7 +72,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     }
 
     if (statement.reader) {
-      const columns = statement.columns().map(({ name }) => name);
+      const columns = statement.columns().map((column) => column.name);
       const rawRows = statement.raw().all(...(params as never[])) as unknown[][];
       const rows = rawRows.map((values) =>
         Object.fromEntries(columns.map((name, index) => [name, values[index]])),
@@ -83,7 +87,7 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
   return {
     exec,
     limits: BETTER_SQLITE3_LIMITS,
-    transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
+    transaction<T>(fn: (tx: NodeTransactionContext) => T): T {
       const runTransaction = database.transaction(() => fn({ exec }));
       return runTransaction();
     },

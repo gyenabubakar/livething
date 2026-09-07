@@ -21,6 +21,9 @@ import * as DurableStreamRuntime from './runtime.ts';
 import { ensureDurableStreamSchema } from './storage.ts';
 import type * as DurableStreamStorage from './storage.ts';
 
+type OptionsParameter = { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number };
+type OptionsParameter2 = { streamId: string; cancelScope: ResolvedChannel };
+
 /**
  * Run the durable-stream DDL once per engine instance. The dispatch bag tracks
  * whether it has already run so repeat triggers skip the redundant check.
@@ -121,7 +124,7 @@ export const durableStreamService: DurableStreamService = {
   async resume(
     runtime: any,
     connection: RuntimeConnection,
-    options: { resumeScope: ResolvedChannel; streamId: string; lastKnownSeq: number },
+    options: OptionsParameter,
   ): Promise<void> {
     const { resumeScope, streamId, lastKnownSeq } = options;
     ensureSchemaOnce(runtime);
@@ -137,7 +140,7 @@ export const durableStreamService: DurableStreamService = {
   async cancel(
     runtime: any,
     connection: RuntimeConnection,
-    options: { streamId: string; cancelScope: ResolvedChannel },
+    options: OptionsParameter2,
   ): Promise<void> {
     await DurableStreamRuntime.cancelDurableStream(runtime, connection, options);
   },

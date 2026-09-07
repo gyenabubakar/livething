@@ -48,6 +48,20 @@ interface BroadcastRun {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
+interface StreamContext {
+  markers: ScopeMarkers;
+  options?: StreamTriggerOptions;
+}
+
+interface ResumeStreamOptions {
+  lastKnownSeq?: number;
+}
+
+interface ResumeContext {
+  markers: ScopeMarkers;
+  options?: ResumeStreamOptions;
+}
+
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
 function scopeMatches(
   scope: ScopeMarkers | undefined,
@@ -250,7 +264,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function triggerStream(
         event: string,
         payload: unknown,
-        context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
+        context: StreamContext,
       ): Promise<StreamHandle<unknown>> {
         const streamId = context.options?.streamId ?? idGenerator(helpers)('stream');
         // Reject a bad event or streamId locally — the server rejects such a frame
@@ -301,7 +315,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function resumeStream(
         event: string,
         streamId: string,
-        context: { markers: ScopeMarkers; options?: { lastKnownSeq?: number } },
+        context: ResumeContext,
       ): StreamHandle<unknown> {
         const idError = wireIdError(event, streamId, 'streamId');
         if (idError) {
@@ -416,6 +430,95 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             callStreamHandler(helpers.log, () => notify(subscriber.handlers));
       }
 
+      function handleStreamOk(streamId: string, envelope: WSKitEnvelope | undefined): null {
+        const trigger = triggers.get(streamId);
+        if (!trigger) {
+          const resumed = streams.get(streamId);
+          if (resumed?.resumeTimer) {
+            clearTimeout(resumed.resumeTimer);
+            resumed.resumeTimer = null;
+          }
+          return null;
+        }
+        if (trigger.timer) clearTimeout(trigger.timer);
+        triggers.delete(streamId);
+        triggerOutbox.delete(streamId);
+        const state = new StreamState(streamId, trigger.event, trigger.markers);
+        state.hasLazyHold = true;
+        state.resumable = envelope?.streamKind === 'persistent';
+        if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
+          warnedNoKeepalive = true;
+          helpers.log.warn(
+            'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
+          );
+        }
+        streams.set(streamId, state);
+        startChunkTimer(state);
+        trigger.resolve(buildStreamHandle(state, handleDependencies));
+        return null;
+      }
+
+      function handleStreamError(
+        message: WireMessage,
+        streamId: string,
+        envelope: WSKitEnvelope | undefined,
+      ): WireMessage | null {
+        if (envelope?.correlationId !== undefined) return message;
+        const streamEvent =
+          triggers.get(streamId)?.event ??
+          streams.get(streamId)?.event ??
+          broadcastRuns.get(streamId)?.event ??
+          envelope?.eventName;
+        const error = unscopeErrorCode(streamEvent, toWSKitError(message.payload)) as WSKitError;
+        if (envelope?.streamTerminated === false) {
+          settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
+          return null;
+        }
+        if (triggers.has(streamId)) {
+          failTrigger(streamId, error);
+          return null;
+        }
+        const state = streams.get(streamId);
+        if (state) finishOrResumeAfterError(state, error);
+        endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
+        return null;
+      }
+
+      function finishOrResumeAfterError(state: StreamState, error: WSKitError): void {
+        if (
+          state.resumable &&
+          error.code === 'stream-aborted' &&
+          abortReason(error) === 'hibernation-wake'
+        ) {
+          startChunkTimer(state);
+          helpers.rawSend(resumeFrame(state));
+          return;
+        }
+        finishStream(state, error);
+      }
+
+      function handleStreamChunk(
+        message: WireMessage,
+        streamId: string,
+        envelope: WSKitEnvelope | undefined,
+      ): WireMessage {
+        if (isProtocolFrameEvent(message.event)) return message;
+        const seq = envelope?.seq;
+        const state = streams.get(streamId);
+        if (state && (seq === undefined || seq > state.lastSeq)) {
+          if (state.resumeTimer) {
+            clearTimeout(state.resumeTimer);
+            state.resumeTimer = null;
+          }
+          if (seq !== undefined) state.lastSeq = seq;
+          if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
+          state.queue.push(message.payload);
+          startChunkTimer(state);
+        }
+        deliverBroadcast(message, streamId);
+        return message;
+      }
+
       return {
         id: 'stream',
 
@@ -425,40 +528,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           if (typeof streamId !== 'string') return message;
 
           switch (message.event) {
-            case '__streamOk__': {
-              const trigger = triggers.get(streamId);
-              if (!trigger) {
-                // A resume ack for an already-running stream. The server confirmed
-                // the resume, so the stream is alive — drop the one-shot resume
-                // deadline. The per-chunk timer stays unstarted until the first
-                // resumed chunk lands (as on reconnect), so a slow first chunk
-                // can't trip a stale timeout.
-                const resumed = streams.get(streamId);
-                if (resumed?.resumeTimer) {
-                  clearTimeout(resumed.resumeTimer);
-                  resumed.resumeTimer = null;
-                }
-                return null;
-              }
-              if (trigger.timer) clearTimeout(trigger.timer);
-              triggers.delete(streamId);
-              triggerOutbox.delete(streamId);
-              const state = new StreamState(streamId, trigger.event, trigger.markers);
-              // The hold the trigger took in triggerStream now belongs to the
-              // running stream — adopt it rather than acquiring a second one.
-              state.hasLazyHold = true;
-              state.resumable = envelope?.streamKind === 'persistent';
-              if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
-                warnedNoKeepalive = true;
-                helpers.log.warn(
-                  'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
-                );
-              }
-              streams.set(streamId, state);
-              startChunkTimer(state);
-              trigger.resolve(buildStreamHandle(state, handleDependencies));
-              return null;
-            }
+            case '__streamOk__':
+              return handleStreamOk(streamId, envelope);
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
@@ -472,70 +543,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               settleNudge(envelope?.streamNudgeId, (pending) => pending.resolve());
               return null;
             }
-            case '__error__': {
-              if (envelope?.correlationId !== undefined) return message;
-              // A plugin stream's server error arrives namespaced (`__id::code`);
-              // strip it back to the plain code using the stream's own namespaced
-              // event, wherever that stream is tracked. Built-in codes (e.g.
-              // `stream-aborted`) don't carry the prefix and pass through unchanged.
-              const streamEvent =
-                triggers.get(streamId)?.event ??
-                streams.get(streamId)?.event ??
-                broadcastRuns.get(streamId)?.event ??
-                envelope?.eventName;
-              const error = unscopeErrorCode(
-                streamEvent,
-                toWSKitError(message.payload),
-              ) as WSKitError;
-              // A non-terminal error (a rejected nudge) settles its nudge() Promise
-              // and leaves the stream running.
-              if (envelope?.streamTerminated === false) {
-                settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
-                return null;
-              }
-              // An error before __streamOk__ (e.g. stream-id-collision,
-              // stream-already-active) means the trigger never started — reject
-              // the pending stream() promise instead of leaving it to time out.
-              if (triggers.has(streamId)) {
-                failTrigger(streamId, error);
-                return null;
-              }
-              const state = streams.get(streamId);
-              if (state) {
-                // A hibernated server tells a durable stream to resume itself.
-                if (
-                  state.resumable &&
-                  error.code === 'stream-aborted' &&
-                  abortReason(error) === 'hibernation-wake'
-                ) {
-                  startChunkTimer(state);
-                  helpers.rawSend(resumeFrame(state));
-                } else {
-                  finishStream(state, error);
-                }
-              }
-              endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
-              return null;
-            }
-            default: {
-              if (isProtocolFrameEvent(message.event)) return message;
-              const seq = envelope?.seq;
-              const state = streams.get(streamId);
-              if (state && (seq === undefined || seq > state.lastSeq)) {
-                // The first resumed chunk arrived — drop the resume deadline and
-                // hand back over to the normal per-chunk timer.
-                if (state.resumeTimer) {
-                  clearTimeout(state.resumeTimer);
-                  state.resumeTimer = null;
-                }
-                if (seq !== undefined) state.lastSeq = seq;
-                if (helpers.log.debug) helpers.log.info(`stream '${streamId}' chunk received`);
-                state.queue.push(message.payload);
-                startChunkTimer(state);
-              }
-              deliverBroadcast(message, streamId);
-              return message;
-            }
+            case '__error__':
+              return handleStreamError(message, streamId, envelope);
+            default:
+              return handleStreamChunk(message, streamId, envelope);
           }
         },
 
@@ -667,7 +678,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           socket.resumeStream = (
             event: string,
             streamId: string,
-            resumeOptions?: { lastKnownSeq?: number },
+            resumeOptions?: ResumeStreamOptions,
           ) => resumeStream(event, streamId, { markers: {}, options: resumeOptions });
 
           getAugmenters(socket).push((messaging, scope) => {
@@ -687,7 +698,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             messaging.resumeStream = (
               event: string,
               streamId: string,
-              resumeOptions?: { lastKnownSeq?: number },
+              resumeOptions?: ResumeStreamOptions,
             ) => {
               scope.assertReady?.();
               return resumeStream(scopedName(scope, event), streamId, {

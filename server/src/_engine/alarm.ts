@@ -30,6 +30,25 @@ interface AlarmSyncState {
   stopped: boolean;
 }
 
+interface AlarmSourceFailure {
+  name: string;
+  error: unknown;
+}
+
+interface AlarmDeadlines {
+  candidates: number[];
+  failures: AlarmSourceFailure[];
+}
+
+interface SourceFailureReport {
+  failures: AlarmSourceFailure[];
+  now: number;
+}
+
+interface RescheduleOptions {
+  retryAt?: AlarmDeadline;
+}
+
 // TimerProvider methods are asynchronous, but most engine call sites are
 // deliberately synchronous (a broadcast, ack, or schedule call). Serializing
 // writes here prevents a slower older `setAlarm`/`deleteAlarm` from landing
@@ -101,58 +120,72 @@ export function endAlarmDelivery(core: AlarmCore): void {
   if (state.providerRetryAt !== null) scheduleProviderRetry(core, state);
 }
 
+function readAlarmDeadlines(core: AlarmCore): AlarmDeadlines {
+  const candidates: number[] = [];
+  const failures: AlarmSourceFailure[] = [];
+  for (const [key, source] of core.alarmSources) {
+    try {
+      const candidate = source();
+      if (candidate !== null && Number.isSafeInteger(candidate) && candidate > 0) {
+        candidates.push(candidate);
+      }
+    } catch (error) {
+      failures.push({ name: key.description ?? 'unknown', error });
+    }
+  }
+  return { candidates, failures };
+}
+
+function reportSourceFailures(
+  core: AlarmCore,
+  state: AlarmSyncState,
+  report: SourceFailureReport,
+): number | null {
+  if (report.failures.length === 0) return state.retryAt;
+  const sourceRetryAt = report.now + 1_000;
+  if (state.retryAt === null || sourceRetryAt < state.retryAt) {
+    setRetryDeadline(core, state, sourceRetryAt);
+  }
+  const errors = report.failures.map((failure) => failure.error);
+  const error =
+    errors.length === 1
+      ? errors[0]
+      : new AggregateError(errors, '[wskit] one or more durable alarm sources failed');
+  core.logger?.error('[wskit] durable alarm source failed; retrying', {
+    error: error instanceof Error ? error.message : String(error),
+    sources: report.failures.map((failure) => failure.name),
+  });
+  return state.retryAt;
+}
+
+function earliestDeadline(
+  candidates: number[],
+  retryAt: number | null,
+  now: number,
+): number | null {
+  let next = retryAt;
+  for (const candidate of candidates) {
+    const effective = retryAt !== null && candidate <= now ? retryAt : candidate;
+    if (next === null || effective < next) next = effective;
+  }
+  return next;
+}
+
 /**
  * Arm the adapter's single durable alarm for the earliest framework deadline.
  * A source returning `null` has no pending work. Invalid deadlines are ignored
  * so one optional feature cannot corrupt the shared alarm with `NaN`, an unsafe
  * integer, or a non-positive value.
  */
-export function rescheduleAlarm(
-  core: AlarmCore,
-  options: { retryAt?: AlarmDeadline } = {},
-): Promise<void> {
+export function rescheduleAlarm(core: AlarmCore, options: RescheduleOptions = {}): Promise<void> {
   const state = stateFor(core);
   if (state.stopped) return Promise.resolve();
   if ('retryAt' in options) setRetryDeadline(core, state, options.retryAt ?? null);
 
   const now = Date.now();
-  const candidates: number[] = [];
-  const sourceFailures: Array<{ name: string; error: unknown }> = [];
-  for (const [key, source] of core.alarmSources) {
-    let candidate: number | null;
-    try {
-      candidate = source();
-    } catch (error) {
-      sourceFailures.push({ name: key.description ?? 'unknown', error });
-      continue;
-    }
-    if (candidate === null || !Number.isSafeInteger(candidate) || candidate <= 0) continue;
-    candidates.push(candidate);
-  }
-
-  let retryAt = state.retryAt;
-  if (sourceFailures.length > 0) {
-    const sourceRetryAt = now + 1_000;
-    if (retryAt === null || sourceRetryAt < retryAt) {
-      setRetryDeadline(core, state, sourceRetryAt);
-      retryAt = sourceRetryAt;
-    }
-    const errors = sourceFailures.map((failure) => failure.error);
-    const error =
-      errors.length === 1
-        ? errors[0]
-        : new AggregateError(errors, '[wskit] one or more durable alarm sources failed');
-    core.logger?.error('[wskit] durable alarm source failed; retrying', {
-      error: error instanceof Error ? error.message : String(error),
-      sources: sourceFailures.map((failure) => failure.name),
-    });
-  }
-
-  let next: number | null = retryAt;
-  for (const candidate of candidates) {
-    const effective = retryAt !== null && candidate <= now ? retryAt : candidate;
-    if (next === null || effective < next) next = effective;
-  }
+  const { candidates, failures } = readAlarmDeadlines(core);
+  const retryAt = reportSourceFailures(core, state, { failures, now });
+  const next = earliestDeadline(candidates, retryAt, now);
 
   state.desired = next;
   if (state.pending) return state.pending;

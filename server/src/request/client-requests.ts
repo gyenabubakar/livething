@@ -7,6 +7,8 @@ import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+type CtxParameter = { respond(value: unknown): void };
+
 export interface RequestBuildConfig {
   readonly input?: Validator;
   readonly allowInterleaving?: boolean;
@@ -28,7 +30,7 @@ export const clientRequests = withCapabilityKind(
       const run = config.run;
       return requestFactory(
         event,
-        async (ctx: { respond(value: unknown): void }, payload: unknown) => {
+        async (ctx: CtxParameter, payload: unknown) => {
           const result = await run(ctx, payload);
           if (result != null) ctx.respond(result);
         },

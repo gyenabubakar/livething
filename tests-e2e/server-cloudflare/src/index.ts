@@ -85,55 +85,41 @@ type AdminStub = Awaited<ReturnType<ReturnType<Env['ADMIN_SERVER']['get']>['admi
  * Drive one member of the admin ctx through the app's own `api`. Each case
  * returns something observable so the test asserts on a value, not on silence.
  */
-async function runAdminOp(
-  admin: AdminStub,
-  op: string,
-  { text, userId, channel, url }: AdminOpArgs,
-): Promise<unknown> {
-  switch (op) {
-    case 'count-now':
-      return admin.countNow();
-    case 'who-is-online':
-      return admin.whoIsOnline();
-    case 'connection-ids-of':
-      return admin.connectionIdsOf(userId);
-    case 'poke-connection':
-      return admin.pokeConnection(url.searchParams.get('connectionId') ?? '', text);
-    case 'close-connection':
-      return admin.closeConnection(
-        url.searchParams.get('connectionId') ?? '',
-        Number(url.searchParams.get('code') ?? '1000'),
-        url.searchParams.get('reason') ?? '',
-      );
-    case 'notify-user':
-      return admin.notifyUser(userId, text);
-    case 'boot-user':
-      return admin.bootUser(userId) ?? null;
-    case 'announce-in':
-      return admin.announceIn(channel, text) ?? null;
-    case 'members-of':
-      return admin.membersOf(channel);
-    case 'kick-from':
-      return (await admin.kickFrom(channel, userId)) ?? null;
-    case 'schedule-announce':
-      return admin.scheduleAnnounce(Number(url.searchParams.get('delayMs') ?? '50'), text) ?? null;
-    case 'cancel-announce':
-      return admin.cancelAnnounce() ?? null;
-    case 'write-note':
-      return admin.writeNote(text) ?? null;
-    case 'read-notes':
-      return admin.readNotes();
-    case 'put-flag':
-      return (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null;
-    case 'get-flag':
-      return admin.getFlag(url.searchParams.get('key') ?? '');
-    case 'log-something':
-      return admin.logSomething(text) ?? null;
-    case 'has-platform':
-      return admin.hasPlatform();
-    default:
-      return UNKNOWN_OP;
-  }
+type AdminOperation = (admin: AdminStub, args: AdminOpArgs) => Promise<unknown> | unknown;
+
+const ADMIN_OPERATIONS: Record<string, AdminOperation> = {
+  'count-now': (admin) => admin.countNow(),
+  'who-is-online': (admin) => admin.whoIsOnline(),
+  'connection-ids-of': (admin, { userId }) => admin.connectionIdsOf(userId),
+  'poke-connection': (admin, { text, url }) =>
+    admin.pokeConnection(url.searchParams.get('connectionId') ?? '', text),
+  'close-connection': (admin, { url }) =>
+    admin.closeConnection(
+      url.searchParams.get('connectionId') ?? '',
+      Number(url.searchParams.get('code') ?? '1000'),
+      url.searchParams.get('reason') ?? '',
+    ),
+  'notify-user': (admin, { text, userId }) => admin.notifyUser(userId, text),
+  'boot-user': (admin, { userId }) => admin.bootUser(userId) ?? null,
+  'announce-in': (admin, { channel, text }) => admin.announceIn(channel, text) ?? null,
+  'members-of': (admin, { channel }) => admin.membersOf(channel),
+  'kick-from': async (admin, { channel, userId }) =>
+    (await admin.kickFrom(channel, userId)) ?? null,
+  'schedule-announce': (admin, { text, url }) =>
+    admin.scheduleAnnounce(Number(url.searchParams.get('delayMs') ?? '50'), text) ?? null,
+  'cancel-announce': (admin) => admin.cancelAnnounce() ?? null,
+  'write-note': (admin, { text }) => admin.writeNote(text) ?? null,
+  'read-notes': (admin) => admin.readNotes(),
+  'put-flag': async (admin, { text, url }) =>
+    (await admin.putFlag(url.searchParams.get('key') ?? '', text)) ?? null,
+  'get-flag': (admin, { url }) => admin.getFlag(url.searchParams.get('key') ?? ''),
+  'log-something': (admin, { text }) => admin.logSomething(text) ?? null,
+  'has-platform': (admin) => admin.hasPlatform(),
+};
+
+function runAdminOp(admin: AdminStub, op: string, args: AdminOpArgs): Promise<unknown> | unknown {
+  const operation = ADMIN_OPERATIONS[op];
+  return operation ? operation(admin, args) : UNKNOWN_OP;
 }
 
 /** Drive one built-in flat op the Cloudflare adapter projects onto the stub. */

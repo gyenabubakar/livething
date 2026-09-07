@@ -2,6 +2,8 @@ import { registerScheduledService } from '~/_engine/scheduling.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildScheduleSurfaceOptionsParameter = { time: number; data?: unknown };
+
 /** Unique key so the schedule surface installs once however many tasks are listed. */
 const SCHEDULE_SURFACE_KEY = Symbol('scheduled-surface');
 
@@ -12,7 +14,7 @@ const SCHEDULE_SURFACE_KEY = Symbol('scheduled-surface');
  */
 function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
   return {
-    schedule: (taskId: string, options: { time: number; data?: unknown }) => {
+    schedule: (taskId: string, options: BuildScheduleSurfaceOptionsParameter) => {
       engine.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled: (taskId: string, filter?: Record<string, unknown>) => {

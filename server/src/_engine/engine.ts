@@ -18,6 +18,8 @@ import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
+type OptionsParameter = { terminal?: boolean };
+
 type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
 type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
 type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
@@ -131,7 +133,7 @@ export class Engine<TApi = unknown> {
    * bindings it supplied. A non-terminal drain leaves alarm retries available
    * for runtimes such as Durable Objects that can receive more work later.
    */
-  async handleShutdown(options: { terminal?: boolean } = {}): Promise<void> {
+  async handleShutdown(options: OptionsParameter = {}): Promise<void> {
     const core = this.core;
     if (options.terminal) await stopAlarmCoordinator(core);
     try {

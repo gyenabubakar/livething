@@ -11,12 +11,13 @@ import { requestToWebRequest } from './request.ts';
 import type { NodeClientIpConfig } from './client-ip.ts';
 
 /** Creates the Node boundary between an HTTP upgrade and the WSKit engine. */
-export function createUpgradeHandler({
-  engine,
-  onAccepted,
-  webSocketServer = new WebSocketServer({ noServer: true }),
-  clientIp,
-}: NodeUpgradeHandlerOptions): NodeUpgradeHandler {
+export function createUpgradeHandler(options: NodeUpgradeHandlerOptions): NodeUpgradeHandler {
+  const {
+    engine,
+    onAccepted,
+    webSocketServer = new WebSocketServer({ noServer: true }),
+    clientIp,
+  } = options;
   const resolveClientIp = createClientIpResolver(clientIp);
 
   return async (request, socket, head) => {
@@ -103,13 +104,8 @@ export function createUpgradeHandler({
   };
 }
 
-async function rejectUpgrade({
-  webSocketServer,
-  request,
-  socket,
-  head,
-  decision,
-}: RejectUpgradeOptions): Promise<void> {
+async function rejectUpgrade(options: RejectUpgradeOptions): Promise<void> {
+  const { webSocketServer, request, socket, head, decision } = options;
   if (decision.code !== undefined && decision.code >= 1000) {
     await new Promise<void>((resolve, reject) => {
       try {

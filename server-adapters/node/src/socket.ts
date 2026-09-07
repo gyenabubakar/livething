@@ -16,11 +16,8 @@ export interface NodeWebSocketBridgeOptions {
 }
 
 /** Creates the engine handle and forwards lifecycle events from a `ws` socket. */
-export function createWebSocketBridge({
-  engine,
-  socket,
-  decision,
-}: NodeWebSocketBridgeOptions): ConnectionHandle {
+export function createWebSocketBridge(options: NodeWebSocketBridgeOptions): ConnectionHandle {
+  const { engine, socket, decision } = options;
   const descriptor: ConnectionDescriptor = {
     send: (data) => socket.send(data),
     close: (code, reason) => socket.close(code, reason),

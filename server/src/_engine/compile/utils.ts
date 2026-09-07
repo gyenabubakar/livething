@@ -4,6 +4,18 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
+type ValidateValueNormalizedValue = { message: string; path?: Array<string | number> };
+
+interface DeclarationLocation {
+  kind: string;
+  context: string;
+}
+
+interface UniqueEntry<V> {
+  value: V;
+  kind: string;
+}
+
 /**
  * Walk a list once and throw if any two items share the same key. Use this
  * before any `Map.set`/`Set.add`/object-key write loop — those collapse
@@ -14,7 +26,7 @@ import type * as PrimitiveCore from '~/primitive.ts';
 export function collectUnique<T>(
   items: readonly T[],
   keyFn: (item: T) => string,
-  where: { kind: string; context: string },
+  where: DeclarationLocation,
 ): readonly T[] {
   const seen = new Set<string>();
   for (const item of items) {
@@ -38,11 +50,7 @@ export function collectUnique<T>(
  * so the engine refuses to construct and the server doesn't start with a
  * half-broken contract.
  */
-export function setUniqueOrThrow<V>(
-  map: Map<string, V>,
-  key: string,
-  entry: { value: V; kind: string },
-): void {
+export function setUniqueOrThrow<V>(map: Map<string, V>, key: string, entry: UniqueEntry<V>): void {
   if (map.has(key)) {
     throw new WSKitConfigError(
       `Duplicate ${entry.kind} declaration for "${key}". ` +
@@ -116,7 +124,7 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
       throw ValidationFailed({
         event,
         issues: rawIssues.map((issue) => {
-          const normalized: { message: string; path?: Array<string | number> } = {
+          const normalized: ValidateValueNormalizedValue = {
             message: issue.message,
           };
           if (Array.isArray(issue.path)) {

@@ -9,6 +9,26 @@ import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
+type OptsParameter = { taskId: string; time: number; data: unknown };
+type OptsParameter2 = {
+  taskId: string;
+  filter?: Record<string, unknown>;
+};
+type OptsParameter3 = {
+  event: string;
+  payload: unknown;
+  correlationId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptsParameter4 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+};
+type CreateEngineAccessScopeParameter = { channelKey?: string };
+
 /** Callbacks engine-access can't build itself. Supplied by the facade. */
 export interface EngineAccessDeps {
   /** Install the scheduled runtime if not already installed. */
@@ -16,12 +36,9 @@ export interface EngineAccessDeps {
   /** Build a fresh task context for scheduled task handlers. */
   createTaskContext(): unknown;
   /** Queue one future scheduled task run. */
-  scheduleTask(opts: { taskId: string; time: number; data: unknown }): void;
+  scheduleTask(opts: OptsParameter): void;
   /** Remove queued runs for one scheduled task id. */
-  cancelScheduled(opts: {
-    taskId: string;
-    filter?: Record<string, unknown>;
-  }): ScheduledCancelResult;
+  cancelScheduled(opts: OptsParameter2): ScheduledCancelResult;
   /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
   /**
@@ -37,23 +54,9 @@ export interface EngineAccessDeps {
    */
   buildContextForConnection(connectionId: string): unknown;
   /** Send a server→client request frame through the outgoing pipeline. */
-  sendServerRequest(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      correlationId: string;
-      channel?: string;
-      channelFamily?: string | null;
-    },
-  ): boolean;
+  sendServerRequest(connectionId: string, opts: OptsParameter3): boolean;
   /** Broadcast one already-built protocol frame to every live member of a channel. */
-  broadcastToChannel(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-  }): void;
+  broadcastToChannel(opts: OptsParameter4): void;
   /** Count the live members currently in a channel. */
   channelMemberCount(channelName: string, channelFamily: string | null): number;
 }
@@ -67,7 +70,7 @@ export interface EngineAccessDeps {
 export function createEngineAccess(
   core: EngineCore,
   deps: EngineAccessDeps,
-  scope?: { channelKey?: string },
+  scope?: CreateEngineAccessScopeParameter,
 ): EngineAccessModule.EngineAccess {
   let onUpgradeCalled = false;
   return {

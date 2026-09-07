@@ -1,6 +1,8 @@
 import { familyToDb } from '~/inbox/db-keys.ts';
 import type { SQLProvider } from '~/context.ts';
 
+type LoadInboxBacklogParamsParameter = { channelName: string; channelFamily: string | null };
+
 /** One member's raw backlog figures for a channel, read straight from SQL. */
 export interface InboxBacklogRow {
   userId: string;
@@ -18,7 +20,7 @@ export interface InboxBacklogRow {
  */
 export function loadInboxBacklog(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { channelName: string; channelFamily: string | null },
+  params: LoadInboxBacklogParamsParameter,
 ): InboxBacklogRow[] {
   const family = familyToDb(params.channelFamily);
   return sql

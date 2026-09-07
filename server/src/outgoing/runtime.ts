@@ -10,6 +10,23 @@ import type { OutgoingHookEntry } from '~/_engine/runtime/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
+type RunOutgoingHooksMessageParameter = { event: string; payload: unknown };
+type BroadcastToChannelOptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+  seq: number;
+  messageId: string;
+  /**
+   * Skip writing an inbox row for this user. Set only when the broadcast
+   * excludes their one and only connection in this channel — otherwise
+   * they would never receive (and so never acknowledge) the live frame,
+   * and the stored row would look like an unread message forever.
+   */
+  excludeUserId?: string;
+};
+
 /**
  * Minimal dependency bag for outgoing message helpers.
  */
@@ -89,7 +106,7 @@ function serializePayloadOrThrow(event: string, payload: Record<string, unknown>
 /** Run the owner-tagged outgoing hooks and return the (possibly rewritten) message. */
 function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  message: { event: string; payload: unknown },
+  message: RunOutgoingHooksMessageParameter,
 ): { event: string; payload: unknown } {
   let current = message;
 
@@ -494,21 +511,7 @@ export function broadcastToChannel(
        * and its inbox row share one identity. Runs once, before the recipient
        * loop. A no-op for a non-inbox channel. Set only when `inbox()` is listed.
        */
-      inboxFanOut?: (opts: {
-        channelName: string;
-        channelFamily: string | null;
-        event: string;
-        payload: Record<string, unknown>;
-        seq: number;
-        messageId: string;
-        /**
-         * Skip writing an inbox row for this user. Set only when the broadcast
-         * excludes their one and only connection in this channel — otherwise
-         * they would never receive (and so never acknowledge) the live frame,
-         * and the stored row would look like an unread message forever.
-         */
-        excludeUserId?: string;
-      }) => void;
+      inboxFanOut?: (opts: BroadcastToChannelOptsParameter) => void;
     },
   opts: BroadcastToChannelOptions,
 ): void {

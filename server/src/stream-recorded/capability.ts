@@ -11,6 +11,8 @@ import { toNudgeDefs, wrapStreamGenerator } from '~/stream/shared.ts';
 import type { Capability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildDurableSweepCtxParameter = { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] };
+
 /** A `recordedStream()` capability, carrying the builder that turns a config into a primitive. */
 export interface RecordedStreamCapability extends Capability<{}, never, 'recordedStream'> {
   /** Build a recorded-stream primitive from a `base.recordedStream(...)` config. @internal */
@@ -21,7 +23,7 @@ export interface RecordedStreamCapability extends Capability<{}, never, 'recorde
 
 function buildDurableSweep(): Primitive {
   return scheduledFactory('__wskit:stream-durable-sweep', (b) =>
-    b.every(60_000).run((ctx: { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] }) => {
+    b.every(60_000).run((ctx: BuildDurableSweepCtxParameter) => {
       ensureDurableStreamSchema(ctx.sql);
       sweepDurableStreams({ sql: ctx.sql });
     }),

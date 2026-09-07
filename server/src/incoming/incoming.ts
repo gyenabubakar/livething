@@ -3,6 +3,11 @@ import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
+interface IncomingOptions<TPayload> {
+  validator?: Validator<TPayload>;
+  allowInterleaving?: boolean;
+}
+
 /** Handler function for a client→server event. */
 export type IncomingHandler<TCtx = any, TPayload = unknown> = (
   ctx: TCtx,
@@ -43,7 +48,7 @@ const INCOMING_KEY = Symbol('incoming');
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,
   handler: IncomingHandler<TCtx, TPayload>,
-  options?: { validator?: Validator<TPayload>; allowInterleaving?: boolean },
+  options?: IncomingOptions<TPayload>,
 ): IncomingPrimitive<TEvent, TPayload, TCtx> {
   assertValidWSKitIdentifier(event, 'incoming() event name');
   return {

@@ -45,6 +45,11 @@ type SocketEvents = {
 
 type ServerErrorRegistration = { code?: string };
 
+interface TeardownOptions {
+  intentional: boolean;
+  suspended: boolean;
+}
+
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -246,11 +251,8 @@ export class WSKitSocket {
    * platform pause (`suspend`) that will resume as the same session — both are
    * passed to each primitive's `onClose`.
    */
-  private _teardown(
-    code: number,
-    reason: string,
-    { intentional, suspended }: { intentional: boolean; suspended: boolean },
-  ): void {
+  private _teardown(code: number, reason: string, options: TeardownOptions): void {
+    const { intentional, suspended } = options;
     this._intentionalClose = true;
     this._connectAttemptId++;
     if (intentional) this._isFirstConnect = true;
@@ -958,7 +960,7 @@ export class WSKitSocket {
   /** Surface an unclaimed server error without routing it to the local error event. */
   _reportServerError(error: WSKitError): void {
     const handled = [...this._serverErrorRegistrations].some(
-      ({ code }) => code === undefined || code === error.code,
+      (registration) => registration.code === undefined || registration.code === error.code,
     );
     if (handled) {
       this._emitter.emit('serverError', error);

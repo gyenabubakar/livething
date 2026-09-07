@@ -201,7 +201,8 @@ class ReplayInstaller {
   private readonly opts: ReplayOptions;
   private readonly pruneGate = new ReplayPruneGate();
 
-  constructor({ engine, channelKey, exclude, opts }: ReplayInstallerOptions) {
+  constructor(options: ReplayInstallerOptions) {
+    const { engine, channelKey, exclude, opts } = options;
     this.engine = engine;
     this.channelKey = channelKey;
     this.exclude = exclude;

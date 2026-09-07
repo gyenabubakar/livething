@@ -9,6 +9,18 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
 import type * as EngineContextTypes from './types.ts';
 
+type BuildConnectionContextScopeParameter = {
+  channel?: EngineCompileTypes.CompiledChannel;
+  channelName?: string;
+  channelFamily?: string | null;
+  isSubscribeGate?: boolean;
+};
+type ToConnectionInfoOptsParameter = {
+  hibernationEnabled?: boolean;
+  lastSeenAt?: (userId: string) => number | null;
+  lastSeen?: number | null;
+};
+
 /**
  * Symbol key used to attach channel metadata (channel name) to a handler context.
  *
@@ -290,12 +302,7 @@ function contextPrototype(deps: EngineContextTypes.BuildConnectionContextDeps): 
 export function buildConnectionContext(
   deps: EngineContextTypes.BuildConnectionContextDeps,
   connection: EngineRuntimeTypes.RuntimeConnection,
-  scope?: {
-    channel?: EngineCompileTypes.CompiledChannel;
-    channelName?: string;
-    channelFamily?: string | null;
-    isSubscribeGate?: boolean;
-  },
+  scope?: BuildConnectionContextScopeParameter,
 ): PublicApi.ConnectionContext<Record<string, unknown>, unknown> & Record<PropertyKey, unknown> {
   const { sql, kv } = deps.getStorageView();
 
@@ -349,11 +356,7 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineRuntimeTypes.RuntimeConnection,
   instanceId: string | undefined,
-  opts?: {
-    hibernationEnabled?: boolean;
-    lastSeenAt?: (userId: string) => number | null;
-    lastSeen?: number | null;
-  },
+  opts?: ToConnectionInfoOptsParameter,
 ): PublicApi.ConnectionInfo<Record<string, unknown>> {
   const hibernationEnabled = opts?.hibernationEnabled;
   const info: PublicApi.ConnectionInfo<Record<string, unknown>> = {

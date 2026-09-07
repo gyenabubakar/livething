@@ -14,6 +14,24 @@ import type { ChannelHooks, RuntimeConnection } from '~/_engine/runtime/types.ts
 import type { ConnectionInfo, Logger } from '~/context.ts';
 import type { NotifyValidationErrorOptions, SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
+type ScopeParameter = {
+  channel?: CompiledChannel;
+  channelName?: string;
+  channelFamily?: string | null;
+  isSubscribeGate?: boolean;
+};
+type OptionsParameter = { force?: boolean };
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+};
+type RollbackFailedSubscribeOptsParameter = {
+  scope: ResolvedChannelTarget;
+  isDurable: boolean;
+  rejoining: boolean;
+};
+
 /**
  * Tracks which channel a connection is subscribed to.
  *
@@ -164,20 +182,12 @@ interface ChannelRuntime extends ChannelHooks {
 
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: {
-      channel?: CompiledChannel;
-      channelName?: string;
-      channelFamily?: string | null;
-      isSubscribeGate?: boolean;
-    },
+    scope?: ScopeParameter,
   ): Record<PropertyKey, unknown>;
 
-  persistAttachment(connection: RuntimeConnection, options?: { force?: boolean }): void;
+  persistAttachment(connection: RuntimeConnection, options?: OptionsParameter): void;
 
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 
   broadcastToChannel(opts: BroadcastToChannelOptions): void;
 
@@ -301,6 +311,38 @@ export interface LeaveChannelOptions {
   keepDurableRow?: boolean;
 }
 
+interface ClearDurableLeaveStateInput {
+  scope: ChannelTarget;
+  isTrueLeave: boolean;
+  isDurable: boolean | undefined;
+  keepDurableRow: boolean | undefined;
+}
+
+function clearDurableLeaveState(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  input: ClearDurableLeaveStateInput,
+): void {
+  const { scope, isTrueLeave, isDurable, keepDurableRow } = input;
+  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
+  const userHasAnotherConnectionHere =
+    connection.userId !== '' &&
+    [...(runtime.channelMembers.get(memberKey) ?? [])].some(
+      (member) => member.userId === connection.userId,
+    );
+  if (
+    !isTrueLeave ||
+    (!isDurable && scope.channel) ||
+    keepDurableRow ||
+    userHasAnotherConnectionHere
+  ) {
+    return;
+  }
+  runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
+  if (connection.userId)
+    runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
+}
+
 export async function leaveChannel(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
@@ -323,29 +365,7 @@ export async function leaveChannel(
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  // Durable membership and the inbox are stored per USER, but a leave is per
-  // CONNECTION — the same user can be in this channel from another tab. Only
-  // drop the user-scoped state once their last connection in this channel is
-  // gone. `connection` was already removed from `channelMembers` above, so any
-  // remaining member sharing this user id is a genuinely separate connection.
-  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelFamily);
-  const userHasAnotherConnectionHere =
-    connection.userId !== '' &&
-    [...(runtime.channelMembers.get(memberKey) ?? [])].some(
-      (member) => member.userId === connection.userId,
-    );
-
-  if (
-    isTrueLeave &&
-    (isDurable || !scope.channel) &&
-    !keepDurableRow &&
-    !userHasAnotherConnectionHere
-  ) {
-    runtime.deleteDurableMembership(connection.userId, scope.channelName, scope.channelFamily);
-    if (connection.userId) {
-      runtime.clearInbox?.(connection.userId, scope.channelName, scope.channelFamily);
-    }
-  }
+  clearDurableLeaveState(runtime, connection, { scope, isTrueLeave, isDurable, keepDurableRow });
 
   // Hold the first hook throw and re-throw at the end so the rest of the leave
   // still runs. Callers still see the rejection.
@@ -430,56 +450,33 @@ interface RunSubscribeFlowOptions {
   rejoining?: boolean;
 }
 
-async function runSubscribeFlow(
-  runtime: ChannelRuntime,
-  connection: RuntimeConnection,
-  opts: RunSubscribeFlowOptions,
-): Promise<void> {
-  const { data, source, rejoining = false } = opts;
-  const scope: ResolvedChannelTarget = opts;
+interface SubscribeGatesInput {
+  runtime: ChannelRuntime;
+  connection: RuntimeConnection;
+  opts: RunSubscribeFlowOptions;
+  scope: ResolvedChannelTarget;
+}
 
-  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily)) {
-    return;
-  }
-
-  const ctx = runtime.buildConnectionContext(connection, scope);
-
-  // `check`/`commit`/`revalidate` run inline in the `base.channel(...)` config,
-  // alongside the `capabilities` array they would need to infer their brand
-  // from, so they are typed with no channel-owned capability members
-  // (`ctx.channel.inbox`, `ctx.channel.readReceipts`, or its request verbs).
-  // Build a separate ctx carrying the `isSubscribeGate` marker for them, so
-  // channel-only extenders and channel request wiring skip attaching those
-  // members here — the shared `ctx` above (used for `subscribe` below) is
-  // untouched. Built lazily, and only when a gate hook is actually registered
-  // for this channel.
+async function runSubscribeGates(input: SubscribeGatesInput): Promise<boolean> {
+  const { runtime, connection, opts, scope } = input;
+  const { data, rejoining = false } = opts;
   let gateCtx: Record<PropertyKey, unknown> | undefined;
-  function buildGateCtx(): Record<PropertyKey, unknown> {
+  function getGateCtx(): Record<PropertyKey, unknown> {
     return (gateCtx ??= runtime.buildConnectionContext(connection, {
       ...scope,
       isSubscribeGate: true,
     }));
   }
 
-  // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
-  // `revalidate` instead — no payload, revocation only — so a payload-gated
-  // `check` is never handed an undefined payload on reconnect.
   let checkResult: unknown;
   if (rejoining) {
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
       try {
-        await revalidateHook(buildGateCtx());
+        await revalidateHook(getGateCtx());
       } catch (error) {
-        // A config error is a framework misconfig, not a revocation — let it
-        // propagate so auto-rejoin keeps the membership instead of dropping it.
         rethrowIfConfigError(error);
-        // Any other throw is the gate revoking access. Normalize it so the
-        // auto-rejoin catch can tell a revoke apart from a storage/internal
-        // failure and only drop the durable row for a real revoke.
-        throw RejoinRejected({
-          message: error instanceof Error ? error.message : String(error),
-        });
+        throw RejoinRejected({ message: error instanceof Error ? error.message : String(error) });
       }
     }
   } else {
@@ -499,44 +496,51 @@ async function runSubscribeFlow(
           throw error;
         }
       }
-      checkResult = await checkHook.handler(buildGateCtx(), validatedData);
+      checkResult = await checkHook.handler(getGateCtx(), validatedData);
     }
   }
+
+  const isDurable = runtime.isChannelDurable(scope.channel.key);
+
+  if (!rejoining) {
+    const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
+    if (commitHook) {
+      const result: unknown = commitHook.handler(getGateCtx(), checkResult);
+      if (
+        result !== null &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        typeof (result as { then?: unknown }).then === 'function'
+      ) {
+        throw new WSKitConfigError('commit() must be synchronous.');
+      }
+    }
+  }
+  return isDurable;
+}
+
+async function runSubscribeFlow(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  opts: RunSubscribeFlowOptions,
+): Promise<void> {
+  const { source, rejoining = false } = opts;
+  const scope: ResolvedChannelTarget = opts;
 
   if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily)) {
     return;
   }
 
-  const isDurable = runtime.isChannelDurable(scope.channel.key);
+  const ctx = runtime.buildConnectionContext(connection, scope);
 
-  // Re-check durable membership here — a leave that finished after phase 1
-  // may have already cleared the row.
+  const isDurable = await runSubscribeGates({ runtime, connection, opts, scope });
+  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelFamily))
+    return;
   if (
     rejoining &&
-    isDurable &&
+    isDurable === true &&
     !runtime.hasDurableMembership(connection.userId, scope.channelName, scope.channelFamily)
   ) {
     return;
-  }
-
-  // commit is the first-subscribe capacity/final gate. Auto-rejoin skips it — a
-  // returning member already holds a seat and must not be re-counted against a
-  // cap that filled while they were away.
-  if (!rejoining) {
-    const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
-    if (commitHook) {
-      const r: unknown = commitHook.handler(buildGateCtx(), checkResult);
-      // Detect any thenable — a native Promise, a cross-realm Promise, or a
-      // custom `{ then() {} }` — not just `instanceof Promise`. An async-like
-      // commit must fail before membership is written.
-      if (
-        r !== null &&
-        (typeof r === 'object' || typeof r === 'function') &&
-        typeof (r as { then?: unknown }).then === 'function'
-      ) {
-        throw new WSKitConfigError('commit() must be synchronous.');
-      }
-    }
   }
 
   // Write the durable membership row first. If the SQL write throws, the
@@ -643,7 +647,7 @@ async function runSubscribeFlow(
 function rollbackFailedSubscribe(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
-  opts: { scope: ResolvedChannelTarget; isDurable: boolean; rejoining: boolean },
+  opts: RollbackFailedSubscribeOptsParameter,
 ): void {
   const { scope, isDurable, rejoining } = opts;
   removeChannelMembership(runtime.channelMembers, connection, scope);

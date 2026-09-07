@@ -6,6 +6,38 @@ import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
+type CheckEventsInScopeScopeParameter = {
+  outgoing: ReadonlyMap<string, unknown>;
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
+type CheckScopeParameter = {
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, unknown>;
+  resumableStreams?: ReadonlyMap<string, unknown>;
+  recordedStreams?: ReadonlyMap<string, unknown>;
+};
+type CollectFromScopeScopeParameter = {
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  outgoing: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
+type CheckScopeScopeParameter = {
+  outgoing: ReadonlyMap<string, unknown>;
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+  resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+  recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+};
+
 /**
  * Walk the top-level primitives into the compiled lookup maps. Returns the
  * channel disjointness validator (carried by any channel primitive seen), or
@@ -288,17 +320,7 @@ function validateScopeAndEventNameSyntax(
     }
   }
 
-  function checkEventsInScope(
-    scope: {
-      outgoing: ReadonlyMap<string, unknown>;
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-    },
-    scopeLabel: string,
-  ): void {
+  function checkEventsInScope(scope: CheckEventsInScopeScopeParameter, scopeLabel: string): void {
     for (const event of scope.outgoing.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.incoming.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.requests.keys()) checkEventName(event, scopeLabel);
@@ -352,16 +374,7 @@ function validateScopeAndEventNameSyntax(
 function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
 ): void {
-  function check(
-    scope: {
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, unknown>;
-      resumableStreams?: ReadonlyMap<string, unknown>;
-      recordedStreams?: ReadonlyMap<string, unknown>;
-    },
-    label: string,
-  ): void {
+  function check(scope: CheckScopeParameter, label: string): void {
     const resumable = scope.resumableStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
@@ -427,17 +440,7 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
  * Collect every plugin-provenance event name in one scope — plain events plus
  * the nudge names a plugin stream declares (those travel as their own frames).
  */
-function collectFromScope(
-  scope: {
-    incoming: ReadonlyMap<string, unknown>;
-    requests: ReadonlyMap<string, unknown>;
-    outgoing: ReadonlyMap<string, unknown>;
-    streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-    resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-    recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-  },
-  names: Set<string>,
-): void {
+function collectFromScope(scope: CollectFromScopeScopeParameter, names: Set<string>): void {
   for (const map of [scope.incoming, scope.requests, scope.outgoing]) {
     for (const [event, primitive] of map) {
       if ((primitive as { __plugin?: string }).__plugin) names.add(event);
@@ -502,17 +505,7 @@ function validateNoReservedEventNames(
     }
   }
 
-  function checkScope(
-    scope: {
-      outgoing: ReadonlyMap<string, unknown>;
-      incoming: ReadonlyMap<string, unknown>;
-      requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
-      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
-      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
-    },
-    label: string,
-  ): void {
+  function checkScope(scope: CheckScopeScopeParameter, label: string): void {
     for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
     for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
     for (const event of scope.requests.keys()) check(event, `${label} request`);

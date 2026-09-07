@@ -13,6 +13,13 @@ export interface PendingQuery {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface ReceiptQueryArgs {
+  scope: ScopeInfo;
+  seq: number;
+  event: ReceiptQueryEvent;
+  timeout: number;
+}
+
 /**
  * Send a receipt query and resolve once the matching answer arrives. Each
  * primitive keeps its own `pending` map keyed on correlationId and its own event
@@ -22,7 +29,7 @@ export interface PendingQuery {
 export function runReceiptQuery(
   helpers: PrimitiveHelpers,
   pending: Map<string, PendingQuery>,
-  args: { scope: ScopeInfo; seq: number; event: ReceiptQueryEvent; timeout: number },
+  args: ReceiptQueryArgs,
 ): Promise<string[]> {
   const { scope, seq, event, timeout } = args;
   return new Promise<string[]>((resolve, reject) => {

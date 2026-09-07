@@ -1,6 +1,8 @@
 import { chunkForBind } from '~/_engine/sql-batch.ts';
 import type { SQLProvider } from '~/context.ts';
 
+type StampLastSeenParamsParameter = { userId: string; now: number };
+
 const CREATE_LAST_SEEN_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_last_seen (
     user_id      TEXT PRIMARY KEY,
@@ -21,7 +23,7 @@ export function ensureLastSeenSchema(sql: Pick<SQLProvider, 'exec'>): void {
  */
 export function stampLastSeen(
   sql: Pick<SQLProvider, 'exec'>,
-  params: { userId: string; now: number },
+  params: StampLastSeenParamsParameter,
 ): void {
   if (!params.userId) return;
   sql.exec(

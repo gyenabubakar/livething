@@ -3,6 +3,8 @@ import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
+type AssertLocalRefRefParameter = { readonly instance: string | undefined };
+
 /** The slice of engine deps the connection handle needs to route a send. */
 type ConnectionHandleDeps = Pick<
   EngineContextTypes.ContextCommonDeps,
@@ -66,7 +68,7 @@ export function buildConnectionHandle(deps: ConnectionHandleDeps): {
  * @param opLabel    The operation name stored in the error detail, e.g. `ctx.connections.get(ref).send`.
  */
 export function assertLocalRef(
-  ref: { readonly instance: string | undefined },
+  ref: AssertLocalRefRefParameter,
   instanceId: string | undefined,
   opLabel: string,
 ): void {

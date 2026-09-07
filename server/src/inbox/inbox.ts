@@ -27,6 +27,13 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { InboxOptions } from '~/inbox/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type BuildReceivedHandlerDepsParameter = {
+  engine: EngineAccess;
+  channelKey: string;
+  options: ResolvedInboxOptions;
+};
+type BuildReceivedQueryHandlerDepsParameter = { engine: EngineAccess; channelKey: string };
+
 /** The primitive type produced by the `inbox()` capability for one channel. */
 export interface InboxPrimitive extends Primitive<'inbox'> {
   readonly options: ResolvedInboxOptions;
@@ -172,11 +179,7 @@ function buildInboxContext(engine: EngineAccess, channelKey: string) {
   };
 }
 
-function buildReceivedHandler(deps: {
-  engine: EngineAccess;
-  channelKey: string;
-  options: ResolvedInboxOptions;
-}) {
+function buildReceivedHandler(deps: BuildReceivedHandlerDepsParameter) {
   const { engine, channelKey, options } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__received__') return false;
@@ -232,7 +235,7 @@ function buildReceivedHandler(deps: {
  * `__receivedQuery__` event name and echoes the query's correlationId. Owned by
  * `inbox()`, so it works with or without `readReceipts()` present.
  */
-function buildReceivedQueryHandler(deps: { engine: EngineAccess; channelKey: string }) {
+function buildReceivedQueryHandler(deps: BuildReceivedQueryHandlerDepsParameter) {
   const { engine, channelKey } = deps;
   return (ctx: unknown, frame: Protocol.IncomingProtocolFrame): boolean => {
     if (frame.event !== '__receivedQuery__') return false;

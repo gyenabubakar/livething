@@ -28,6 +28,27 @@ import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedChannel, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
 
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+};
+type OptsParameter2 = {
+  routing:
+    | {
+        channel?: string;
+        channelFamily?: string | null;
+        streamId?: string;
+        seq?: number;
+        streamKind?: 'ephemeral' | 'persistent';
+      }
+    | undefined;
+  event: string;
+  payload: unknown;
+};
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type OptsParameter4 = { event: string; validationError: unknown; scope?: ResolvedChannel };
+
 /**
  * The small runtime surface stream helpers need from the engine.
  *
@@ -51,39 +72,15 @@ interface StreamRuntime {
     scope?: ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: RuntimeConnection, opts: OptsParameter): void;
 
-  sendThroughPipeline(
-    connection: RuntimeConnection,
-    opts: {
-      routing:
-        | {
-            channel?: string;
-            channelFamily?: string | null;
-            streamId?: string;
-            seq?: number;
-            streamKind?: 'ephemeral' | 'persistent';
-          }
-        | undefined;
-      event: string;
-      payload: unknown;
-    },
-  ): boolean;
+  sendThroughPipeline(connection: RuntimeConnection, opts: OptsParameter2): boolean;
 
   asyncContext: EngineAsyncContext;
 
-  handleRuntimeError(
-    connection: RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
-  ): Promise<void>;
+  handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
 
-  handleValidationError(
-    connection: RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: ResolvedChannel },
-  ): Promise<void>;
+  handleValidationError(connection: RuntimeConnection, opts: OptsParameter4): Promise<void>;
 
   connections: Map<string, RuntimeConnection>;
 

@@ -7,6 +7,19 @@ import type * as PublicApi from '~/context.ts';
 import { assertLocalRef } from './refs.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
+type OptsParameter = {
+  event: string;
+  validationError: unknown;
+  scope?: EngineRuntimeTypes.ResolvedChannel;
+};
+type OptsParameter2 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type SubscribeFromServerRefParameter = {
+  __wskit: 'connection-ref';
+  id: string;
+  instance: string | undefined;
+  userId: string;
+};
+
 /**
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
@@ -30,12 +43,12 @@ interface ChannelRuntime
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
+    opts: OptsParameter,
   ): Promise<void>;
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
+    opts: OptsParameter2,
   ): Promise<void>;
 
   isChannelDurable(channelKey: string): boolean;
@@ -147,7 +160,7 @@ export async function subscribeFromServer(
       | 'outgoingHooks'
       | 'wskitStampHooks'
     > & { instanceId: string | undefined },
-  ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; userId: string },
+  ref: SubscribeFromServerRefParameter,
   opts: SubscribeFromServerOptions,
 ): Promise<void> {
   const { channelName, channelFamily, payload, rejoining = false } = opts;

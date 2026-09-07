@@ -2,6 +2,10 @@ import { CloseCodes } from '@wskit/core';
 import { isValidCloseCode } from '~/_engine/close-code.ts';
 import type { ConnectionDescriptor } from './types.ts';
 
+type NormalizeConnectionDescriptorOptionsParameter = {
+  onInvalidCloseCode?: (code: unknown) => void;
+};
+
 const MAX_CLOSE_REASON_BYTES = 123;
 
 /**
@@ -30,7 +34,7 @@ export function normalizeCloseReason(reason?: string): string | undefined {
 /** Apply the shared close-reason rule to an accepted connection descriptor. */
 export function normalizeConnectionDescriptor(
   descriptor: ConnectionDescriptor,
-  options: { onInvalidCloseCode?: (code: unknown) => void } = {},
+  options: NormalizeConnectionDescriptorOptionsParameter = {},
 ): ConnectionDescriptor {
   return {
     send(data) {

@@ -14,6 +14,11 @@ import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayWire } from '../wire.ts';
 
+type CreateTopLevelReplayContextRequestParameter = {
+  channel: string | null;
+  channelFamily: string | null;
+};
+
 /**
  * Discriminates the scope a `CustomReplayPrimitive` or its context operates in.
  * - `'top'` — top-level connection scope.
@@ -295,7 +300,7 @@ function baseConnectionId(baseCtx: Record<PropertyKey, unknown>): string {
 function createTopLevelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
-  request: { channel: string | null; channelFamily: string | null },
+  request: CreateTopLevelReplayContextRequestParameter,
 ): TopLevelReplayContext {
   const connectionId = baseConnectionId(baseCtx);
   return {

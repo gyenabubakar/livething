@@ -8,6 +8,15 @@ import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
+type OptsParameter = {
+  channelName: string;
+  channelFamily: string | null;
+  to: ChannelRuntime.ChannelRecipient;
+  event: string;
+  payload: unknown;
+};
+type OptsParameter2 = { lastSeen?: number | null };
+
 /**
  * Hidden channel markers attached to live connection contexts for engine-owned
  * helpers and primitive context extenders.
@@ -76,13 +85,7 @@ export interface ContextCommonDeps {
    * returning the number of sockets reached. Backs `ctx.channel.send(..., { to })`
    * and the equivalent on any `ChannelHandle`.
    */
-  sendToChannelRecipient(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    to: ChannelRuntime.ChannelRecipient;
-    event: string;
-    payload: unknown;
-  }): number;
+  sendToChannelRecipient(opts: OptsParameter): number;
 
   getChannelMembers(
     channelName: string,
@@ -120,7 +123,7 @@ export interface ContextCommonDeps {
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts?: { lastSeen?: number | null },
+    opts?: OptsParameter2,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
 
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];

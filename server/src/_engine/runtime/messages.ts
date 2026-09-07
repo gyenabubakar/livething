@@ -22,7 +22,50 @@ import { resolveChannel, routingFromWSKit } from './scope.ts';
 import { runConnectionWork } from './work-queue.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
+type MessageParameter = { event: string; payload: unknown };
+type FrameParameter = {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+};
+type OptsParameter = {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+};
+type OptsParameter2 = {
+  channelName: string | null;
+  channelFamily: string | null;
+  event: string;
+  payload: unknown;
+  wire: { seq: number; messageId: string; channel?: string };
+};
+type OptsParameter3 = { error: unknown; event?: string; routing?: Protocol.WSKitRouting };
+type OptsParameter4 = {
+  event: string;
+  validationError: unknown;
+  scope?: EngineRuntimeTypes.ResolvedChannel;
+};
+
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
+
+interface ValidationIssue {
+  message: string;
+  path?: Array<string | number>;
+}
+
+interface ValidationPathSegment {
+  key?: unknown;
+}
+
+interface InterceptRoutingFields {
+  messageId?: string;
+  correlationId?: string;
+  streamId?: string;
+  channel?: string;
+  channelFamily?: string | null;
+  seq?: number;
+}
 
 /**
  * Whether a connection currently holds a channel membership. Computed inline
@@ -70,12 +113,9 @@ interface DispatchRuntime
     ) => boolean | void | Promise<boolean | void>)[]
   >;
 
-  incomingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+  incomingHooks: readonly ((message: MessageParameter) => unknown | void)[];
 
-  answerFrameHooks: readonly ((
-    connectionId: string,
-    frame: { event: string; payload: unknown; wskit: Protocol.WSKitProtocol | undefined },
-  ) => boolean)[];
+  answerFrameHooks: readonly ((connectionId: string, frame: FrameParameter) => boolean)[];
 
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
@@ -92,21 +132,9 @@ interface DispatchRuntime
     scope?: EngineRuntimeTypes.ResolvedChannel,
   ): Record<PropertyKey, unknown>;
 
-  sendProtocolMessage(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
-  ): void;
+  sendProtocolMessage(connection: EngineRuntimeTypes.RuntimeConnection, opts: OptsParameter): void;
 
-  sendReplay(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: {
-      channelName: string | null;
-      channelFamily: string | null;
-      event: string;
-      payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string };
-    },
-  ): void;
+  sendReplay(connection: EngineRuntimeTypes.RuntimeConnection, opts: OptsParameter2): void;
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
@@ -114,12 +142,12 @@ interface DispatchRuntime
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
+    opts: OptsParameter3,
   ): Promise<void>;
 
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedChannel },
+    opts: OptsParameter4,
   ): Promise<void>;
 
   broadcastToConnections(
@@ -168,11 +196,11 @@ function toValidationFailed(event: string, error: unknown): WSKitError {
     return ValidationFailed({
       event,
       issues: error.issues.map((issue) => {
-        const normalized: { message: string; path?: Array<string | number> } = {
+        const normalized: ValidationIssue = {
           message: issue.message,
         };
         const path = issue.path
-          ?.map((segment: { key?: unknown }) => segment.key)
+          ?.map((segment: ValidationPathSegment) => segment.key)
           .filter(
             (key: unknown): key is string | number =>
               typeof key === 'string' || typeof key === 'number',
@@ -231,14 +259,7 @@ function buildInterceptRouting(
   wskit: Protocol.WSKitProtocol | undefined,
 ): InterceptPrimitive.InterceptRouting {
   if (!wskit) return {};
-  const routing: {
-    messageId?: string;
-    correlationId?: string;
-    streamId?: string;
-    channel?: string;
-    channelFamily?: string | null;
-    seq?: number;
-  } = {};
+  const routing: InterceptRoutingFields = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
@@ -712,7 +733,7 @@ type ConnectionHook = (connectionId: string) => void | Promise<void>;
 async function runConnectionHooks(
   hooks: readonly ConnectionHook[],
   hookName: string,
-  observed: { connectionId: string; logger: DispatchRuntime['logger'] },
+  observed: ConnectionHookObservation,
 ): Promise<void> {
   for (const hook of hooks) {
     try {
@@ -728,6 +749,24 @@ async function runConnectionHooks(
 
 type PluginConnectionHook = { handler: (ctx: unknown) => void | Promise<void> };
 
+interface ConnectionHookObservation {
+  connectionId: string;
+  logger: DispatchRuntime['logger'];
+}
+
+interface PluginConnectionHookObservation extends ConnectionHookObservation {
+  ctx: unknown;
+}
+
+interface StreamNudgeBufferInput {
+  runtime: DispatchRuntime;
+  connection: RuntimeConnection;
+  event: string;
+  frame: Protocol.UserEventFrame;
+  wskit: Protocol.WSKitProtocol | undefined;
+  triggerScope: EngineRuntimeTypes.ResolvedChannel;
+}
+
 /**
  * Run each plugin's `onPing` / `onPong` observer against the same scoped ctx it
  * would see in any other lifecycle hook, isolating a throw the same way
@@ -736,7 +775,7 @@ type PluginConnectionHook = { handler: (ctx: unknown) => void | Promise<void> };
 async function runPluginConnectionHooks(
   hooks: readonly PluginConnectionHook[],
   hookName: string,
-  observed: { connectionId: string; logger: DispatchRuntime['logger']; ctx: unknown },
+  observed: PluginConnectionHookObservation,
 ): Promise<void> {
   for (const entry of hooks) {
     try {
@@ -748,6 +787,88 @@ async function runPluginConnectionHooks(
       });
     }
   }
+}
+
+async function bufferNudgeIfNeeded(input: StreamNudgeBufferInput): Promise<boolean> {
+  const { runtime, connection, event, frame, wskit, triggerScope } = input;
+  if (!wskit?.streamId) return false;
+  const activeStream = runtime.activeStreams.get(wskit.streamId);
+  if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
+    const storedScope = activeStream.scope ?? {};
+    const sameScope =
+      (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
+      (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
+    const memberOk =
+      !storedScope.channelName ||
+      connectionHoldsMembership(
+        connection,
+        storedScope.channelName,
+        storedScope.channelFamily ?? null,
+      );
+    if (!sameScope || !memberOk) {
+      const routing: Protocol.WSKitRouting = { streamId: wskit.streamId, streamTerminated: false };
+      if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
+      await runtime.handleRuntimeError(connection, {
+        error: ChannelNotSubscribed(),
+        event,
+        routing,
+      });
+      return true;
+    }
+  }
+
+  let payload = frame.payload;
+  const interceptScope = activeStream?.scope ?? triggerScope;
+  const topIntercepts = runtime.compiled.intercepts;
+  const channelIntercepts = interceptScope.channel?.intercepts;
+  if (runtime.runIntercepts && (topIntercepts.length > 0 || (channelIntercepts?.length ?? 0) > 0)) {
+    let sharedCtx: Record<PropertyKey, unknown> | undefined;
+    function getCtx(): Record<PropertyKey, unknown> {
+      return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
+    }
+    try {
+      let intercepted: InterceptPrimitive.InterceptFrame = {
+        event,
+        payload,
+        kind: 'nudge',
+        routing: buildInterceptRouting(wskit),
+        owner: frameOwner(event),
+      };
+      intercepted = await runtime.runIntercepts(runtime, connection, {
+        intercepts: topIntercepts,
+        frame: intercepted,
+        getCtx,
+      });
+      if (channelIntercepts) {
+        intercepted = await runtime.runIntercepts(runtime, connection, {
+          intercepts: channelIntercepts,
+          frame: intercepted,
+          getCtx,
+        });
+      }
+      payload = intercepted.payload;
+    } catch (error) {
+      rethrowIfConfigError(error);
+      if (error === Block) return true;
+      if (
+        error &&
+        typeof error === 'object' &&
+        (error as { __wskit?: string }).__wskit === 'disconnect'
+      ) {
+        connection.descriptor.close(
+          (error as { code: number }).code,
+          (error as { reason: string }).reason,
+        );
+        return true;
+      }
+      const routing: Protocol.WSKitRouting = { streamId: wskit.streamId, streamTerminated: false };
+      if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
+      await runtime.handleRuntimeError(connection, { error, event, routing });
+      return true;
+    }
+  }
+
+  return !!(await runtime.streamNudgeBuffer?.(runtime, connection, { event, payload, wskit }));
 }
 
 /**
@@ -925,120 +1046,11 @@ export async function processTextMessage(
       : runtime.compiled.streams.has(event) ||
         runtime.compiled.resumableStreams.has(event) ||
         runtime.compiled.recordedStreams.has(event);
-    if (!isStreamTrigger) {
-      let nudgePayload = frame.payload;
-
-      if (wskit?.streamId) {
-        const activeStream = runtime.activeStreams.get(wskit.streamId);
-        // A nudge for a live owned stream must target the exact scope the stream
-        // runs in, and the connection must still hold that membership. A nudge
-        // that claims a different scope (or none) for a channel stream — e.g.
-        // after leaving the channel — is rejected here so it never reaches the
-        // generator and never runs the wrong scope's intercepts.
-        if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
-          const storedScope = activeStream.scope ?? {};
-          const sameScope =
-            (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
-            (storedScope.channelFamily ?? null) === (triggerScope.channelFamily ?? null);
-          const memberOk =
-            !storedScope.channelName ||
-            connectionHoldsMembership(
-              connection,
-              storedScope.channelName,
-              storedScope.channelFamily ?? null,
-            );
-          if (!sameScope || !memberOk) {
-            const rejectRouting: Protocol.WSKitRouting = {
-              streamId: wskit.streamId,
-              streamTerminated: false,
-            };
-            if (wskit.streamNudgeId !== undefined)
-              rejectRouting.streamNudgeId = wskit.streamNudgeId;
-            await runtime.handleRuntimeError(connection, {
-              error: ChannelNotSubscribed(),
-              event,
-              routing: rejectRouting,
-            });
-            return;
-          }
-        }
-
-        // Run intercepts in the stream's stored scope, not the nudge's claimed
-        // one, so a channel stream's intercepts always see the channel context.
-        const interceptScope = activeStream?.scope ?? triggerScope;
-        const topIntercepts = runtime.compiled.intercepts;
-        const chIntercepts = interceptScope.channel?.intercepts;
-
-        if (
-          runtime.runIntercepts &&
-          (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0)
-        ) {
-          let sharedCtx: Record<PropertyKey, unknown> | undefined;
-          function getCtx() {
-            return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
-          }
-
-          try {
-            let nudgeFrame: InterceptPrimitive.InterceptFrame = {
-              event,
-              payload: frame.payload,
-              kind: 'nudge',
-              routing: buildInterceptRouting(wskit),
-              owner: frameOwner(event),
-            };
-            nudgeFrame = await runtime.runIntercepts(runtime, connection, {
-              intercepts: topIntercepts,
-              frame: nudgeFrame,
-              getCtx,
-            });
-            if (chIntercepts) {
-              nudgeFrame = await runtime.runIntercepts(runtime, connection, {
-                intercepts: chIntercepts,
-                frame: nudgeFrame,
-                getCtx,
-              });
-            }
-            nudgePayload = nudgeFrame.payload;
-          } catch (error) {
-            rethrowIfConfigError(error);
-            if (error === Block) return;
-            if (
-              error &&
-              typeof error === 'object' &&
-              (error as { __wskit?: string }).__wskit === 'disconnect'
-            ) {
-              connection.descriptor.close(
-                (error as { code: number }).code,
-                (error as { reason: string }).reason,
-              );
-              return;
-            }
-            // A thrown nudge intercept is non-terminal: tag the error with
-            // streamTerminated:false and the streamNudgeId so the client's nudge()
-            // Promise rejects while the stream stays live and keeps emitting chunks.
-            const rejectRouting: Protocol.WSKitRouting = {
-              streamId: wskit.streamId,
-              streamTerminated: false,
-            };
-            if (wskit.streamNudgeId !== undefined)
-              rejectRouting.streamNudgeId = wskit.streamNudgeId;
-            await runtime.handleRuntimeError(connection, {
-              error,
-              event,
-              routing: rejectRouting,
-            });
-            return;
-          }
-        }
-      }
-
-      const buffered = await runtime.streamNudgeBuffer?.(runtime, connection, {
-        event,
-        payload: nudgePayload,
-        wskit,
-      });
-      if (buffered) return;
-    }
+    if (
+      !isStreamTrigger &&
+      (await bufferNudgeIfNeeded({ runtime, connection, event, frame, wskit, triggerScope }))
+    )
+      return;
 
     await dispatchIncoming(runtime, connection, {
       event,

@@ -76,6 +76,10 @@ type PluginErrorRegistration = {
   handler: (error: WSKitError<string, unknown>) => void;
 };
 
+interface PluginSendOptions {
+  ttl?: number;
+}
+
 /**
  * A plugin only owns plain top-level frames in its namespace. A frame carrying a
  * channel, correlationId, or streamId belongs to the channels, clientRequests,
@@ -206,7 +210,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
       };
     },
 
-    send(event: string, payload: unknown, options?: { ttl?: number }): boolean {
+    send(event: string, payload: unknown, options?: PluginSendOptions): boolean {
       if (typeof event !== 'string' || event.length === 0) return false;
       const result = helpers.send({ event: namespacedName(id, event), payload }, options);
       return result === 'sent' || result === 'buffered';
@@ -270,7 +274,7 @@ function createPluginRuntime<P extends SocketContract, TApi>(
 
   function dispatchError(error: WSKitError): boolean {
     const matching = [...errorHandlers].filter(
-      ({ code }) => code === undefined || code === error.code,
+      (registration) => registration.code === undefined || registration.code === error.code,
     );
     for (const { handler } of matching) {
       try {

@@ -118,78 +118,81 @@ export function inbox(options: InboxOptions = {}): InboxPrimitive {
         }
       }
 
-      return {
-        id: 'inbox',
-        onIncoming(message) {
-          const channel = message.__wskit?.channel;
-          if (channel === undefined) return message;
-          const key = channelKey(message.__wskit?.channelFamily, channel);
+      function receiveFanout(key: string, message: WireMessage): null {
+        const payload = message.payload as { userId?: unknown; receivedThrough?: unknown };
+        if (typeof payload?.userId === 'string' && typeof payload.receivedThrough === 'number') {
+          applyReceived(key, payload.userId, payload.receivedThrough);
+        }
+        return null;
+      }
 
-          if (message.event === '__subscribeOk__') {
+      function receiveGap(key: string, channel: string, message: WireMessage): WireMessage {
+        const payload = message.payload as { missedThrough?: unknown } | null | undefined;
+        const missedThrough = payload?.missedThrough;
+        if (typeof missedThrough !== 'number' || !inboxScopes.has(key)) return message;
+
+        const current = marks.get(key);
+        if (!current) {
+          marks.set(key, {
+            seq: missedThrough,
+            channel,
+            channelFamily: message.__wskit?.channelFamily,
+            acked: 0,
+          });
+          scheduleFlush();
+        } else if (missedThrough > current.seq) {
+          current.seq = missedThrough;
+          scheduleFlush();
+        }
+        return message;
+      }
+
+      function trackIncoming(key: string, channel: string, message: WireMessage): WireMessage {
+        if (message.__wskit?.streamId !== undefined) return message;
+        const seq = message.__wskit?.seq;
+        if (typeof seq !== 'number') return message;
+
+        const channelFamily = message.__wskit?.channelFamily;
+        const current = marks.get(key);
+        if (!current) {
+          marks.set(key, { seq, channel, channelFamily, acked: 0 });
+        } else if (seq > current.seq) {
+          current.seq = seq;
+        }
+        scheduleFlush();
+        return message;
+      }
+
+      function handleIncoming(message: WireMessage): WireMessage | null {
+        const channel = message.__wskit?.channel;
+        if (channel === undefined) return message;
+        const key = channelKey(message.__wskit?.channelFamily, channel);
+
+        switch (message.event) {
+          case '__subscribeOk__':
             if (message.__wskit?.inbox === true) inboxScopes.add(key);
             return message;
-          }
-          if (message.event === '__unsubscribeOk__' || message.event === '__kicked__') {
-            if (message.event === '__unsubscribeOk__' && isRejoinConfirmation(message))
-              return message;
+          case '__unsubscribeOk__':
+            if (isRejoinConfirmation(message)) return message;
             clearScope(key);
             return message;
-          }
-
-          if (message.event === '__receivedQuery__') {
-            return resolveOwnQuery(pendingQueries, message);
-          }
-
-          if (message.event === '__received__') {
-            // A fan-out carries `userId`; a bare `{receivedThrough}` is this
-            // client's own ack echoed back on some transports — never a fan-out
-            // the client should apply, so consume it either way.
-            const payload = message.payload as { userId?: unknown; receivedThrough?: unknown };
-            if (
-              typeof payload?.userId === 'string' &&
-              typeof payload.receivedThrough === 'number'
-            ) {
-              applyReceived(key, payload.userId, payload.receivedThrough);
-            }
-            return null;
-          }
-
-          if (message.event === '__gap__') {
-            const payload = message.payload as { missedThrough?: unknown } | null | undefined;
-            const missedThrough = payload?.missedThrough;
-            if (typeof missedThrough === 'number' && inboxScopes.has(key)) {
-              const current = marks.get(key);
-              if (!current) {
-                marks.set(key, {
-                  seq: missedThrough,
-                  channel,
-                  channelFamily: message.__wskit?.channelFamily,
-                  acked: 0,
-                });
-                scheduleFlush();
-              } else if (missedThrough > current.seq) {
-                current.seq = missedThrough;
-                scheduleFlush();
-              }
-            }
+          case '__kicked__':
+            clearScope(key);
             return message;
-          }
+          case '__receivedQuery__':
+            return resolveOwnQuery(pendingQueries, message);
+          case '__received__':
+            return receiveFanout(key, message);
+          case '__gap__':
+            return receiveGap(key, channel, message);
+          default:
+            return trackIncoming(key, channel, message);
+        }
+      }
 
-          // Stream chunks carry a per-stream seq unrelated to inbox ordering.
-          if (message.__wskit?.streamId !== undefined) return message;
-          const seq = message.__wskit?.seq;
-          if (typeof seq !== 'number') return message;
-
-          const channelFamily = message.__wskit?.channelFamily;
-          const current = marks.get(key);
-          if (!current) {
-            marks.set(key, { seq, channel, channelFamily, acked: 0 });
-          } else if (seq > current.seq) {
-            current.seq = seq;
-          }
-          scheduleFlush();
-          return message;
-        },
+      return {
+        id: 'inbox',
+        onIncoming: handleIncoming,
         onReconnect() {
           const requests: WireMessage[] = [];
           for (const [key, mark] of marks) {

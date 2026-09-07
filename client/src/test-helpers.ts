@@ -1,3 +1,5 @@
+type EvParameter = { code: number; reason: string; wasClean: boolean };
+type EvParameter2 = { data: unknown };
 /* oxlint-disable @typescript-eslint/no-explicit-any -- test harness */
 
 /**
@@ -25,9 +27,9 @@ export class MockWebSocket {
   closeCall?: { code: number; reason: string };
 
   onopen: ((ev: unknown) => void) | null = null;
-  onclose: ((ev: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
+  onclose: ((ev: EvParameter) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
-  onmessage: ((ev: { data: unknown }) => void) | null = null;
+  onmessage: ((ev: EvParameter2) => void) | null = null;
 
   constructor(url: string, protocols?: string | string[]) {
     this.url = url;

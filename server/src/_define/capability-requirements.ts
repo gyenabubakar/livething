@@ -6,6 +6,8 @@ import {
 import type { AnyCapability } from '~/_define/capability.ts';
 import type { Primitive } from '~/primitive.ts';
 
+type ResolveCapabilityRequirementsOptionsParameter = { scoped: boolean };
+
 /** A channel primitive nests its own primitives; a durable stream can live there. */
 function nestedPrimitives(primitive: Primitive): readonly Primitive[] {
   return (primitive as { primitives?: readonly Primitive[] }).primitives ?? [];
@@ -53,7 +55,7 @@ function neededBy(primitives: readonly Primitive[], kind: string): string {
 export function resolveCapabilityRequirements(
   primitives: readonly Primitive[],
   capabilities: readonly AnyCapability[],
-  options: { scoped: boolean },
+  options: ResolveCapabilityRequirementsOptionsParameter,
 ): { hostDependencies: readonly string[] } {
   const present = new Set<string>();
   for (const cap of capabilities) {

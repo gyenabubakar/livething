@@ -10,6 +10,39 @@ import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type { TagGroupRegistration } from '~/tags/tags.ts';
 import type * as ValidationTypes from '~/types.ts';
 
+type MessageParameter = { event: string; payload: unknown };
+type FrameParameter = {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WSKitProtocol | undefined;
+};
+type OptsParameter = {
+  event: string;
+  payload: unknown;
+  correlationId: string;
+  channel?: string;
+  channelFamily?: string | null;
+};
+type OptionsParameter = {
+  channelName: string | null;
+  channelFamily: string | null;
+  event: string;
+  payload: unknown;
+  wire: { seq: number; messageId: string; channel?: string };
+};
+type OptionsParameter2 = {
+  channelName: string | null;
+  channelFamily: string | null;
+  missedThrough: number;
+};
+type OptionsParameter3 = { event: string; payload: unknown; wskit?: Record<string, unknown> };
+type OptsParameter2 = {
+  channelName: string;
+  channelFamily: string | null;
+  event: string;
+  payload: Record<string, unknown>;
+};
+
 /**
  * The runtime registration surface built-in primitives receive during engine
  * initialization.
@@ -72,7 +105,7 @@ export interface EngineAccess {
    * resolved — so the return value becomes the new payload only, even if
    * the returned object happens to have its own event field.
    */
-  onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
+  onIncoming(handler: (message: MessageParameter) => unknown | void): void;
 
   /**
    * Settle a server→client request answer before normal routing.
@@ -84,16 +117,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  onAnswerFrame(
-    handler: (
-      connectionId: string,
-      frame: {
-        event: string;
-        payload: unknown;
-        wskit: Protocol.WSKitProtocol | undefined;
-      },
-    ) => boolean,
-  ): void;
+  onAnswerFrame(handler: (connectionId: string, frame: FrameParameter) => boolean): void;
 
   /**
    * Send a server→client request frame to one live connection.
@@ -106,16 +130,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  sendServerRequest(
-    connectionId: string,
-    opts: {
-      event: string;
-      payload: unknown;
-      correlationId: string;
-      channel?: string;
-      channelFamily?: string | null;
-    },
-  ): boolean;
+  sendServerRequest(connectionId: string, opts: OptsParameter): boolean;
 
   /**
    * Observe or rewrite outgoing wire messages before they are serialized.
@@ -672,29 +687,13 @@ export interface EngineAccess {
    * outgoing pipeline. Unlike `rawSend`, this routes through the replay
    * pipeline and applies `onBeforeSend` / `onAfterSend` hooks.
    */
-  sendReplay(
-    connectionId: string,
-    options: {
-      channelName: string | null;
-      channelFamily: string | null;
-      event: string;
-      payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string };
-    },
-  ): void;
+  sendReplay(connectionId: string, options: OptionsParameter): void;
 
   /**
    * Send a `__gap__` frame to one connection. `missedThrough` is the scope's
    * eviction watermark (highest seq retention deleted). @internal
    */
-  sendGap(
-    connectionId: string,
-    options: {
-      channelName: string | null;
-      channelFamily: string | null;
-      missedThrough: number;
-    },
-  ): void;
+  sendGap(connectionId: string, options: OptionsParameter2): void;
 
   /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
@@ -740,10 +739,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  sendProtocolFrame(
-    connectionId: string,
-    options: { event: string; payload: unknown; wskit?: Record<string, unknown> },
-  ): void;
+  sendProtocolFrame(connectionId: string, options: OptionsParameter3): void;
 
   /**
    * Register the plain-stream trigger so the dispatch hub can start a matched
@@ -905,12 +901,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  broadcastToChannel(opts: {
-    channelName: string;
-    channelFamily: string | null;
-    event: string;
-    payload: Record<string, unknown>;
-  }): void;
+  broadcastToChannel(opts: OptsParameter2): void;
 
   /**
    * Count the live members currently in a channel. Used to skip the

@@ -22,6 +22,102 @@ import type { Translator, TranslatorFactory } from '~/translation/translator.ts'
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
+type RunConnectionLifecycleRuntimeParameter = {
+  connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+  disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+  /**
+   * New-model plugin connect/disconnect hooks, in registration order. Inbound
+   * (`connect`) runs these head-first before the app; outbound (`disconnect`)
+   * runs the app first, then these in reverse (LIFO) — the onion. The
+   * handlers are already wrapped in a plugin-scoped context.
+   */
+  pluginConnectHooks?: readonly {
+    handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+  }[];
+  pluginDisconnectHooks?: readonly {
+    handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
+  }[];
+  asyncContext: EngineAsyncContext;
+};
+type CancelActiveStreamsForConnectionRuntimeParameter = {
+  activeStreams: Map<
+    string,
+    {
+      id: string;
+      connectionId: string;
+      generator: AsyncGenerator<unknown, void, unknown>;
+      closed: boolean;
+      onDisconnect?: EngineRuntimeTypes.OnDisconnect;
+      detached?: boolean;
+      abortController?: AbortController;
+    }
+  >;
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+type HandleUpgradeRuntimeParameter = {
+  upgradeHooks: readonly ((
+    request: Request,
+    helpers: LifecycleTypes.UpgradeHelpers,
+  ) =>
+    | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+    | Promise<{
+        meta?: Record<string, unknown>;
+        tags?: readonly PublicApi.TagRef[];
+      }>)[];
+  /**
+   * New-model plugin `upgrade` hooks, in registration order. Run before the
+   * app's builder hook (inbound onion). Each may own `userId`, but the
+   * single-owner rule below allows at most one user id source overall.
+   */
+  pluginUpgradeHooks?: readonly {
+    pluginId: string;
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
+      | Promise<{
+          userId?: string;
+          meta?: Record<string, unknown>;
+          tags?: readonly PublicApi.TagRef[];
+        }>;
+  }[];
+  builderUpgradeHook?:
+    | ((
+        request: Request,
+        helpers: LifecycleTypes.UpgradeHelpers,
+      ) =>
+        | {
+            userId?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }
+        | Promise<{
+            userId?: string;
+            meta?: Record<string, unknown>;
+            tags?: readonly PublicApi.TagRef[];
+          }>)
+    | undefined;
+  /**
+   * Built once per engine. A contract with `tagGroups` populates the field;
+   * contracts without tag groups pass `undefined` and the helper bag is the
+   * empty object.
+   */
+  upgradeHelpers: LifecycleTypes.UpgradeHelpers;
+  /**
+   * Whether a tag group of the given kind was declared. Guards tag refs an
+   * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
+   * which builds refs without going through the declaration-checked helper.
+   */
+  isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
+  logger?: Pick<PublicApi.Logger, 'error'>;
+};
+type ApplyResultParameter = {
+  userId?: string;
+  meta?: Record<string, unknown>;
+  tags?: readonly PublicApi.TagRef[];
+};
+
 export { userKeyOf } from '~/_engine/runtime/user-key.ts';
 
 /**
@@ -256,14 +352,15 @@ interface TranslationFailure {
   code?: number;
 }
 
-function closeForTranslationFailure({
-  runtime,
-  descriptor,
-  connection,
-  stage,
-  error,
-  code = CloseCodes.INTERNAL_ERROR,
-}: TranslationFailure): void {
+function closeForTranslationFailure(failure: TranslationFailure): void {
+  const {
+    runtime,
+    descriptor,
+    connection,
+    stage,
+    error,
+    code = CloseCodes.INTERNAL_ERROR,
+  } = failure;
   if (connection) connection.closing = true;
   runtime.logger?.error('[wskit] translator failed', {
     stage,
@@ -336,12 +433,17 @@ interface TranslatedDescriptorOptions {
   getConnection: () => EngineRuntimeTypes.RuntimeConnection | undefined;
 }
 
-function translatedDescriptor({
-  runtime,
-  descriptor,
-  translator,
-  getConnection,
-}: TranslatedDescriptorOptions): EngineAdapterTypes.ConnectionDescriptor {
+interface RestoreWakeIndexesInput {
+  runtime: ConnectionRuntime;
+  connection: EngineRuntimeTypes.RuntimeConnection;
+  row: ConnectionStore.StoredConnectionRow | null;
+  restoredStreamIds: readonly string[];
+}
+
+function translatedDescriptor(
+  options: TranslatedDescriptorOptions,
+): EngineAdapterTypes.ConnectionDescriptor {
+  const { runtime, descriptor, translator, getConnection } = options;
   if (!translator) return descriptor;
   const translated: EngineAdapterTypes.ConnectionDescriptor = {
     send(data) {
@@ -435,23 +537,7 @@ function translateInbound(
  * Run connect/disconnect hooks for both the handler and installed plugins.
  */
 export async function runConnectionLifecycle(
-  runtime: {
-    connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    /**
-     * New-model plugin connect/disconnect hooks, in registration order. Inbound
-     * (`connect`) runs these head-first before the app; outbound (`disconnect`)
-     * runs the app first, then these in reverse (LIFO) — the onion. The
-     * handlers are already wrapped in a plugin-scoped context.
-     */
-    pluginConnectHooks?: readonly {
-      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-    }[];
-    pluginDisconnectHooks?: readonly {
-      handler: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
-    }[];
-    asyncContext: EngineAsyncContext;
-  },
+  runtime: RunConnectionLifecycleRuntimeParameter,
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
@@ -486,21 +572,7 @@ export async function runConnectionLifecycle(
  * the same user (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
-  runtime: {
-    activeStreams: Map<
-      string,
-      {
-        id: string;
-        connectionId: string;
-        generator: AsyncGenerator<unknown, void, unknown>;
-        closed: boolean;
-        onDisconnect?: EngineRuntimeTypes.OnDisconnect;
-        detached?: boolean;
-        abortController?: AbortController;
-      }
-    >;
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
+  runtime: CancelActiveStreamsForConnectionRuntimeParameter,
   connectionId: string,
 ): Promise<void> {
   for (const activeStream of [...runtime.activeStreams.values()]) {
@@ -809,6 +881,60 @@ export function acceptConnection(
   return createHandle(runtime, connection);
 }
 
+function restoreWakeIndexes(input: RestoreWakeIndexesInput): boolean {
+  const { runtime, connection, row, restoredStreamIds } = input;
+  try {
+    runtime.connections.set(connection.id, connection);
+    addConnectionToUserIndex(runtime.usersByKey, connection);
+    runtime.wsToConnectionId.set(connection.wsKey, connection.id);
+
+    for (const tag of row?.ephemeral_tags ?? []) {
+      addConnectionTag(runtime.tagMembers, connection, {
+        kind: 'ephemeral',
+        group: tag.group,
+        key: tag.key,
+      });
+    }
+    for (const membership of row?.ephemeral_memberships ?? []) {
+      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
+        channelName: membership.channelName,
+        channelFamily: membership.channelFamily,
+      });
+    }
+    runtime.reloadPersistentTags?.(connection);
+
+    for (const streamId of restoredStreamIds) {
+      const sent = connection.descriptor.send(
+        JSON.stringify({
+          event: '__error__',
+          payload: { code: StreamAborted.code, detail: { reason: 'hibernation-wake' as const } },
+          __wskit: { streamId },
+        }),
+      );
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        runtime.deleteConnectionState?.(connection.id);
+        return false;
+      }
+      if (sent !== false) connection.activeStreamIds?.delete(streamId);
+    }
+
+    if (restoredStreamIds.length > 0) {
+      (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
+      if (connection.closing) {
+        rollbackConnectionIndexes(runtime, connection);
+        if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+        return false;
+      }
+    }
+    return true;
+  } catch (error) {
+    rollbackConnectionIndexes(runtime, connection);
+    if (!connection.preserveStateOnClose) runtime.deleteConnectionState?.(connection.id);
+    throw error;
+  }
+}
+
 /**
  * Recreate a connection handle after an adapter wakes a hibernated socket.
  */
@@ -939,72 +1065,7 @@ export function wakeHibernatedConnection(
     quality: 'good',
   };
 
-  try {
-    runtime.connections.set(connection.id, connection);
-    addConnectionToUserIndex(runtime.usersByKey, connection);
-    runtime.wsToConnectionId.set(wsKey, connection.id);
-
-    for (const t of row?.ephemeral_tags ?? []) {
-      addConnectionTag(runtime.tagMembers, connection, {
-        kind: 'ephemeral',
-        group: t.group,
-        key: t.key,
-      });
-    }
-
-    for (const membership of row?.ephemeral_memberships ?? []) {
-      ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
-        channelName: membership.channelName,
-        channelFamily: membership.channelFamily,
-      });
-    }
-
-    // The snapshot above only holds ephemeral tags. Persistent tags are
-    // user-scoped, so reload them from durable storage on wake.
-    runtime.reloadPersistentTags?.(connection);
-
-    for (const streamId of restoredStreamIds) {
-      const sent = connection.descriptor.send(
-        JSON.stringify({
-          event: '__error__',
-          payload: {
-            code: StreamAborted.code,
-            detail: { reason: 'hibernation-wake' as const },
-          },
-          __wskit: { streamId },
-        }),
-      );
-      if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        runtime.deleteConnectionState?.(connection.id);
-        return closedHandle();
-      }
-      if (sent !== false) connection.activeStreamIds?.delete(streamId);
-    }
-
-    // Re-persist so the row reflects the cleared active_stream_ids (the wake
-    // path drained above) and the attachment carries the correct id even if it
-    // was missing before. This must finish before wake returns: a queued flush
-    // could fail after this connection is indexed, leaving a closed connection
-    // in the live maps. A declined stream-abort stays active to retry on a
-    // later wake.
-    if (restoredStreamIds.length > 0) {
-      (runtime.flushAttachment ?? runtime.persistAttachment)(connection);
-      if (connection.closing) {
-        rollbackConnectionIndexes(runtime, connection);
-        if (!connection.preserveStateOnClose) {
-          runtime.deleteConnectionState?.(connection.id);
-        }
-        return closedHandle();
-      }
-    }
-  } catch (error) {
-    rollbackConnectionIndexes(runtime, connection);
-    if (!connection.preserveStateOnClose) {
-      runtime.deleteConnectionState?.(connection.id);
-    }
-    throw error;
-  }
+  if (!restoreWakeIndexes({ runtime, connection, row, restoredStreamIds })) return closedHandle();
 
   connection.lifecycleReady = Promise.resolve();
 
@@ -1016,64 +1077,7 @@ export function wakeHibernatedConnection(
  * accept/reject data.
  */
 export async function handleUpgrade(
-  runtime: {
-    upgradeHooks: readonly ((
-      request: Request,
-      helpers: LifecycleTypes.UpgradeHelpers,
-    ) =>
-      | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
-      | Promise<{
-          meta?: Record<string, unknown>;
-          tags?: readonly PublicApi.TagRef[];
-        }>)[];
-    /**
-     * New-model plugin `upgrade` hooks, in registration order. Run before the
-     * app's builder hook (inbound onion). Each may own `userId`, but the
-     * single-owner rule below allows at most one user id source overall.
-     */
-    pluginUpgradeHooks?: readonly {
-      pluginId: string;
-      handler: (
-        request: Request,
-        helpers: LifecycleTypes.UpgradeHelpers,
-      ) =>
-        | { userId?: string; meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
-        | Promise<{
-            userId?: string;
-            meta?: Record<string, unknown>;
-            tags?: readonly PublicApi.TagRef[];
-          }>;
-    }[];
-    builderUpgradeHook?:
-      | ((
-          request: Request,
-          helpers: LifecycleTypes.UpgradeHelpers,
-        ) =>
-          | {
-              userId?: string;
-              meta?: Record<string, unknown>;
-              tags?: readonly PublicApi.TagRef[];
-            }
-          | Promise<{
-              userId?: string;
-              meta?: Record<string, unknown>;
-              tags?: readonly PublicApi.TagRef[];
-            }>)
-      | undefined;
-    /**
-     * Built once per engine. A contract with `tagGroups` populates the field;
-     * contracts without tag groups pass `undefined` and the helper bag is the
-     * empty object.
-     */
-    upgradeHelpers: LifecycleTypes.UpgradeHelpers;
-    /**
-     * Whether a tag group of the given kind was declared. Guards tag refs an
-     * upgrade returns — including the `tags: { ephemeral: { ... } }` sugar,
-     * which builds refs without going through the declaration-checked helper.
-     */
-    isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
+  runtime: HandleUpgradeRuntimeParameter,
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
   const pluginUpgradeHooks = runtime.pluginUpgradeHooks ?? [];
@@ -1095,14 +1099,7 @@ export async function handleUpgrade(
     let resolvedUserId: string | undefined;
     let userIdOwner: string | undefined;
     const mergedTags: PublicApi.TagRef[] = [];
-    function apply(
-      result: {
-        userId?: string;
-        meta?: Record<string, unknown>;
-        tags?: readonly PublicApi.TagRef[];
-      },
-      owner: string,
-    ): void {
+    function apply(result: ApplyResultParameter, owner: string): void {
       if (result.userId !== undefined) {
         if (userIdOwner !== undefined) {
           throw new Error(

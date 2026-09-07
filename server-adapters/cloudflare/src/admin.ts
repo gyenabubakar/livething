@@ -9,6 +9,9 @@ import type {
   UserRef,
 } from '@wskit/server/adapters';
 
+type FilterParameter = { userId?: string };
+type OptsParameter = { reason: string; revoke?: boolean };
+
 /** A channel address: a static channel name, or a family plus instance name. */
 export type AdminChannelTarget = string | { readonly family: string; readonly instance: string };
 
@@ -95,7 +98,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
   }
 
   /** Close live connections — all of them, or only one user's. */
-  closeConnections(filter?: { userId?: string }, code?: number, reason?: string): void {
+  closeConnections(filter?: FilterParameter, code?: number, reason?: string): void {
     this.#ctx.closeConnections(filter, code, reason);
   }
 
@@ -143,7 +146,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
   channelKick(
     channel: AdminChannelTarget,
     target: UserRef | TagRef,
-    opts: { reason: string; revoke?: boolean },
+    opts: OptsParameter,
   ): Promise<void> {
     return this.#channel(channel).kick(this.#localTarget(target), opts);
   }
@@ -166,10 +169,10 @@ export function buildAdmin<TApi, TMeta>(
   instanceId?: string,
 ): WSKitAdmin<TMeta> & TApi {
   const devMethods = Object.entries(surface as Record<string, unknown>).filter(
-    ([key, value]) =>
-      typeof value === 'function' &&
-      !ADMIN_CONTEXT_MEMBERS.has(key) &&
-      !(key in WSKitAdmin.prototype),
+    (entry) =>
+      typeof entry[1] === 'function' &&
+      !ADMIN_CONTEXT_MEMBERS.has(entry[0]) &&
+      !(entry[0] in WSKitAdmin.prototype),
   );
   if (devMethods.length === 0) {
     return new WSKitAdmin(surface, instanceId) as WSKitAdmin<TMeta> & TApi;
