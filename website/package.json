@@ -6,9 +6,11 @@
     "dev": "nuxt dev",
     "dev:prepare": "nuxt prepare",
     "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt generate && wrangler dev",
-    "deploy": "nuxt generate && wrangler deploy",
+    "generate": "NODE_OPTIONS=--max-old-space-size=6144 NITRO_PRESET=static nuxt generate",
+    "audit:docs": "node ./scripts/run-lighthouse.mjs",
+    "preview": "pnpm run generate && wrangler dev",
+    "deploy": "pnpm run generate && wrangler deploy",
+    "deploy:preview": "pnpm run generate && wrangler versions upload",
     "typecheck": "vue-tsc --noEmit",
     "clean": "rm -rf .nuxt .data .output node_modules .wrangler"
   },
@@ -28,6 +30,7 @@
     "shaders": "^2.5.109"
   },
   "devDependencies": {
+    "@lhci/cli": "^0.15.1",
     "@iconify-json/logos": "^1.2.11",
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.86",

@@ -11,6 +11,7 @@
     "prepare": "husky",
     "build": "pnpm -r --workspace-concurrency=1 --filter='!@wskit/website' run build",
     "site": "pnpm --filter @wskit/website run dev",
+    "lighthouse": "pnpm --filter @wskit/website run audit:docs",
     "test": "pnpm -r --parallel run test",
     "test:e2e": "pnpm run test:e2e:client-puppet && pnpm run test:e2e:cloudflare && pnpm run test:e2e:node",
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
