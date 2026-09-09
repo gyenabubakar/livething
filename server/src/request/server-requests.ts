@@ -33,7 +33,12 @@ export interface ServerRequestsCapability<
     string,
     ServerRequestDeclaration
   >,
-> extends Capability<ServerRequestsSlot<TDeclarations>, never, 'serverRequests'> {
+> extends Capability<
+  ServerRequestsSlot<TDeclarations>,
+  never,
+  'serverRequests',
+  typeof CAPABILITY_KIND.serverRequests
+> {
   readonly __channelServerRequests: TDeclarations;
   readonly __serverRequests: ReadonlyMap<string, ResolvedServerRequest>;
   readonly __registerServerRequests: (
@@ -55,9 +60,12 @@ export const serverRequests = withCapabilityKind(function serverRequests<
     resolved.set(serverRequestKey(null, event), resolveServerRequest(declaration));
   }
 
-  const cap = capability<ServerRequestsSlot<TDeclarations>, never, 'serverRequests'>([
-    makeServerRequestsPrimitive(resolved),
-  ]) as ServerRequestsCapability<TDeclarations>;
+  const cap = capability<
+    ServerRequestsSlot<TDeclarations>,
+    never,
+    'serverRequests',
+    typeof CAPABILITY_KIND.serverRequests
+  >([makeServerRequestsPrimitive(resolved)]) as ServerRequestsCapability<TDeclarations>;
 
   const writable = cap as {
     __channelServerRequests: TDeclarations;

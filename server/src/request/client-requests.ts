@@ -15,13 +15,18 @@ export interface RequestBuildConfig {
   run(ctx: any, input: any): unknown;
 }
 
-export interface ClientRequestsCapability extends Capability<{}, never, 'clientRequests'> {
+export interface ClientRequestsCapability extends Capability<
+  {},
+  never,
+  'clientRequests',
+  typeof CAPABILITY_KIND.clientRequests
+> {
   readonly __buildClientRequest: (event: string, config: RequestBuildConfig) => Primitive;
 }
 
 export const clientRequests = withCapabilityKind(
   function clientRequests(): ClientRequestsCapability {
-    const cap = capability<{}, never, 'clientRequests'>([
+    const cap = capability<{}, never, 'clientRequests', typeof CAPABILITY_KIND.clientRequests>([
       requestRuntimePrimitive(),
     ]) as ClientRequestsCapability;
     (

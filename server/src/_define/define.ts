@@ -49,6 +49,7 @@ import type { ScheduledCapability, ScheduledDeclaration } from '~/scheduled/capa
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
+import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
 // bundler keeps it whole and one binding drags the plugin runtime into apps
@@ -75,6 +76,7 @@ import type {
   MergeSlots,
   SlotOr,
   SlotsOf,
+  UniqueCapabilityKinds,
 } from './capability.ts';
 import type { BuildContract, InferInput } from './contract.ts';
 
@@ -162,7 +164,7 @@ export interface DefineConfig<
    */
   readonly users?: { readonly maxConnections?: number; readonly onExceed: 'replace' | 'reject' };
   /** The features this server uses. Listing one pulls its engine code into the bundle. */
-  readonly capabilities?: TCaps;
+  readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
   /**
    * Always absent on an app server. A scoped builder sets it instead — today
    * only `'plugin'`.
@@ -211,7 +213,7 @@ export interface ScopedDefineConfig<
    */
   readonly upgrade?: UpgradeFn<TMeta, EphemeralGroupsOf<TCaps>>;
   /** The features this plugin uses. Host-owned capabilities are a compile error here. */
-  readonly capabilities?: TCaps;
+  readonly capabilities?: TCaps & UniqueCapabilityKinds<TCaps>;
 }
 
 /** Reads the capabilities from an inferred scoped config object. @internal */
@@ -807,7 +809,7 @@ export type ChannelConfig<
    * channel) for the read cursor. Unlike the host's `capabilities`, this list
    * is scoped to the one channel.
    */
-  readonly capabilities?: TCapabilities;
+  readonly capabilities?: TCapabilities & UniqueCapabilityKinds<TCapabilities>;
 } & ChannelRateLimitField<TCaps>;
 
 /**
@@ -1875,7 +1877,11 @@ export function define<
     readonly (PluginSafeCapability & TopLevelCapability)[]
   > = ScopedDefineConfig<TMeta, readonly (PluginSafeCapability & TopLevelCapability)[]>,
 >(
-  config: TConfig & NoExtraScopedConfigKeys<TConfig>,
+  config: TConfig &
+    NoExtraScopedConfigKeys<TConfig> & {
+      readonly capabilities?: ScopedCapabilitiesOf<TConfig> &
+        UniqueCapabilityKinds<ScopedCapabilitiesOf<TConfig>>;
+    },
 ): Base<
   MergeSlots<SlotsOf<ScopedCapabilitiesOf<TConfig>[number]>>,
   TMeta,
@@ -1883,6 +1889,8 @@ export function define<
   true
 >;
 export function define(config: any): any {
+  assertUniqueCapabilityKinds(config.capabilities ?? [], 'define({ capabilities: [...] })');
+
   const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];
   const scheduledBodies = new Map<

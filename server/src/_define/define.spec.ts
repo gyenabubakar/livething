@@ -12,6 +12,7 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { define } from './define.ts';
 import { plugin } from './plugins.ts';
+import type { AnyCapability } from './capability.ts';
 
 type DispatchRuntime = Parameters<typeof dispatchIncoming>[0];
 type DispatchConnection = Parameters<typeof dispatchIncoming>[1];
@@ -29,6 +30,18 @@ function makeBase() {
 }
 
 describe('define() send/receive core', () => {
+  it('rejects a capability listed more than once', () => {
+    const capabilities: AnyCapability[] = [channels(), channels()];
+    expect(() => define({ capabilities })).toThrow(/channels\(\) is listed more than once/);
+  });
+
+  it('rejects a duplicate capability in a plugin-scoped definition', () => {
+    const capabilities: AnyCapability[] = [emits({ first: t<{}>() }), emits({ second: t<{}>() })];
+    expect(() => define({ scope: 'plugin', capabilities })).toThrow(
+      /emits\(\) is listed more than once/,
+    );
+  });
+
   it('assembles handlers, capabilities, and the upgrade hook into a bootable server', () => {
     const base = makeBase();
 
@@ -191,11 +204,13 @@ describe('define() send/receive core', () => {
     expect(compiled.intercepts).toHaveLength(1);
   });
 
-  it('merges multiple emits capabilities into the outgoing surface', () => {
+  it('adds every event declared by one emits capability to the outgoing surface', () => {
     const base = define({
       capabilities: [
-        emits({ welcome: t<{ username: string }>() }),
-        emits({ goodbye: t<{ username: string }>() }),
+        emits({
+          welcome: t<{ username: string }>(),
+          goodbye: t<{ username: string }>(),
+        }),
       ],
     });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));

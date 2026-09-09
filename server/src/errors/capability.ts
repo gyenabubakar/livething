@@ -32,10 +32,12 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
  */
 export const errors = withCapabilityKind(function errors<
   const TDefs extends readonly [ErrorDef<string, any>, ...ErrorDef<string, any>[]],
->(defs: TDefs): Capability<ErrorsSlot<TDefs>> {
+>(defs: TDefs): Capability<ErrorsSlot<TDefs>, never, never, typeof CAPABILITY_KIND.errors> {
   collectUnique(defs, (def) => def.code, { kind: 'error code', context: 'errors([...])' });
   return stampKind(
-    capability<ErrorsSlot<TDefs>>([errorsPrimitive(...defs)]),
+    capability<ErrorsSlot<TDefs>, never, never, typeof CAPABILITY_KIND.errors>([
+      errorsPrimitive(...defs),
+    ]),
     CAPABILITY_KIND.errors,
   );
 }, CAPABILITY_KIND.errors);

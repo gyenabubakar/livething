@@ -14,7 +14,12 @@ import type { Primitive } from '~/primitive.ts';
 type BuildDurableSweepCtxParameter = { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] };
 
 /** A `resumableStream()` capability, carrying the builder that turns a config into a primitive. */
-export interface ResumableStreamCapability extends Capability<{}, never, 'resumableStream'> {
+export interface ResumableStreamCapability extends Capability<
+  {},
+  never,
+  'resumableStream',
+  typeof CAPABILITY_KIND.resumableStream
+> {
   /** Build a resumable-stream primitive from a `base.resumableStream(...)` config. @internal */
   readonly __streamBuild: { kind: 'resumable'; build: (event: string, config: any) => Primitive };
   /** Build the recurring durable-stream retention sweep primitive. @internal */
@@ -58,7 +63,7 @@ function buildDurableSweep(): Primitive {
  */
 export const resumableStream = withCapabilityKind(
   function resumableStream(): ResumableStreamCapability {
-    const cap = capability<{}, never, 'resumableStream'>([
+    const cap = capability<{}, never, 'resumableStream', typeof CAPABILITY_KIND.resumableStream>([
       resumableDurableRegistrar(),
     ]) as ResumableStreamCapability;
     (cap as { __streamBuild: ResumableStreamCapability['__streamBuild'] }).__streamBuild = {

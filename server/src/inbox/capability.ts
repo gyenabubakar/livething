@@ -15,7 +15,12 @@ export type { InboxOptions, ReadReceiptsOptions } from '~/inbox/types.ts';
 export type InboxCapability = ChannelOnlyCapability<{}, never, 'inbox'>;
 
 /** The capability `readReceipts(...)` returns — channel-only, like `InboxCapability`. */
-export type ReadReceiptsCapability = ChannelOnlyCapability<{}, never, 'readReceipts'>;
+export type ReadReceiptsCapability = ChannelOnlyCapability<
+  {},
+  never,
+  'readReceipts',
+  typeof CAPABILITY_KIND.readReceipts
+>;
 
 /**
  * Enable guaranteed per-member delivery on a channel. Unlike `replay`
@@ -66,7 +71,9 @@ export const inbox = withCapabilityKind(function inbox(config: InboxOptions = {}
 export const readReceipts = withCapabilityKind(function readReceipts(
   config: ReadReceiptsOptions = {},
 ): ReadReceiptsCapability {
-  const cap = channelOnlyCapability<{}, never, 'readReceipts'>([]);
+  const cap = channelOnlyCapability<{}, never, 'readReceipts', typeof CAPABILITY_KIND.readReceipts>(
+    [],
+  );
   attachReadReceiptsBuilder(cap, config);
   return stampKind(cap, CAPABILITY_KIND.readReceipts);
 }, CAPABILITY_KIND.readReceipts);

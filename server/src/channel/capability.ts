@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertUniqueCapabilityKinds } from '~/_define/capability-checks.ts';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
@@ -129,6 +130,11 @@ export class ChannelBuilder {
     }
 
     const cfg = config ?? {};
+    assertUniqueCapabilityKinds(
+      (cfg.capabilities as readonly Capability[] | undefined) ?? [],
+      `channel '${this.__key}' capabilities`,
+    );
+
     if (cfg.rateLimit) this.__rateLimit = cfg.rateLimit as RateLimitConfig;
     if (cfg.membership !== undefined) {
       this.children.push(membershipMarker(cfg.membership === 'persistent'));

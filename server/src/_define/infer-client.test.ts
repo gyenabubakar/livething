@@ -14,8 +14,10 @@ const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 const base = define({
   upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
-    emits({ welcome: t<{ username: string }>() }),
-    emits({ goodbye: t<{ username: string }>() }),
+    emits({
+      welcome: t<{ username: string }>(),
+      goodbye: t<{ username: string }>(),
+    }),
     errors([NotFound, Forbidden]),
     clientRequests(),
   ],

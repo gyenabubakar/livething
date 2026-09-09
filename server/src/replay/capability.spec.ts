@@ -3,6 +3,7 @@ import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { describe, expect, it } from 'vitest';
+import type { AnyCapability } from '~/_define/capability.ts';
 import { replay } from './capability.ts';
 import type { ReplayPrimitive } from './replay.ts';
 
@@ -61,17 +62,17 @@ describe('replay capabilities', () => {
   });
 
   it('throws when replay.custom() is listed more than once', () => {
-    const base = define({ capabilities: [replay.custom(), replay.custom()] });
-    expect(() => base.replay({ replay() {} })).toThrow(
-      /replay\.custom\(\) is listed more than once/,
-    );
+    expect(() =>
+      define({ capabilities: [replay.custom(), replay.custom()] as AnyCapability[] }),
+    ).toThrow(/replay\.custom\(\) is listed more than once/);
   });
 
   it('throws when more than one built-in replay strategy is listed', () => {
-    const base = define({
-      capabilities: [...replayReady(), replay.history(), replay.snapshot()],
-    });
-    expect(() => base.assemble({ handlers: [] })).toThrow(/more than once/);
+    expect(() =>
+      define({
+        capabilities: [...replayReady(), replay.history(), replay.snapshot()] as AnyCapability[],
+      }),
+    ).toThrow(/more than once/);
   });
 
   it('throws when built-in history replay and custom base.replay() are both configured', () => {

@@ -34,11 +34,13 @@ export interface Contribution<TSlots = {}> {
  * @template TBrand   The builder-method group this capability grants `base`
  *   (for example `'requests'` grants `base.request`). `never` for a capability
  *   that grants no method, such as `emits` or `errors`.
+ * @template TKind The stable identity shared by every call to one capability factory.
  */
 export interface Capability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
 > extends Contribution<TSlots> {
   readonly __wskitCapability: true;
   /** Runtime primitives this capability contributes to the assembled server. @internal */
@@ -51,7 +53,7 @@ export interface Capability<
    * without calling the factory. Absent on capabilities that are never a
    * `dependsOn` target (such as plugin capabilities). @internal
    */
-  readonly __capabilityKind?: string;
+  readonly __capabilityKind?: TKind;
   /** @internal phantom — the builder-method group this capability grants; never set at runtime. */
   readonly __brand?: TBrand;
 }
@@ -68,18 +70,19 @@ export function capability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
   TExtra extends object = {},
 >(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
   extra?: TExtra,
-): Capability<TSlots, TFeature, TBrand> & TExtra {
+): Capability<TSlots, TFeature, TBrand, TKind> & TExtra {
   return {
     __wskitCapability: true,
     __primitives: primitives,
     __features: features,
     ...(extra ?? ({} as TExtra)),
-  } as Capability<TSlots, TFeature, TBrand> & TExtra;
+  } as Capability<TSlots, TFeature, TBrand, TKind> & TExtra;
 }
 
 /**
@@ -121,6 +124,8 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
  */
 export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
   TSlots,
+  TFeature,
+  never,
   TFeature
 > & { readonly __hostOnly: true };
 
@@ -129,9 +134,11 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
 ): HostCapability<TSlots, TFeature> {
-  return capability<TSlots, TFeature, never, { readonly __hostOnly: true }>(primitives, features, {
-    __hostOnly: true,
-  });
+  return capability<TSlots, TFeature, never, TFeature, { readonly __hostOnly: true }>(
+    primitives,
+    features,
+    { __hostOnly: true },
+  );
 }
 
 /**
@@ -145,18 +152,20 @@ export type ChannelOnlyCapability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
-> = Capability<TSlots, TFeature, TBrand> & { readonly __channelOnly: true };
+  TKind extends string = TBrand,
+> = Capability<TSlots, TFeature, TBrand, TKind> & { readonly __channelOnly: true };
 
 /** Build a channel-only capability — like `capability()`, but marked `__channelOnly`. */
 export function channelOnlyCapability<
   TSlots = {},
   TFeature extends string = never,
   TBrand extends string = never,
+  TKind extends string = TBrand,
 >(
   primitives: readonly Primitive[],
   features: readonly TFeature[] = [],
-): ChannelOnlyCapability<TSlots, TFeature, TBrand> {
-  return capability<TSlots, TFeature, TBrand, { readonly __channelOnly: true }>(
+): ChannelOnlyCapability<TSlots, TFeature, TBrand, TKind> {
+  return capability<TSlots, TFeature, TBrand, TKind, { readonly __channelOnly: true }>(
     primitives,
     features,
     { __channelOnly: true },
@@ -203,7 +212,35 @@ export function defineHostCapability<TKind extends string, TArgs extends readonl
  * readonly AnyCapability[]`) — the default `Capability` narrows the brand to
  * `never`, which would reject any capability that grants a builder method.
  */
-export type AnyCapability = Capability<any, string, string>;
+export type AnyCapability = Capability<any, string, string, string>;
+
+type CapabilityKindOf<TCapability> = TCapability extends {
+  readonly __capabilityKind?: infer TKind;
+}
+  ? Exclude<TKind, undefined>
+  : never;
+
+type DuplicateCapabilityKind<TKind extends string> = {
+  readonly __wskitDuplicateCapabilityKind: TKind;
+};
+
+export type UniqueCapabilityKinds<
+  TCapabilities extends readonly AnyCapability[],
+  TSeen extends string = never,
+> = TCapabilities extends readonly [
+  infer TCapability extends AnyCapability,
+  ...infer TRest extends readonly AnyCapability[],
+]
+  ? CapabilityKindOf<TCapability> extends infer TKind extends string
+    ? [TKind] extends [never]
+      ? UniqueCapabilityKinds<TRest, TSeen>
+      : string extends TKind
+        ? UniqueCapabilityKinds<TRest, TSeen>
+        : [Extract<TKind, TSeen>] extends [never]
+          ? UniqueCapabilityKinds<TRest, TSeen | TKind>
+          : DuplicateCapabilityKind<Extract<TKind, TSeen>>
+    : never
+  : unknown;
 
 /**
  * The union of builder-method brands granted across a list of capabilities.

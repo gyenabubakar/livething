@@ -2,6 +2,7 @@ import { define } from '~/_define/define.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
+import type { AnyCapability } from '~/_define/capability.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { rateLimit } from './capability.ts';
 
@@ -75,9 +76,7 @@ describe('rateLimit() capability', () => {
   });
 
   it('throws when rateLimit() is listed more than once', () => {
-    const base = define({
-      capabilities: [rateLimit({ max: 10 }), rateLimit({ max: 20 })],
-    });
-    expect(() => base.assemble({ handlers: [] })).toThrow(/rateLimit\(\) is listed more than once/);
+    const capabilities: AnyCapability[] = [rateLimit({ max: 10 }), rateLimit({ max: 20 })];
+    expect(() => define({ capabilities })).toThrow(/rateLimit\(\) is listed more than once/);
   });
 });

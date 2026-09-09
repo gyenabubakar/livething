@@ -4,6 +4,7 @@ import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
+import type { AnyCapability } from '~/_define/capability.ts';
 
 const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
@@ -18,14 +19,9 @@ describe('errors() duplicate error-code build guard', () => {
     expect(() => errors([NotFound, Forbidden])).not.toThrow();
   });
 
-  it('throws at assemble() when two errors() capabilities share a code', () => {
-    const base = define({ capabilities: [errors([NotFound]), errors([Forbidden])] });
-    expect(() => base.assemble({ handlers: [] })).not.toThrow();
-
-    const dup = define({
-      capabilities: [errors([NotFound]), errors([NotFoundAgain])],
-    });
-    expect(() => dup.assemble({ handlers: [] })).toThrow(/duplicate error code "not-found"/);
+  it('rejects errors() when it is listed more than once', () => {
+    const capabilities: AnyCapability[] = [errors([NotFound]), errors([Forbidden])];
+    expect(() => define({ capabilities })).toThrow(/errors\(\) is listed more than once/);
   });
 
   it('does not false-positive across plugin and host code boundaries', () => {

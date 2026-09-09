@@ -174,12 +174,14 @@ describe('plugin namespacing — server→client requests', () => {
     expect(request.event).toBe('__acme:ask::ask');
   });
 
-  it('merges and namespaces every serverRequests() capability in a plugin', () => {
+  it('namespaces every declaration in a plugin serverRequests() capability', () => {
     const h = define({
       scope: 'plugin',
       capabilities: [
-        serverRequests({ first: { out: t<{}>() } }),
-        serverRequests({ second: { out: t<{}>() } }),
+        serverRequests({
+          first: { out: t<{}>() },
+          second: { out: t<{}>() },
+        }),
       ],
     });
     const { __primitives } = plugin('acme:ask', { handler: h.assemble({ handlers: [] }) })();

@@ -297,6 +297,19 @@ describe('channels() capability', () => {
     ).toThrow(/declares serverRequests\(\.\.\.\) but serverRequests\(\) is not listed/);
   });
 
+  it('rejects a channel capability listed more than once', () => {
+    const base = define({ capabilities: [channels(), serverRequests()] });
+
+    expect(() =>
+      base.channel('room', {
+        capabilities: [
+          serverRequests({ ask: { out: t<{}>(), in: v.object({ first: v.boolean() }) } }),
+          serverRequests({ ask: { out: t<{}>(), in: v.object({ second: v.boolean() }) } }),
+        ] as never,
+      }),
+    ).toThrow(/serverRequests\(\) is listed more than once/);
+  });
+
   it('registers channel serverRequests with the root runtime', () => {
     const reqCap = serverRequests();
     const base = define({ capabilities: [reqCap, channels()] });
