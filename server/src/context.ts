@@ -117,8 +117,9 @@ export interface SQLProvider {
   /**
    * Run multiple queries inside a single atomic transaction.
    *
-   * If the callback throws, the transaction is rolled back and the error
-   * propagates to the caller.
+   * The callback must be synchronous. If it throws, the transaction is rolled
+   * back and the error propagates to the caller. Run async work before or after
+   * this callback, never inside it.
    */
   transaction<T>(
     fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,

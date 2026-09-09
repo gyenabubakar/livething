@@ -1,3 +1,4 @@
+import { deserialize, serialize } from 'node:v8';
 import type { KVProvider, Logger } from '@wskit/server/adapters';
 import type { NodeSqlDatabase } from './sql.ts';
 
@@ -78,18 +79,11 @@ export function createKv(database: NodeSqlDatabase, logger?: Logger): KVProvider
 }
 
 function encode(value: unknown): string {
-  const encoded = JSON.stringify(value);
-
-  // JSON.stringify returns undefined for values that JSON cannot represent.
-  if (encoded === undefined) return 'undefined';
-
-  return encoded;
+  return serialize(value).toString('base64');
 }
 
 function decode(value: string): unknown {
-  if (value === 'undefined') return undefined;
-
-  return JSON.parse(value) as unknown;
+  return deserialize(Buffer.from(value, 'base64'));
 }
 
 function escapeGlob(value: string): string {

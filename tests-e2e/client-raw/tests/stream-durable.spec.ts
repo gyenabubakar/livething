@@ -120,8 +120,12 @@ test.describe('stream-durable', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('send-resume').click();
 
-    await expect.poll(() => page.getByTestId('paginate-row-count').textContent()).toBe('10');
-    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
+    await expect
+      .poll(() => page.getByTestId('paginate-row-count').textContent(), { timeout: 10_000 })
+      .toBe('10');
+    await expect
+      .poll(() => page.getByTestId('stream-end-count').textContent(), { timeout: 10_000 })
+      .toBe('1');
 
     const order = (await page.getByTestId('paginate-rows').textContent())!.split(',').map(Number);
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);

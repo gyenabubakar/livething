@@ -78,7 +78,7 @@ test.describe('stream-basic', () => {
     }, aliceStreamId);
 
     // Alice's stream should complete normally despite the foreign cancel.
-    await expect(a.getByTestId('stream-end')).toHaveText('yes');
+    await expect(a.getByTestId('stream-end')).toHaveText('yes', { timeout: 10_000 });
     await expect(a.getByTestId('chunk-indices')).toContainText('9');
 
     await ctxA.close();

@@ -71,6 +71,23 @@ describe('createSql', () => {
     }
   });
 
+  it('rejects an async callback before it can write outside the transaction', () => {
+    const runtime = createSql();
+    let ran = false;
+    async function callback() {
+      ran = true;
+    }
+
+    try {
+      expect(() => runtime.provider.transaction(callback)).toThrow(
+        /transaction\(\) callbacks must be synchronous/,
+      );
+      expect(ran).toBe(false);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('does not close an injected SQL provider', () => {
     const provider = createFakeSqlProvider();
     const runtime = createSql(provider);
@@ -189,6 +206,25 @@ describe('createKv', () => {
       expect(sql.provider.exec<{ key: string }>('SELECT key FROM __wskit_kv').toArray()).toEqual([
         { key: 'shared' },
       ]);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it('round-trips JavaScript number values that JSON would change', async () => {
+    const sql = createSql();
+    try {
+      const kv = createKv(sql.database!);
+      await kv.set('special-numbers', { nan: NaN, infinity: Infinity, negativeZero: -0 });
+
+      const value = (await kv.get('special-numbers')) as {
+        nan: number;
+        infinity: number;
+        negativeZero: number;
+      };
+      expect(Number.isNaN(value.nan)).toBe(true);
+      expect(value.infinity).toBe(Infinity);
+      expect(Object.is(value.negativeZero, -0)).toBe(true);
     } finally {
       sql.close();
     }
@@ -675,7 +711,8 @@ describe('createRuntime', () => {
         runtime.storage.sql
           .exec<{ key: string; value: string }>('SELECT key, value FROM __wskit_kv')
           .toArray(),
-      ).toEqual([{ key: 'default', value: '"sqlite-backed"' }]);
+      ).toEqual([{ key: 'default', value: expect.any(String) }]);
+      expect(await runtime.storage.kv.get('default')).toBe('sqlite-backed');
     } finally {
       await runtime.close();
     }

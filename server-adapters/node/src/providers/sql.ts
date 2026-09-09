@@ -89,10 +89,57 @@ function createSqlProvider(database: NodeSqlDatabase): SQLProvider {
     exec,
     limits: BETTER_SQLITE3_LIMITS,
     transaction<T>(fn: (tx: NodeTransactionContext) => T): T {
-      const runTransaction = database.transaction(() => fn({ exec }));
+      if (isAsyncFunction(fn)) throw synchronousTransactionError();
+
+      let active = true;
+      const tx: NodeTransactionContext = {
+        exec(...args) {
+          if (!active) {
+            throw new TypeError(
+              '[wskit] sql.transaction() callbacks cannot use tx after they return.',
+            );
+          }
+
+          return exec(...args);
+        },
+      };
+
+      const runTransaction = database.transaction(() => {
+        try {
+          const result = fn(tx);
+          if (isPromiseLike(result)) throw synchronousTransactionError();
+
+          return result;
+        } finally {
+          active = false;
+        }
+      });
+
       return runTransaction();
     },
   };
+}
+
+function isAsyncFunction(value: unknown): boolean {
+  return (
+    typeof value === 'function' &&
+    Object.getPrototypeOf(value)?.constructor?.name === 'AsyncFunction'
+  );
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'then' in value &&
+    typeof value.then === 'function'
+  );
+}
+
+function synchronousTransactionError(): TypeError {
+  return new TypeError(
+    '[wskit] sql.transaction() callbacks must be synchronous. Run async work before or after the transaction.',
+  );
 }
 
 function createResult<TRow>(rows: TRow[], rawRows: unknown[][] = []): SqlResult<TRow> {

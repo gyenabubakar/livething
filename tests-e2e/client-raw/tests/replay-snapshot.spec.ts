@@ -72,11 +72,14 @@ test.describe('replay-snapshot handler', () => {
       );
     }).toPass({ timeout: 5_000 });
 
-    await page.getByTestId('counter-replay-btn').click();
     await expect(async () => {
+      await page.getByTestId('counter-replay-btn').click();
+      await expect(page.getByTestId('counter-replay-count')).not.toHaveText('0', { timeout: 500 });
+
       const snapshots = await page.getByTestId('counter-snapshots').textContent();
       const hitEntries = snapshots!.split(' | ').filter((s) => s.startsWith('hits:'));
       expect(hitEntries).toHaveLength(1);
+
       const total = Number(hitEntries[0]!.split(':')[1]);
       expect(total).toBe(13);
     }).toPass({ timeout: 5_000 });

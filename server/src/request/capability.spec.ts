@@ -1,8 +1,11 @@
+import { WIRE_LIMITS } from '@wskit/core';
+import { t } from '~/_api/definitions.ts';
 import { define } from '~/_define/define.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { clientRequests } from './client-requests.ts';
+import { serverRequests } from './server-requests.ts';
 import type { RequestPrimitive } from './request.ts';
 
 function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPrimitive {
@@ -90,6 +93,16 @@ describe('clientRequests() capability', () => {
     };
     expect(() => escapeHatch.request('get-time', { run: () => ({}) })).toThrow(
       /base\.request\(\) needs clientRequests\(\)/,
+    );
+  });
+});
+
+describe('serverRequests() capability', () => {
+  it('rejects a request name that cannot travel on the wire', () => {
+    const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
+
+    expect(() => serverRequests({ [tooLong]: { out: t<{}>() } })).toThrow(
+      /the wire protocol limit is 128/,
     );
   });
 });

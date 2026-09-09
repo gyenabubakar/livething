@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
 import { CAPABILITY_KIND } from '~/_define/capability-kinds.ts';
 import { capability, stampKind, withCapabilityKind } from '~/_define/capability.ts';
 import { makeServerRequestsPrimitive, serverRequestKey } from '~/request/outgoing-runtime.ts';
@@ -51,7 +51,7 @@ export const serverRequests = withCapabilityKind(function serverRequests<
 >(declarations: TDeclarations = {} as TDeclarations): ServerRequestsCapability<TDeclarations> {
   const resolved = new Map<string, ResolvedServerRequest>();
   for (const [event, declaration] of Object.entries(declarations)) {
-    assertValidWSKitIdentifier(event, 'serverRequests() event name');
+    assertValidWSKitIdentifier(event, 'serverRequests() event name', WIRE_LIMITS.event);
     resolved.set(serverRequestKey(null, event), resolveServerRequest(declaration));
   }
 
@@ -68,7 +68,7 @@ export const serverRequests = withCapabilityKind(function serverRequests<
   writable.__serverRequests = resolved;
   writable.__registerServerRequests = (channelKey, channelDeclarations) => {
     for (const [event, declaration] of Object.entries(channelDeclarations)) {
-      assertValidWSKitIdentifier(event, 'serverRequests() event name');
+      assertValidWSKitIdentifier(event, 'serverRequests() event name', WIRE_LIMITS.event);
       resolved.set(serverRequestKey(channelKey, event), resolveServerRequest(declaration));
     }
   };
