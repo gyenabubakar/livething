@@ -1,5 +1,4 @@
 import type { Logger, StorageProvider } from '@wskit/server/adapters';
-import type { Server } from 'node:http';
 import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
@@ -9,7 +8,6 @@ import type { NodeTimers } from './providers/timers.ts';
 
 /** Runtime dependencies assembled by the public Node server. */
 export interface NodeRuntimeOptions extends Omit<NodeStorageOptions, 'logger'> {
-  server: Server;
   logger?: Logger;
 }
 
@@ -34,7 +32,7 @@ export function createRuntime(options: NodeRuntimeOptions): NodeRuntime {
   const timers = createTimers(storageRuntime.storage.sql, logger);
 
   return {
-    platform: createPlatform(options.server),
+    platform: createPlatform(),
     storage: storageRuntime.storage,
     timers,
     asyncContextFactory: createAsyncContext,

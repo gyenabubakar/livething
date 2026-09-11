@@ -14,3 +14,8 @@ allowBuilds:
   sharp: true
   vue-demi: true
   workerd: true
+
+packageExtensions:
+  '@nuxt/content@3.14.0':
+    dependencies:
+      h3: ^1.15.11

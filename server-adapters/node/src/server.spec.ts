@@ -1,11 +1,8 @@
-import { EventEmitter } from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
-import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as ServerAdapters from '@wskit/server/adapters';
-import type { Server } from 'node:http';
-import type { NodeWebSocketServer } from './upgrade.ts';
+import type { NodeEndpointOptions } from './endpoint.ts';
 
 type FakeEngine = {
   initialize: ReturnType<typeof vi.fn>;
@@ -38,22 +35,11 @@ vi.mock('@wskit/server/adapters', async (importOriginal) => ({
   },
 }));
 
-const { server } = await import('./server.ts');
+const { createNodeEndpoint } = await import('./endpoint.ts');
+const { binding } = await import('./binding.ts');
 
-class FakeHttpServer extends EventEmitter {
-  listening = false;
-
-  listen = vi.fn((_options: unknown, callback: () => void) => {
-    this.listening = true;
-    callback();
-    return this;
-  });
-
-  close = vi.fn((callback: (error?: Error) => void) => {
-    this.listening = false;
-    callback();
-    return this;
-  });
+function createTestEndpoint(handler: never, options: NodeEndpointOptions) {
+  return createNodeEndpoint(handler, options);
 }
 
 function incomingRequest(): IncomingMessage {
@@ -66,29 +52,6 @@ function incomingRequest(): IncomingMessage {
       upgrade: 'websocket',
     },
   });
-}
-
-function upgradeSocket() {
-  return {
-    once: vi.fn(),
-    off: vi.fn(),
-    destroy: vi.fn(),
-  } as never;
-}
-
-function fakeWebSocketServer(): NodeWebSocketServer {
-  const webSocket = {
-    bufferedAmount: 0,
-    close: vi.fn(),
-    on: vi.fn(),
-    send: vi.fn(),
-  };
-
-  return {
-    handleUpgrade: vi.fn((...args: Parameters<NodeWebSocketServer['handleUpgrade']>) => {
-      args[3](webSocket as never, incomingRequest());
-    }),
-  };
 }
 
 function makeEngine(): FakeEngine {
@@ -117,10 +80,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('server()', () => {
+describe('createNodeEndpoint()', () => {
   it('builds through the Node adapter without hibernation and reconciles before ready', async () => {
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, { server: httpServer as unknown as Server });
+    const service = createTestEndpoint({} as never, {});
 
     await service.ready;
 
@@ -138,39 +100,31 @@ describe('server()', () => {
     await service.shutdown();
   });
 
-  it('does not accept upgrades until initialization finishes', async () => {
-    const httpServer = new FakeHttpServer();
-    const webSocketServer = fakeWebSocketServer();
+  it('does not prepare upgrades until initialization finishes', async () => {
     let finishInitialization!: () => void;
     fake.initialize.mockImplementation(
       () => new Promise<void>((resolve) => (finishInitialization = resolve)),
     );
-    const service = server({} as never, {
-      server: httpServer as unknown as Server,
-      webSocketServer,
-    });
+    const service = createTestEndpoint({} as never, {});
 
-    httpServer.emit('upgrade', incomingRequest(), upgradeSocket(), Buffer.alloc(0));
+    const prepared = service.decideNodeUpgrade(incomingRequest());
     await Promise.resolve();
     expect(fake.handleUpgrade).not.toHaveBeenCalled();
 
     finishInitialization();
     await service.ready;
     await vi.waitFor(() => expect(fake.handleUpgrade).toHaveBeenCalledOnce());
+    await prepared;
 
     await service.shutdown();
   });
 
   it('waits for initialization before exposing the admin surface', async () => {
-    const httpServer = new FakeHttpServer();
     let finishInitialization!: () => void;
     fake.initialize.mockImplementation(
       () => new Promise<void>((resolve) => (finishInitialization = resolve)),
     );
-    const service = server({} as never, {
-      server: httpServer as unknown as Server,
-      shutdownOnSignal: false,
-    });
+    const service = createTestEndpoint({} as never, {});
 
     try {
       const admin = service.admin();
@@ -186,8 +140,7 @@ describe('server()', () => {
 
   it('forwards alarms, shutdown, and admin calls', async () => {
     vi.useFakeTimers();
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, { server: httpServer as unknown as Server });
+    const service = createTestEndpoint({} as never, {});
     await service.ready;
 
     const runtime = createOptions[0] as { timers: { setAlarm(time: number): Promise<void> } };
@@ -206,14 +159,13 @@ describe('server()', () => {
 
   it('waits for an active alarm before running engine shutdown hooks', async () => {
     vi.useFakeTimers();
-    const httpServer = new FakeHttpServer();
     let releaseAlarm: (() => void) | undefined;
     const alarmRunning = new Promise<void>((resolve) => {
       releaseAlarm = resolve;
     });
     fake.handleAlarm.mockImplementation(() => alarmRunning);
 
-    const service = server({} as never, { server: httpServer as unknown as Server });
+    const service = createTestEndpoint({} as never, {});
 
     try {
       await service.ready;
@@ -241,49 +193,72 @@ describe('server()', () => {
   it('reports a hibernation configuration failure through ready and shutdown', async () => {
     const failure = new Error('hibernation is not supported by the node adapter');
     fake.initialize.mockRejectedValue(failure);
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, { server: httpServer as unknown as Server });
+    const service = createTestEndpoint({} as never, {});
 
     await expect(service.ready).rejects.toBe(failure);
     await expect(service.shutdown()).rejects.toBe(failure);
     expect(fake.reconcileConnections).not.toHaveBeenCalled();
   });
+});
 
-  it('leaves an injected HTTP server open during shutdown', async () => {
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, { server: httpServer as unknown as Server });
+describe('binding()', () => {
+  it('prepares an accepted peer and forwards its lifecycle to the engine', async () => {
+    const node = binding();
+    const endpoint = node.bind({} as never, {});
+    const peer = {
+      send: vi.fn(),
+      close: vi.fn(),
+      bufferedAmount: vi.fn(() => 0),
+      backpressureSupported: true,
+    };
 
-    await service.ready;
-    await service.shutdown();
+    await endpoint.ready;
+    const upgrade = await endpoint.prepareNode(incomingRequest());
 
-    expect(httpServer.close).not.toHaveBeenCalled();
+    expect(upgrade.type).toBe('accept');
+    if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
+
+    const connection = upgrade.accept(peer);
+    await connection.message('hello');
+    await connection.close(1000, 'done');
+
+    await connection.error(new Error('failed'));
+
+    expect(fake.accept).toHaveBeenCalledWith(peer, expect.objectContaining({ userId: 'user-1' }));
+    const handle = fake.accept.mock.results[0]?.value;
+    expect(handle.handleMessage).toHaveBeenCalledWith('hello');
+    expect(handle.handleClose).toHaveBeenCalledWith(1000, 'done');
+    expect(handle.handleError).toHaveBeenCalledWith(expect.any(Error));
+
+    await expect(node.shutdown()).resolves.toBeUndefined();
   });
 
-  it('shuts down on SIGTERM when signal handling is enabled', async () => {
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, {
-      server: httpServer as unknown as Server,
-      shutdownOnSignal: true,
+  it('turns engine rejections into host-ready results and replaces spoofed client IP headers', async () => {
+    const node = binding();
+    const endpoint = node.bind({} as never, {});
+    await endpoint.ready;
+
+    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
+    const http = await endpoint.prepare(
+      new Request('https://example.test/socket', { headers: { 'WSKit-Client-IP': 'spoofed' } }),
+      { clientIp: '203.0.113.7' },
+    );
+    expect(http.type).toBe('http');
+    if (http.type === 'http') {
+      expect(http.response.status).toBe(401);
+      await expect(http.response.text()).resolves.toBe('No token');
+    }
+
+    const request = fake.handleUpgrade.mock.calls[0]?.[0] as Request;
+
+    expect(request.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+
+    fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 4001, reason: 'No token' });
+    await expect(endpoint.prepareNode(incomingRequest())).resolves.toEqual({
+      type: 'socket',
+      code: 4001,
+      reason: 'No token',
     });
-
-    await service.ready;
-    process.emit('SIGTERM');
-
-    await vi.waitFor(() => expect(fake.handleShutdown).toHaveBeenCalledOnce());
-    await service.shutdown();
-  });
-
-  it('does not install signal handlers when signal shutdown is disabled', async () => {
-    const before = process.listeners('SIGTERM');
-    const httpServer = new FakeHttpServer();
-    const service = server({} as never, {
-      server: httpServer as unknown as Server,
-      shutdownOnSignal: false,
-    });
-
-    await service.ready;
-
-    expect(process.listeners('SIGTERM')).toEqual(before);
-    await service.shutdown();
+    await expect(node.shutdown()).resolves.toBeUndefined();
   });
 });

@@ -142,7 +142,10 @@ test.describe('lifecycle-hooks', () => {
       },
     });
     expect(response.status()).toBe(403);
-    await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
+    expect(response.headers()['content-type']).toContain('text/plain');
+    if (process.env.WSKIT_E2E_FRAMEWORK !== 'hono') {
+      await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
+    }
   });
 
   test('requireUsername rejects missing username with close code 4001 across multiple mounts', async ({

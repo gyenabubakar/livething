@@ -25,10 +25,10 @@ interface NodePluginState {
 const denied = error('denied', v.object({ reason: v.string(), op: v.string() }));
 const taskDataSchema = v.object({ value: v.string() });
 const REWRITE_PROBE = 'plugin-rewrite-probe';
-const stateByServer = new WeakMap<Platform['server'], NodePluginState>();
+const stateByPlatform = new WeakMap<Platform, NodePluginState>();
 
 function getState(platform: Platform): NodePluginState {
-  let state = stateByServer.get(platform.server);
+  let state = stateByPlatform.get(platform);
   if (!state) {
     state = {
       lastGeneratedId: null,
@@ -39,7 +39,7 @@ function getState(platform: Platform): NodePluginState {
       everyTickCount: 0,
       flakyAttempts: 0,
     };
-    stateByServer.set(platform.server, state);
+    stateByPlatform.set(platform, state);
   }
 
   return state;

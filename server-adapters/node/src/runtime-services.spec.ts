@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
 import type { KVProvider, Logger, SqlLimits, SQLProvider, SqlResult } from '@wskit/server/adapters';
-import type { Server } from 'node:http';
 import { createAsyncContext } from './async-context.ts';
 import { createLogger } from './logger.ts';
 import { createPlatform } from './platform.ts';
@@ -363,7 +362,7 @@ describe('createTimers', () => {
   it('waits for an in-flight alarm before closing its storage', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(500_000);
-    const runtime = createRuntime({ server: {} as Server });
+    const runtime = createRuntime({});
     let release!: () => void;
     const alarmGate = new Promise<void>((resolve) => {
       release = resolve;
@@ -675,23 +674,21 @@ describe('createLogger and createPlatform', () => {
     }
   });
 
-  it('exposes the Node HTTP server as platform context', () => {
-    const server = {} as Server;
-    const platform = createPlatform(server);
+  it('creates an adapter-owned platform context', () => {
+    const platform = createPlatform();
 
-    expect(platform).toEqual({ server });
+    expect(platform).toEqual({});
   });
 });
 
 describe('createRuntime', () => {
   it('bundles the engine services and preserves injected storage providers', async () => {
-    const server = {} as Server;
     const kv = createFakeKv();
     const logger = createMockLogger();
-    const runtime = createRuntime({ server, kv, logger });
+    const runtime = createRuntime({ kv, logger });
 
     try {
-      expect(runtime.platform).toEqual({ server });
+      expect(runtime.platform).toEqual({});
       expect(runtime.storage.kv).toBe(kv);
       expect(runtime.storage.sql.limits.maxBoundParams).toBe(32_766);
       expect(runtime.asyncContextFactory().getStore()).toBeUndefined();
@@ -702,7 +699,7 @@ describe('createRuntime', () => {
   });
 
   it('defaults KV to the same SQLite database as SQL', async () => {
-    const runtime = createRuntime({ server: {} as Server });
+    const runtime = createRuntime({});
 
     try {
       await runtime.storage.kv.set('default', 'sqlite-backed');

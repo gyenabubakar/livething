@@ -1,159 +1,33 @@
 import { STATUS_CODES } from 'node:http';
 import { CloseCodes } from '@wskit/server/errors';
-import { WebSocketServer } from 'ws';
-import type { Engine, UpgradeDecision } from '@wskit/server/adapters';
+import type { UpgradeDecision } from '@wskit/server/adapters';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import type { WebSocket } from 'ws';
-import { createClientIpResolver } from './client-ip.ts';
+import type { RawData, WebSocket } from 'ws';
 import { closeWebSocket } from './close.ts';
-import { requestToWebRequest } from './request.ts';
-import type { NodeClientIpConfig } from './client-ip.ts';
+import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 
-/** Creates the Node boundary between an HTTP upgrade and the WSKit engine. */
-export function createUpgradeHandler(options: NodeUpgradeHandlerOptions): NodeUpgradeHandler {
-  const {
-    engine,
-    onAccepted,
-    webSocketServer = new WebSocketServer({ noServer: true }),
-    clientIp,
-  } = options;
-  const resolveClientIp = createClientIpResolver(clientIp);
-
-  return async (request, socket, head) => {
-    const abortController = new AbortController();
-
-    function abort(): void {
-      abortController.abort();
-    }
-
-    function detachAbortListeners(): void {
-      request.off('aborted', abort);
-      socket.off('close', abort);
-    }
-
-    request.once('aborted', abort);
-    socket.once('close', abort);
-
-    let webRequest: Request;
-    try {
-      webRequest = requestToWebRequest(request, {
-        signal: abortController.signal,
-        clientIp: resolveClientIp(request),
-      });
-    } catch {
-      detachAbortListeners();
-      writeHttpRejection(socket, { reject: true, code: 400, reason: 'Invalid upgrade request' });
-      return;
-    }
-
-    let decision: UpgradeDecision;
-    try {
-      decision = await engine.handleUpgrade(webRequest);
-    } finally {
-      detachAbortListeners();
-    }
-
-    if (decision.reject) {
-      await rejectUpgrade({ webSocketServer, request, socket, head, decision });
-      return;
-    }
-
-    let acceptedSocket: WebSocket | undefined;
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        let accepted = false;
-
-        function rejectClosedUpgrade(): void {
-          if (!accepted) reject(new Error('[wskit] WebSocket upgrade closed before acceptance'));
-        }
-
-        function detachUpgradeListeners(): void {
-          socket.off('close', rejectClosedUpgrade);
-          socket.off('error', rejectClosedUpgrade);
-        }
-
-        socket.once('close', rejectClosedUpgrade);
-        socket.once('error', rejectClosedUpgrade);
-
-        try {
-          webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-            accepted = true;
-            detachUpgradeListeners();
-            acceptedSocket = webSocket;
-            void Promise.resolve()
-              .then(() => onAccepted(webSocket, request, decision))
-              .then(resolve, reject);
-          });
-        } catch (error) {
-          detachUpgradeListeners();
-          reject(error);
-        }
-      });
-    } catch (error) {
-      if (acceptedSocket) {
-        closeWebSocket(
-          acceptedSocket,
-          CloseCodes.INTERNAL_ERROR,
-          '[wskit] connection setup failed',
-        );
-      }
-
-      throw error;
-    }
-  };
-}
-
-async function rejectUpgrade(options: RejectUpgradeOptions): Promise<void> {
-  const { webSocketServer, request, socket, head, decision } = options;
-  if (decision.code !== undefined && decision.code >= 1000) {
-    await new Promise<void>((resolve, reject) => {
-      try {
-        webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-          try {
-            closeWebSocket(webSocket, decision.code, decision.reason ?? 'Upgrade rejected');
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-    return;
-  }
-
-  writeHttpRejection(socket, decision);
-}
-
-interface RejectUpgradeOptions {
-  webSocketServer: NodeWebSocketServer;
-  request: IncomingMessage;
-  socket: Duplex;
-  head: Buffer;
-  decision: UpgradeDecision;
-}
-
-function writeHttpRejection(socket: Duplex, decision: UpgradeDecision): void {
+export function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
   const status =
     decision.code !== undefined && decision.code >= 400 && decision.code <= 599
       ? decision.code
       : 403;
   const body = decision.reason ?? 'Upgrade rejected';
-  const bodyBytes = Buffer.from(body);
-  const statusText = STATUS_CODES[status] ?? 'Forbidden';
-  const response = [
-    `HTTP/1.1 ${status} ${statusText}`,
-    'Connection: close',
-    'Content-Type: text/plain; charset=utf-8',
-    `Content-Length: ${bodyBytes.byteLength}`,
-    '',
-    '',
-  ].join('\r\n');
 
-  socket.end(Buffer.concat([Buffer.from(response), bodyBytes]));
+  return { body, status };
+}
+
+export function isSocketRejection(decision: UpgradeDecision): boolean {
+  return decision.code !== undefined && decision.code >= 1000;
+}
+
+export function createHttpRejectionResponse(decision: UpgradeDecision): Response {
+  const { body, status } = upgradeRejection(decision);
+
+  return new Response(body, {
+    status,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }
 
 /** The small part of `ws.WebSocketServer` needed by the adapter. */
@@ -166,21 +40,151 @@ export interface NodeWebSocketServer {
   ): void;
 }
 
-/** Dependencies used to create the Node HTTP upgrade handler. */
-export interface NodeUpgradeHandlerOptions {
-  engine: Pick<Engine, 'handleUpgrade'>;
-  onAccepted: (
-    webSocket: WebSocket,
-    request: IncomingMessage,
-    decision: UpgradeDecision,
-  ) => void | Promise<void>;
-  webSocketServer?: NodeWebSocketServer;
-  clientIp?: NodeClientIpConfig;
+/** Dependencies used to bind a public Node integration endpoint to `upgrade`. */
+export interface NodeUpgradeBindingOptions {
+  endpoint: NodeBindingEndpoint;
+  webSocketServer: NodeWebSocketServer;
 }
 
-/** Handles one Node HTTP upgrade event. */
-export type NodeUpgradeHandler = (
-  request: IncomingMessage,
-  socket: Duplex,
-  head: Buffer,
-) => Promise<void>;
+interface NodeUpgradeRequest extends NodeUpgradeBindingOptions {
+  request: IncomingMessage;
+  socket: Duplex;
+  head: Buffer;
+}
+
+/**
+ * Turns a binding endpoint into a native Node `upgrade` listener.
+ *
+ * This is kept private to the direct Node setup. Other hosts use the same
+ * `NodeBindingEndpoint` through their own WebSocket route lifecycle.
+ */
+export function createNodeUpgradeHandler(
+  options: NodeUpgradeBindingOptions,
+): (request: IncomingMessage, socket: Duplex, head: Buffer) => Promise<void> {
+  const { endpoint, webSocketServer } = options;
+
+  return (request, socket, head) =>
+    handleNodeUpgrade({ endpoint, webSocketServer, request, socket, head });
+}
+
+async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
+  const { endpoint, webSocketServer, request, socket, head } = options;
+  const abortController = new AbortController();
+  function abort(): void {
+    abortController.abort();
+  }
+
+  request.once('aborted', abort);
+  socket.once('close', abort);
+
+  let upgrade;
+  try {
+    upgrade = await endpoint.prepareNode(request, { signal: abortController.signal });
+  } finally {
+    request.off('aborted', abort);
+    socket.off('close', abort);
+  }
+
+  if (upgrade.type === 'http') {
+    await writeHttpResponse(socket, upgrade.response);
+    return;
+  }
+
+  let acceptedSocket: WebSocket | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let accepted = false;
+      function rejectClosedUpgrade(): void {
+        if (!accepted) reject(new Error('[wskit] WebSocket upgrade closed before acceptance'));
+      }
+
+      function detachListeners(): void {
+        socket.off('close', rejectClosedUpgrade);
+        socket.off('error', rejectClosedUpgrade);
+      }
+
+      socket.once('close', rejectClosedUpgrade);
+      socket.once('error', rejectClosedUpgrade);
+      try {
+        webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+          accepted = true;
+          acceptedSocket = webSocket;
+          detachListeners();
+          try {
+            if (upgrade.type === 'socket') {
+              closeWebSocket(webSocket, upgrade.code, upgrade.reason);
+            } else {
+              attachAcceptedWebSocket(webSocket, upgrade.accept(webSocketPeer(webSocket)));
+            }
+
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      } catch (error) {
+        detachListeners();
+        reject(error);
+      }
+    });
+  } catch (error) {
+    if (acceptedSocket) {
+      closeWebSocket(acceptedSocket, CloseCodes.INTERNAL_ERROR, '[wskit] connection setup failed');
+    }
+
+    throw error;
+  }
+}
+
+async function writeHttpResponse(socket: Duplex, response: Response): Promise<void> {
+  const body = Buffer.from(await response.arrayBuffer());
+  const statusText = STATUS_CODES[response.status] ?? 'Forbidden';
+  const headers = new Headers(response.headers);
+  headers.set('Connection', 'close');
+  if (!headers.has('Content-Length')) headers.set('Content-Length', String(body.byteLength));
+
+  const lines = [`HTTP/1.1 ${response.status} ${statusText}`];
+  for (const [name, value] of headers) lines.push(`${name}: ${value}`);
+  lines.push('', '');
+  socket.end(Buffer.concat([Buffer.from(lines.join('\r\n')), body]));
+}
+
+function webSocketPeer(socket: WebSocket) {
+  return {
+    send: (data: string) => socket.send(data),
+    close: (code?: number, reason?: string) => socket.close(code, reason),
+    bufferedAmount: () => socket.bufferedAmount,
+    backpressureSupported: true,
+  };
+}
+
+function attachAcceptedWebSocket(socket: WebSocket, connection: NodeConnection): void {
+  socket.on('message', (data, isBinary) => {
+    if (isBinary) {
+      closeWebSocket(
+        socket,
+        CloseCodes.UNSUPPORTED_DATA,
+        '[wskit] binary frames are not supported yet',
+      );
+      return;
+    }
+
+    void connection.message(rawDataToString(data));
+  });
+  socket.on('close', (code, reason) => {
+    void connection.close(code, reason.toString());
+  });
+  socket.on('error', (error) => {
+    void connection.error(error);
+  });
+}
+
+function rawDataToString(data: RawData): string {
+  if (typeof data === 'string') return data;
+
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString();
+
+  if (Array.isArray(data)) return Buffer.concat(data).toString();
+
+  return data.toString();
+}

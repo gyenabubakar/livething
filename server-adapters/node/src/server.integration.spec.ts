@@ -1,15 +1,17 @@
+import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import process from 'node:process';
 import { define, emits, t, translator } from '@wskit/server';
 import { CloseCodes, RejectUpgrade } from '@wskit/server/errors';
 import { scheduled } from '@wskit/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
 import type { Server } from 'node:http';
 import type { RawData } from 'ws';
-import { server } from './server.ts';
-import type { NodeServer } from './server.ts';
+import { setup } from './setup.ts';
+import type { NodeAdmin } from './endpoint.ts';
+import type { NodeServerEndpointOptions } from './setup.ts';
 import type { NodeWebSocketServer } from './upgrade.ts';
 
 interface WireMessage {
@@ -22,6 +24,56 @@ interface IntegrationState {
   disconnect?: { code?: number; reason?: string };
   errors: string[];
   shutdowns: number;
+}
+
+interface TestService<TApi = unknown> {
+  readonly server: Server;
+  readonly ready: Promise<void>;
+  admin(): Promise<TApi>;
+  shutdown(): Promise<void>;
+}
+
+function createTestService<THandler extends ServerDefinition>(
+  handler: THandler,
+  options: NodeServerEndpointOptions & { port: number },
+): TestService<NodeAdmin<ApiOf<THandler>>> {
+  const httpServer = createServer((_request, response) => {
+    response.statusCode = 404;
+    response.end();
+  });
+  const wskit = setup();
+  const endpoint = wskit.bind(handler, options);
+  httpServer.on('upgrade', endpoint.upgrade);
+  let shutdown: Promise<void> | undefined;
+
+  const ready = Promise.all([
+    endpoint.ready(),
+    new Promise<void>((resolve, reject) => {
+      httpServer.once('error', reject);
+      httpServer.listen(options.port, () => {
+        httpServer.off('error', reject);
+        resolve();
+      });
+    }),
+  ]).then(() => {});
+
+  return {
+    server: httpServer,
+    ready,
+    admin: endpoint.admin,
+    shutdown() {
+      if (!shutdown) {
+        shutdown = wskit.shutdown().then(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              httpServer.close((error) => (error ? reject(error) : resolve()));
+            }),
+        );
+      }
+
+      return shutdown;
+    },
+  };
 }
 
 function createHandler(state: IntegrationState) {
@@ -384,7 +436,7 @@ function createCapturingWebSocketServer(): {
 }
 
 describe('Node server integration', () => {
-  const services: NodeServer[] = [];
+  const services: TestService[] = [];
   const clients: WebSocket[] = [];
   const databases: Database.Database[] = [];
 
@@ -396,10 +448,9 @@ describe('Node server integration', () => {
 
   it('passes the complete upgrade request and routes real text frames through the engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), {
+    const service = createTestService(createHandler(state), {
       port: 0,
       clientIp: { mode: 'direct' },
-      shutdownOnSignal: false,
     });
     services.push(service);
     await service.ready;
@@ -437,7 +488,7 @@ describe('Node server integration', () => {
 
   it('rejects a real upgrade with an HTTP response', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -450,7 +501,7 @@ describe('Node server integration', () => {
 
   it('turns an invalid upgrade close code into a safe HTTP rejection', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -462,7 +513,7 @@ describe('Node server integration', () => {
 
   it('rejects a real upgrade with a WebSocket close decision', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -476,7 +527,7 @@ describe('Node server integration', () => {
 
   it('rejects an authority-changing request target over the real HTTP boundary', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -488,10 +539,9 @@ describe('Node server integration', () => {
   it('does not retain a malformed upgrade while shutting down', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const observed = createObservedWebSocketServer();
-    const service = server(createHandler(state), {
+    const service = createTestService(createHandler(state), {
       port: 0,
       webSocketServer: observed.server,
-      shutdownOnSignal: false,
     });
     services.push(service);
     await service.ready;
@@ -507,7 +557,7 @@ describe('Node server integration', () => {
 
   it('limits an oversized WebSocket close reason over the real transport', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -524,7 +574,7 @@ describe('Node server integration', () => {
 
   it('turns an invalid application close code into a safe WebSocket close', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -543,7 +593,7 @@ describe('Node server integration', () => {
 
   it('rejects binary frames through the real bridge', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -570,7 +620,7 @@ describe('Node server integration', () => {
 
   it('forwards a client close through the real engine lifecycle', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -590,10 +640,9 @@ describe('Node server integration', () => {
   it('forwards a real WebSocket transport error through the engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const captured = createCapturingWebSocketServer();
-    const service = server(createHandler(state), {
+    const service = createTestService(createHandler(state), {
       port: 0,
       webSocketServer: captured.server,
-      shutdownOnSignal: false,
     });
     services.push(service);
     await service.ready;
@@ -613,7 +662,7 @@ describe('Node server integration', () => {
 
   it('runs SQL, KV, and scheduled work through real handlers', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -647,7 +696,7 @@ describe('Node server integration', () => {
 
   it('exposes the live Node buffer amount through the engine context', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -666,7 +715,7 @@ describe('Node server integration', () => {
 
   it('runs custom admin API methods through the real engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -688,10 +737,9 @@ describe('Node server integration', () => {
     const database = new Database(':memory:');
     databases.push(database);
     const firstState: IntegrationState = { errors: [], shutdowns: 0 };
-    const first = server(createHandler(firstState), {
+    const first = createTestService(createHandler(firstState), {
       port: 0,
       sql: database,
-      shutdownOnSignal: false,
     });
     services.push(first);
 
@@ -706,10 +754,9 @@ describe('Node server integration', () => {
     expect((await first.admin()).connectionCount).toBe(1);
 
     const secondState: IntegrationState = { errors: [], shutdowns: 0 };
-    const second = server(createHandler(secondState), {
+    const second = createTestService(createHandler(secondState), {
       port: 0,
       sql: database,
-      shutdownOnSignal: false,
     });
     services.push(second);
     await second.ready;
@@ -719,9 +766,8 @@ describe('Node server integration', () => {
 
   it('translates inbound and outbound frames through the real engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createTranslatedHandler(state), {
+    const service = createTestService(createTranslatedHandler(state), {
       port: 0,
-      shutdownOnSignal: false,
     });
     services.push(service);
     await service.ready;
@@ -747,7 +793,7 @@ describe('Node server integration', () => {
 
   it('closes a connected real client with going-away during shutdown', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0, shutdownOnSignal: false });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -765,9 +811,9 @@ describe('Node server integration', () => {
     expect(state.shutdowns).toBe(1);
   });
 
-  it('shuts down on SIGTERM for an owned server', async () => {
+  it('lets the application decide when to shut down its server', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = server(createHandler(state), { port: 0 });
+    const service = createTestService(createHandler(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -778,7 +824,7 @@ describe('Node server integration', () => {
     await connected;
 
     const closed = waitForClose(socket);
-    process.emit('SIGTERM');
+    await service.shutdown();
 
     await expect(closed).resolves.toEqual({ code: 1001, reason: 'Server shutting down' });
     await service.shutdown();

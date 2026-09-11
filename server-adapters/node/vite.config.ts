@@ -14,13 +14,28 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
+        binding: resolve(__dirname, 'src/binding.ts'),
+        hono: resolve(__dirname, 'src/frameworks/hono/index.ts'),
+        fastify: resolve(__dirname, 'src/frameworks/fastify/index.ts'),
+        h3: resolve(__dirname, 'src/frameworks/h3/index.ts'),
       },
       formats: ['es'],
     },
     minify: true,
     sourcemap: true,
     rollupOptions: {
-      external: [/^node:/, /^@wskit\/server(?:\/.*)?$/, /^better-sqlite3$/, /^ws$/],
+      external: [
+        /^node:/,
+        /^@fastify\/websocket$/,
+        /^@hono\/node-server$/,
+        /^@wskit\/server(?:\/.*)?$/,
+        /^better-sqlite3$/,
+        /^crossws(?:\/.*)?$/,
+        /^fastify$/,
+        /^h3(?:\/.*)?$/,
+        /^hono(?:\/.*)?$/,
+        /^ws$/,
+      ],
     },
   },
 });

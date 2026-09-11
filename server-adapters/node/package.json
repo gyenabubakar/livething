@@ -8,6 +8,22 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./binding": {
+      "types": "./dist/src/binding.d.ts",
+      "import": "./dist/binding.js"
+    },
+    "./hono": {
+      "types": "./dist/src/frameworks/hono/index.d.ts",
+      "import": "./dist/hono.js"
+    },
+    "./fastify": {
+      "types": "./dist/src/frameworks/fastify/index.d.ts",
+      "import": "./dist/fastify.js"
+    },
+    "./h3": {
+      "types": "./dist/src/frameworks/h3/index.d.ts",
+      "import": "./dist/h3.js"
     }
   },
   "publishConfig": {
@@ -23,11 +39,46 @@
     "build": "tsc && vite build",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests",
+    "test:e2e:node": "pnpm run test:e2e:node:raw && pnpm run test:e2e:node:packaged",
+    "test:e2e:node:raw": "pnpm run test:e2e:node:hono:raw && pnpm run test:e2e:node:fastify:raw && pnpm run test:e2e:node:h3:raw",
+    "test:e2e:node:packaged": "pnpm run test:e2e:node:hono:packaged && pnpm run test:e2e:node:fastify:packaged && pnpm run test:e2e:node:h3:packaged",
+    "test:e2e:node:hono:raw": "vitest run src/frameworks/hono/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
+    "test:e2e:node:hono:packaged": "vitest run src/frameworks/hono/index.integration.spec.ts --testNamePattern='packaged WSKit client'",
+    "test:e2e:node:fastify:raw": "vitest run src/frameworks/fastify/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
+    "test:e2e:node:fastify:packaged": "vitest run src/frameworks/fastify/index.integration.spec.ts --testNamePattern='packaged WSKit client'",
+    "test:e2e:node:h3:raw": "vitest run src/frameworks/h3/index.integration.spec.ts --testNamePattern='^(?!.*packaged)'",
+    "test:e2e:node:h3:packaged": "vitest run src/frameworks/h3/index.integration.spec.ts --testNamePattern='packaged WSKit client'",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {
-    "@wskit/server": "^1.0.0-beta.0"
+    "@fastify/websocket": "^11.3.0",
+    "@hono/node-server": "^2.1.1",
+    "@wskit/server": "^1.0.0-beta.0",
+    "crossws": "^0.4.12",
+    "fastify": "^5.12.3",
+    "h3": "^2.0.1-rc.31",
+    "hono": "^4.13.7"
+  },
+  "peerDependenciesMeta": {
+    "@fastify/websocket": {
+      "optional": true
+    },
+    "@hono/node-server": {
+      "optional": true
+    },
+    "crossws": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "h3": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@fastify/proxy-addr": "^5.1.0",
@@ -37,7 +88,14 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/ws": "^8.5.12",
+    "@wskit/client": "workspace:*",
+    "@fastify/websocket": "^11.3.0",
+    "@hono/node-server": "^2.1.1",
     "@wskit/server": "workspace:*",
+    "crossws": "^0.4.12",
+    "fastify": "^5.12.3",
+    "h3": "^2.0.1-rc.31",
+    "hono": "^4.13.7",
     "vite": "8.0.5",
     "vite-plugin-dts": "^4.5.4"
   }

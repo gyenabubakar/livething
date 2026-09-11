@@ -1,16 +1,11 @@
 <script lang="ts">
 const LINE_HEIGHT = 23
-const HEADER_HEIGHT = 40
-const BLOCK_PADDING = 16
 
 const BLOCK_CSS = `
 :host {
   --diffs-font-family: var(--font-mono, "DM Mono", monospace);
   --diffs-font-size: 14.5px;
   --diffs-line-height: ${LINE_HEIGHT}px;
-}
-[data-metadata] {
-  padding-right: 30px;
 }
 `
 </script>
@@ -35,20 +30,25 @@ const route = useRoute()
 const enabled = computed(() => route.path !== '/')
 const code = computed(() => (props.code ?? '').replace(/\n+$/, ''))
 const language = computed(() => props.language || 'text')
+const isDiff = computed(() => language.value === 'diff' || language.value === 'patch')
 const showHeader = computed(() => !!props.filename && !props.hideHeader)
 const name = computed(() => props.filename || `snippet.${language.value}`)
-const height = computed(
-  () => code.value.split('\n').length * LINE_HEIGHT + (showHeader.value ? HEADER_HEIGHT : 0) + BLOCK_PADDING,
-)
 
 const colorMode = useColorMode()
 const themeType = computed<'light' | 'dark'>(() => (colorMode.value === 'dark' ? 'dark' : 'light'))
 const { copy, copied } = useClipboard()
 const appConfig = useAppConfig()
 
-const root = ref<HTMLElement>()
 const container = ref<HTMLElement>()
+const block = ref<HTMLElement>()
 const visible = ref(false)
+const rendered = ref(false)
+const placeholderHeight = computed(() => {
+  const lines = Math.max(1, code.value.split('\n').length)
+  const headerHeight = showHeader.value ? 38 : 0
+
+  return `${lines * LINE_HEIGHT + headerHeight + 2}px`
+})
 
 let instance: { setThemeType: (type: 'light' | 'dark') => void, cleanUp: () => void } | undefined
 let observer: IntersectionObserver | undefined
@@ -56,7 +56,33 @@ let observer: IntersectionObserver | undefined
 async function draw() {
   if (!container.value) return
 
-  const { File } = await import('@pierre/diffs')
+  const { File, FileDiff, parsePatchFiles } = await import('@pierre/diffs')
+
+  if (isDiff.value) {
+    let fileDiff
+
+    try {
+      fileDiff = parsePatchFiles(code.value, name.value, true)[0]?.files[0]
+    } catch {
+      fileDiff = undefined
+    }
+
+    if (fileDiff) {
+      const diff = new FileDiff({
+        theme: { light: 'pierre-light', dark: 'pierre-dark-soft' },
+        themeType: themeType.value,
+        diffStyle: 'unified',
+        lineDiffType: 'none',
+        overflow: 'scroll' as const,
+        disableFileHeader: !showHeader.value,
+        unsafeCSS: BLOCK_CSS,
+      })
+      diff.render({ fileDiff, containerWrapper: container.value })
+      instance = diff
+      return
+    }
+  }
+
   const file = new File({
     theme: { light: 'pierre-light', dark: 'pierre-dark-soft' },
     themeType: themeType.value,
@@ -73,25 +99,32 @@ async function draw() {
 
 watch(themeType, type => instance?.setThemeType(type))
 
+async function render() {
+  if (visible.value) return
+
+  visible.value = true
+  await nextTick()
+  await draw()
+  rendered.value = true
+  observer?.disconnect()
+  observer = undefined
+}
+
 onMounted(() => {
-  if (!enabled.value || !root.value) return
-  if (typeof IntersectionObserver === 'undefined') {
-    visible.value = true
-    nextTick(draw)
+  if (!enabled.value) return
+
+  if (!block.value || typeof IntersectionObserver === 'undefined') {
+    void render()
     return
   }
 
   observer = new IntersectionObserver(
     (entries) => {
-      if (!entries.some(entry => entry.isIntersecting)) return
-      visible.value = true
-      observer?.disconnect()
-      observer = undefined
-      nextTick(draw)
+      if (entries[0]?.isIntersecting) void render()
     },
     { rootMargin: '200px 0px' },
   )
-  observer.observe(root.value)
+  observer.observe(block.value)
 })
 
 onBeforeUnmount(() => {
@@ -112,12 +145,11 @@ onBeforeUnmount(() => {
 
   <div
     v-else
-    ref="root"
+    ref="block"
     class="not-prose group relative my-5"
-    :style="{ minHeight: `${height}px` }"
+    :style="{ minHeight: rendered ? undefined : placeholderHeight }"
   >
-    <div v-show="visible" ref="container" class="diffs-block" />
-    <USkeleton v-if="!visible" class="w-full" :style="{ height: `${height}px` }" />
+    <div v-if="visible" ref="container" class="diffs-block" />
 
     <UButton
       :icon="copied ? appConfig.ui.icons.copyCheck : appConfig.ui.icons.copy"

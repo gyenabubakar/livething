@@ -3,22 +3,51 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { NodeServer } from '@wskit/server-node';
+import { setup } from '@wskit/server-node';
+import type { NodeEndpointBinding, NodeEndpointOptions } from '@wskit/server-node';
+import type { ServerDefinition } from '@wskit/server/adapters';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { FEATURE_ROUTES } from './fixtures.ts';
+import { FEATURE_HANDLERS } from './handlers.ts';
 
 type AnyAdminMethod = (...args: unknown[]) => unknown;
 type AnyAdmin = Record<string, AnyAdminMethod>;
 
-interface Fixture {
-  service: NodeServer<unknown>;
-  transport: Server;
+export interface Fixture {
+  service: FixtureService;
   sockets: Set<Duplex>;
   leases: Set<string>;
   activeHttpRequests: number;
   idleTimer?: ReturnType<typeof setTimeout>;
   shutdown?: Promise<void>;
+}
+
+export interface FixtureService<TEndpoint = unknown> {
+  readonly endpoint: TEndpoint;
+  readonly ready: Promise<void>;
+  readonly keepAlive?: boolean;
+  admin(): Promise<unknown>;
+  shutdown(): Promise<void>;
+}
+
+type FixtureBinding = (handler: ServerDefinition, options: NodeEndpointOptions) => FixtureService;
+
+let bindFixture: FixtureBinding | undefined;
+
+export function configureFixtureBinding(binding: FixtureBinding): void {
+  bindFixture = binding;
+}
+
+function bindNodeFixture(handler: ServerDefinition, options: NodeEndpointOptions): FixtureService {
+  const wskit = setup();
+  const endpoint = wskit.bind(handler, options);
+
+  return {
+    endpoint,
+    ready: endpoint.ready(),
+    admin: endpoint.admin,
+    shutdown: wskit.shutdown,
+  };
 }
 
 const stateRoot = mkdtempSync(join(tmpdir(), 'wskit-node-e2e-'));
@@ -64,7 +93,7 @@ async function shutdownKnownFixture(key: string, fixture: Fixture): Promise<void
   return fixture.shutdown;
 }
 
-async function getFixture(route: string, room: string): Promise<Fixture> {
+export async function getFixture(route: string, room: string): Promise<Fixture> {
   const key = fixtureKey(route, room);
   const current = fixtures.get(key);
   if (current) {
@@ -80,25 +109,21 @@ async function getFixture(route: string, room: string): Promise<Fixture> {
     const replacement = fixtures.get(key);
     if (replacement && !replacement.shutdown) return replacement;
 
-    const spec = FEATURE_ROUTES[route];
-    if (!spec) throw new Error(`No Node fixture is registered for ${route}`);
+    const handler = FEATURE_HANDLERS[route];
+    if (!handler) throw new Error(`No Node fixture is registered for ${route}`);
 
-    const transport = createServer();
-    const service = spec.create({
-      server: transport,
-      sql: databasePath(route, room),
-      shutdownOnSignal: false,
-    });
+    if (!bindFixture) throw new Error('[wskit] E2E fixture binding was not configured');
+
+    const service = bindFixture(handler, { sql: databasePath(route, room) });
     const fixture = {
       service,
-      transport,
       sockets: new Set<Duplex>(),
       leases: new Set<string>(),
       activeHttpRequests: 0,
     };
 
     fixtures.set(key, fixture);
-    scheduleIdleFixtureShutdown(key, fixture);
+    if (!service.keepAlive) scheduleIdleFixtureShutdown(key, fixture);
 
     return fixture;
   })().finally(() => {
@@ -128,7 +153,7 @@ async function acquireHttpFixture(
 
       released = true;
       fixture.activeHttpRequests -= 1;
-      if (fixture.sockets.size === 0 && fixture.leases.size === 0) {
+      if (!fixture.service.keepAlive && fixture.sockets.size === 0 && fixture.leases.size === 0) {
         scheduleIdleFixtureShutdown(key, fixture);
       }
     },
@@ -141,7 +166,12 @@ function releaseFixtureLease(route: string, room: string, lease: string): void {
   if (!fixture) return;
 
   fixture.leases.delete(lease);
-  if (fixture.sockets.size === 0 && fixture.leases.size === 0 && fixture.activeHttpRequests === 0) {
+  if (
+    !fixture.service.keepAlive &&
+    fixture.sockets.size === 0 &&
+    fixture.leases.size === 0 &&
+    fixture.activeHttpRequests === 0
+  ) {
     scheduleIdleFixtureShutdown(key, fixture);
   }
 }
@@ -270,7 +300,10 @@ function roomFrom(url: URL): string {
   return url.searchParams.get('room') ?? 'default';
 }
 
-async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+export async function handleRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
   const room = roomFrom(url);
   let releaseFixture: (() => void) | undefined;
@@ -290,7 +323,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (url.pathname === '/ws/__fixtures/release') {
       const route = url.searchParams.get('route') ?? '';
       const lease = url.searchParams.get('lease') ?? '';
-      if (FEATURE_ROUTES[route] && lease) releaseFixtureLease(route, room, lease);
+      if (FEATURE_HANDLERS[route] && lease) releaseFixtureLease(route, room, lease);
       writeText(response, 204, '');
       return;
     }
@@ -434,7 +467,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return;
     }
 
-    if (FEATURE_ROUTES[url.pathname]) {
+    if (FEATURE_HANDLERS[url.pathname]) {
       writeText(response, 426, 'Upgrade Required');
       return;
     }
@@ -448,14 +481,42 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 }
 
-async function handleUpgrade(
+export async function handleFetchRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  let status = 200;
+  const headers = new Headers();
+  let body = '';
+  const response = {
+    writeHead(code: number, values: Record<string, string | number>) {
+      status = code;
+      for (const [name, value] of Object.entries(values)) headers.set(name, String(value));
+      return response;
+    },
+    end(value?: string | Buffer) {
+      if (value) body += value.toString();
+    },
+  } as unknown as ServerResponse;
+
+  const incoming = {
+    url: `${url.pathname}${url.search}`,
+    headers: { host: url.host },
+  } as IncomingMessage;
+
+  await handleRequest(incoming, response);
+
+  return new Response(status === 204 || status === 205 || status === 304 ? null : body, {
+    status,
+    headers,
+  });
+}
+
+export async function handleUpgrade(
   request: IncomingMessage,
   socket: Duplex,
   head: Buffer,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
-  const spec = FEATURE_ROUTES[url.pathname];
-  if (!spec) {
+  if (!FEATURE_HANDLERS[url.pathname]) {
     socket.destroy();
     return;
   }
@@ -471,32 +532,47 @@ async function handleUpgrade(
   if (lease) fixture.leases.add(lease);
   socket.once('close', () => {
     fixture.sockets.delete(socket);
-    if (fixture.leases.size === 0 && fixture.activeHttpRequests === 0) {
+    if (
+      !fixture.service.keepAlive &&
+      fixture.leases.size === 0 &&
+      fixture.activeHttpRequests === 0
+    ) {
       scheduleIdleFixtureShutdown(key, fixture);
     }
   });
-  fixture.transport.emit('upgrade', request, socket, head);
+  (fixture.service.endpoint as NodeEndpointBinding<unknown>).upgrade(request, socket, head);
 }
 
-async function shutdownAll(root: Server): Promise<void> {
+export async function shutdownAll(root: Server): Promise<void> {
   const current = [...fixtures.values()];
   fixtures.clear();
   await Promise.allSettled(current.map((fixture) => fixture.service.shutdown()));
   await new Promise<void>((resolve) => root.close(() => resolve()));
 }
 
-const root = createServer((request, response) => {
-  void handleRequest(request, response);
-});
+export function attachUpgradeHandler(root: Server): void {
+  root.on('upgrade', (request, socket, head) => {
+    void handleUpgrade(request, socket, head).catch(() => socket.destroy());
+  });
+}
 
-root.on('upgrade', (request, socket, head) => {
-  void handleUpgrade(request, socket, head).catch(() => socket.destroy());
-});
-process.once('SIGINT', () => void shutdownAll(root));
-process.once('SIGTERM', () => void shutdownAll(root));
+export function listen(root: Server, name: string): void {
+  process.once('SIGINT', () => void shutdownAll(root));
+  process.once('SIGTERM', () => void shutdownAll(root));
+  const port = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
+  root.listen(port, '127.0.0.1', () => {
+    console.log(`WSKit ${name} e2e server listening on 127.0.0.1:${port}`);
+  });
+}
+
 process.once('exit', () => rmSync(stateRoot, { recursive: true, force: true }));
 
-const port = Number(process.env.WSKIT_E2E_SERVER_PORT ?? 8787);
-root.listen(port, '127.0.0.1', () => {
-  console.log(`WSKit Node e2e server listening on 127.0.0.1:${port}`);
-});
+if (process.argv[1]?.endsWith('/node-http.ts')) {
+  configureFixtureBinding(bindNodeFixture);
+  const root = createServer((request, response) => {
+    void handleRequest(request, response);
+  });
+
+  attachUpgradeHandler(root);
+  listen(root, 'node:http');
+}

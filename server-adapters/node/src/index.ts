@@ -1,3 +1,4 @@
 export type { Platform } from './platform.ts';
-export { server } from './server.ts';
-export type { NodeAdmin, NodeServer, NodeServerOptions } from './server.ts';
+export { setup } from './setup.ts';
+export type { NodeEndpointBinding, NodeServerEndpointOptions, NodeSetup } from './setup.ts';
+export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';

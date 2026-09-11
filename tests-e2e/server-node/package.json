@@ -5,8 +5,19 @@
   "type": "module",
   "scripts": {
     "build:deps": "pnpm --filter @wskit/server-node... run build",
-    "dev:server": "node --experimental-strip-types src/index.ts",
-    "test:e2e:node": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:server' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "dev:node-http": "node --experimental-strip-types src/node-http.ts",
+    "dev:express": "node --experimental-strip-types src/express.ts",
+    "dev:koa": "node --experimental-strip-types src/koa.ts",
+    "dev:hono": "node --experimental-strip-types src/hono.ts",
+    "dev:fastify": "node --experimental-strip-types src/fastify.ts",
+    "dev:h3": "node --experimental-strip-types src/h3.ts",
+    "test:e2e:node:http": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:node-http' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:express": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:express' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:koa": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:koa' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:hono": "pnpm run build:deps && WSKIT_E2E_FRAMEWORK=hono WSKIT_E2E_SERVER_COMMAND='pnpm run dev:hono' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:fastify": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:fastify' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:h3": "pnpm run build:deps && WSKIT_E2E_SERVER_COMMAND='pnpm run dev:h3' WSKIT_E2E_SERVER_CWD=\"$PWD\" pnpm --filter @wskit/tests-e2e-client-raw exec playwright test --grep-invert 'hibernation|multi-state|members over the stub|flat ops on the stub'",
+    "test:e2e:node": "pnpm run test:e2e:node:http && pnpm run test:e2e:express && pnpm run test:e2e:koa && pnpm run test:e2e:hono && pnpm run test:e2e:fastify && pnpm run test:e2e:h3",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules .node-e2e-state"
   },
@@ -14,10 +25,20 @@
     "@wskit/server": "workspace:*",
     "@wskit/server-node": "workspace:*",
     "@wskit/tests-e2e-handlers": "workspace:*",
+    "@fastify/websocket": "^11.3.0",
+    "@hono/node-server": "^2.1.1",
+    "crossws": "^0.4.12",
+    "express": "^5.2.1",
+    "fastify": "^5.12.3",
+    "h3": "^2.0.1-rc.31",
+    "hono": "^4.13.7",
+    "koa": "^3.1.2",
     "valibot": "^1.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.12.0",
+    "@types/express": "^5.0.6",
+    "@types/koa": "^3.0.1",
     "typescript": "^6.0.2"
   }
 }
