@@ -3,7 +3,7 @@
 import { define } from '@wskit/server';
 import { expectTypeOf } from 'vitest';
 import * as Adapter from './index.ts';
-import type { Platform } from './index.ts';
+import type { NodeWebSocketServer, Platform } from './index.ts';
 
 void Adapter.setup;
 
@@ -32,7 +32,9 @@ admin.archiveRoom(42);
 admin.notAnAdminMethod;
 
 declare const _platform: Platform;
+declare const _webSocketServer: NodeWebSocketServer;
 void _platform;
+void _webSocketServer;
 
 // Internal value symbols must not be reachable from the package root.
 

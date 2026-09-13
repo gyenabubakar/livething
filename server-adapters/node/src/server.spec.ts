@@ -212,7 +212,7 @@ describe('binding()', () => {
       backpressureSupported: true,
     };
 
-    await endpoint.ready;
+    await endpoint.ready();
     const upgrade = await endpoint.prepareNode(incomingRequest());
 
     expect(upgrade.type).toBe('accept');
@@ -236,7 +236,7 @@ describe('binding()', () => {
   it('turns engine rejections into host-ready results and replaces spoofed client IP headers', async () => {
     const node = binding();
     const endpoint = node.bind({} as never, {});
-    await endpoint.ready;
+    await endpoint.ready();
 
     fake.handleUpgrade.mockResolvedValueOnce({ reject: true, code: 401, reason: 'No token' });
     const http = await endpoint.prepare(

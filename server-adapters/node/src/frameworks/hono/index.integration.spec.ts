@@ -3,9 +3,8 @@ import { client, connect } from '@wskit/client';
 import { define, emits, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { Hono } from 'hono';
-import { afterEach, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
-import type { WebSocketServer } from 'ws';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import WebSocket, { WebSocketServer } from 'ws';
 import { setup } from './index.ts';
 
 let lastClientIp: string | null = null;
@@ -129,6 +128,28 @@ describe('Hono binding', () => {
 
     socket.send(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
     await expect(waitForMessage(socket)).resolves.toMatchObject({ event: 'echoed' });
+  });
+
+  it('uses a caller-provided WebSocket server', async () => {
+    const app = new Hono();
+    const webSocketServer = new WebSocketServer({ noServer: true });
+    const close = vi.spyOn(webSocketServer, 'close');
+    const wskit = setup({ webSocketServer });
+
+    const endpoint = wskit.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+    expect(wskit.websocket.server).toBe(webSocketServer);
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`);
+    sockets.push(socket);
+    await expect(waitForMessage(socket)).resolves.toMatchObject({ event: 'connected' });
+
+    await wskit.shutdown();
+    expect(close).not.toHaveBeenCalled();
+    close.mockRestore();
   });
 
   it('applies the endpoint client IP configuration to the Node request', async () => {

@@ -57,7 +57,7 @@ export function setup(): NodeSetup {
             pendingSockets.delete(socket);
           });
         },
-        ready: () => endpoint.ready,
+        ready: endpoint.ready,
         admin: endpoint.admin,
       };
     },

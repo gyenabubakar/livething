@@ -95,7 +95,7 @@ export function setup(): FastifySetup {
 
       return {
         upgrade: route,
-        ready: () => endpoint.ready,
+        ready: endpoint.ready,
         admin: endpoint.admin,
       };
     },

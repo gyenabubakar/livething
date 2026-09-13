@@ -188,7 +188,7 @@ function clientScenarios(f) {
 }
 
 const NODE_ADAPTER_DIST = resolve(repoRoot, 'server-adapters/node/dist');
-const NODE_ADAPTER_MARKER = '[wskit] Node server options need either server or port.';
+const NODE_ADAPTER_MARKER = '[wskit] Node binding is shutting down';
 
 // ---------------------------------------------------------------------------
 // Runner

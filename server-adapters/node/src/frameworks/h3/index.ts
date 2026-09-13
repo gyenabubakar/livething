@@ -93,7 +93,7 @@ export function setup(): H3Setup {
 
       return {
         upgrade: route,
-        ready: () => endpoint.ready,
+        ready: endpoint.ready,
         admin: endpoint.admin,
       };
     },

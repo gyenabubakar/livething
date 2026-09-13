@@ -50,7 +50,7 @@ export interface NodeAcceptedUpgrade {
 
 /** One WSKit definition prepared for a host integration to upgrade. */
 export interface NodeBindingEndpoint<TApi = unknown> {
-  readonly ready: Promise<void>;
+  ready(): Promise<void>;
   prepare(request: Request, options?: NodePrepareOptions): Promise<NodeUpgrade>;
   prepareNode(request: IncomingMessage, options?: { signal?: AbortSignal }): Promise<NodeUpgrade>;
   admin(): Promise<NodeAdmin<TApi>>;
@@ -116,7 +116,7 @@ function createBindingEndpoint<TApi>(
   endpoint: NodeEndpointInternals<TApi>,
 ): NodeBindingEndpoint<TApi> {
   return {
-    ready: endpoint.ready,
+    ready: () => endpoint.ready,
     async prepare(request, options) {
       return toNodeUpgrade(await endpoint.decideWebUpgrade(request, options?.clientIp), endpoint);
     },

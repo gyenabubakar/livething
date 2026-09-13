@@ -24,16 +24,21 @@ export interface HonoSetup {
   shutdown(): Promise<void>;
 }
 
+/** Options for the shared Hono WebSocket transport. */
+export interface HonoSetupOptions {
+  webSocketServer?: WebSocketServer;
+}
+
 /** Creates Hono route bindings without creating or listening on an HTTP server. */
-export function setup(): HonoSetup {
+export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
   const node = binding();
-  const server = new WebSocketServer({ noServer: true });
+  const server = setupOptions.webSocketServer ?? new WebSocketServer({ noServer: true });
 
   return {
     websocket: { server },
 
-    bind(handler, options) {
-      const endpoint = node.bind(handler, options);
+    bind(handler, endpointOptions) {
+      const endpoint = node.bind(handler, endpointOptions);
       const connections = new WeakMap<object, NodeConnection>();
 
       async function route(
@@ -84,7 +89,7 @@ export function setup(): HonoSetup {
 
       return {
         upgrade: route,
-        ready: () => endpoint.ready,
+        ready: endpoint.ready,
         admin: endpoint.admin,
       };
     },

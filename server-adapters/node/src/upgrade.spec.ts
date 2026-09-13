@@ -50,7 +50,7 @@ function fakeSocket() {
 
 function fakeEndpoint(upgrade: NodeUpgrade): NodeBindingEndpoint {
   return {
-    ready: Promise.resolve(),
+    ready: () => Promise.resolve(),
     prepare: vi.fn(async () => upgrade),
     prepareNode: vi.fn(async () => upgrade),
     admin: vi.fn(async () => ({}) as never),

@@ -6,6 +6,7 @@ import * as Binding from './binding.ts';
 const handler = define({}).assemble({ handlers: [] });
 const node = Binding.binding();
 const endpoint = node.bind(handler, {});
+await endpoint.ready();
 const upgrade = await endpoint.prepare(new Request('https://example.test/socket'));
 
 if (upgrade.type === 'accept') {
