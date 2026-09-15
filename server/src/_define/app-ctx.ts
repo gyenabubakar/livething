@@ -56,7 +56,7 @@ declare const CHANNEL_CONTRACT: unique symbol;
  * A channel reference that `ctx.channels.get(...)` can fully type: a static
  * channel declaration passed directly, or a dynamic family's `.at(params)` result. The
  * phantom carries the channel's emit + request contract so the resolved handle
- * types `send`/`broadcast`/`broadcastRequest` to that channel — never read at
+ * types `send`/`broadcastTo`/`broadcast`/`broadcastRequest` to that channel — never read at
  * runtime.
  */
 export interface ChannelRef<TOutgoing = Record<string, unknown>, TServerRequests = {}> {
@@ -171,7 +171,7 @@ export interface UserRequestArm<TSlots> {
 }
 
 /**
- * A handle to one user — every live socket the user currently holds. `send` fans
+ * A handle to one user — every live socket the user currently holds. `broadcast` fans
  * the event to all of them and returns how many sockets received it; `setMeta`
  * fans a metadata patch the same way. Typed to the server's `emits(...)` events.
  */
@@ -180,8 +180,11 @@ export interface UserHandleBase<TSlots, TMeta> {
   readonly id: string;
   /** Build a `UserRef` for this user — pass it to `kick` and the like. */
   ref(): UserRef;
-  /** Fan an event to every live socket the user holds. Returns the delivered socket count. */
-  send<E extends keyof Outgoing<TSlots> & string>(event: E, payload: Outgoing<TSlots>[E]): number;
+  /** Broadcast an event to every live socket the user holds. Returns the delivered socket count. */
+  broadcast<E extends keyof Outgoing<TSlots> & string>(
+    event: E,
+    payload: Outgoing<TSlots>[E],
+  ): number;
   /** Merge a metadata patch into every one of the user's live connections. */
   setMeta(patch: Partial<TMeta>): void;
   /** Snapshot the user's currently-live connections. */
@@ -461,10 +464,10 @@ type ChannelsGetHandle<
     : {});
 
 /**
- * The fully-typed `ctx.channels.get(ref)` handle. `send`/`broadcast` are typed to
+ * The fully-typed `ctx.channels.get(ref)` handle. `send`/`broadcastTo`/`broadcast` are typed to
  * the referenced channel's emits, and `broadcastRequest` to its broadcast requests
- * when `serverRequests()` is listed. The channel handle has no current connection, so
- * only the broadcast verb is added (not the targeted `request`).
+ * when `serverRequests()` is listed. It has `broadcastRequest`, but not a targeted
+ * `request`.
  */
 type TypedChannelsGetHandle<
   R,
@@ -491,7 +494,7 @@ export interface ChannelsCtx<
    * broadcast request — from any handler.
    *
    * Pass a channel declaration (or a dynamic family's `.at(params)` ref) for a fully
-   * typed handle: `send`/`broadcast` are checked against the channel's emits and
+   * typed handle: `send`/`broadcastTo`/`broadcast` are checked against the channel's emits and
    * `broadcastRequest` against its requests. Pass a raw name (or `family, name`)
    * for the loose escape hatch when the name is only known at runtime.
    */
@@ -555,7 +558,7 @@ export type CtxExtensionsOf<
  * The `ctx` object every connection-scoped handler receives — the handlers you
  * register with `base.on(...)` and the connect/disconnect lifecycle hooks.
  *
- * `send` and `broadcast` are typed against the server's `emits(...)` events, so
+ * `send`, `broadcastTo`, and `broadcast` are typed against the server's `emits(...)` events, so
  * a typo or wrong payload is a compile error. Capability-owned surfaces are
  * present only when their capability is listed (see `CtxExtensionsOf`).
  *

@@ -64,12 +64,12 @@ function makeRefHandle(
     kind,
     group,
     key,
-    send(event: string, payload: unknown) {
+    broadcast(event: string, payload: unknown) {
       const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
       if (!members) return;
 
       forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
-        context: `tag ref send '${kind}:${group}/${key}' event="${event}"`,
+        context: `tag ref broadcast '${kind}:${group}/${key}' event="${event}"`,
       });
     },
     connections() {
@@ -120,7 +120,7 @@ export function buildGroupHandle(
 
     add(key: string) {
       // An empty key addresses no bucket. Guard it as a no-op so an untyped
-      // t<>() group can't create a phantom "" tag that ref('').send() would
+      // t<>() group can't create a phantom "" tag that ref('').broadcast() would
       // then fan out to. Runs before schema validation so the no-op is
       // uniform regardless of how the group was declared.
       if (key.length === 0) return;
@@ -177,12 +177,12 @@ export function buildGroupHandle(
       return readBag(connection, kind).get(group)?.has(key) ?? false;
     },
 
-    send(event: string, payload: unknown) {
+    broadcast(event: string, payload: unknown) {
       const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
       if (!members) return;
 
       forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
-        context: `tag group send '${kind}:${group}' event="${event}"`,
+        context: `tag group broadcast '${kind}:${group}' event="${event}"`,
       });
     },
 

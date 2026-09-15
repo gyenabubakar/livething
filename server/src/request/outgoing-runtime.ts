@@ -386,7 +386,7 @@ function createOutgoingRequestRuntime(
    * Resolves with `{ response, from }` on the first VALID answer; rejects with
    * `Timeout` when no valid answer arrives in time — including the zero-target
    * case (nobody to ask = nobody volunteered). The caller resolves the targets
-   * with the same enumeration the matching `broadcast`/tag-send uses.
+   * with the same enumeration the matching `broadcast`/tag broadcast uses.
    */
   function sendBroadcastRequest(
     args: SendBroadcastRequestArgsParameter,

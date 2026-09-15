@@ -74,7 +74,7 @@ const handleFanOutToTag = base.on('fan-out-to-tag', {
     ctx.tags
       .ephemeral(payload.group as 'user' | 'role')
       .ref(payload.key)
-      .send('fan-out-echo', { text: payload.text, from: ctx.meta.username });
+      .broadcast('fan-out-echo', { text: payload.text, from: ctx.meta.username });
   },
 });
 

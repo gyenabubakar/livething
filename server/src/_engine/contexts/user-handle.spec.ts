@@ -96,7 +96,7 @@ function baseDeps(connections: RuntimeConnection[], overrides: Record<string, un
   } as any;
 }
 
-describe('UserHandle.send — fan-out', () => {
+describe('UserHandle.broadcast — fan-out', () => {
   it('reaches every live tab and returns the delivered-socket count', () => {
     const tab1 = createConnection('t1', 'alice');
     const tab2 = createConnection('t2', 'alice');
@@ -104,7 +104,7 @@ describe('UserHandle.send — fan-out', () => {
     const deps = baseDeps([tab1, tab2, other]);
     const ctx = buildConnectionContext(deps, tab1);
 
-    const delivered = ctx.users.get('alice').send('ping', { n: 1 });
+    const delivered = ctx.users.get('alice').broadcast('ping', { n: 1 });
 
     expect(delivered).toBe(2);
     const targets = deps.sendThroughPipeline.mock.calls.map((call: any[]) => call[0].id);
@@ -119,7 +119,7 @@ describe('UserHandle.send — fan-out', () => {
     });
     const ctx = buildConnectionContext(deps, tab1);
 
-    expect(ctx.users.get('alice').send('ping', {})).toBe(1);
+    expect(ctx.users.get('alice').broadcast('ping', {})).toBe(1);
   });
 
   it('a user with no live connections delivers to 0 and touches nothing', () => {
@@ -127,7 +127,7 @@ describe('UserHandle.send — fan-out', () => {
     const deps = baseDeps([caller]);
     const ctx = buildConnectionContext(deps, caller);
 
-    expect(ctx.users.get('ghost').send('ping', {})).toBe(0);
+    expect(ctx.users.get('ghost').broadcast('ping', {})).toBe(0);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
   });
 
@@ -138,7 +138,7 @@ describe('UserHandle.send — fan-out', () => {
     const ctx = buildConnectionContext(deps, tab1);
 
     expect(ctx.user.id).toBe('alice');
-    expect(ctx.user.send('ping', {})).toBe(2);
+    expect(ctx.user.broadcast('ping', {})).toBe(2);
   });
 });
 

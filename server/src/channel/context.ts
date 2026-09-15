@@ -5,7 +5,6 @@ import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
-type BuildChannelHandleOptionsParameter = { to?: PublicApi.ChannelRecipient };
 type BuildChannelHandleOptionsParameter2 = { includeSelf?: boolean };
 type BuildChannelsApiOptionsParameter = { isSubscribeGate?: boolean };
 
@@ -16,7 +15,7 @@ type ChannelHandleDeps = Pick<
   | 'getChannelMembers'
   | 'kickChannelMembers'
   | 'sendThroughPipeline'
-  | 'sendToChannelRecipient'
+  | 'broadcastToChannelRecipient'
   | 'subscribeConnectionAsServer'
 >;
 
@@ -45,17 +44,7 @@ export function buildChannelHandle(
     name: scope.channelName,
     family: scope.channelFamily,
     params: scope.params ?? {},
-    send: (event: string, payload: unknown, options?: BuildChannelHandleOptionsParameter) => {
-      if (options?.to) {
-        return deps.sendToChannelRecipient({
-          channelName: scope.channelName,
-          channelFamily: scope.channelFamily,
-          to: options.to,
-          event,
-          payload,
-        });
-      }
-
+    send: (event: string, payload: unknown) => {
       return deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelFamily: scope.channelFamily },
         event,
@@ -64,6 +53,14 @@ export function buildChannelHandle(
         ? 1
         : 0;
     },
+    broadcastTo: (to: PublicApi.ChannelRecipient, event: string, payload: unknown) =>
+      deps.broadcastToChannelRecipient({
+        channelName: scope.channelName,
+        channelFamily: scope.channelFamily,
+        to,
+        event,
+        payload,
+      }),
     broadcast: (event: string, payload: unknown, options?: BuildChannelHandleOptionsParameter2) => {
       deps.broadcastToChannel({
         channelName: scope.channelName,

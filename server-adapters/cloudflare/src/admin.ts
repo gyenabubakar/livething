@@ -127,7 +127,7 @@ export class WSKitAdmin<TMeta = Record<string, never>> extends RpcTarget {
 
   /** Send to every live connection a user holds. Returns how many got it. */
   sendToUser(userId: string, event: string, payload: unknown): number {
-    return this.#ctx.users.get(userId).send(event, payload);
+    return this.#ctx.users.get(userId).broadcast(event, payload);
   }
 
   /** Close every live connection a user holds. */

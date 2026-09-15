@@ -475,7 +475,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
         getChannelMembers: vi.fn(),
         kickChannelMembers: vi.fn(),
         sendThroughPipeline: vi.fn(),
-        sendToChannelRecipient: vi.fn(),
+        broadcastToChannelRecipient: vi.fn(),
         subscribeConnectionAsServer: vi.fn(),
       } as any,
     );

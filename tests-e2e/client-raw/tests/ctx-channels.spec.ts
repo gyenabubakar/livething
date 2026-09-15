@@ -215,7 +215,7 @@ test.describe('ctx-channels', () => {
     await expect(page.getByTestId('kicked-result')).toContainText('self kick by ref');
   });
 
-  test('ctx.channel.send({ to }) reaches only the member holding the tag', async ({
+  test('ctx.channel.broadcastTo(...) reaches only the member holding the tag', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;

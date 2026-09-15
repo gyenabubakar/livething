@@ -82,10 +82,10 @@ export interface ContextCommonDeps {
 
   /**
    * Deliver a channel-scoped frame to the members a `to` recipient addresses,
-   * returning the number of sockets reached. Backs `ctx.channel.send(..., { to })`
+   * returning the number of sockets reached. Backs `ctx.channel.broadcastTo(...)`
    * and the equivalent on any `ChannelHandle`.
    */
-  sendToChannelRecipient(opts: OptsParameter): number;
+  broadcastToChannelRecipient(opts: OptsParameter): number;
 
   getChannelMembers(
     channelName: string,

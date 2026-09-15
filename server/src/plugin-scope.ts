@@ -61,17 +61,21 @@ const SCOPED_SENDS: Record<string, SendPosition> = {
   sendReplay: 'event-first',
 };
 
-/** The methods on a `ctx.connections.get(ref)` handle whose first arg is the event name. */
-const SCOPED_CONNECTION_METHODS = new Set(['send', 'request']);
+/** The event positions on a `ctx.connections.get(ref)` handle. */
+const SCOPED_CONNECTION_METHODS: Record<string, SendPosition> = {
+  send: 'event-first',
+  request: 'event-first',
+};
 
-/** The methods on a `ctx.channel` handle whose first arg is the channel event name. */
-const SCOPED_CHANNEL_SENDS = new Set([
-  'send',
-  'broadcast',
-  'request',
-  'broadcastRequest',
-  'sendReplay',
-]);
+/** The event positions on a `ctx.channel` handle. */
+const SCOPED_CHANNEL_SENDS: Record<string, SendPosition> = {
+  send: 'event-first',
+  broadcastTo: 'event-second',
+  broadcast: 'event-first',
+  request: 'event-first',
+  broadcastRequest: 'event-first',
+  sendReplay: 'event-first',
+};
 
 /** The KV methods whose key/prefix argument a plugin scope namespaces. */
 const SCOPED_KV_KEYS = new Set(['get', 'set', 'delete', 'list']);
@@ -123,10 +127,10 @@ export function scopePluginContext(id: string, ctx: any): any {
         return (kvProxy ??= scopeKvApi(id, privileged ?? realKv));
       }
 
-      // `ctx.channel.send/broadcast/request/...('evt', ...)` from inside a plugin
+      // `ctx.channel.send/broadcastTo/broadcast/request/...` from inside a plugin
       // channel handler — the channel's child events are namespaced at
       // declaration, so the runtime looks them up by `__<id>::<evt>`. The handle
-      // is a fresh object per dispatch, so wrap its event-first sends.
+      // is a fresh object per dispatch, so wrap its event names.
       if (key === 'channel') {
         const realChannel = Reflect.get(target, key, receiver);
         if (!realChannel || typeof realChannel !== 'object') return realChannel;
@@ -216,19 +220,29 @@ export function scopePluginThrow<TArgs extends unknown[], TReturn>(
 
 /**
  * Wrap a handle (a `ctx.connections.get(ref)` or `ctx.channel` object) so each named
- * method prefixes its first arg — the event name — with the plugin namespace.
+ * method prefixes its event argument with the plugin namespace.
  * Other methods on the handle pass through untouched.
  */
 function scopeHandleEvents(
   id: string,
   handle: Record<PropertyKey, unknown>,
-  methods: Set<string>,
+  methods: Record<string, SendPosition>,
 ): Record<PropertyKey, unknown> {
   return new Proxy(handle, {
     get(target, key, receiver) {
       const original = Reflect.get(target, key, receiver);
-      if (typeof key !== 'string' || !methods.has(key) || typeof original !== 'function') {
+      const position = typeof key === 'string' ? methods[key] : undefined;
+      if (!position || typeof original !== 'function') {
         return original;
+      }
+
+      if (position === 'event-second') {
+        return (recipient: unknown, event: unknown, ...rest: unknown[]) =>
+          (original as (...args: unknown[]) => unknown)(
+            recipient,
+            pluginWireName(id, event as string),
+            ...rest,
+          );
       }
 
       return (event: unknown, ...rest: unknown[]) =>
@@ -269,7 +283,7 @@ function scopeChannelGetArgs(id: string, args: unknown[]): unknown[] {
 
 /**
  * Wrap `ctx.channels` so `get(...)` namespaces its target and the resolved
- * handle's event-first sends (`send`/`broadcast`/`request`/`broadcastRequest`)
+ * handle's event names (`send`/`broadcastTo`/`broadcast`/`request`/`broadcastRequest`)
  * carry the plugin namespace — the channel's child events are declared under
  * `__<id>::`, so the runtime looks them up there.
  */

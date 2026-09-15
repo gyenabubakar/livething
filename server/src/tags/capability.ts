@@ -86,7 +86,7 @@ function registrationsFor(defs: readonly TagGroupDef[], kind: TagKind): TagGroup
  * export const handlePromote = base.on('promote', {
  *   run(ctx) {
  *     ctx.tags.ephemeral('role').add('admin');
- *     ctx.tags.ephemeral('role').ref('admin').send('announce', { text: 'hi admins' });
+ *     ctx.tags.ephemeral('role').ref('admin').broadcast('announce', { text: 'hi admins' });
  *   },
  * });
  *

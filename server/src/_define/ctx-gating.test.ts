@@ -191,6 +191,29 @@ describe('capability-owned, TS-gated ctx extensions', () => {
     });
   });
 
+  it('uses broadcast on every handle that can reach multiple connections', () => {
+    const base = define({
+      capabilities: [
+        emits({ notice: t<{ text: string }>() }),
+        tags((ephemeral) => [ephemeral('role', t<string>())]),
+      ],
+    });
+    base.on('x', {
+      run(ctx) {
+        expectTypeOf(ctx.user.broadcast('notice', { text: 'hello' })).toEqualTypeOf<number>();
+        ctx.tags.ephemeral('role').broadcast('notice', { text: 'hello' });
+        ctx.tags.ephemeral('role').ref('admin').broadcast('notice', { text: 'hello' });
+
+        // @ts-expect-error UserHandle fans out, so it has no send method
+        ctx.user.send('notice', { text: 'hello' });
+        // @ts-expect-error TagGroupHandle fans out, so it has no send method
+        ctx.tags.ephemeral('role').send('notice', { text: 'hello' });
+        // @ts-expect-error TagRefHandle fans out, so it has no send method
+        ctx.tags.ephemeral('role').ref('admin').send('notice', { text: 'hello' });
+      },
+    });
+  });
+
   it('adds ctx.channels only with channels()', () => {
     const base = define({ capabilities: [channels()] });
     base.on('x', {

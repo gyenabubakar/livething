@@ -134,7 +134,7 @@ function buildUserHandle(
 
     ref: () => buildUserRef(userId, deps.instanceId),
 
-    send: (event, payload) => {
+    broadcast: (event, payload) => {
       let delivered = 0;
       for (const connection of userConnections(userId, deps)) {
         if (deps.sendThroughPipeline(connection, { routing: undefined, event, payload })) {

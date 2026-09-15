@@ -134,7 +134,7 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
 
     const ctx = buildConnectionContext(deps, anon);
 
-    expect((ctx as any).user.send('ping', {})).toBe(0);
+    expect((ctx as any).user.broadcast('ping', {})).toBe(0);
     expect((ctx as any).user.connections()).toEqual([]);
     expect((ctx as any).user.info()).toBeNull();
     expect(sendThroughPipeline).not.toHaveBeenCalled();
@@ -150,9 +150,9 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     });
 
     const ctx = buildConnectionContext(deps, anon);
-    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).send(...)`.
+    // Mirrors `for (const c of ctx.connections.all()) ctx.users.get(c.userId).broadcast(...)`.
     const info = ctx.connections.all()[0]!;
-    const delivered = (ctx as any).users.get(info.userId).send('ping', {});
+    const delivered = (ctx as any).users.get(info.userId).broadcast('ping', {});
 
     expect(delivered).toBe(0);
     expect(sendThroughPipeline).not.toHaveBeenCalled();
@@ -172,8 +172,8 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     });
 
     const ctxA = buildConnectionContext(deps, anonA);
-    expect((ctxA as any).user.send('ping', {})).toBe(0);
-    expect((ctxA as any).users.get('').send('ping', {})).toBe(0);
+    expect((ctxA as any).user.broadcast('ping', {})).toBe(0);
+    expect((ctxA as any).users.get('').broadcast('ping', {})).toBe(0);
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
 
@@ -189,8 +189,8 @@ describe('ctx.user / ctx.users — anonymous connections', () => {
     const ctx = buildConnectionContext(deps, alice1);
 
     expect((ctx as any).user.id).toBe('alice');
-    expect((ctx as any).user.send('ping', {})).toBe(1);
-    expect((ctx as any).users.get('alice').send('ping', {})).toBe(1);
+    expect((ctx as any).user.broadcast('ping', {})).toBe(1);
+    expect((ctx as any).users.get('alice').broadcast('ping', {})).toBe(1);
     expect(sendThroughPipeline).toHaveBeenCalledTimes(2);
   });
 });

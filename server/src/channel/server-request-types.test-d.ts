@@ -40,13 +40,16 @@ const lobby = base.channel('lobby', {
 
 /**
  * From any handler, `ctx.channels.get(...)` is fully typed when passed a channel
- * declaration (static) or a family's `.at(params)` ref: `send`/`broadcast` to the
+ * declaration (static) or a family's `.at(params)` ref: `send`/`broadcastTo`/`broadcast` to the
  * channel's emits, `broadcastRequest` to its broadcast requests. `.at()` exists
  * only on dynamic family declarations.
  */
 base.on('drive', {
   run(ctx) {
     expectTypeOf(ctx.channels.get(lobby).send('joined', { who: 'a' })).toEqualTypeOf<number>();
+    expectTypeOf(
+      ctx.channels.get(lobby).broadcastTo(ctx.user.ref(), 'joined', { who: 'a' }),
+    ).toEqualTypeOf<number>();
     expectTypeOf(ctx.channels.get(lobby).broadcastRequest('greet', {})).toEqualTypeOf<
       Promise<{ readonly response: { hi: boolean }; readonly from: ConnectionRef }>
     >();

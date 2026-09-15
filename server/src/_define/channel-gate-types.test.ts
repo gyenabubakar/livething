@@ -61,7 +61,7 @@ describe('channel check -> commit inference', () => {
 });
 
 describe('channel handler ctx typing', () => {
-  it('typed channel send, members, params not any', () => {
+  it('types channel send and broadcastTo, members, and params without any', () => {
     const room = base.channel(['rooms', 'rooms/:roomId'], {
       capabilities: [emits({ message: t<{ text: string }>() })],
     });
@@ -73,6 +73,10 @@ describe('channel handler ctx typing', () => {
         expectTypeOf(ctx.channel.params).not.toBeAny();
         expectTypeOf(ctx.channel.members()).not.toBeAny();
         ctx.channel.send('message', { text: 'hi' });
+
+        ctx.channel.broadcastTo(ctx.connection, 'message', { text: 'hello' });
+        // @ts-expect-error — send has no multi-recipient form.
+        ctx.channel.send('message', { text: 'nope' }, { to: ctx.connection });
       },
     });
   });

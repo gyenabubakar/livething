@@ -87,7 +87,7 @@ export const adminHandler = base.assemble({
     },
 
     notifyUser(userId: string, text: string): number {
-      return ctx.users.get(userId).send('notified', { text });
+      return ctx.users.get(userId).broadcast('notified', { text });
     },
 
     bootUser(userId: string): void {

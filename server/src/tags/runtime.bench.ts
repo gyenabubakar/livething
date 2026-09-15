@@ -60,12 +60,12 @@ for (const [taggedCount, total] of [
       'eng',
     );
 
-    bench('tag-ref send · index (F4)', () => {
-      refHandle.send('evt', { text: 'hi' });
+    bench('tag-ref broadcast · index (F4)', () => {
+      refHandle.broadcast('evt', { text: 'hi' });
     });
 
     // Faithful copy of the pre-F4 implementation — a full connections scan.
-    bench('tag-ref send · full scan (before F4)', () => {
+    bench('tag-ref broadcast · full scan (before F4)', () => {
       for (const connection of connections.values()) {
         if (connection.tags.ephemeral.get('team')?.has('eng')) {
           // sendThroughPipeline is a no-op stub; the scan is the measured cost.

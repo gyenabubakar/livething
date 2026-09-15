@@ -29,7 +29,7 @@ function createConnection(id: string, userId: string): RuntimeConnection {
 }
 
 describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
-  it('a ConnectionRef targets exactly that one socket, member or not', () => {
+  it('a ConnectionRef targets exactly one member and excludes a non-member', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const alice = createConnection('alice-tab1', 'alice');
     addChannelMembership(channelMembers, alice, { channelName: 'room', channelFamily: null });
@@ -44,6 +44,21 @@ describe('resolveChannelRecipients — channel-scoped `to` targeting', () => {
     expect(
       resolveChannelRecipients(channelMembers, { channelName: 'room', channelFamily: null, to }),
     ).toEqual([alice]);
+
+    const nonMember: ChannelRecipient = {
+      __wskit: 'connection-ref',
+      id: 'bob-tab1',
+      instance: undefined,
+      userId: 'bob',
+    };
+
+    expect(
+      resolveChannelRecipients(channelMembers, {
+        channelName: 'room',
+        channelFamily: null,
+        to: nonMember,
+      }),
+    ).toEqual([]);
   });
 
   it("a UserRef fans to only that user's sockets that are members — non-member tabs excluded", () => {

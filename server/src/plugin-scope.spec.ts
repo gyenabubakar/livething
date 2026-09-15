@@ -31,6 +31,24 @@ describe('scopePluginContext — sendReplay (S1)', () => {
   });
 });
 
+describe('scopePluginContext — channel broadcastTo', () => {
+  it('namespaces broadcastTo event names without changing the recipient', () => {
+    const channelBroadcastTo = vi.fn();
+    const handleBroadcastTo = vi.fn();
+    const target = { __wskit: 'user-ref', id: 'u1' };
+    const scoped = scopePluginContext(ID, {
+      channel: { broadcastTo: channelBroadcastTo },
+      channels: { get: () => ({ broadcastTo: handleBroadcastTo }) },
+    });
+
+    scoped.channel.broadcastTo(target, 'feed', { n: 1 });
+    scoped.channels.get('room').broadcastTo(target, 'feed', { n: 2 });
+
+    expect(channelBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 1 });
+    expect(handleBroadcastTo).toHaveBeenCalledWith(target, '__acme:feed::feed', { n: 2 });
+  });
+});
+
 describe('scopePluginContext — tag broadcastRequest (S2)', () => {
   it('namespaces the group and the broadcastRequest event, on the group and on .ref(key)', () => {
     const groupBroadcastRequest = vi.fn();

@@ -157,9 +157,9 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     broadcastToChannel: (opts) => {
       OutgoingRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
-    sendToChannelRecipient: (opts) => {
+    broadcastToChannelRecipient: (opts) => {
       if (opts.to.__wskit === 'connection-ref' || opts.to.__wskit === 'user-ref') {
-        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.send({ to })');
+        assertLocalRef(opts.to, core.engineInstanceId, 'channelHandle.broadcastTo(to, ...)');
       }
 
       const targets = ChannelPrimitive.resolveChannelRecipients(core.channelMembers, {

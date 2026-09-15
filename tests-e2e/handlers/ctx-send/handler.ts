@@ -36,7 +36,7 @@ const handleDoSendTo = base.on('do-send-to', {
     ctx.tags
       .ephemeral('user')
       .ref(input.tag)
-      .send('message', { text: input.text, from: ctx.meta.username });
+      .broadcast('message', { text: input.text, from: ctx.meta.username });
   },
 });
 
@@ -46,7 +46,7 @@ const handleDoSendToEmpty = base.on('do-send-to-empty', {
     ctx.tags
       .ephemeral('user')
       .ref('')
-      .send('message', { text: input.text, from: ctx.meta.username });
+      .broadcast('message', { text: input.text, from: ctx.meta.username });
   },
 });
 

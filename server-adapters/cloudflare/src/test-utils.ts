@@ -227,7 +227,7 @@ export function makeFakeEngine(): FakeEngine {
       get: vi.fn(() => ({ send: connectionSend })),
       all: vi.fn(() => [adminConnection]),
     },
-    users: { get: vi.fn(() => ({ send: userSend, close: userClose })) },
+    users: { get: vi.fn(() => ({ broadcast: userSend, close: userClose })) },
     channels: { get: vi.fn(() => channelHandle) },
     connectionCount: 3,
     sql: {},

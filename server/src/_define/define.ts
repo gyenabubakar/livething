@@ -581,7 +581,7 @@ type ChannelServerRequests<TCaps extends readonly ChannelCapability[]> = SlotOr<
 /** The subscribe-payload type for a channel's `subscribe` schema, or `never` when absent. */
 type SubscribePayloadOf<TSubscribe> = TSubscribe extends Validator<infer U> ? U : never;
 
-/** A channel handle inside a channel handler — sends are typed to the channel's emits. */
+/** A channel handle inside a channel handler — outgoing events are typed to the channel's emits. */
 interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /** The matched channel name, e.g. `'lobby'` or `'rooms:abc'`. */
   readonly name: string;
@@ -590,15 +590,15 @@ interface ChannelHandle<TParams, TOutgoing, TMeta> {
   /** The `{name}` captures from a dynamic pattern. */
   readonly params: TParams;
   /**
-   * Send a channel event. Targets the calling connection by default; pass
-   * `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef` (all
-   * that user's member sockets), or a `TagRef`/`TagGroupHandle` (members that
-   * also hold the tag). Returns the number of sockets delivered to.
+   * Send a channel event to the calling connection. Returns `1` when delivered
+   * and `0` otherwise.
    */
-  send<E extends keyof TOutgoing & string>(
+  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): number;
+  /** Broadcast a channel event to a selected member audience. */
+  broadcastTo<E extends keyof TOutgoing & string>(
+    to: ChannelRecipient,
     event: E,
     payload: TOutgoing[E],
-    options?: { to?: ChannelRecipient },
   ): number;
   /** Broadcast a channel event to its members. */
   broadcast<E extends keyof TOutgoing & string>(

@@ -88,7 +88,7 @@ const handleTagSelf = base.on('tag-self', {
 const handleSendToTag = base.on('send-to-tag', {
   input: SendToTagPayload,
   run(ctx, payload) {
-    ctx.tags.ephemeral('label').ref(payload.tag).send('tagged-message', {
+    ctx.tags.ephemeral('label').ref(payload.tag).broadcast('tagged-message', {
       text: payload.text,
       from: ctx.meta.username,
     });

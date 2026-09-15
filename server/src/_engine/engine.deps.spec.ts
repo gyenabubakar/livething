@@ -19,7 +19,7 @@ describe('common engine deps', () => {
 
     const deps = EngineDeps.commonDeps(core);
     expect(() =>
-      deps.sendToChannelRecipient({
+      deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
         to: { __wskit: 'connection-ref', id: 'peer', instance: 'other', userId: 'peer' },
@@ -30,7 +30,7 @@ describe('common engine deps', () => {
 
     let thrown: unknown;
     try {
-      deps.sendToChannelRecipient({
+      deps.broadcastToChannelRecipient({
         channelName: 'room',
         channelFamily: null,
         to: { __wskit: 'user-ref', id: 'peer', instance: 'other' },

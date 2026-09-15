@@ -11,8 +11,8 @@ export type TagKind = 'ephemeral' | 'persistent';
  * a `TagRefHandle` works too — the methods are stripped at serialization.
  */
 export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
-  /** Send an event to every connection on this instance with this tag. */
-  send(event: string, payload: unknown): void;
+  /** Broadcast an event to every connection on this instance with this tag. */
+  broadcast(event: string, payload: unknown): void;
   /** Snapshot of every connection on this instance with this tag. */
   connections(): ConnectionInfo<Meta>[];
   /** Number of connections on this instance with this tag. */
@@ -41,8 +41,8 @@ export interface TagGroupHandle<Meta = Record<string, unknown>> {
   /** Whether the current connection holds `key` under this group. */
   has(key: string): boolean;
 
-  /** Send an event to every connection on this instance with any key under this group. */
-  send(event: string, payload: unknown): void;
+  /** Broadcast an event to every connection on this instance with any key under this group. */
+  broadcast(event: string, payload: unknown): void;
   /** Snapshot of every connection on this instance with any key under this group. */
   connections(): ConnectionInfo<Meta>[];
   /** Number of distinct connections on this instance with any key under this group. */

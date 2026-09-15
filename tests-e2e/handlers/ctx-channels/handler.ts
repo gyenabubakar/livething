@@ -78,17 +78,17 @@ const handleSendRoomMessage = room.on('send-room-message', {
   },
 });
 
-// Exercises `ctx.channel.send(event, payload, { to })`: `to` is a channel
+// Exercises `ctx.channel.broadcastTo(to, event, payload)`: `to` is a channel
 // member's tag, so only sockets that are BOTH a member AND hold the tag
 // receive the frame. A tag with no matching member delivers to 0. The
 // delivered count comes back so the test can assert the intersection.
 const handleSendToTaggedMember = room.on('send-to-tagged-member', {
   input: v.object({ tag: v.string(), text: v.string() }),
   run(ctx, input) {
-    const delivered = ctx.channel.send(
+    const delivered = ctx.channel.broadcastTo(
+      ctx.tags.ephemeral('user').ref(input.tag),
       'room-message',
       { text: input.text, from: ctx.meta.username },
-      { to: ctx.tags.ephemeral('user').ref(input.tag) },
     );
     ctx.send('members-result', { channel: 'room', count: delivered });
   },

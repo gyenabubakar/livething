@@ -5,7 +5,6 @@ import type { LocalKey } from './local-key/local-key.ts';
 
 type OptionsParameter = { ttl?: number };
 type OptsParameter = { timeout?: number };
-type OptionsParameter2 = { to?: ChannelRecipient };
 type WireParameter = {
   seq: number;
   messageId: string;
@@ -479,10 +478,10 @@ export interface UserHandle<Meta = Record<string, unknown>> {
   ref(): UserRef;
 
   /**
-   * Send an event to every live connection this user holds (fan-out).
+   * Broadcast an event to every live connection this user holds.
    * Returns the number of sockets the event was delivered to.
    */
-  send(event: string, payload: unknown): number;
+  broadcast(event: string, payload: unknown): number;
 
   /**
    * Ask this user a question and await the first valid answer from any of
@@ -513,7 +512,7 @@ export interface UserHandle<Meta = Record<string, unknown>> {
  *
  * @example
  * ```ts
- * ctx.users.get(targetId).send('notice', { text: 'hello' });
+ * ctx.users.get(targetId).broadcast('notice', { text: 'hello' });
  * ```
  */
 export interface UsersManager<Meta = Record<string, unknown>> {
@@ -540,8 +539,8 @@ export interface BroadcastOptions {
 }
 
 /**
- * Who a channel-scoped `send`/`request` targets. Defaults to the calling
- * connection when omitted. Any recipient other than a `ConnectionRef` is
+ * Who a targeted channel broadcast or `request` targets. Any recipient other
+ * than a `ConnectionRef` is
  * intersected with the channel's membership — a `UserRef` reaches only that
  * user's sockets that are members, and a `TagRef`/`TagGroupHandle` reaches only
  * members that also hold the tag. Non-members are never delivered to.
@@ -559,24 +558,27 @@ export type ChannelRecipient =
 /**
  * Send and broadcast helpers scoped to one channel.
  *
- * Available as `ctx.channel` inside channel handlers. Both `send` and
- * `broadcast` automatically scope the outgoing event to the current channel
- * name.
+ * Available as `ctx.channel` inside channel handlers. `send`, `broadcastTo`,
+ * and `broadcast` automatically scope the outgoing event to the current
+ * channel name.
  */
 export interface ScopeSendApi {
   /** The resolved name of this channel instance. */
   readonly name: string;
 
   /**
-   * Send a channel-scoped event. By default it targets the current connection —
-   * the one whose event you are handling — and the frame arrives on the client's
-   * handle for this channel, not the top-level socket. Pass `{ to }` to target a
-   * specific member instead: a `ConnectionRef`, a `UserRef` (all that user's
-   * member sockets), or a `TagRef`/`TagGroupHandle` (members that also hold the
-   * tag). Returns the number of sockets the frame was delivered to. To reach
-   * every member instead, use `broadcast`.
+   * Send a channel-scoped event to the current connection — the one whose event
+   * you are handling. The frame arrives on the client's handle for this channel,
+   * not the top-level socket. Returns `1` when delivered and `0` otherwise.
    */
-  send(event: string, payload: unknown, options?: OptionsParameter2): number;
+  send(event: string, payload: unknown): number;
+
+  /**
+   * Broadcast a channel-scoped event to a selected member audience. A
+   * `ConnectionRef` reaches one member; a `UserRef`, `TagRef`, or
+   * `TagGroupHandle` can reach many members. Returns the delivered socket count.
+   */
+  broadcastTo(to: ChannelRecipient, event: string, payload: unknown): number;
 
   /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
@@ -665,7 +667,7 @@ export interface ChannelReadReceipts {
  * channel family.
  *
  * `TOutgoing` is typed to the events declared inside the channel's
- * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
+ * sub-builder, so `send`, `broadcastTo`, and `broadcast` only accept those events. `Meta` matches
  * the per-connection metadata shape returned by your `upgrade(...)` hook.
  */
 export interface ChannelHandle<
@@ -692,15 +694,16 @@ export interface ChannelHandle<
   readonly params: TParams;
 
   /**
-   * Send a channel-scoped event. Targets the current connection by default;
-   * pass `{ to }` to target a specific member — a `ConnectionRef`, a `UserRef`
-   * (all that user's member sockets), or a `TagRef`/`TagGroupHandle` (members
-   * that also hold the tag). Returns the number of sockets delivered to.
+   * Send a channel-scoped event to the current connection. Returns `1` when
+   * delivered and `0` otherwise.
    */
-  send<E extends keyof TOutgoing & string>(
+  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): number;
+
+  /** Broadcast a channel-scoped event to a selected member audience. */
+  broadcastTo<E extends keyof TOutgoing & string>(
+    to: ChannelRecipient,
     event: E,
     payload: TOutgoing[E],
-    options?: { to?: ChannelRecipient },
   ): number;
 
   /**
@@ -837,7 +840,7 @@ export interface ChannelsManager<
  *
  * Mental model, grouped by purpose:
  * - **identity** — `connection`, `user`, `meta`, `tags` (when the `tags()` capability is listed)
- * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).send`
+ * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).broadcast`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `log`, `platform`
@@ -856,7 +859,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
    * belongs to. Present on every connection, but on an anonymous one (upgrade
    * returned no user id) its `id` is an empty string and it reaches nobody.
    * Use `ctx.user.id` for the bare id
-   * string; the handle itself carries the user-level actions (`send`,
+   * string; the handle itself carries the user-level actions (`broadcast`,
    * `request`, `setMeta`, `connections`, `close`, `info`) that fan out to
    * every live connection this user holds.
    */
@@ -929,7 +932,7 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
    */
   closeReason?: string;
 
-  /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
+  /** Scoped send/broadcastTo/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
   /** Resolve a channel handle from any handler. Only present when `channels()` is listed. */
