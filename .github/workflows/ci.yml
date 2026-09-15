@@ -134,7 +134,7 @@ jobs:
 
   e2e:
     name: e2e (Playwright) — ${{ matrix.name }}
-    needs: gate
+    needs: [gate, checks, guards]
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -145,7 +145,7 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     strategy:
-      fail-fast: false
+      fail-fast: true
       # One job per implemented adapter (cf/node; deno/bun to come), run
       # concurrently so calendar time is the slowest suite, not their sum.
       matrix:
