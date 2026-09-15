@@ -5,6 +5,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
 import { closeWebSocket } from './close.ts';
+import { createNodeUpgradeAbort } from './upgrade-lifecycle.ts';
 import type { NodeBindingEndpoint, NodeConnection } from './binding.ts';
 
 export function upgradeRejection(decision: UpgradeDecision): { body: string; status: number } {
@@ -69,20 +70,18 @@ export function createNodeUpgradeHandler(
 
 async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
   const { endpoint, webSocketServer, request, socket, head } = options;
-  const abortController = new AbortController();
-  function abort(): void {
-    abortController.abort();
-  }
-
-  request.once('aborted', abort);
-  socket.once('close', abort);
+  const abort = createNodeUpgradeAbort(request);
 
   let upgrade;
   try {
-    upgrade = await endpoint.prepareNode(request, { signal: abortController.signal });
+    upgrade = await endpoint.prepareNode(request, { signal: abort.signal });
   } finally {
-    request.off('aborted', abort);
-    socket.off('close', abort);
+    abort.dispose();
+  }
+
+  if (abort.signal.aborted) {
+    socket.destroy();
+    return;
   }
 
   if (upgrade.type === 'http') {

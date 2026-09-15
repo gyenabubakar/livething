@@ -23,5 +23,7 @@ if (upgrade.type === 'accept') {
 
 void endpoint.admin;
 void Binding.binding;
+void Binding.createUpgradeLifecycle;
+Binding.closeWebSocket({ close() {} }, 1000, 'done');
 // @ts-expect-error — endpoint construction is not part of the public binding seam
 Binding.createNodeEndpoint;

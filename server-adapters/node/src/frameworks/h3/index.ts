@@ -4,6 +4,7 @@ import type { WebSocketMessage, WebSocketPeer } from 'h3';
 import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
 /** One WSKit definition registered as an H3 and CrossWS WebSocket route. */
@@ -26,6 +27,7 @@ export interface H3Setup {
 /** Creates H3 route bindings without creating or listening on an HTTP server. */
 export function setup(): H3Setup {
   const node = binding();
+  const lifecycle = createUpgradeLifecycle();
 
   return {
     bind(handler, options) {
@@ -38,7 +40,15 @@ export function setup(): H3Setup {
 
         return {
           async upgrade() {
-            const upgrade = await endpoint.prepareNode(incoming);
+            const upgrade = await lifecycle.prepare(incoming, (signal) =>
+              endpoint.prepareNode(incoming, { signal }),
+            );
+            if (!upgrade) {
+              incoming.socket.once('error', () => {});
+              incoming.socket.destroy();
+              return;
+            }
+
             if (upgrade.type === 'http') return upgrade.response;
 
             return { context: { upgrade } };
@@ -61,13 +71,17 @@ export function setup(): H3Setup {
               return;
             }
 
-            const connection = upgrade.accept({
-              send: (data) => peer.send(data),
-              close: (code, reason) => peer.close(code, reason),
-              bufferedAmount: () => peer.bufferedAmount,
-              backpressureSupported: true,
-            });
-            connections.set(peer, connection);
+            try {
+              const connection = upgrade.accept({
+                send: (data) => peer.send(data),
+                close: (code, reason) => peer.close(code, reason),
+                bufferedAmount: () => peer.bufferedAmount,
+                backpressureSupported: true,
+              });
+              connections.set(peer, connection);
+            } catch {
+              closeWebSocket(peer, 1011, '[wskit] connection setup failed');
+            }
           },
 
           message(peer, message: WebSocketMessage) {
@@ -86,7 +100,6 @@ export function setup(): H3Setup {
 
           error(peer, error) {
             void connections.get(peer)?.error(error);
-            connections.delete(peer);
           },
         };
       });
@@ -101,7 +114,7 @@ export function setup(): H3Setup {
     ready: node.ready,
 
     shutdown() {
-      return node.shutdown();
+      return lifecycle.shutdown(node.shutdown);
     },
   };
 }

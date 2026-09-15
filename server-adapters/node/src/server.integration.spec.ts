@@ -6,9 +6,10 @@ import { scheduled } from '@wskit/server/scheduled';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
-import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
+import type { ApiOf, KVProvider, Logger, ServerDefinition } from '@wskit/server/adapters';
 import type { Server } from 'node:http';
 import type { RawData } from 'ws';
+import { binding } from './binding.ts';
 import { setup } from './setup.ts';
 import type { NodeAdmin } from './endpoint.ts';
 import type { NodeServerEndpointOptions } from './setup.ts';
@@ -30,6 +31,7 @@ interface TestService<TApi = unknown> {
   readonly server: Server;
   readonly ready: Promise<void>;
   admin(): Promise<TApi>;
+  shutdownWSKit(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -61,6 +63,7 @@ function createTestService<THandler extends ServerDefinition>(
     server: httpServer,
     ready,
     admin: endpoint.admin,
+    shutdownWSKit: wskit.shutdown,
     shutdown() {
       if (!shutdown) {
         shutdown = wskit.shutdown().then(
@@ -375,6 +378,46 @@ function sendRawUpgrade(port: number, target: string): Promise<string> {
   });
 }
 
+function sendOpenUpgrade(port: number, target: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let response = '';
+    let settled = false;
+    const timeout = setTimeout(() => finish(), 200);
+
+    function finish(error?: Error): void {
+      if (settled) return;
+
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(response);
+    }
+
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (chunk) => {
+      response += chunk;
+      finish();
+    });
+    socket.once('close', () => finish());
+    socket.once('error', finish);
+  });
+}
+
 function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<typeof connect>> {
   return new Promise<ReturnType<typeof connect>>((resolve, reject) => {
     const socket = connect(port, '127.0.0.1');
@@ -395,6 +438,45 @@ function sendMalformedUpgrade(port: number, target: string): Promise<ReturnType<
     });
     socket.once('error', reject);
   });
+}
+
+function openPendingUpgrade(port: number, target: string): Promise<ReturnType<typeof connect>> {
+  return new Promise<ReturnType<typeof connect>>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${target} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+      resolve(socket);
+    });
+    socket.once('error', reject);
+  });
+}
+
+function createFailingWebSocketServer(): {
+  server: NodeWebSocketServer;
+  attempts(): number;
+} {
+  let calls = 0;
+
+  return {
+    server: {
+      handleUpgrade() {
+        calls += 1;
+        throw new Error('The client had already left');
+      },
+    },
+    attempts: () => calls,
+  };
 }
 
 function createObservedWebSocketServer(): {
@@ -433,6 +515,14 @@ function createCapturingWebSocketServer(): {
   };
 
   return { server, getAccepted: () => accepted };
+}
+
+function createMockLogger(): Logger {
+  return {
+    info: vi.fn<Logger['info']>(),
+    warn: vi.fn<Logger['warn']>(),
+    error: vi.fn<Logger['error']>(),
+  };
 }
 
 describe('Node server integration', () => {
@@ -484,6 +574,26 @@ describe('Node server integration', () => {
     );
 
     expect(state.upgradeRequest?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('derives the client IP from a trusted proxy during a real upgrade', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = createTestService(createHandler(state), {
+      port: 0,
+      clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
+    });
+    services.push(service);
+    await service.ready;
+
+    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`, {
+      headers: { 'x-forwarded-for': '203.0.113.7' },
+    });
+    clients.push(socket);
+    const connected = waitForMessage(socket);
+    await waitForOpen(socket);
+    await connected;
+
+    expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
   });
 
   it('rejects a real upgrade with an HTTP response', async () => {
@@ -694,6 +804,71 @@ describe('Node server integration', () => {
     }
   });
 
+  it('lets a custom host prepare and attach a peer through the public binding seam', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const node = binding();
+    const endpoint = node.bind(createHandler(state), {});
+    await endpoint.ready();
+
+    const upgrade = await endpoint.prepare(
+      new Request('https://example.test/chat', { headers: { 'WSKit-Client-IP': 'spoofed' } }),
+      { clientIp: '203.0.113.7' },
+    );
+    expect(upgrade.type).toBe('accept');
+    if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
+
+    const peer = {
+      send: vi.fn(),
+      close: vi.fn(),
+      bufferedAmount: () => 0,
+      backpressureSupported: true,
+    };
+
+    const connection = upgrade.accept(peer);
+    await connection.message(JSON.stringify({ event: 'echo', payload: { text: 'custom host' } }));
+
+    await vi.waitFor(() =>
+      expect(peer.send).toHaveBeenCalledWith(expect.stringContaining('custom host')),
+    );
+    expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
+    await node.shutdown();
+  });
+
+  it('uses injected KV and logger configuration through a real WebSocket endpoint', async () => {
+    const values = new Map<string, unknown>();
+    const kv: KVProvider = {
+      get: vi.fn(async (key) => values.get(key)),
+      set: vi.fn(async (key, value) => void values.set(key, value)),
+      delete: vi.fn(async (key) => void values.delete(key)),
+      list: vi.fn(async () => [...values.keys()]),
+    };
+
+    const logger = createMockLogger();
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = createTestService(createHandler(state), { port: 0, kv, logger });
+
+    services.push(service);
+    await service.ready;
+
+    const socket = new WebSocket(`ws://127.0.0.1:${serverPort(service.server)}/chat`);
+    clients.push(socket);
+    const connected = waitForMessage(socket);
+    await waitForOpen(socket);
+    await connected;
+
+    socket.send(JSON.stringify({ event: 'store', payload: { value: 'injected' } }));
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      event: 'stored',
+      payload: { sql: 'injected', kv: 'injected' },
+    });
+    expect(kv.set).toHaveBeenCalledWith('answer', 'injected', undefined);
+
+    socket.send('not json');
+    await vi.waitFor(() =>
+      expect(logger.warn).toHaveBeenCalledWith('Invalid JSON message dropped'),
+    );
+  });
+
   it('exposes the live Node buffer amount through the engine context', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const service = createTestService(createHandler(state), { port: 0 });
@@ -829,5 +1004,90 @@ describe('Node server integration', () => {
     await expect(closed).resolves.toEqual({ code: 1001, reason: 'Server shutting down' });
     await service.shutdown();
     expect(state.shutdowns).toBe(1);
+  });
+
+  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+    const state: IntegrationState = { errors: [], shutdowns: 0 };
+    const service = createTestService(createHandler(state), { port: 0 });
+    services.push(service);
+    await service.ready;
+
+    await service.shutdownWSKit();
+
+    await expect(sendOpenUpgrade(serverPort(service.server), '/chat')).resolves.toBe('');
+  });
+
+  it('does not hand a reset socket to the WebSocket host after upgrade preparation', async () => {
+    let started!: () => void;
+    let finished = false;
+    const startedUpgrade = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const handler = define({
+      async upgrade(request) {
+        started();
+        await new Promise<void>((resolve) =>
+          request.signal.addEventListener('abort', () => resolve()),
+        );
+        finished = true;
+        return { userId: 'left' };
+      },
+    }).assemble({ handlers: [] });
+    const webSocketServer = createFailingWebSocketServer();
+
+    const service = createTestService(handler, {
+      port: 0,
+      webSocketServer: webSocketServer.server,
+    });
+    services.push(service);
+    await service.ready;
+
+    const socket = await openPendingUpgrade(serverPort(service.server), '/chat');
+    socket.on('error', () => {});
+    await startedUpgrade;
+    socket.resetAndDestroy();
+
+    await vi.waitFor(() => expect(finished).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(webSocketServer.attempts()).toBe(0);
+    await expect(service.shutdown()).resolves.toBeUndefined();
+  });
+
+  it('cancels a pending upgrade when the client half-closes its socket', async () => {
+    let started!: () => void;
+    let aborted = false;
+    const startedUpgrade = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const handler = define({
+      async upgrade(request) {
+        started();
+        await new Promise<void>((resolve) => {
+          request.signal.addEventListener('abort', () => {
+            aborted = true;
+            resolve();
+          });
+        });
+        return { userId: 'left' };
+      },
+    }).assemble({ handlers: [] });
+    const webSocketServer = createFailingWebSocketServer();
+
+    const service = createTestService(handler, {
+      port: 0,
+      webSocketServer: webSocketServer.server,
+    });
+    services.push(service);
+    await service.ready;
+
+    const socket = await openPendingUpgrade(serverPort(service.server), '/chat');
+    socket.on('error', () => {});
+    await startedUpgrade;
+    socket.end();
+
+    await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 100 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(webSocketServer.attempts()).toBe(0);
+    await expect(service.shutdown()).resolves.toBeUndefined();
   });
 });

@@ -4,6 +4,8 @@ import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
 import type { MiddlewareHandler } from 'hono';
 import type { IncomingMessage } from 'node:http';
 import { binding } from '../../binding.ts';
+import { closeWebSocket } from '../../close.ts';
+import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeConnection, NodeEndpointOptions } from '../../binding.ts';
 
 /** One WSKit definition registered as a Hono WebSocket route. */
@@ -32,6 +34,7 @@ export interface HonoSetupOptions {
 /** Creates Hono route bindings without creating or listening on an HTTP server. */
 export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
   const node = binding();
+  const lifecycle = createUpgradeLifecycle();
   const server = setupOptions.webSocketServer ?? new WebSocketServer({ noServer: true });
 
   return {
@@ -49,28 +52,40 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
         if (!incoming)
           return new Response('[wskit] Hono did not provide a Node request', { status: 500 });
 
-        const upgrade = await endpoint.prepareNode(incoming);
+        const upgrade = await lifecycle.prepare(incoming, (signal) =>
+          endpoint.prepareNode(incoming, { signal }),
+        );
+
+        if (!upgrade) {
+          incoming.socket.once('error', () => {});
+          incoming.socket.destroy();
+          return;
+        }
 
         if (upgrade.type === 'http') return upgrade.response;
 
         return upgradeWebSocket(() => ({
           onOpen(_event, socket) {
             if (upgrade.type === 'socket') {
-              socket.close(upgrade.code, upgrade.reason);
+              closeWebSocket(socket, upgrade.code, upgrade.reason);
               return;
             }
 
-            const connection = upgrade.accept({
-              send: (data) => socket.send(data),
-              close: (code, reason) => socket.close(code, reason),
-              bufferedAmount: () => 0,
-              backpressureSupported: false,
-            });
-            connections.set(socket, connection);
+            try {
+              const connection = upgrade.accept({
+                send: (data) => socket.send(data),
+                close: (code, reason) => socket.close(code, reason),
+                bufferedAmount: () => 0,
+                backpressureSupported: false,
+              });
+              connections.set(socket, connection);
+            } catch {
+              closeWebSocket(socket, 1011, '[wskit] connection setup failed');
+            }
           },
           onMessage(event, socket) {
             if (typeof event.data !== 'string') {
-              socket.close(1003, '[wskit] binary frames are not supported yet');
+              closeWebSocket(socket, 1003, '[wskit] binary frames are not supported yet');
               return;
             }
 
@@ -82,7 +97,6 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
           },
           onError(event, socket) {
             void connections.get(socket)?.error(event);
-            connections.delete(socket);
           },
         }))(context, next);
       }
@@ -97,7 +111,7 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
     ready: node.ready,
 
     shutdown() {
-      return node.shutdown();
+      return lifecycle.shutdown(node.shutdown);
     },
   };
 }

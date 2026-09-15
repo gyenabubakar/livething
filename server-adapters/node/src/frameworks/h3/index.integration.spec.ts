@@ -4,11 +4,14 @@ import { define, emits, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { serve } from 'crossws/server/node';
 import { H3 } from 'h3/node';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
+import type { ServerDefinition } from '@wskit/server/adapters';
 import { setup } from './index.ts';
+import type { NodeEndpointOptions } from '../../binding.ts';
 
 let lastClientIp: string | null = null;
+let disconnects = 0;
 
 const handler = define({
   upgrade(request) {
@@ -16,6 +19,8 @@ const handler = define({
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
 
     if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+
+    if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
     lastClientIp = request.headers.get('WSKit-Client-IP');
 
@@ -39,6 +44,10 @@ handler.onConnect((ctx) => {
   ctx.send('connected', { clientIp: lastClientIp });
 });
 
+handler.onDisconnect(() => {
+  disconnects += 1;
+});
+
 const assembled = handler.assemble({ handlers: [echo] });
 
 interface TestClient {
@@ -46,10 +55,13 @@ interface TestClient {
   outgoing: { echo: { text: string } };
 }
 
-async function createApp(options: { clientIp?: { mode: 'direct' } } = {}) {
+async function createApp(
+  options: Pick<NodeEndpointOptions, 'clientIp'> = {},
+  definition: ServerDefinition = assembled,
+) {
   const app = new H3();
   const wskit = setup();
-  const endpoint = wskit.bind(assembled, options);
+  const endpoint = wskit.bind(definition, options);
   app.get('/ws/:room', endpoint.upgrade);
   await wskit.ready();
 
@@ -66,6 +78,7 @@ async function createApp(options: { clientIp?: { mode: 'direct' } } = {}) {
 
   return {
     port: address.port,
+    wskit,
     shutdown: async () => {
       await wskit.shutdown();
       await new Promise<void>((resolve, reject) =>
@@ -123,6 +136,86 @@ function sendUpgrade(port: number, path: string): Promise<string> {
   });
 }
 
+function sendOpenUpgrade(port: number, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let response = '';
+    let settled = false;
+    const timeout = setTimeout(() => finish(), 200);
+
+    function finish(error?: Error): void {
+      if (settled) return;
+
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(response);
+    }
+
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (data) => {
+      response += data;
+      finish();
+    });
+    socket.once('close', () => finish());
+    socket.once('error', finish);
+  });
+}
+
+function sendInvalidClientFrame(port: number, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let upgraded = false;
+    socket.setTimeout(500, () => {
+      socket.destroy();
+      reject(new Error('Timed out waiting for the invalid WebSocket frame to close'));
+    });
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (data) => {
+      if (upgraded) return;
+
+      if (!data.toString().startsWith('HTTP/1.1 101')) {
+        socket.destroy();
+        reject(new Error('Expected a WebSocket upgrade response'));
+        return;
+      }
+
+      upgraded = true;
+      socket.write(Buffer.from([0x81, 0x01, 0x61]));
+    });
+
+    socket.once('close', () => resolve());
+    socket.once('error', reject);
+  });
+}
+
 describe('H3 binding', () => {
   const apps: Array<Awaited<ReturnType<typeof createApp>>> = [];
   const sockets: WebSocket[] = [];
@@ -130,6 +223,7 @@ describe('H3 binding', () => {
   afterEach(async () => {
     for (const socket of sockets.splice(0)) socket.terminate();
     await Promise.all(apps.splice(0).map((app) => app.shutdown()));
+    disconnects = 0;
   });
 
   it('uses H3 route parameters and forwards messages through WSKit', async () => {
@@ -156,6 +250,87 @@ describe('H3 binding', () => {
       event: 'connected',
       payload: { clientIp: '127.0.0.1' },
     });
+  });
+
+  it('derives the client IP through a trusted proxy before H3 upgrades', async () => {
+    const app = await createApp({
+      clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
+    });
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/lobby`, {
+      headers: { 'x-forwarded-for': '203.0.113.7' },
+    });
+    sockets.push(socket);
+    const connected = waitForMessage(socket);
+
+    await waitForOpen(socket);
+    await expect(connected).resolves.toMatchObject({
+      event: 'connected',
+      payload: { clientIp: '203.0.113.7' },
+    });
+  });
+
+  it('cancels a pending upgrade before shutdown', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    let aborted = false;
+    const startedUpgrade = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const releaseUpgrade = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const slowHandler = define({
+      async upgrade(request) {
+        started();
+        request.signal.addEventListener('abort', () => {
+          aborted = true;
+        });
+        await releaseUpgrade;
+        return { userId: 'slow' };
+      },
+    }).assemble({ handlers: [] });
+    const app = await createApp({}, slowHandler);
+
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/slow`);
+    sockets.push(socket);
+    socket.on('error', () => {});
+    await startedUpgrade;
+
+    const shutdown = app.wskit.shutdown();
+    let stopped = false;
+    void shutdown.then(() => {
+      stopped = true;
+    });
+
+    try {
+      await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 100 });
+      expect(stopped).toBe(false);
+      await expect(sendOpenUpgrade(app.port, '/ws/second')).resolves.toBe('');
+    } finally {
+      release();
+    }
+
+    await shutdown;
+  });
+
+  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+    const app = await createApp();
+    apps.push(app);
+
+    await app.wskit.shutdown();
+
+    await expect(sendOpenUpgrade(app.port, '/ws/lobby')).resolves.toBe('');
+  });
+
+  it('keeps the connection until close after a transport error', async () => {
+    const app = await createApp();
+    apps.push(app);
+
+    await sendInvalidClientFrame(app.port, '/ws/lobby');
+    await vi.waitFor(() => expect(disconnects).toBe(1));
   });
 
   it('closes binary frames with code 1003', async () => {
@@ -192,6 +367,20 @@ describe('H3 binding', () => {
 
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+  });
+
+  it('closes with an internal error when connection setup fails after upgrade', async () => {
+    const app = await createApp();
+    apps.push(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/accept-failure`);
+    sockets.push(socket);
+    const closed = waitForClose(socket);
+
+    await waitForOpen(socket);
+    await expect(closed).resolves.toEqual({
+      code: 1011,
+      reason: '[wskit] connection setup failed',
+    });
   });
 
   it('works with the packaged WSKit client', async () => {

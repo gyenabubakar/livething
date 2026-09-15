@@ -121,6 +121,8 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
       decideWebUpgrade,
 
       attachTransport(token, transport, decision) {
+        if (shuttingDown) throw new Error('[wskit] Node endpoint is shutting down');
+
         return createConnectionBridge({ engine, token, transport, decision });
       },
 

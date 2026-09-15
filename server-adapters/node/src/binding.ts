@@ -9,6 +9,11 @@ import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
 import type { NodeAdmin, NodeEndpointInternals, NodeEndpointOptions } from './endpoint.ts';
 
+export { closeWebSocket } from './close.ts';
+export type { ClosableWebSocket } from './close.ts';
+export { createUpgradeLifecycle } from './upgrade-lifecycle.ts';
+export type { UpgradeLifecycle } from './upgrade-lifecycle.ts';
+
 export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
 
 /** A peer accepted by a host integration after its WebSocket handshake. */

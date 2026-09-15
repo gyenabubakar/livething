@@ -1,3 +1,4 @@
+import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
 import { client, connect } from '@wskit/client';
 import { define, emits, t } from '@wskit/server';
@@ -8,6 +9,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { setup } from './index.ts';
 
 let lastClientIp: string | null = null;
+let disconnects = 0;
 
 const handler = define({
   upgrade(request) {
@@ -15,6 +17,10 @@ const handler = define({
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
 
     if (pathname.endsWith('/socket-reject')) throw RejectUpgrade(4001, 'No token');
+
+    if (pathname.endsWith('/socket-reject-long')) throw RejectUpgrade(4001, '🙂'.repeat(100));
+
+    if (pathname.endsWith('/accept-failure')) return { userId: 'u'.repeat(257) };
 
     lastClientIp = request.headers.get('WSKit-Client-IP');
 
@@ -39,6 +45,10 @@ handler.onConnect((ctx) => {
     userId: ctx.connection.userId,
     clientIp: lastClientIp,
   });
+});
+
+handler.onDisconnect(() => {
+  disconnects += 1;
 });
 
 const assembled = handler.assemble({ handlers: [echo] });
@@ -101,6 +111,86 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
   });
 }
 
+function sendInvalidClientFrame(port: number, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let upgraded = false;
+    socket.setTimeout(500, () => {
+      socket.destroy();
+      reject(new Error('Timed out waiting for the invalid WebSocket frame to close'));
+    });
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (data) => {
+      if (upgraded) return;
+
+      if (!data.toString().startsWith('HTTP/1.1 101')) {
+        socket.destroy();
+        reject(new Error('Expected a WebSocket upgrade response'));
+        return;
+      }
+
+      upgraded = true;
+      socket.write(Buffer.from([0x81, 0x01, 0x61]));
+    });
+
+    socket.once('close', () => resolve());
+    socket.once('error', reject);
+  });
+}
+
+function sendOpenUpgrade(port: number, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp(port, '127.0.0.1');
+    let response = '';
+    let settled = false;
+    const timeout = setTimeout(() => finish(), 200);
+
+    function finish(error?: Error): void {
+      if (settled) return;
+
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(response);
+    }
+
+    socket.once('connect', () => {
+      socket.write(
+        [
+          `GET ${path} HTTP/1.1`,
+          'Host: 127.0.0.1',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    socket.on('data', (data) => {
+      response += data;
+      finish();
+    });
+    socket.once('close', () => finish());
+    socket.once('error', finish);
+  });
+}
+
 describe('Hono binding', () => {
   const servers: RunningServer[] = [];
   const sockets: WebSocket[] = [];
@@ -108,6 +198,7 @@ describe('Hono binding', () => {
   afterEach(async () => {
     for (const socket of sockets.splice(0)) socket.terminate();
     await Promise.all(servers.splice(0).map((server) => server.close()));
+    disconnects = 0;
   });
 
   it('uses Hono route matching while WSKit handles the accepted socket', async () => {
@@ -169,6 +260,106 @@ describe('Hono binding', () => {
     });
   });
 
+  it('derives the client IP through a trusted proxy before Hono upgrades', async () => {
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(assembled, {
+      clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
+    });
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/lobby`, {
+      headers: { 'x-forwarded-for': '203.0.113.7' },
+    });
+    sockets.push(socket);
+    const connected = waitForMessage(socket);
+
+    await waitForOpen(socket);
+    await expect(connected).resolves.toMatchObject({
+      event: 'connected',
+      payload: { clientIp: '203.0.113.7' },
+    });
+  });
+
+  it('cancels a pending upgrade before shutdown', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    let aborted = false;
+    const startedUpgrade = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const releaseUpgrade = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const slowHandler = define({
+      async upgrade(request) {
+        started();
+        request.signal.addEventListener('abort', () => {
+          aborted = true;
+        });
+        await releaseUpgrade;
+        return { userId: 'slow' };
+      },
+    }).assemble({ handlers: [] });
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(slowHandler, {});
+    app.get('/ws/slow', endpoint.upgrade);
+
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/slow`);
+    sockets.push(socket);
+    socket.on('error', () => {});
+    await startedUpgrade;
+
+    const shutdown = wskit.shutdown();
+    let stopped = false;
+    void shutdown.then(() => {
+      stopped = true;
+    });
+
+    try {
+      await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 100 });
+      expect(stopped).toBe(false);
+      await expect(sendOpenUpgrade(server.port, '/ws/slow')).resolves.toBe('');
+    } finally {
+      release();
+    }
+
+    await shutdown;
+  });
+
+  it('drops upgrades that arrive after WSKit shutdown starts', async () => {
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+
+    await wskit.shutdown();
+
+    await expect(sendOpenUpgrade(server.port, '/ws/lobby')).resolves.toBe('');
+  });
+
+  it('keeps the connection until close after a transport error', async () => {
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+    await sendInvalidClientFrame(server.port, '/ws/lobby');
+    await vi.waitFor(() => expect(disconnects).toBe(1));
+  });
+
   it('returns an HTTP rejection before Hono upgrades the connection', async () => {
     const app = new Hono();
     const wskit = setup();
@@ -197,6 +388,41 @@ describe('Hono binding', () => {
     const closed = waitForClose(socket);
     await waitForOpen(socket);
     await expect(closed).resolves.toEqual({ code: 4001, reason: 'No token' });
+  });
+
+  it('trims a long socket rejection reason to the WebSocket control-frame limit', async () => {
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/socket-reject-long`);
+    sockets.push(socket);
+    const closed = waitForClose(socket);
+    await waitForOpen(socket);
+    await expect(closed).resolves.toEqual({ code: 4001, reason: '🙂'.repeat(30) });
+  });
+
+  it('closes with an internal error when connection setup fails after upgrade', async () => {
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(assembled, {});
+    app.get('/ws/:room', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+
+    servers.push(server);
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/accept-failure`);
+    sockets.push(socket);
+    const closed = waitForClose(socket);
+    await waitForOpen(socket);
+    await expect(closed).resolves.toEqual({
+      code: 1011,
+      reason: '[wskit] connection setup failed',
+    });
   });
 
   it('works with the packaged WSKit client', async () => {

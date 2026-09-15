@@ -47,6 +47,11 @@ export function setup(): NodeSetup {
 
       return {
         upgrade(request, socket, head) {
+          if (shuttingDown) {
+            socket.destroy();
+            return;
+          }
+
           const task = handleUpgrade(request, socket, head).catch(() => {
             socket.destroy();
           });

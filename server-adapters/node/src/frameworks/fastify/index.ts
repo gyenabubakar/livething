@@ -4,6 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
+import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
 import type { NodeAdmin, NodeEndpointOptions, NodeUpgrade } from '../../binding.ts';
 
 /** Route options returned by a Fastify WSKit endpoint. */
@@ -33,6 +34,7 @@ export interface FastifySetup {
 /** Creates Fastify route bindings without creating or listening on an HTTP server. */
 export function setup(): FastifySetup {
   const node = binding();
+  const lifecycle = createUpgradeLifecycle();
 
   return {
     bind(handler, options) {
@@ -41,7 +43,15 @@ export function setup(): FastifySetup {
 
       const route: FastifyWebSocketRoute = {
         async preHandler(request, reply) {
-          const upgrade = await endpoint.prepareNode(request.raw);
+          const upgrade = await lifecycle.prepare(request.raw, (signal) =>
+            endpoint.prepareNode(request.raw, { signal }),
+          );
+
+          if (!upgrade) {
+            request.raw.socket.once('error', () => {});
+            request.raw.destroy();
+            return;
+          }
 
           if (upgrade.type === 'http') {
             for (const [name, value] of upgrade.response.headers) reply.header(name, value);
@@ -74,12 +84,19 @@ export function setup(): FastifySetup {
             return;
           }
 
-          const connection = upgrade.accept({
-            send: (data) => socket.send(data),
-            close: (code, reason) => socket.close(code, reason),
-            bufferedAmount: () => socket.bufferedAmount,
-            backpressureSupported: true,
-          });
+          let connection;
+          try {
+            connection = upgrade.accept({
+              send: (data) => socket.send(data),
+              close: (code, reason) => socket.close(code, reason),
+              bufferedAmount: () => socket.bufferedAmount,
+              backpressureSupported: true,
+            });
+          } catch {
+            closeWebSocket(socket, 1011, '[wskit] connection setup failed');
+            return;
+          }
+
           socket.on('message', (data, isBinary) => {
             if (isBinary) {
               closeWebSocket(socket, 1003, '[wskit] binary frames are not supported yet');
@@ -103,7 +120,7 @@ export function setup(): FastifySetup {
     ready: node.ready,
 
     shutdown() {
-      return node.shutdown();
+      return lifecycle.shutdown(node.shutdown);
     },
   };
 }
