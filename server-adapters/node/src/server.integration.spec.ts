@@ -818,8 +818,11 @@ describe('Node server integration', () => {
     if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
 
     const transport = {
-      send: vi.fn(),
-      close: vi.fn(),
+      sent: [] as string[],
+      send(data: string) {
+        this.sent.push(data);
+      },
+      close() {},
       bufferedAmount: () => 0,
       backpressureSupported: true,
     };
@@ -827,9 +830,7 @@ describe('Node server integration', () => {
     const connection = upgrade.accept(transport);
     await connection.message(JSON.stringify({ event: 'echo', payload: { text: 'custom host' } }));
 
-    await vi.waitFor(() =>
-      expect(transport.send).toHaveBeenCalledWith(expect.stringContaining('custom host')),
-    );
+    await vi.waitFor(() => expect(transport.sent.join()).toContain('custom host'));
     expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
     await node.shutdown();
   });

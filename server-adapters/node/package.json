@@ -82,12 +82,12 @@
   },
   "dependencies": {
     "@fastify/proxy-addr": "^5.1.0",
+    "@types/ws": "^8.5.12",
     "better-sqlite3": "^12.11.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
-    "@types/ws": "^8.5.12",
     "@wskit/client": "workspace:*",
     "@fastify/websocket": "^11.3.0",
     "@hono/node-server": "^2.1.1",

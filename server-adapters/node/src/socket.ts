@@ -28,9 +28,9 @@ export interface ConnectionBridgeOptions {
 export function createConnectionBridge(options: ConnectionBridgeOptions): ConnectionHandle {
   const { engine, token, transport, decision } = options;
   const descriptor: ConnectionDescriptor = {
-    send: transport.send,
-    close: transport.close,
-    bufferedAmount: transport.bufferedAmount,
+    send: (data) => transport.send(data),
+    close: (code, reason) => transport.close(code, reason),
+    bufferedAmount: () => transport.bufferedAmount(),
     backpressureSupported: transport.backpressureSupported,
     userId: decision.userId ?? '',
     meta: decision.meta ?? {},

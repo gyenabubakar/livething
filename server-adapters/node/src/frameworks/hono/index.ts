@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import type { ApiOf, ServerDefinition } from '@wskit/server/adapters';
 import type { MiddlewareHandler } from 'hono';
 import type { IncomingMessage } from 'node:http';
+import type { WebSocket } from 'ws';
 import { binding } from '../../binding.ts';
 import { closeWebSocket } from '../../close.ts';
 import { createUpgradeLifecycle } from '../../upgrade-lifecycle.ts';
@@ -72,11 +73,12 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
             }
 
             try {
+              const rawSocket = socket.raw as WebSocket;
               const connection = upgrade.accept({
                 send: (data) => socket.send(data),
                 close: (code, reason) => socket.close(code, reason),
-                bufferedAmount: () => 0,
-                backpressureSupported: false,
+                bufferedAmount: () => rawSocket.bufferedAmount,
+                backpressureSupported: true,
               });
               connections.set(socket, connection);
             } catch {

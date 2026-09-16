@@ -105,6 +105,18 @@ function waitForOpen(socket: WebSocket): Promise<void> {
   });
 }
 
+function getClientSocket(socket: WebSocket): { pause(): void; resume(): void } {
+  const webSocket = socket as WebSocket & {
+    _socket?: { pause(): void; resume(): void };
+  };
+
+  if (!webSocket._socket) {
+    throw new Error('Expected the WebSocket client to have a TCP socket');
+  }
+
+  return webSocket._socket;
+}
+
 function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string }> {
   return new Promise((resolve) => {
     socket.once('close', (code, reason) => resolve({ code, reason: reason.toString() }));
@@ -281,6 +293,57 @@ describe('Hono binding', () => {
       event: 'connected',
       payload: { clientIp: '203.0.113.7' },
     });
+  });
+
+  it('reports the real outbound queue while a Hono client is slow', async () => {
+    const queued = define({
+      upgrade() {
+        return { userId: 'slow-client' };
+      },
+      capabilities: [
+        emits({
+          chunk: t<{ data: string }>(),
+          queued: t<{ amount: number }>(),
+        }),
+      ],
+    });
+    const fillQueue = queued.on('fill-queue', {
+      run(ctx) {
+        const chunk = { data: 'x'.repeat(1024 * 1024) };
+        for (let index = 0; index < 16; index += 1) ctx.send('chunk', chunk);
+        ctx.send('queued', { amount: ctx.bufferedAmount });
+      },
+    });
+    const app = new Hono();
+    const wskit = setup();
+    const endpoint = wskit.bind(queued.assemble({ handlers: [fillQueue] }), {});
+
+    app.get('/ws/slow-client', endpoint.upgrade);
+    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    servers.push(server);
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/slow-client`);
+    sockets.push(socket);
+    await waitForOpen(socket);
+
+    const queuedAmount = new Promise<number>((resolve, reject) => {
+      socket.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as {
+          event: string;
+          payload: { amount: number };
+        };
+        if (message.event === 'queued') resolve(message.payload.amount);
+      });
+      socket.once('error', reject);
+    });
+
+    const clientSocket = getClientSocket(socket);
+    clientSocket.pause();
+    socket.send(JSON.stringify({ event: 'fill-queue', payload: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    clientSocket.resume();
+
+    await expect(queuedAmount).resolves.toBeGreaterThan(0);
   });
 
   it('cancels a pending upgrade before shutdown', async () => {

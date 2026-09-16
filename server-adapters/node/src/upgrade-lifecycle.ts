@@ -75,6 +75,7 @@ export function createNodeUpgradeAbort(request: IncomingMessage): NodeUpgradeAbo
   socket.once('close', abort);
   socket.once('end', abort);
   socket.once('error', abort);
+  if (request.aborted || socket.destroyed || socket.readableEnded) abort();
 
   return {
     signal: controller.signal,
