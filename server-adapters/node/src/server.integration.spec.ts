@@ -817,18 +817,18 @@ describe('Node server integration', () => {
     expect(upgrade.type).toBe('accept');
     if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
 
-    const peer = {
+    const transport = {
       send: vi.fn(),
       close: vi.fn(),
       bufferedAmount: () => 0,
       backpressureSupported: true,
     };
 
-    const connection = upgrade.accept(peer);
+    const connection = upgrade.accept(transport);
     await connection.message(JSON.stringify({ event: 'echo', payload: { text: 'custom host' } }));
 
     await vi.waitFor(() =>
-      expect(peer.send).toHaveBeenCalledWith(expect.stringContaining('custom host')),
+      expect(transport.send).toHaveBeenCalledWith(expect.stringContaining('custom host')),
     );
     expect(state.upgradeRequest?.headers.get('WSKit-Client-IP')).toBe('203.0.113.7');
     await node.shutdown();

@@ -8,6 +8,7 @@ import type { IncomingMessage } from 'node:http';
 import { createNodeEndpoint } from './endpoint.ts';
 import { createHttpRejectionResponse, isSocketRejection } from './upgrade.ts';
 import type { NodeAdmin, NodeEndpointInternals, NodeEndpointOptions } from './endpoint.ts';
+import type { ConnectionTransport } from './socket.ts';
 
 export { closeWebSocket } from './close.ts';
 export type { ClosableWebSocket } from './close.ts';
@@ -15,16 +16,9 @@ export { createUpgradeLifecycle } from './upgrade-lifecycle.ts';
 export type { UpgradeLifecycle } from './upgrade-lifecycle.ts';
 
 export type { NodeAdmin, NodeEndpointOptions } from './endpoint.ts';
+export type { ConnectionTransport } from './socket.ts';
 
-/** A peer accepted by a host integration after its WebSocket handshake. */
-export interface NodePeer {
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-  bufferedAmount(): number;
-  backpressureSupported: boolean;
-}
-
-/** Forwards lifecycle events from an accepted peer to WSKit. */
+/** Forwards lifecycle events from an accepted transport to WSKit. */
 export interface NodeConnection {
   message(data: string): Promise<void>;
   close(code: number, reason: string): Promise<void>;
@@ -50,7 +44,7 @@ export interface NodeSocketRejection {
 /** An accepted upgrade. Call `accept()` once after the host accepts the WebSocket. */
 export interface NodeAcceptedUpgrade {
   type: 'accept';
-  accept(peer: NodePeer): NodeConnection;
+  accept(transport: ConnectionTransport): NodeConnection;
 }
 
 /** One WSKit definition prepared for a host integration to upgrade. */
@@ -86,7 +80,7 @@ export interface NodeBinding {
  *
  * This does not create, listen on, or close an HTTP server. A host integration
  * calls `prepare()` or `prepareNode()`, performs its own handshake, then passes
- * accepted peer events through the returned connection.
+ * accepted transport events through the returned connection.
  */
 export function binding(): NodeBinding {
   const endpoints = new Set<NodeEndpointInternals>();
@@ -141,12 +135,12 @@ function toNodeUpgrade<TApi>(
 
     return {
       type: 'accept',
-      accept(peer) {
-        if (accepted) throw new Error('[wskit] an accepted upgrade can only attach one peer');
+      accept(transport) {
+        if (accepted) throw new Error('[wskit] an accepted upgrade can only attach one transport');
 
         accepted = true;
 
-        return toNodeConnection(endpoint.attachTransport(peer, peer, decision));
+        return toNodeConnection(endpoint.attachTransport(transport, transport, decision));
       },
     };
   }

@@ -113,7 +113,7 @@ async function handleNodeUpgrade(options: NodeUpgradeRequest): Promise<void> {
             if (upgrade.type === 'socket') {
               closeWebSocket(webSocket, upgrade.code, upgrade.reason);
             } else {
-              attachAcceptedWebSocket(webSocket, upgrade.accept(webSocketPeer(webSocket)));
+              attachAcceptedWebSocket(webSocket, upgrade.accept(webSocketTransport(webSocket)));
             }
 
             resolve();
@@ -148,7 +148,7 @@ async function writeHttpResponse(socket: Duplex, response: Response): Promise<vo
   socket.end(Buffer.concat([Buffer.from(lines.join('\r\n')), body]));
 }
 
-function webSocketPeer(socket: WebSocket) {
+function webSocketTransport(socket: WebSocket) {
   return {
     send: (data: string) => socket.send(data),
     close: (code?: number, reason?: string) => socket.close(code, reason),

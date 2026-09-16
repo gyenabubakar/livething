@@ -65,7 +65,7 @@ function acceptedUpgrade(connection: NodeConnection): NodeAcceptedUpgrade {
 }
 
 describe('createNodeUpgradeHandler', () => {
-  it('prepares before the handshake, then attaches the accepted peer', async () => {
+  it('prepares before the handshake, then attaches the accepted transport', async () => {
     const connection: NodeConnection = {
       message: vi.fn(async () => {}),
       close: vi.fn(async () => {}),

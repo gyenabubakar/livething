@@ -202,10 +202,10 @@ describe('createNodeEndpoint()', () => {
 });
 
 describe('binding()', () => {
-  it('prepares an accepted peer and forwards its lifecycle to the engine', async () => {
+  it('prepares an accepted transport and forwards its lifecycle to the engine', async () => {
     const node = binding();
     const endpoint = node.bind({} as never, {});
-    const peer = {
+    const transport = {
       send: vi.fn(),
       close: vi.fn(),
       bufferedAmount: vi.fn(() => 0),
@@ -218,13 +218,16 @@ describe('binding()', () => {
     expect(upgrade.type).toBe('accept');
     if (upgrade.type !== 'accept') throw new Error('Expected an accepted upgrade');
 
-    const connection = upgrade.accept(peer);
+    const connection = upgrade.accept(transport);
     await connection.message('hello');
     await connection.close(1000, 'done');
 
     await connection.error(new Error('failed'));
 
-    expect(fake.accept).toHaveBeenCalledWith(peer, expect.objectContaining({ userId: 'user-1' }));
+    expect(fake.accept).toHaveBeenCalledWith(
+      transport,
+      expect.objectContaining({ userId: 'user-1' }),
+    );
     const handle = fake.accept.mock.results[0]?.value;
     expect(handle.handleMessage).toHaveBeenCalledWith('hello');
     expect(handle.handleClose).toHaveBeenCalledWith(1000, 'done');
