@@ -2,7 +2,7 @@ import { client, connect, reconnection } from '@wskit/client';
 import type { ReplayClient } from '@wskit/tests-e2e-handlers/replay-history';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives connect() with a URL *function* against the real `replay` handler. The
+// Drives connect() with a URL *function* against the real `replay` server definition. The
 // function runs on every connect and every reconnect, so a server-initiated drop
 // (server-drop → retryable close) makes the client call it again. Also records
 // open/reconnect hook order: onOpen must fire before onReconnect on a reconnect.

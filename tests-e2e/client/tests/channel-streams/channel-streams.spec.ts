@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @wskit/client's channel-scoped stream() / resumeStream() against
-// the real `stream-durable-scoped` handler. The `rooms` channel exposes a
+// the real `stream-durable-scoped` server definition. The `rooms` channel exposes a
 // resumable cursor stream (`paginate`) and a recorded stream (`history`), both
 // reached through the typed channel handle. Adapter-oblivious — it talks to
 // whatever server the run booted over the /ws proxy.

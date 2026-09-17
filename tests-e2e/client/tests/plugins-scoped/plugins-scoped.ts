@@ -3,7 +3,7 @@ import { WSKitError } from '@wskit/client/errors';
 import type { StreamHandle } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `plugins` handler through a CLIENT
+// Drives @wskit/client against the real `plugins` server definition through a CLIENT
 // PLUGIN, the mirror of the server's `e2e:feed` plugin. The client plugin owns
 // the `e2e:feed` namespace, so its `setup` works in plain names — `on('welcome')`,
 // `send('hello')`, `request('echo')`, `stream('feed')`, `channel('room')` — and

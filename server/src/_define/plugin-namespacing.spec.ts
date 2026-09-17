@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
@@ -39,7 +39,7 @@ describe('plugin namespacing — streams', () => {
     });
     const Plug = plugin('acme:ticker', { definition: h.assemble({ handlers: [ticker] }) });
     const base = server({ capabilities: [Plug()] });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
 
     expect(compiled.streams.has('__acme:ticker::ticks')).toBe(true);
     const gen = compiled.streams.get('__acme:ticker::ticks')!;
@@ -55,7 +55,7 @@ describe('plugin namespacing — channels', () => {
     const Plug = plugin('acme:room', { definition: h.assemble({ handlers: [onSay] }) });
     const base = server({ capabilities: [Plug()] });
 
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.channels.has('__acme:room::room')).toBe(true);
     const ch = compiled.channels.get('__acme:room::room')!;
     expect(ch.incoming.has('__acme:room::say')).toBe(true);
@@ -69,7 +69,7 @@ describe('plugin namespacing — scheduled', () => {
     h.scheduled('sweep', { run() {} });
     const Plug = plugin('acme:presence', { definition: h.assemble({ handlers: [] }) });
     const base = server({ capabilities: [Plug()] });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
 
     expect(compiled.scheduled.has('__acme:presence::sweep')).toBe(true);
   });
@@ -117,7 +117,7 @@ describe('plugin namespacing — tags', () => {
     const Plug = plugin('acme:roles', { definition: h.assemble({ handlers: [handler] }) })();
     const base = server({ capabilities: [Plug] });
     // Compiles without tripping the identifier guard on the namespaced group.
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
+    expect(() => compileServerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
 
     const incoming = Plug.__primitives.find(
       (p: any) => p.__wskit === 'incoming' && p.event === '__acme:roles::go',
@@ -160,7 +160,7 @@ describe('plugin namespacing — durable kinds', () => {
     const Plug = plugin('acme:room', { definition: h.assemble({ handlers: [room] }) });
     const base = server({ capabilities: [Plug()] });
 
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
+    expect(() => compileServerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
   });
 });
 
@@ -605,7 +605,7 @@ describe('plugin namespacing — channel hook is owned and scoped (Major 5)', ()
     const appGames = base.channel('games', { capabilities: [emits({ tock: t<{}>() })] });
 
     appGames.on('move', { input: v.object({}), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [appGames] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [appGames] }));
 
     // The app keeps the bare name; the plugin's channel is namespaced — distinct
     // keys, no collision.

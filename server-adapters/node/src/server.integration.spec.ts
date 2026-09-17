@@ -79,7 +79,7 @@ function createTestService<TDefinition extends ServerDefinition>(
   };
 }
 
-function createHandler(state: IntegrationState) {
+function buildServerDefinition(state: IntegrationState) {
   const base = createServerDefinition({
     upgrade(request) {
       state.upgradeRequest = request;
@@ -538,7 +538,7 @@ describe('Node server integration', () => {
 
   it('passes the complete upgrade request and routes real text frames through the engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), {
+    const service = createTestService(buildServerDefinition(state), {
       port: 0,
       clientIp: { mode: 'direct' },
     });
@@ -578,7 +578,7 @@ describe('Node server integration', () => {
 
   it('derives the client IP from a trusted proxy during a real upgrade', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), {
+    const service = createTestService(buildServerDefinition(state), {
       port: 0,
       clientIp: { mode: 'proxy', trustedProxies: ['127.0.0.1', '::1'] },
     });
@@ -598,7 +598,7 @@ describe('Node server integration', () => {
 
   it('rejects a real upgrade with an HTTP response', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -611,7 +611,7 @@ describe('Node server integration', () => {
 
   it('turns an invalid upgrade close code into a safe HTTP rejection', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -623,7 +623,7 @@ describe('Node server integration', () => {
 
   it('rejects a real upgrade with a WebSocket close decision', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -637,7 +637,7 @@ describe('Node server integration', () => {
 
   it('rejects an authority-changing request target over the real HTTP boundary', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -649,7 +649,7 @@ describe('Node server integration', () => {
   it('does not retain a malformed upgrade while shutting down', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const observed = createObservedWebSocketServer();
-    const service = createTestService(createHandler(state), {
+    const service = createTestService(buildServerDefinition(state), {
       port: 0,
       webSocketServer: observed.server,
     });
@@ -667,7 +667,7 @@ describe('Node server integration', () => {
 
   it('limits an oversized WebSocket close reason over the real transport', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -684,7 +684,7 @@ describe('Node server integration', () => {
 
   it('turns an invalid application close code into a safe WebSocket close', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -703,7 +703,7 @@ describe('Node server integration', () => {
 
   it('rejects binary frames through the real bridge', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -730,7 +730,7 @@ describe('Node server integration', () => {
 
   it('forwards a client close through the real engine lifecycle', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -750,7 +750,7 @@ describe('Node server integration', () => {
   it('forwards a real WebSocket transport error through the engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const captured = createCapturingWebSocketServer();
-    const service = createTestService(createHandler(state), {
+    const service = createTestService(buildServerDefinition(state), {
       port: 0,
       webSocketServer: captured.server,
     });
@@ -772,7 +772,7 @@ describe('Node server integration', () => {
 
   it('runs SQL, KV, and scheduled work through real handlers', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -807,7 +807,7 @@ describe('Node server integration', () => {
   it('lets a custom host prepare and attach a peer through the public binding seam', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
     const node = binding();
-    const endpoint = node.bind(createHandler(state), {});
+    const endpoint = node.bind(buildServerDefinition(state), {});
     await endpoint.ready();
 
     const upgrade = await endpoint.prepare(
@@ -846,7 +846,7 @@ describe('Node server integration', () => {
 
     const logger = createMockLogger();
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0, kv, logger });
+    const service = createTestService(buildServerDefinition(state), { port: 0, kv, logger });
 
     services.push(service);
     await service.ready;
@@ -872,7 +872,7 @@ describe('Node server integration', () => {
 
   it('exposes the live Node buffer amount through the engine context', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -891,7 +891,7 @@ describe('Node server integration', () => {
 
   it('runs custom admin API methods through the real engine', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -913,7 +913,7 @@ describe('Node server integration', () => {
     const database = new Database(':memory:');
     databases.push(database);
     const firstState: IntegrationState = { errors: [], shutdowns: 0 };
-    const first = createTestService(createHandler(firstState), {
+    const first = createTestService(buildServerDefinition(firstState), {
       port: 0,
       sql: database,
     });
@@ -930,7 +930,7 @@ describe('Node server integration', () => {
     expect((await first.admin()).connectionCount).toBe(1);
 
     const secondState: IntegrationState = { errors: [], shutdowns: 0 };
-    const second = createTestService(createHandler(secondState), {
+    const second = createTestService(buildServerDefinition(secondState), {
       port: 0,
       sql: database,
     });
@@ -969,7 +969,7 @@ describe('Node server integration', () => {
 
   it('closes a connected real client with going-away during shutdown', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -989,7 +989,7 @@ describe('Node server integration', () => {
 
   it('lets the application decide when to shut down its server', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 
@@ -1009,7 +1009,7 @@ describe('Node server integration', () => {
 
   it('drops upgrades that arrive after WSKit shutdown starts', async () => {
     const state: IntegrationState = { errors: [], shutdowns: 0 };
-    const service = createTestService(createHandler(state), { port: 0 });
+    const service = createTestService(buildServerDefinition(state), { port: 0 });
     services.push(service);
     await service.ready;
 

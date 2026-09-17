@@ -3,7 +3,7 @@ import { WSKitError } from '@wskit/client/errors';
 import type { ErrorsFactoryClient } from '@wskit/tests-e2e-handlers/errors-factory';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's base socket against the real `errors-factory` handler.
+// Drives @wskit/client's base socket against the real `errors-factory` server definition.
 // Server errors that no request or stream claims surface on socket.onServerError
 // as a typed WSKitError — every trigger here is a fire-and-forget incoming event,
 // so the error always arrives that way.

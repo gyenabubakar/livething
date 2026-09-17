@@ -2,7 +2,7 @@ import { channels, client, connect, dedup, gaps, inbox, reconnection } from '@ws
 import type { InboxGapClient } from '@wskit/tests-e2e-handlers/inbox-gap';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives inbox OVERFLOW against the real inbox-gap handler (retention keeps one
+// Drives inbox OVERFLOW against the real inbox-gap server definition (retention keeps one
 // undelivered row per member). While a member is offline, a second broadcast
 // evicts the first held row and lifts its overflow watermark; on reconnect the
 // drain emits `__gap__` before the surviving row. The `?gaps=1` variant runs

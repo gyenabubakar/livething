@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
- * Micro-benchmark for `compileHandlerDefinition` across the same three
+ * Micro-benchmark for `compileServerDefinition` across the same three
  * server shapes the CF e2e harness uses (tiny / medium / heavy). Runs in
  * Node with sub-µs `performance.now` resolution so we can actually see where
  * compile time goes — workerd quantizes `performance.now()` to 1ms so the
@@ -22,7 +22,7 @@ import { resumableStream } from '~/stream-resumable/capability.ts';
 import { stream } from '~/stream/capability.ts';
 import * as v from 'valibot';
 import { bench, describe } from 'vitest';
-import { compileHandlerDefinition } from './compile.ts';
+import { compileServerDefinition } from './compile.ts';
 
 const Empty = v.object({});
 const Text = v.object({ text: v.string() });
@@ -164,16 +164,16 @@ for (const n of [1, 2, 3, 4, 5]) {
 
 const heavyDefinition = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
-describe('compileHandlerDefinition', () => {
+describe('compileServerDefinition', () => {
   bench('tiny  (1 incoming, 1 outgoing)', () => {
-    compileHandlerDefinition(tinyDefinition);
+    compileServerDefinition(tinyDefinition);
   });
 
   bench('medium (~10 events, 2 channels)', () => {
-    compileHandlerDefinition(mediumDefinition);
+    compileServerDefinition(mediumDefinition);
   });
 
   bench('heavy (~50 events, 10 channels)', () => {
-    compileHandlerDefinition(heavyDefinition);
+    compileServerDefinition(heavyDefinition);
   });
 });

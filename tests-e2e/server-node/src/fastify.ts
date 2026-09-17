@@ -4,9 +4,9 @@ import Fastify from 'fastify';
 import type { FastifyEndpoint } from '@wskit/server-node/fastify';
 import { configureFixtureBinding, getFixture, handleRequest } from './node-http.ts';
 
-configureFixtureBinding((handler, options) => {
+configureFixtureBinding((definition, options) => {
   const wskit = setup();
-  const endpoint = wskit.bind(handler, options);
+  const endpoint = wskit.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),

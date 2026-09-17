@@ -8,9 +8,9 @@ import {
   listen,
 } from './node-http.ts';
 
-configureFixtureBinding((handler, options) => {
+configureFixtureBinding((definition, options) => {
   const wskit = setup();
-  const endpoint = wskit.bind(handler, options);
+  const endpoint = wskit.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),

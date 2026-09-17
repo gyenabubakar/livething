@@ -2,15 +2,15 @@ import { channels, client, clientRequests, connect, stream } from '@wskit/client
 import type { SocketContract } from '@wskit/client';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `plugins` handler over the typed wire.
+// Drives @wskit/client against the real `plugins` server definition over the typed wire.
 //
-// Note on typing: the plugins handler lives in the cloudflare worker package
+// Note on typing: the plugins server definition lives in the Cloudflare Worker package
 // (it needs the worker's `Env`/`Platform`/drizzle), so its `InferClient` type is
 // not importable into this DOM-only tsconfig. More to the point, the client SDK
 // does not surface `InferClient.plugins` as its own accessor — plugin traffic
 // reaches a typed client through normal `on`/`send`/`stream` under the plugin's
 // `__<id>::` wire prefix. So the relevant slice of the contract is declared
-// directly here, matching the real wire shapes the handler exposes.
+// directly here, matching the real wire shapes the server definition exposes.
 //
 // Two things are proven:
 //  1. Plugin hooks rewrite frames, count messages, and stamp plugin-owned events.

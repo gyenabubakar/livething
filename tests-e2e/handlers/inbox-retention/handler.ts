@@ -10,7 +10,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 import { SendRoomMsg } from '../inbox/events.ts';
 import type { RoomMsg } from '../inbox/events.ts';
 
-// This handler deliberately keeps delivered rows (`onDelivered: 'retain'`) so
+// This server definition deliberately keeps delivered rows (`onDelivered: 'retain'`) so
 // the raw-wire probe can observe both kinds of row disappearing on the shared
 // durable alarm. The top-level recurring task proves that the inbox alarm does
 // not replace another capability's scheduled work.

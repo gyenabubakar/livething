@@ -137,8 +137,8 @@ export interface EngineOptions extends EngineRuntimeOptions {
   /**
    * Adapter-provided hibernation persistence mechanism. Present when the
    * adapter supports hibernation; omitted otherwise. The engine validates at
-   * `initialize()` that this is present whenever the contract set
-   * `hibernation: true` and throws a clear error if the combination is
+   * `initialize()` that this is present whenever the server definition sets
+   * `hibernation: { enabled: true }` and throws a clear error if the combination is
    * unsupported.
    */
   hibernation?: HibernationApi;
@@ -150,7 +150,7 @@ export interface EngineOptions extends EngineRuntimeOptions {
 /**
  * The runtime engine created by the adapter from a compiled server definition.
  * Handles connections, message routing, and lifecycle. `TApi` carries the
- * handler's `api` type through to {@link EngineClass.admin}. An adapter with
+ * server definition's `api` type through to {@link EngineClass.admin}. An adapter with
  * multiple addressable instances should call `setInstanceId(...)` before
  * accepting connections so refs cannot be confused across instances.
  */
@@ -168,7 +168,7 @@ export interface AdapterConfig<TOptions, TService> {
   /**
    * Adapter-provided hibernation persistence. Adapters that don't support
    * hibernation omit this field; the engine then rejects any contract that
-   * set `hibernation: true` at `initialize()` time.
+   * set `hibernation: { enabled: true }` at `initialize()` time.
    */
   hibernation?: HibernationApi;
 
@@ -183,7 +183,7 @@ export interface AdapterConfig<TOptions, TService> {
   /**
    * Wire the platform's WebSocket lifecycle to an engine instance.
    *
-   * `TApi` is the handler's `api` type, so `engine.admin()` is already typed
+   * `TApi` is the server definition's `api` type, so `engine.admin()` is already typed
    * here. TypeScript cannot make `TService` itself depend on `TApi`, so an
    * adapter whose service should carry the app's admin methods exports a thin
    * generic `bind(definition)` of its own on top of this.

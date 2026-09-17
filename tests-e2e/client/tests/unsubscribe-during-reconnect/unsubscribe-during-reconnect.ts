@@ -2,12 +2,12 @@ import { channels, client, connect, reconnection } from '@wskit/client';
 import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `persistence` handler to prove that an
+// Drives @wskit/client against the real `persistence` server definition to prove that an
 // unsubscribe() issued WHILE the socket is reconnecting is not lost: the client
 // resends the __unsubscribe__ on reopen, suppresses the persistent channel's
 // auto-rejoin, and the server truly removes the member and confirms it with
 // __unsubscribeOk__ (so the unsubscribe() promise resolves). Reuses the
-// persistence handler's archive-room (persistent), server-drop (warm reconnect),
+// persistence server definition's archive-room (persistent), server-drop (warm reconnect),
 // subscribe-flow-ran (counts subscribe flows), and true-leave (a real leave).
 export function setup(): void {
   mount(`

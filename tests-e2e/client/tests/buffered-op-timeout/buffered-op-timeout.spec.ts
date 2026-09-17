@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
 // real execution in a durable counter, so the proof is the counter staying at 0:
 // without the ownership rule the buffered frame would flush and the server would
 // run it after the caller was already told it failed. Talks to the real
-// `persistence` handler over the /ws proxy.
+// `persistence` server definition over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/buffered-op-timeout/index.html?room=${room}&username=alice`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');

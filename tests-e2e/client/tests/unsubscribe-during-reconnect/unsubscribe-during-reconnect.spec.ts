@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test';
 // it with __unsubscribeOk__ (so the unsubscribe() promise resolves). Proof is the
 // subscribe-flow count: if the unsubscribe were lost, the persistent channel would
 // auto-rejoin on reconnect and the server would run a SECOND subscribe flow. Talks
-// to the real `persistence` handler over the /ws proxy.
+// to the real `persistence` server definition over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(
     `/tests/unsubscribe-during-reconnect/index.html?room=${room}&username=${username}`,

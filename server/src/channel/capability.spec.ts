@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequestKey } from '~/request/outgoing-runtime.ts';
@@ -31,7 +31,7 @@ describe('channels() capability', () => {
         }),
       ],
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [room] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [room] }));
     expect(compiled.channels.get('room')?.outgoing.has('joined')).toBe(true);
   });
 
@@ -41,7 +41,7 @@ describe('channels() capability', () => {
       capabilities: [emits({ joined: t<{ id: string }>() })],
     });
     const handleChat = lobby.on('chat', { input: v.object({ text: v.string() }), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleChat] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handleChat] }));
     const channel = compiled.channels.get('lobby');
 
     expect(channel?.incoming.has('chat')).toBe(true);
@@ -54,7 +54,7 @@ describe('channels() capability', () => {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });
     const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleSay] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handleSay] }));
     expect(compiled.channelFamilies.has('rooms')).toBe(true);
   });
 
@@ -110,7 +110,7 @@ describe('channels() capability', () => {
       capabilities: [emits({ tick: t<{}>() })],
     });
     presence.subscribe(() => {});
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [presence] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [presence] }));
     expect(compiled.channels.has('presence')).toBe(true);
   });
 
@@ -229,7 +229,7 @@ describe('channels() capability', () => {
     const interleaved = room.on('interleaved', { allowInterleaving: true, run() {} });
     const request = room.request('request', { allowInterleaving: false, run() {} });
 
-    const compiled = compileHandlerDefinition(
+    const compiled = compileServerDefinition(
       base.assemble({ handlers: [ordered, interleaved, request] }),
     );
     const channel = compiled.channels.get('room')!;

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
 // Conformance: a broad smoke across @wskit/client primitives against the real
-// wskit `group-full-surface` handler. Adapter-oblivious — it talks to whatever
+// wskit `group-full-surface` server definition. Adapter-oblivious — it talks to whatever
 // server the run booted over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/group-full-surface/index.html?room=${room}&username=${username}`);

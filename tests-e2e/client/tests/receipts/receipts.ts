@@ -3,7 +3,7 @@ import type { ReceiptsClient } from '@wskit/tests-e2e-handlers/receipts';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's received (inbox) and read (readReceipts) surfaces
-// against the real handler. `__received__` advances the received cursor and fans
+// against the real server definition. `__received__` advances the received cursor and fans
 // out as a `__received__` frame feeding the `receivers` store; markAsRead()
 // advances the read cursor and fans out as a `__read__` frame feeding `readers`.
 // `receiversOf(1)`/`readersOf(1)` round-trip over `__receivedQuery__` /

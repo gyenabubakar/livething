@@ -3,7 +3,7 @@ import { WSKitError } from '@wskit/client/errors';
 import type { RateLimitClient } from '@wskit/tests-e2e-handlers/rate-limit';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `rate-limit` handler. Fire-and-forget
+// Drives @wskit/client against the real `rate-limit` server definition. Fire-and-forget
 // events that breach a cap carry no correlationId, so the server's `__error__`
 // frame surfaces on socket.onServerError as a typed WSKitError; a rate-limited
 // request() rejects with the same code instead.

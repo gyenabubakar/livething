@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
@@ -57,7 +57,7 @@ describe('server() send/receive core', () => {
     });
 
     const definition = base.assemble({ handlers: [handlePing] });
-    const compiled = compileHandlerDefinition(definition);
+    const compiled = compileServerDefinition(definition);
 
     expect(compiled.incoming.has('echo')).toBe(true);
     expect(compiled.outgoing.has('welcome')).toBe(true);
@@ -73,7 +73,7 @@ describe('server() send/receive core', () => {
         ctx.send('welcome', { username: String(input) });
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleEcho] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handleEcho] }));
     expect(compiled.incoming.has('echo-anything')).toBe(true);
   });
 
@@ -81,7 +81,7 @@ describe('server() send/receive core', () => {
     const base = server({ capabilities: [clientRequests()] });
     const incoming = base.on('incoming', { run() {} });
     const request = base.request('request', { run() {} });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [incoming, request] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [incoming, request] }));
 
     expect(compiled.incoming.get('incoming')?.allowInterleaving).toBe(false);
     expect(compiled.requests.get('request')?.allowInterleaving).toBe(true);
@@ -94,7 +94,7 @@ describe('server() send/receive core', () => {
     const topActive = top.on('top-active', { run: runTop });
     top.on('top-hidden', { run: runTopHidden });
 
-    const topCompiled = compileHandlerDefinition(top.assemble({ handlers: [topActive] }));
+    const topCompiled = compileServerDefinition(top.assemble({ handlers: [topActive] }));
     expect(topCompiled.incoming.has('top-hidden')).toBe(false);
 
     const scoped = server({ scope: 'plugin' });
@@ -107,7 +107,7 @@ describe('server() send/receive core', () => {
       definition: scoped.assemble({ handlers: [pluginActive] }),
     });
     const host = server({ capabilities: [HiddenPlugin()] });
-    const pluginCompiled = compileHandlerDefinition(host.assemble({ handlers: [] }));
+    const pluginCompiled = compileServerDefinition(host.assemble({ handlers: [] }));
     expect(pluginCompiled.incoming.has('__acme:hidden::plugin-hidden')).toBe(false);
 
     const channelBase = server({ capabilities: [channels()] });
@@ -117,12 +117,12 @@ describe('server() send/receive core', () => {
     const active = room.on('active', { run: runChannel });
 
     room.on('channel-hidden', { run: runChannelHidden });
-    const compiled = compileHandlerDefinition(channelBase.assemble({ handlers: [active] }));
+    const compiled = compileServerDefinition(channelBase.assemble({ handlers: [active] }));
 
     expect(compiled.channels.get('room')?.incoming.has('active')).toBe(true);
     expect(compiled.channels.get('room')?.incoming.has('channel-hidden')).toBe(false);
 
-    const channelWithoutHandlers = compileHandlerDefinition(
+    const channelWithoutHandlers = compileServerDefinition(
       channelBase.assemble({ handlers: [room] }),
     );
     expect(channelWithoutHandlers.channels.get('room')?.incoming.has('active')).toBe(false);
@@ -200,7 +200,7 @@ describe('server() send/receive core', () => {
     base.intercept((_ctx, frame) => {
       if (frame.event === 'blocked') throw new Error('blocked');
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.intercepts).toHaveLength(1);
   });
 
@@ -213,7 +213,7 @@ describe('server() send/receive core', () => {
         }),
       ],
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.outgoing.has('welcome')).toBe(true);
     expect(compiled.outgoing.has('goodbye')).toBe(true);
   });

@@ -2,7 +2,7 @@ import { channels, client, connect, stream } from '@wskit/client';
 import type { StreamBroadcastClient } from '@wskit/tests-e2e-handlers/stream-broadcast';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's stream() against the real `stream-broadcast` handler.
+// Drives @wskit/client's stream() against the real `stream-broadcast` server definition.
 // One context triggers a broadcast stream with socket.stream(); a peer context
 // listens with socket.onStream() and records every chunk via onChunk, the close
 // via onEnd, and a terminal generator error via onError — typed by the same

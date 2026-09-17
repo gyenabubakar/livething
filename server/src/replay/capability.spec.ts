@@ -1,5 +1,5 @@
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { describe, expect, it } from 'vitest';
@@ -37,7 +37,7 @@ describe('replay capabilities', () => {
 
   it('refuses to boot built-in replay without dedup and persistent sequence', () => {
     const base = server({ capabilities: [replay.history()] });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).toThrow(/replay/);
+    expect(() => compileServerDefinition(base.assemble({ handlers: [] }))).toThrow(/replay/);
   });
 
   it('registers a custom replay strategy with replay.custom() and base.replay()', () => {

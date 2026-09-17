@@ -35,7 +35,7 @@ export interface WSKitDurableObjectInstance<
   shutdown(): Promise<void>;
   /**
    * The connectionless admin surface — `const admin = await stub.admin();
-   * await admin.purgeUser(id)`, plus whatever the handler's own `api` factory
+   * await admin.purgeUser(id)`, plus whatever the server definition's own `api` factory
    * returned.
    */
   admin(): Promise<WSKitAdmin<TMeta> & TApi>;
@@ -45,9 +45,9 @@ export interface WSKitDurableObjectInstance<
  * The Durable Object class type that `bind()` returns. Use this as the type
  * for your exported Durable Object class.
  *
- * @template TApi  The handler's `api` type, so `stub.admin()` resolves to the
+ * @template TApi  The server definition's `api` type, so `stub.admin()` resolves to the
  *   built-in operations **and** the app's own admin methods.
- * @template TMeta The handler's connection metadata, carried so the connection
+ * @template TMeta The server definition's connection metadata, carried so the connection
  *   snapshots the admin surface returns keep their real `meta` type.
  */
 export type CloudflareDurableObjectClass<
@@ -355,13 +355,13 @@ function requestWithClientIp(request: Request): Request {
 }
 
 /**
- * Turn a WSKit handler into a Cloudflare Durable Object class.
+ * Turn a WSKit server definition into a Cloudflare Durable Object class.
  *
  * Export the returned class from your Worker so the Cloudflare runtime can
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. The DO uses the
  * Cloudflare WebSocket Hibernation API when the contract sets
- * `hibernation: true`. Without a translator, the runtime answers the client's
+ * `hibernation: { enabled: true }`. Without a translator, the runtime answers the client's
  * keepalive "ping" with "pong" at the edge, so a hibernated DO is not woken
  * just to reply. A translated connection wakes so both directions pass through
  * its translator.

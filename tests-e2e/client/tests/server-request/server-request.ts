@@ -3,7 +3,7 @@ import type { ServerRequestClient } from '@wskit/tests-e2e-handlers/server-reque
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's serverRequests() against the real `server-request`
-// handler, typed by the same contract the server implements
+// server definition, typed by the same contract the server implements
 // (ServerRequestClient = InferClient<definition>). The server asks the client a
 // declared server→client request; the client answers with onRequest(), and the
 // server reports the outcome back as an event.

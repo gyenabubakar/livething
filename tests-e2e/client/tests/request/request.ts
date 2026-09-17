@@ -2,7 +2,7 @@ import { channels, client, clientRequests, connect } from '@wskit/client';
 import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's request() against the real `request` handler, typed by
+// Drives @wskit/client's request() against the real `request` server definition, typed by
 // the same contract the server implements (RequestClient = InferClient<definition>).
 export function setup(): void {
   mount(`

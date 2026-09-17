@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: gaps() against the real replay handler, which keeps
+// Conformance: gaps() against the real replay server definition, which keeps
 // only the newest row per store (maxMessages: 1). A witness publishes while the
 // subject is offline, evicting the subject's last-known row and bumping the
 // eviction watermark above the subject's lastKnownSeq — the exact condition a

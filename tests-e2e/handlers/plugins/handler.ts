@@ -1,4 +1,4 @@
-import { server, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
@@ -28,7 +28,7 @@ type DrizzleCapability<
   TApi extends DrizzlePluginApi,
 > = PluginCapability<'e2e:drizzle', TContract, TApi>;
 
-export function createPluginsHandler<
+export function createPluginsDefinition<
   TContract extends ServerContract,
   TApi extends DrizzlePluginApi,
 >(drizzle: () => DrizzleCapability<TContract, TApi>) {
@@ -80,7 +80,7 @@ export function createPluginsHandler<
   });
 
   base.onConnect((ctx) => {
-    ctx.log.info('Plugin handler: client connected', { id: ctx.connection.id });
+    ctx.log.info('Plugin server: client connected', { id: ctx.connection.id });
   });
 
   const handleInsert = base.on('insert-record', {

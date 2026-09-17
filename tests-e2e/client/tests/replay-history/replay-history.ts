@@ -2,7 +2,7 @@ import { channels, client, connect, dedup, reconnection, replay } from '@wskit/c
 import type { ReplayClient } from '@wskit/tests-e2e-handlers/replay-history';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's replay() against the real `replay` handler (log-mode
+// Drives @wskit/client's replay() against the real `replay` server definition (log-mode
 // replay, plus a replay-enabled channel). Proves the client catches up on
 // frames missed while disconnected — top-level AND channel-scoped — by sending
 // __replay__ on reconnect, typed by the same contract the server implements.

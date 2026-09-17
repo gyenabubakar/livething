@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
 // Conformance: @wskit/client's replay() against the real wskit `replay-snapshot`
-// handler. Adapter-oblivious — it talks to whatever server the run booted over
+// server definition. Adapter-oblivious — it talks to whatever server the run booted over
 // the /ws proxy.
 //
 // Replay catch-up can only be observed for frames the client MISSED while down:

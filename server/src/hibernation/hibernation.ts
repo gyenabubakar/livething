@@ -15,7 +15,7 @@ const HIBERNATION_KEY = Symbol('hibernation');
  * enabled, the worker process can pause between messages and wake only when
  * a new frame arrives — saving CPU and memory for mostly-idle connections.
  *
- * Enable this via `hibernation: true` on the contract config instead of
+ * Enable this via `hibernation: { enabled: true }` in `server()` instead of
  * calling this primitive directly.
  *
  * Requires the `hibernation` platform capability (e.g. Cloudflare Durable

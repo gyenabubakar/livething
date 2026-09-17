@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 // Conformance: the wire contract for a non-WebSocket request to a /ws route.
 // A plain GET (no Upgrade header) must come back as HTTP 426 Upgrade Required,
-// the same for every handler. Pure HTTP — no page or @wskit/client needed; the
+// the same for every server definition. Pure HTTP — no page or @wskit/client needed; the
 // request goes through the same /ws proxy the sockets use.
 test.describe('adapter upgrade (conformance)', () => {
   test('a plain GET to a /ws route returns HTTP 426', async ({ request }, testInfo) => {

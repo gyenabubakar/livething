@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: inbox OVERFLOW surfacing against the real inbox-gap handler
+// Conformance: inbox OVERFLOW surfacing against the real inbox-gap server definition
 // (retention keeps one undelivered row per member). A member offline across two
 // broadcasts loses the first held row to eviction; on reconnect the drain emits a
 // `__gap__` before the surviving row. Only a client running gaps() fires onGap — an inbox-only

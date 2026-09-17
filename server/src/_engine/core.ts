@@ -259,7 +259,7 @@ export class EngineCore {
       definition as { __apiFactory?: (ctx: unknown) => unknown }
     ).__apiFactory;
     this.translatorFactory = definition.__translate;
-    this.compiled = EngineCompile.compileHandlerDefinition(definition);
+    this.compiled = EngineCompile.compileServerDefinition(definition);
 
     this.storage = options.storage;
     this.timers = options.timers;

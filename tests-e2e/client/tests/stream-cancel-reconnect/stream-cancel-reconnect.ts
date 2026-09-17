@@ -2,7 +2,7 @@ import { client, connect, reconnection, stream } from '@wskit/client';
 import type { StreamDurableClient } from '@wskit/tests-e2e-handlers/stream-durable';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `stream-durable` handler to prove a
+// Drives @wskit/client against the real `stream-durable` server definition to prove a
 // cancel() issued while the socket is reconnecting is not lost: the client holds
 // __streamCancel__ until reopen, suppresses the durable stream's auto-resume, and
 // the server deletes the durable row. A later resumeStream() of that id then

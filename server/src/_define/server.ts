@@ -1618,7 +1618,7 @@ export interface CoreBase<
   ): void;
 
   /**
-   * Collect every routed handler into the final server the platform adapter runs.
+   * Collect every routed handler into the final server definition the platform adapter runs.
    * Pass them as `{ handlers: [...] }` — each `base.on(...)` (and, with their
    * capabilities, `request` / `stream` / `channel`) value. A channel handler
    * enables only itself; passing the channel includes its configuration but no

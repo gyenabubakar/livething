@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
-// Conformance: @wskit/client's inbox() against the real inbox handler — a
+// Conformance: @wskit/client's inbox() against the real inbox server definition — a
 // persistent, inbox-backed channel that guarantees per-member delivery. A member
 // OFFLINE when a broadcast lands still receives it, drained on the next reconnect
 // after the auto-rejoin. The `__received__` ack settles the durable rows, so a

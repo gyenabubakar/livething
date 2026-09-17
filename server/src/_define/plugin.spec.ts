@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
 import { channels } from '~/channel/capability.ts';
 import { channel } from '~/channel/channel.ts';
@@ -88,7 +88,7 @@ describe('plugin() — scoped server definition + manifest', () => {
 
   it('assembles into a host and compiles with the namespaced events', () => {
     const base = server({ capabilities: [buildPresence()()] });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
     expect(compiled.requests.has('__acme:presence::who-is-here')).toBe(true);
   });
@@ -96,7 +96,7 @@ describe('plugin() — scoped server definition + manifest', () => {
   it('does not collide with a host event of the same short name', () => {
     const base = server({ capabilities: [buildPresence()()] });
     const hostHeartbeat = base.on('heartbeat', { input: v.object({}), run() {} });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [hostHeartbeat] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [hostHeartbeat] }));
     expect(compiled.incoming.has('heartbeat')).toBe(true);
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
   });
@@ -152,14 +152,14 @@ describe('plugin() — scoped server definition + manifest', () => {
     const PluginB = plugin('acme:b', { definition: b.assemble({ handlers: [bDefinition] }) });
 
     const base = server({ capabilities: [PluginA(), PluginB()] });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:a::tick')).toBe(true);
     expect(compiled.incoming.has('__acme:b::tick')).toBe(true);
   });
 
   it('routes a namespaced frame to the plugin handler through real dispatch', async () => {
     const base = server({ capabilities: [buildPresence()()] });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
 
     const send = vi.fn(() => true);
     const connection = { id: 'conn_1' } as any;
@@ -449,7 +449,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
     const base = server({
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     const { runtime, connections } = createChannelTestRuntime(compiled);
 
     const connection = createTestConnection('conn_1');
@@ -490,7 +490,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
       capabilities: [sequence({ persist: true }), dedup(), channels(), Feed()],
     });
     const hostThread = base.channel(['thread', 'thread:{id}'], {});
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [hostThread] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [hostThread] }));
     const { runtime, connections } = createChannelTestRuntime(compiled);
 
     const hostSubscriber = createTestConnection('host_conn');

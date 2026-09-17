@@ -12,7 +12,7 @@ import type { NodeEndpointOptions } from '../../binding.ts';
 
 let lastClientIp: string | null = null;
 
-const handler = server({
+const base = server({
   upgrade(request) {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
@@ -33,17 +33,17 @@ const handler = server({
   ],
 });
 
-const echo = handler.on('echo', {
+const echo = base.on('echo', {
   run(ctx, input) {
     ctx.send('echoed', input);
   },
 });
 
-handler.onConnect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('connected', { clientIp: lastClientIp });
 });
 
-const assembled = handler.assemble({ handlers: [echo] });
+const assembled = base.assemble({ handlers: [echo] });
 
 interface TestClient {
   incoming: { connected: unknown; echoed: unknown };

@@ -1,7 +1,7 @@
-import { createPluginsHandler } from '@wskit/tests-e2e-handlers/plugins';
+import { createPluginsDefinition } from '@wskit/tests-e2e-handlers/plugins';
 import type { InferClient } from '@wskit/server';
 import { Drizzle } from './drizzle-plugin.ts';
 
-export const pluginsHandler = createPluginsHandler(Drizzle);
+export const pluginsDefinition = createPluginsDefinition(Drizzle);
 
-export type PluginsClient = InferClient<typeof pluginsHandler>;
+export type PluginsClient = InferClient<typeof pluginsDefinition>;

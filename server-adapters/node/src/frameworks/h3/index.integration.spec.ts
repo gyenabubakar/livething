@@ -13,7 +13,7 @@ import type { NodeEndpointOptions } from '../../binding.ts';
 let lastClientIp: string | null = null;
 let disconnects = 0;
 
-const handler = createServerDefinition({
+const base = createServerDefinition({
   upgrade(request) {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
@@ -34,21 +34,21 @@ const handler = createServerDefinition({
   ],
 });
 
-const echo = handler.on('echo', {
+const echo = base.on('echo', {
   run(ctx, input) {
     ctx.send('echoed', input);
   },
 });
 
-handler.onConnect((ctx) => {
+base.onConnect((ctx) => {
   ctx.send('connected', { clientIp: lastClientIp });
 });
 
-handler.onDisconnect(() => {
+base.onDisconnect(() => {
   disconnects += 1;
 });
 
-const assembled = handler.assemble({ handlers: [echo] });
+const assembled = base.assemble({ handlers: [echo] });
 
 interface TestClient {
   incoming: { connected: unknown; echoed: unknown };

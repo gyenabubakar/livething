@@ -8,7 +8,7 @@ import type { NodeEndpointBinding, NodeEndpointOptions } from '@wskit/server-nod
 import type { ServerDefinition } from '@wskit/server/adapters';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { FEATURE_HANDLERS } from './handlers.ts';
+import { FEATURE_DEFINITIONS } from './handlers.ts';
 
 type AnyAdminMethod = (...args: unknown[]) => unknown;
 type AnyAdmin = Record<string, AnyAdminMethod>;
@@ -115,12 +115,12 @@ export async function getFixture(route: string, room: string): Promise<Fixture> 
     const replacement = fixtures.get(key);
     if (replacement && !replacement.shutdown) return replacement;
 
-    const handler = FEATURE_HANDLERS[route];
-    if (!handler) throw new Error(`No Node fixture is registered for ${route}`);
+    const definition = FEATURE_DEFINITIONS[route];
+    if (!definition) throw new Error(`No Node fixture is registered for ${route}`);
 
     if (!bindFixture) throw new Error('[wskit] E2E fixture binding was not configured');
 
-    const service = bindFixture(handler, { sql: databasePath(route, room) });
+    const service = bindFixture(definition, { sql: databasePath(route, room) });
     const fixture = {
       service,
       sockets: new Set<Duplex>(),
@@ -329,7 +329,7 @@ export async function handleRequest(
     if (url.pathname === '/ws/__fixtures/release') {
       const route = url.searchParams.get('route') ?? '';
       const lease = url.searchParams.get('lease') ?? '';
-      if (FEATURE_HANDLERS[route] && lease) releaseFixtureLease(route, room, lease);
+      if (FEATURE_DEFINITIONS[route] && lease) releaseFixtureLease(route, room, lease);
       writeText(response, 204, '');
       return;
     }
@@ -473,7 +473,7 @@ export async function handleRequest(
       return;
     }
 
-    if (FEATURE_HANDLERS[url.pathname]) {
+    if (FEATURE_DEFINITIONS[url.pathname]) {
       writeText(response, 426, 'Upgrade Required');
       return;
     }
@@ -522,7 +522,7 @@ export async function handleUpgrade(
   head: Buffer,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
-  if (!FEATURE_HANDLERS[url.pathname]) {
+  if (!FEATURE_DEFINITIONS[url.pathname]) {
     socket.destroy();
     return;
   }

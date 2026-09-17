@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { stream } from './capability.ts';
@@ -21,7 +21,7 @@ describe('stream() capability', () => {
         for (let i = 0; i < input.count; i += 1) yield { index: i };
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handleFeed] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handleFeed] }));
     expect(compiled.streams.has('feed')).toBe(true);
   });
 

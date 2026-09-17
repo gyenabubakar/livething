@@ -16,12 +16,12 @@ import type { Primitive, ValidationView } from '~/primitive.ts';
 
 const ALARM_RETRY_DELAY_MS = 1_000;
 
-/** Throw if the adapter is missing something the handler said it needs. */
+/** Throw if the adapter is missing something the server definition said it needs. */
 function validateRequires(core: EngineCore): void {
   const requires = core.compiled.requires;
   if (requires.hibernation && !core.options.hibernation) {
     throw new Error(
-      `[wskit] Handler requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
+      `[wskit] Server definition requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
     );
   }
 }

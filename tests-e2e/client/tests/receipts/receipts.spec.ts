@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
 // Conformance: received (inbox) and read (readReceipts) surfaces against the
-// real handler. Received cursors advance from each member's `__received__` ack
+// real server definition. Received cursors advance from each member's `__received__` ack
 // and fan out as `__received__` frames into the `receivers` store; read cursors
 // from markAsRead() fan out as `__read__` frames into the `readers` store.
 // `receiversOf`/`readersOf` round-trip to the server, whose authoritative view

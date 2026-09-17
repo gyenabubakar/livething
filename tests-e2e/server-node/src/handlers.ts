@@ -65,9 +65,9 @@ import {
 } from '@wskit/tests-e2e-handlers/translation';
 import { typedTagsDefinition } from '@wskit/tests-e2e-handlers/typed-tags';
 import type { ServerDefinition } from '@wskit/server/adapters';
-import { pluginsHandler } from './plugins.ts';
+import { pluginsDefinition } from './plugins.ts';
 
-export const FEATURE_HANDLERS: Record<string, ServerDefinition> = {
+export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/admin': adminDefinition,
   '/ws/incoming': incomingDefinition,
   '/ws/request': requestDefinition,
@@ -128,7 +128,7 @@ export const FEATURE_HANDLERS: Record<string, ServerDefinition> = {
   '/ws/translation': translationDefinition,
   '/ws/translation-inbound-only': translationInboundOnlyDefinition,
   '/ws/translation-pass-through': translationPassThroughDefinition,
-  '/ws/plugins': pluginsHandler,
+  '/ws/plugins': pluginsDefinition,
   '/ws/replay': replayDefinition,
   '/ws/replay-gap': replayGapDefinition,
   '/ws/replay-custom': replayCustomDefinition,

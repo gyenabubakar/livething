@@ -3,7 +3,7 @@ import type { ErrorsControlFlowClient } from '@wskit/tests-e2e-handlers/errors-c
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's reconnection() against the real `errors-control-flow`
-// handler. The handler force-disconnects with close code 4009, which is listed
+// server definition. Its close behavior uses code 4009, which is listed
 // as non-retryable — so the socket must settle to `closed`, not `reconnecting`.
 export function setup(): void {
   mount(`

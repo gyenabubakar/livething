@@ -2,7 +2,7 @@ import { buffering, channels, client, connect, reconnection } from '@wskit/clien
 import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `persistence` handler to prove the
+// Drives @wskit/client against the real `persistence` server definition to prove the
 // reconnect ordering fix: a channel send queued while the socket is reconnecting
 // reaches the server only AFTER the channel is rejoined. If the send raced ahead
 // of the rejoin the server would drop it (ChannelNotSubscribed) and a witness

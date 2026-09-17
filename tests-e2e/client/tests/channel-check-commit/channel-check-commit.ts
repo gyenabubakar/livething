@@ -3,7 +3,7 @@ import type { ChannelCheckCommitClient } from '@wskit/tests-e2e-handlers/channel
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's channel subscribe (check + commit) against the real
-// `channel-check-commit` handler, typed by the same contract the server
+// `channel-check-commit` server definition, typed by the same contract the server
 // implements (ChannelCheckCommitClient = InferClient<definition>).
 export function setup(): void {
   mount(`

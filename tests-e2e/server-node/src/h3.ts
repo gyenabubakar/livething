@@ -4,9 +4,9 @@ import { H3 } from 'h3/node';
 import type { H3Endpoint } from '@wskit/server-node/h3';
 import { configureFixtureBinding, getFixture, handleFetchRequest } from './node-http.ts';
 
-configureFixtureBinding((handler, options) => {
+configureFixtureBinding((definition, options) => {
   const wskit = setup();
-  const endpoint = wskit.bind(handler, options);
+  const endpoint = wskit.bind(definition, options);
   return {
     endpoint,
     ready: endpoint.ready(),

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @wskit/client's channels() dynamic-family surface against the real
-// wskit `channel-dynamic` handler. Adapter-oblivious — it talks to whatever
+// wskit `channel-dynamic` server definition. Adapter-oblivious — it talks to whatever
 // server the run booted over the /ws proxy.
 async function open(page: Page, room: string, username = 'alice'): Promise<void> {
   await page.goto(`/tests/channel-dynamic/index.html?room=${room}&username=${username}`);

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @wskit/client's stream() / resumeStream() against the real
-// `stream-durable` handler. Adapter-oblivious — it talks to whatever server the
+// `stream-durable` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string): Promise<void> {
   await page.goto(`/tests/stream-durable/index.html?room=${room}&username=alice`);

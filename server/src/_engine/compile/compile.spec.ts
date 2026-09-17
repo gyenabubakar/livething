@@ -14,7 +14,7 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { Primitive } from '~/primitive.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { compileHandlerDefinition } from './compile.ts';
+import { compileServerDefinition } from './compile.ts';
 
 // A few guards in compile() only fire on primitives that skipped the builder's
 // own early checks (assemble()'s assertUniqueHandlers rejects a top-level
@@ -39,7 +39,7 @@ describe('boot-time cross-primitive collision guard', () => {
     });
     const asStream = base.stream('feed', { async *run() {} });
     const asResumable = base.resumableStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(serverDef([asStream, asResumable]))).toThrow(
+    expect(() => compileServerDefinition(serverDef([asStream, asResumable]))).toThrow(
       /Event name 'feed' is registered as both 'stream' and 'resumableStream'/,
     );
   });
@@ -50,7 +50,7 @@ describe('boot-time cross-primitive collision guard', () => {
     });
     const asResumable = base.resumableStream('feed', { async *run() {} });
     const asRecorded = base.recordedStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(serverDef([asResumable, asRecorded]))).toThrow(
+    expect(() => compileServerDefinition(serverDef([asResumable, asRecorded]))).toThrow(
       /Event name 'feed' is registered as both 'resumableStream' and 'recordedStream'/,
     );
   });
@@ -59,7 +59,7 @@ describe('boot-time cross-primitive collision guard', () => {
     const base = server({ capabilities: [recordedStream()] });
     const asIncoming = base.on('feed', { run() {} });
     const asRecorded = base.recordedStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(serverDef([asIncoming, asRecorded]))).toThrow(
+    expect(() => compileServerDefinition(serverDef([asIncoming, asRecorded]))).toThrow(
       /Event name 'feed' is registered as both 'incoming' and 'recordedStream'/,
     );
   });
@@ -71,7 +71,7 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel('rooms', {});
     const plain = rooms.stream('feed', { async *run() {} });
     const recorded = rooms.recordedStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, recorded] }))).toThrow(
       /Event name 'feed' is registered as both 'stream' and 'recordedStream' in channel 'rooms'/,
     );
   });
@@ -83,7 +83,7 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel(['rooms', 'room:{id}'], {});
     const plain = rooms.stream('feed', { async *run() {} });
     const resumable = rooms.resumableStream('feed', { async *run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [plain, resumable] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [plain, resumable] }))).toThrow(
       /Event name 'feed' is registered as both 'stream' and 'resumableStream' in channel family 'rooms'/,
     );
   });
@@ -96,7 +96,7 @@ describe('boot-time cross-primitive collision guard', () => {
     const rooms = base.channel('rooms', {});
     const recorded = rooms.recordedStream('feed', { async *run() {} });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [topFeed, recorded] })),
+      compileServerDefinition(base.assemble({ handlers: [topFeed, recorded] })),
     ).not.toThrow();
   });
 });
@@ -108,7 +108,7 @@ describe('static and family channel scope guard', () => {
     const family = base.channel(['rooms', 'alpha'], {});
 
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [staticChannel, family] })),
+      compileServerDefinition(base.assemble({ handlers: [staticChannel, family] })),
     ).toThrow(/family 'rooms'.*matches the static.*'alpha'/);
   });
 });
@@ -117,28 +117,28 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel('@chat', {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel('@chat', {})] })),
     ).toThrow(/channel name '@chat' starts with a reserved prefix character/);
   });
 
   it('rejects a channel name starting with #', () => {
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel('#chat', {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel('#chat', {})] })),
     ).toThrow(/channel name '#chat' starts with a reserved prefix character/);
   });
 
   it('rejects a channel name containing ::', () => {
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel('chat::rooms', {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel('chat::rooms', {})] })),
     ).toThrow(/channel name 'chat::rooms' contains '::'/);
   });
 
   it('rejects a channel family key starting with @', () => {
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(
+      compileServerDefinition(
         base.assemble({ handlers: [base.channel(['@rooms', 'room:{id}'], {})] }),
       ),
     ).toThrow(/channel name '@rooms' starts with a reserved prefix character/);
@@ -147,7 +147,7 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects a top-level event name containing ::', () => {
     const base = server({});
     expect(() =>
-      compileHandlerDefinition(
+      compileServerDefinition(
         base.assemble({ handlers: [base.on('send::message', { run() {} })] }),
       ),
     ).toThrow(/Event name 'send::message' in top-level contains '::'/);
@@ -177,7 +177,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
     const base = server({});
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.on(tooLong, { run() {} })] })),
+      compileServerDefinition(base.assemble({ handlers: [base.on(tooLong, { run() {} })] })),
     ).toThrow(/the wire protocol limit\s+is 128/);
   });
 
@@ -185,7 +185,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const tooLong = 'c'.repeat(WIRE_LIMITS.channel + 1);
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel(tooLong, {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel(tooLong, {})] })),
     ).toThrow(/channel name is \d+ characters; the wire protocol limit is 256/);
   });
 
@@ -193,7 +193,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const base = server({ capabilities: [channels()] });
     const chat = base.channel('chat', {});
     const send = chat.on('send::message', { run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [send] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [send] }))).toThrow(
       /Event name 'send::message' in channel 'chat' contains '::'/,
     );
   });
@@ -201,7 +201,7 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects a stream event name containing ::', () => {
     const base = server({ capabilities: [stream()] });
     expect(() =>
-      compileHandlerDefinition(
+      compileServerDefinition(
         base.assemble({ handlers: [base.stream('count::up', { async *run() {} })] }),
       ),
     ).toThrow(/Event name 'count::up' in top-level contains '::'/);
@@ -212,7 +212,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const chat = base.channel('chat@v1', {});
     const handle = base.on('user:created', { run() {} });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [chat, handle] })),
+      compileServerDefinition(base.assemble({ handlers: [chat, handle] })),
     ).not.toThrow();
   });
 
@@ -220,7 +220,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const key = 'k'.repeat(WIRE_LIMITS.channelFamily);
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
     ).not.toThrow();
   });
 
@@ -228,7 +228,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const key = 'k'.repeat(WIRE_LIMITS.channelFamily + 1);
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
     ).toThrow(/channel name is \d+ characters; the wire protocol limit is 128/);
   });
 
@@ -236,7 +236,7 @@ describe('scope and event name syntax — reserved characters', () => {
     const name = 'c'.repeat(WIRE_LIMITS.channel);
     const base = server({ capabilities: [channels()] });
     expect(() =>
-      compileHandlerDefinition(base.assemble({ handlers: [base.channel(name, {})] })),
+      compileServerDefinition(base.assemble({ handlers: [base.channel(name, {})] })),
     ).not.toThrow();
   });
 
@@ -247,7 +247,7 @@ describe('scope and event name syntax — reserved characters', () => {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
     });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
       /the wire protocol limit\s+is 128/,
     );
   });
@@ -259,7 +259,7 @@ describe('scope and event name syntax — reserved characters', () => {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
     });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
       /the wire protocol limit\s+is 128/,
     );
   });
@@ -272,7 +272,7 @@ describe('scope and event name syntax — reserved characters', () => {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
     });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [handle] }))).toThrow(
       /the wire protocol limit\s+is 128/,
     );
   });
@@ -290,7 +290,7 @@ describe('boot-time same-kind duplicate guard', () => {
     const base = server({});
     const first = base.on('same', { run() {} });
     const second = base.on('same', { run() {} });
-    expect(() => compileHandlerDefinition(serverDef([first, second]))).toThrow(
+    expect(() => compileServerDefinition(serverDef([first, second]))).toThrow(
       /Duplicate incoming declaration for "same"/,
     );
   });
@@ -302,7 +302,7 @@ describe('boot-time same-kind duplicate guard', () => {
     const roomB = base.channel('room', {});
     roomB.on('msg2', { run() {} });
 
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [roomA, roomB] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [roomA, roomB] }))).toThrow(
       /Duplicate channel declaration for "room"/,
     );
   });
@@ -312,7 +312,7 @@ describe('boot-time same-kind duplicate guard', () => {
     const room = base.channel('room', {});
     const first = room.on('msg', { run() {} });
     const second = room.on('msg', { run() {} });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [first, second] }))).toThrow(
+    expect(() => compileServerDefinition(base.assemble({ handlers: [first, second] }))).toThrow(
       /Duplicate incoming in channel "room" declaration for "msg"/,
     );
   });

@@ -7,9 +7,9 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  * point of view.
  *
  * Each field is a record mapping event names to payload types (or richer
- * shapes for requests and streams). `InferClient<typeof myHandler>` reads this
+ * shapes for requests and streams). `InferClient<typeof myDefinition>` reads this
  * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
- * etc.) also consume it so the handler and its adapter agree on one contract.
+ * etc.) also consume it so the server definition and its adapter agree on one contract.
  *
  * **The naming is client-oriented, which flips against how you author the server.**
  * The table below is the one thing most readers get wrong:
@@ -109,7 +109,7 @@ export interface ServerContract {
  * @template TPrimitives - The frozen tuple of all assembled primitives.
  * @template TContract - The client contract carried along with the built server.
  * @template TScopedCtx - The `ctx` type a scoped server definition's own handlers receive.
- * @template TApi - The return type of the handler's `api` factory (the per-connection
+ * @template TApi - The return type of the server definition's `api` factory (the per-connection
  *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
  */
 export interface ServerDefinition<
@@ -133,7 +133,7 @@ export interface ServerDefinition<
   /**
    * Type-only field — never set at runtime.
    *
-   * A handler assembled with an `api` factory brands its definition with that
+   * A server definition assembled with an `api` factory brands itself with that
    * factory's return type. `plugin(...)` reads this to type `ctx.plugin(id)`.
    * Absent (`unknown`) when no `api` was given.
    */
@@ -158,9 +158,9 @@ export interface ServerDefinition<
 }
 
 /**
- * The `api` type a handler was assembled with, or `unknown` when it had none.
+ * The `api` type a server definition was assembled with, or `unknown` when it had none.
  *
- * Adapters read this off the handler they are given so the service they return
+ * Adapters read this off the server definition they are given so the service they return
  * carries the app's own admin methods — `bind(definition)` on Cloudflare uses it
  * to type what `stub.admin()` resolves to.
  */
@@ -168,12 +168,12 @@ export type ApiOf<TDefinition> =
   TDefinition extends ServerDefinition<any, any, any, infer TApi> ? TApi : unknown;
 
 /**
- * The per-connection metadata type a handler's `upgrade(...)` returns, read off
+ * The per-connection metadata type a server definition's `upgrade(...)` returns, read off
  * the ctx the definition is branded with.
  *
  * Adapters that carry connection snapshots across a serializing boundary need
  * the concrete type: a `Record<string, unknown>` fallback is not something
- * Cloudflare's RPC types accept as sendable. A handler with no `upgrade` hook
+ * Cloudflare's RPC types accept as sendable. A server definition with no `upgrade` hook
  * has no metadata type to read, so it lands on the empty fallback rather than
  * `unknown` — which would fail the same sendability check.
  */

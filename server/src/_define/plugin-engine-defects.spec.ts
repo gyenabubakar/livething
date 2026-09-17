@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitError } from '@wskit/core';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
 import { normalizeRuntimeError } from '~/errors/runtime.ts';
@@ -47,7 +47,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
     const base = server({
       capabilities: [plugin('e2e:drizzle', { definition: h.assemble({ handlers: [beat] }) })()],
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
 
     const sent: string[] = [];
     const connection = {
@@ -70,7 +70,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
 
   it('still rejects a genuinely undeclared __x__ event', () => {
     const base = server({});
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [] }));
     const connection = { id: 'c', meta: {}, descriptor: { send() {} } } as any;
 
     expect(() =>

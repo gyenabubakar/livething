@@ -2,7 +2,7 @@ import { buffering, client, clientRequests, connect, reconnection } from '@wskit
 import type { PersistenceClient } from '@wskit/tests-e2e-handlers/persistence';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client against the real `persistence` handler to prove the
+// Drives @wskit/client against the real `persistence` server definition to prove the
 // buffered-op ownership rule: a request that is buffered while the socket is
 // reconnecting and then TIMES OUT is not sent when the socket reopens — the
 // server never runs an operation the caller was already told failed. `record-exec`

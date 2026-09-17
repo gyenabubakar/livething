@@ -169,7 +169,7 @@ function visitCompiledPrimitives(
  * Convert the public server definition into the compact structure the engine
  * actually executes.
  */
-export function compileHandlerDefinition(
+export function compileServerDefinition(
   definition: ServerTypes.ServerDefinition,
 ): EngineCompileTypes.CompiledServer {
   const compiled: EngineCompileTypes.CompiledServer = {

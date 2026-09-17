@@ -1,6 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { scheduled } from './capability.ts';
 import type { ScheduledPrimitive } from './scheduled.ts';
@@ -21,7 +21,7 @@ describe('scheduled() capability', () => {
     const base = server({ capabilities: [scheduled({ cleanup: null })] });
     base.scheduled('cleanup', { run() {} });
     const definition = base.assemble({ handlers: [] });
-    const compiled = compileHandlerDefinition(definition);
+    const compiled = compileServerDefinition(definition);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
 
     expect(scheduledPrimitive(definition.primitives).hasData).toBe(false);

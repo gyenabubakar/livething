@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { recordedStream } from './capability.ts';
@@ -15,7 +15,7 @@ describe('recordedStream() capability', () => {
         yield { token: 'a' };
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handle] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handle] }));
     expect(compiled.recordedStreams.has('tokens')).toBe(true);
   });
 

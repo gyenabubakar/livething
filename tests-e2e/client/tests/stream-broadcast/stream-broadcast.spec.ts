@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: @wskit/client's stream() / onStream() against the real wskit
-// `stream-broadcast` handler. Adapter-oblivious — it talks to whatever server
+// `stream-broadcast` server definition. Adapter-oblivious — it talks to whatever server
 // the run booted over the /ws proxy. Broadcast fan-out needs a second client,
 // so each test opens a peer in its own browser context on the same room.
 async function open(page: Page, room: string, username: string): Promise<void> {

@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './capability.ts';
@@ -17,7 +17,7 @@ describe('resumableStream() capability', () => {
         yield ctx.stream.withCursor({ row: start + 1 }, { row: start + 1 });
       },
     });
-    const compiled = compileHandlerDefinition(base.assemble({ handlers: [handle] }));
+    const compiled = compileServerDefinition(base.assemble({ handlers: [handle] }));
     expect(compiled.resumableStreams.has('paginate')).toBe(true);
   });
 

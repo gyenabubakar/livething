@@ -29,7 +29,7 @@ type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
  * state lives on {@link EngineCore} and behaviour in `_engine/runtime/*` and
  * `_engine/registry/*`.
  *
- * @template TApi The `api` factory's return type, carried from the handler so
+ * @template TApi The `api` factory's return type, carried from the server definition so
  *   {@link Engine.admin} stays typed all the way out to the adapter.
  */
 export class Engine<TApi = unknown> {
@@ -87,7 +87,7 @@ export class Engine<TApi = unknown> {
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
       throw new Error(
-        '[wskit] hibernation is not enabled for this handler. Set `hibernation: true` on the contract.',
+        '[wskit] hibernation is not enabled for this server definition. Set `hibernation: { enabled: true }` in server().',
       );
     }
 

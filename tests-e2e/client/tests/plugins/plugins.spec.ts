@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// Conformance: @wskit/client against the real `plugins` handler. Proves the
+// Conformance: @wskit/client against the real `plugins` server definition. Proves the
 // plugin model reaches the typed client, the plugin's own emit arrives under the
 // `__<id>::` wire prefix, and a plugin-backed stream flows. Adapter-oblivious —
 // it talks to whatever server the run booted over the /ws proxy.

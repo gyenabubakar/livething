@@ -63,7 +63,7 @@ function createConnection(): RuntimeConnection {
 }
 
 /** A handler with nothing listed — the smallest context the engine ever builds. */
-function bareHandler(): AnyServerDefinition {
+function bareDefinition(): AnyServerDefinition {
   const base = server({});
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
@@ -75,7 +75,7 @@ function bareHandler(): AnyServerDefinition {
  * accessor the engine can attach (`connectionCount`, `bufferedAmount`,
  * `channels`, `tags`). This is the shape a real app builds on every frame.
  */
-function fullHandler(): AnyServerDefinition {
+function fullDefinition(): AnyServerDefinition {
   const base = server({
     capabilities: [channels(), tags((ephemeral) => [ephemeral('team', t<string>())])],
   });
@@ -88,8 +88,8 @@ function fullHandler(): AnyServerDefinition {
   }) as AnyServerDefinition;
 }
 
-const bareCore = (await makeEngine(bareHandler())).core;
-const fullCore = (await makeEngine(fullHandler())).core;
+const bareCore = (await makeEngine(bareDefinition())).core;
+const fullCore = (await makeEngine(fullDefinition())).core;
 
 const buildBare = dispatchRuntime(bareCore).buildConnectionContext;
 const buildFull = dispatchRuntime(fullCore).buildConnectionContext;

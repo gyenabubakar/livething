@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
 
 // Conformance: @wskit/client's channels() against the real wskit
-// `channel-static` handler. Adapter-oblivious — it talks to whatever server the
+// `channel-static` server definition. Adapter-oblivious — it talks to whatever server the
 // run booted over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(`/tests/channel-static/index.html?room=${room}&username=${username}`);

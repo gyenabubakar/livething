@@ -1,6 +1,6 @@
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { tags } from './capability.ts';
@@ -40,7 +40,7 @@ describe('tags() capability', () => {
     const base = server({
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
-    expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
+    expect(() => compileServerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
   });
 
   it('emits no ephemeral primitive when only persistent groups are declared', () => {

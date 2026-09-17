@@ -1,7 +1,7 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import { t } from '~/_api/definitions.ts';
 import { server } from '~/_define/server.ts';
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { compileServerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { clientRequests } from './client-requests.ts';
@@ -20,7 +20,7 @@ describe('clientRequests() capability', () => {
     const base = server({ capabilities: [clientRequests()] });
     const handler = base.request('save', { run: () => ({ ok: true }) });
     expect(
-      compileHandlerDefinition(base.assemble({ handlers: [handler] })).requests.has('save'),
+      compileServerDefinition(base.assemble({ handlers: [handler] })).requests.has('save'),
     ).toBe(true);
   });
 
@@ -33,7 +33,7 @@ describe('clientRequests() capability', () => {
       },
     });
     const definition = base.assemble({ handlers: [handleGetTime] });
-    const compiled = compileHandlerDefinition(definition);
+    const compiled = compileServerDefinition(definition);
     expect(compiled.requests.has('get-time')).toBe(true);
 
     const respond = vi.fn();

@@ -3,7 +3,7 @@ import { Block } from '@wskit/client/errors';
 import type { InterceptClient } from '@wskit/tests-e2e-handlers/intercept';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's intercept() against the real `intercept` handler, typed
+// Drives @wskit/client's intercept() against the real `intercept` server definition, typed
 // by the same contract the server implements (InterceptClient =
 // InferClient<definition>). The client sends `echo` and the server replies with
 // `echoed` carrying { text: `top:<sent>` } — that reply is the INCOMING frame

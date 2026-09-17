@@ -24,7 +24,7 @@ const taskDataSchema = v.object({ value: v.string() });
 const REWRITE_PROBE = 'plugin-rewrite-probe';
 
 // A drizzle handle is bound to one Durable Object's storage and cannot be used
-// from another DO's execution context. The plugin handler is module-scoped, so
+// from another DO's execution context. The plugin server definition is module-scoped, so
 // keep one handle per DO keyed by its storage object (stable per instance) and
 // build it lazily.
 const dbByStorage = new WeakMap<DurableObjectStorage, DrizzleSqliteDODatabase<typeof schema>>();

@@ -27,7 +27,7 @@ vi.mock('@wskit/server/adapters', async (importOriginal) => ({
   ...(await importOriginal<typeof ServerAdapters>()),
   adapter: (adapterConfig: AdapterConfig) => {
     config = adapterConfig;
-    return (_handler: unknown, options: unknown) =>
+    return (_definition: unknown, options: unknown) =>
       adapterConfig.setup((runtimeOptions) => {
         createOptions.push(runtimeOptions);
         return fake;
@@ -38,8 +38,8 @@ vi.mock('@wskit/server/adapters', async (importOriginal) => ({
 const { createNodeEndpoint } = await import('./endpoint.ts');
 const { binding } = await import('./binding.ts');
 
-function createTestEndpoint(handler: never, options: NodeEndpointOptions) {
-  return createNodeEndpoint(handler, options);
+function createTestEndpoint(definition: never, options: NodeEndpointOptions) {
+  return createNodeEndpoint(definition, options);
 }
 
 function incomingRequest(): IncomingMessage {

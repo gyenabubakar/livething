@@ -3,7 +3,7 @@ import { WebEnvironment } from '@wskit/client/environment';
 import type { ChannelStaticClient } from '@wskit/tests-e2e-handlers/channel-static';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
-// Drives @wskit/client's channels() against the real `channel-static` handler,
+// Drives @wskit/client's channels() against the real `channel-static` server definition,
 // typed by the same contract the server implements
 // (ChannelStaticClient = InferClient<definition>).
 export function setup(): void {
