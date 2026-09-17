@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { replayCustomHandler } from '@wskit/tests-e2e-handlers/replay-custom';
 
-export class ReplayCustomServer extends server(replayCustomHandler) {}
+export class ReplayCustomServer extends bind(replayCustomHandler) {}

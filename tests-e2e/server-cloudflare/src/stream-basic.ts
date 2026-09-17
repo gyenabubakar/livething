@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { streamBasicHandler } from '@wskit/tests-e2e-handlers/stream-basic';
 
-export class StreamBasicServer extends server(streamBasicHandler) {}
+export class StreamBasicServer extends bind(streamBasicHandler) {}

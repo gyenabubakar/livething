@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { interceptHandler } from '@wskit/tests-e2e-handlers/intercept';
 
-export class InterceptServer extends server(interceptHandler) {}
+export class InterceptServer extends bind(interceptHandler) {}

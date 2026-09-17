@@ -100,7 +100,7 @@ export interface ServerContract {
  *
  * ```typescript
  * // Cloudflare
- * export const ChatRoom = server(chat)
+ * export class ChatRoom extends bind(chat) {}
  *
  * // Bun
  * server(chat, { port: 3000 })
@@ -161,7 +161,7 @@ export interface ServerDefinition<
  * The `api` type a handler was assembled with, or `unknown` when it had none.
  *
  * Adapters read this off the handler they are given so the service they return
- * carries the app's own admin methods — `server(handler)` on Cloudflare uses it
+ * carries the app's own admin methods — `bind(handler)` on Cloudflare uses it
  * to type what `stub.admin()` resolves to.
  */
 export type ApiOf<TDefinition> =

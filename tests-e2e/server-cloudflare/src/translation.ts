@@ -1,5 +1,5 @@
 import { define, emits, t, translator } from '@wskit/server';
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import {
   translationHandler,
@@ -59,10 +59,10 @@ const translationHibernationHandler = hibernationBase.assemble({
   handlers: [hibernationEcho],
 });
 
-export class TranslationServer extends server(translationHandler) {}
+export class TranslationServer extends bind(translationHandler) {}
 
-export class TranslationPassThroughServer extends server(translationPassThroughHandler) {}
+export class TranslationPassThroughServer extends bind(translationPassThroughHandler) {}
 
-export class TranslationInboundOnlyServer extends server(translationInboundOnlyHandler) {}
+export class TranslationInboundOnlyServer extends bind(translationInboundOnlyHandler) {}
 
-export class TranslationHibernationServer extends server(translationHibernationHandler) {}
+export class TranslationHibernationServer extends bind(translationHibernationHandler) {}

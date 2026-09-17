@@ -186,7 +186,7 @@ export interface AdapterConfig<TOptions, TService> {
    * `TApi` is the handler's `api` type, so `engine.admin()` is already typed
    * here. TypeScript cannot make `TService` itself depend on `TApi`, so an
    * adapter whose service should carry the app's admin methods exports a thin
-   * generic `server(handler)` of its own on top of this.
+   * generic `bind(handler)` of its own on top of this.
    */
   setup<TApi>(
     createEngine: (runtimeOptions: EngineRuntimeOptions) => Engine<TApi>,

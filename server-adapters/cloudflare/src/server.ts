@@ -17,7 +17,7 @@ import { createStorage, createTimers } from './providers/index.ts';
 import type { WSKitAdmin } from './admin.ts';
 
 /**
- * The instance shape of a `server()`-produced Durable Object.
+ * The instance shape of a `bind()`-produced Durable Object.
  *
  * In addition to the standard Durable Object lifecycle methods, the instance
  * exposes two RPC methods. `stub.shutdown()` triggers every `onShutdown` hook
@@ -42,7 +42,7 @@ export interface WSKitDurableObjectInstance<
 }
 
 /**
- * The Durable Object class type that `server()` returns. Use this as the type
+ * The Durable Object class type that `bind()` returns. Use this as the type
  * for your exported Durable Object class.
  *
  * @template TApi  The handler's `api` type, so `stub.admin()` resolves to the
@@ -60,7 +60,7 @@ function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildServe = adapter<
+const buildBind = adapter<
   undefined,
   CloudflareDurableObjectClass<unknown, unknown, Record<string, unknown>>
 >({
@@ -328,7 +328,7 @@ const buildServe = adapter<
        * like `purgeUser` or `broadcast` reaches every connection, not just
        * the ones already live on this instance.
        */
-      // The engine erases the app's meta type at runtime; `server()` casts the
+      // The engine erases the app's meta type at runtime; `bind()` casts the
       // finished class back to the handler's own `TMeta`.
       async admin(): Promise<WSKitAdmin<Record<string, unknown>> & TApi> {
         await this.ready;
@@ -371,10 +371,10 @@ function requestWithClientIp(request: Request): Request {
  * Object id:
  *
  * ```ts
- * export class Room extends server(handler) {}
+ * export class Room extends bind(handler) {}
  * ```
  *
- * Use a class declaration rather than `export const Room = server(handler)`.
+ * Use a class declaration rather than `export const Room = bind(handler)`.
  * `wrangler types` writes `DurableObjectNamespace<import("./worker").Room>`,
  * which needs a **type** of that name; a `const` exports only a value, so the
  * binding falls back to `any` and every `stub.…()` call goes unchecked.
@@ -389,10 +389,10 @@ function requestWithClientIp(request: Request): Request {
  * @example
  * ```ts
  * // src/worker.ts
- * import { server } from '@wskit/server-cloudflare';
+ * import { bind } from '@wskit/server-cloudflare';
  * import { handler } from './handler';
  *
- * export class GameRoom extends server(handler) {}
+ * export class GameRoom extends bind(handler) {}
  *
  * export default {
  *   async fetch(request, env) {
@@ -402,10 +402,10 @@ function requestWithClientIp(request: Request): Request {
  * };
  * ```
  */
-export function server<THandler extends ServerDefinition>(
+export function bind<THandler extends ServerDefinition>(
   handler: THandler,
 ): CloudflareDurableObjectClass<unknown, ApiOf<THandler>, MetaOf<THandler>> {
-  return buildServe(handler, undefined) as unknown as CloudflareDurableObjectClass<
+  return buildBind(handler, undefined) as unknown as CloudflareDurableObjectClass<
     unknown,
     ApiOf<THandler>,
     MetaOf<THandler>

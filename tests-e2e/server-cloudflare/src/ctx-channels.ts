@@ -1,4 +1,4 @@
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { ctxChannelsHandler } from '@wskit/tests-e2e-handlers/ctx-channels';
 
-export class CtxChannelsServer extends server(ctxChannelsHandler) {}
+export class CtxChannelsServer extends bind(ctxChannelsHandler) {}

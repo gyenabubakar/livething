@@ -38,7 +38,7 @@ vi.mock('@wskit/server/adapters', async (importOriginal) => ({
 }));
 
 // Import AFTER mocks are in place.
-const { server } = await import('./server.ts');
+const { bind } = await import('./server.ts');
 
 type DOInstance = {
   fetch(req: Request): Promise<Response>;
@@ -57,10 +57,7 @@ function buildClass(opts?: { hibernation?: boolean; translation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
   if (opts?.translation) fake.setTranslation(true);
-  return server({} as never) as unknown as new (
-    ctx: DurableObjectState,
-    env: unknown,
-  ) => DOInstance;
+  return bind({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
 }
 
 function upgradeRequest() {
@@ -704,7 +701,7 @@ describe('WSKitDurableObject admin()', () => {
     fake.adminApi.evict = evict; // a dev-defined api method
     fake.setHibernation(false);
     // Rebuild against this staged engine.
-    const Cls = server({} as never) as unknown as new (
+    const Cls = bind({} as never) as unknown as new (
       ctx: DurableObjectState,
       env: unknown,
     ) => DOInstance;
@@ -719,7 +716,7 @@ describe('WSKitDurableObject admin()', () => {
     fake = makeFakeEngine();
     fake.adminApi.broadcast = rogue; // tries to replace the built-in broadcast
     fake.setHibernation(false);
-    const Cls = server({} as never) as unknown as new (
+    const Cls = bind({} as never) as unknown as new (
       ctx: DurableObjectState,
       env: unknown,
     ) => DOInstance;

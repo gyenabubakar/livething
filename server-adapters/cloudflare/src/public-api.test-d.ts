@@ -11,7 +11,7 @@
 import * as Adapter from './index.ts';
 import type { Platform } from './index.ts';
 
-void Adapter.server;
+void Adapter.bind;
 
 declare const _platform: Platform;
 void _platform;

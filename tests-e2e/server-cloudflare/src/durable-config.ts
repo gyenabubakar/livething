@@ -1,7 +1,7 @@
-import { server } from '@wskit/server-cloudflare';
+import { bind } from '@wskit/server-cloudflare';
 import { durableConfigHandler } from '@wskit/tests-e2e-handlers/durable-config';
 
-const Base = server(durableConfigHandler);
+const Base = bind(durableConfigHandler);
 
 // Adds the test-harness restart() (ctx.abort discards in-memory state while
 // durable storage survives) so persistent-sequence resume is observable.
