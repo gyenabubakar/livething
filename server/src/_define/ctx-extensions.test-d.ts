@@ -9,8 +9,8 @@
  * compile error otherwise (gap 9).
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
@@ -24,7 +24,7 @@ import { expectTypeOf } from 'vitest';
 // ---------------------------------------------------------------------------
 // Gap 5 — gated broadcast in `init` / `shutdown`.
 // ---------------------------------------------------------------------------
-const lifecycleBase = define({
+const lifecycleBase = server({
   upgrade: () => ({ userId: 'u', meta: { who: 'x' } }),
   capabilities: [emits({ bye: t<{ reason: string }>() })],
 });
@@ -45,17 +45,17 @@ lifecycleBase.onShutdown((ctx) => {
 // ---------------------------------------------------------------------------
 // Gap 7 — `frame.owner.id` typed to the union of registered plugin ids.
 // ---------------------------------------------------------------------------
-const scopedA = define({ scope: 'plugin', capabilities: [emits({ a: t<{}>() })] });
+const scopedA = server({ scope: 'plugin', capabilities: [emits({ a: t<{}>() })] });
 const PluginA = plugin('acme:a', {
-  handler: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
+  definition: scopedA.assemble({ handlers: [scopedA.on('a-in', { run() {} })] }),
 });
 
-const scopedC = define({ scope: 'plugin', capabilities: [emits({ c: t<{}>() })] });
+const scopedC = server({ scope: 'plugin', capabilities: [emits({ c: t<{}>() })] });
 const PluginC = plugin('acme:c', {
-  handler: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
+  definition: scopedC.assemble({ handlers: [scopedC.on('c-in', { run() {} })] }),
 });
 
-const ownerBase = define({ capabilities: [PluginA(), PluginC(), intercepts()] });
+const ownerBase = server({ capabilities: [PluginA(), PluginC(), intercepts()] });
 
 ownerBase.intercept((ctx, frame) => {
   void ctx;
@@ -81,7 +81,7 @@ ownerBase.onOutgoing((ctx, frame) => {
 // ---------------------------------------------------------------------------
 
 // A bare server: none of the capability arms exist.
-const bareBase = define({ capabilities: [emits({ e: t<{}>() })] });
+const bareBase = server({ capabilities: [emits({ e: t<{}>() })] });
 bareBase.on('bare', {
   run(ctx) {
     // @ts-expect-error — `request` needs serverRequests()
@@ -104,7 +104,7 @@ bareBase.on('bare', {
 });
 
 // A server that lists every gating capability: each arm is present.
-const fullBase = define({
+const fullBase = server({
   capabilities: [
     emits({ e: t<{}>() }),
     serverRequests({

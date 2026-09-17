@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { typedTagsHandler } from '@wskit/tests-e2e-handlers/typed-tags';
+import { typedTagsDefinition } from '@wskit/tests-e2e-handlers/typed-tags';
 
-export class TypedTagsServer extends bind(typedTagsHandler) {}
+export class TypedTagsServer extends bind(typedTagsDefinition) {}

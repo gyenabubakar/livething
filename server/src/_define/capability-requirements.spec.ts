@@ -33,7 +33,7 @@ describe('resolveCapabilityRequirements', () => {
   it('throws on an app missing a required capability, naming the capability and the primitive that needs it', () => {
     const primitives = [makePrimitive('inbox', ['sequence', 'dedup'])];
     expect(() => resolveCapabilityRequirements(primitives, [], { scoped: false })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
+      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -68,7 +68,7 @@ describe('resolveCapabilityRequirements', () => {
     const nestedInbox = makePrimitive('inbox', ['sequence']);
     const channel = makePrimitive('channel', [], { primitives: [nestedInbox] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
+      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -101,7 +101,7 @@ describe('resolveCapabilityRequirements', () => {
     );
   });
 
-  it('names only the channel-local fix for a channel-only capability — never define({ capabilities })', () => {
+  it('names only the channel-local fix for a channel-only capability — never server({ capabilities })', () => {
     const nestedReadReceipts = makePrimitive('read-receipts', ['inbox']);
     const channel = makePrimitive('channel', [], { primitives: [nestedReadReceipts] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
@@ -113,7 +113,7 @@ describe('resolveCapabilityRequirements', () => {
     const nestedInbox = makePrimitive('inbox', ['dedup']);
     const channel = makePrimitive('channel', [], { primitives: [nestedInbox] });
     expect(() => resolveCapabilityRequirements([channel], [], { scoped: false })).toThrow(
-      '[wskit] The dedup() capability is required by inbox but is not listed. Add dedup() to define({ capabilities: [...] }).',
+      '[wskit] The dedup() capability is required by inbox but is not listed. Add dedup() to server({ capabilities: [...] }).',
     );
   });
 

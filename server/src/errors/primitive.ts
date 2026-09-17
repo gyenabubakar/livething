@@ -33,13 +33,13 @@ const ERRORS_KEY = Symbol('errors');
  *
  * @example
  * ```ts
- * import { define, errors, t } from '@wskit/server';
+ * import { server, errors, t } from '@wskit/server';
  * import { error } from '@wskit/server/errors';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [errors([NotFound])],
  * });
  *

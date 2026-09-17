@@ -11,10 +11,10 @@ import type { KeepaliveOptions } from '~/keepalive/keepalive.ts';
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { keepalive } from '@wskit/server/keepalive';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
  * });
  * ```

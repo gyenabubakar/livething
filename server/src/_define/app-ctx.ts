@@ -441,7 +441,7 @@ export interface TagsCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> 
 /**
  * A `ctx.channels.get(...)` handle, plus the broadcast arm when `serverRequests()` is
  * listed. The arm resolves TOP-LEVEL broadcast requests (addressed to the named
- * channel's members): a top-level handler is typed from define-time slots and so
+ * channel's members): a top-level handler is typed from server-time slots and so
  * cannot see a channel's own request types — those exist only on the active
  * `ctx.channel` handle inside that channel's handler.
  */
@@ -530,7 +530,7 @@ type HasKeys<T> = [keyof T] extends [never] ? false : true;
  * slot. When a capability is absent, its ctx field does not exist on the type,
  * so reading it is a compile error (not a present-but-null field).
  *
- * @template TCaps The capabilities listed in `define({ capabilities: [...] })`.
+ * @template TCaps The capabilities listed in `server({ capabilities: [...] })`.
  */
 export type CtxExtensionsOf<
   TSlots,

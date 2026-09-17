@@ -1,6 +1,6 @@
 import { connect as connectTcp } from 'node:net';
 import { client, connect } from '@wskit/client';
-import { define, emits, t } from '@wskit/server';
+import { server as createServerDefinition, emits, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { serve } from 'crossws/server/node';
 import { H3 } from 'h3/node';
@@ -13,7 +13,7 @@ import type { NodeEndpointOptions } from '../../binding.ts';
 let lastClientIp: string | null = null;
 let disconnects = 0;
 
-const handler = define({
+const handler = createServerDefinition({
   upgrade(request) {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
@@ -281,7 +281,7 @@ describe('H3 binding', () => {
       release = resolve;
     });
 
-    const slowHandler = define({
+    const slowDefinition = createServerDefinition({
       async upgrade(request) {
         started();
         request.signal.addEventListener('abort', () => {
@@ -291,7 +291,7 @@ describe('H3 binding', () => {
         return { userId: 'slow' };
       },
     }).assemble({ handlers: [] });
-    const app = await createApp({}, slowHandler);
+    const app = await createApp({}, slowDefinition);
 
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/slow`);

@@ -7,7 +7,7 @@
  * verb — the verb decides fan-out vs targeted, not the declaration.
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { serverRequests } from '~/request/server-requests.ts';
@@ -15,7 +15,7 @@ import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
 import type { ConnectionRef } from '~/context.ts';
 
-const base = define({
+const base = server({
   capabilities: [serverRequests(), channels()],
 });
 
@@ -104,7 +104,7 @@ room.on('ping', {
  * compile-time error (excess property), matching the gating on the
  * `ctx.channel.request` / `broadcastRequest` verbs — not just a runtime throw.
  */
-const noRequests = define({
+const noRequests = server({
   capabilities: [channels()],
 });
 

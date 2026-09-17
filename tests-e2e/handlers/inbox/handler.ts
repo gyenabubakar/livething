@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -17,7 +17,7 @@ import type { RoomMsg } from './events.ts';
 // next reconnect (after the auto-rejoin), and its `__received__` ack settles them
 // so a later reconnect does not re-deliver. `onDelivered: 'delete'` (the
 // default) drops each row once acked.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
@@ -47,8 +47,8 @@ export const handleSendRoomMsg = chat.on('send-room-msg', {
 
 // `chat` carries the `inbox: true` client-contract flag, so it is passed to
 // `assemble` for `InferClient` to expose the inbox surface (receivers/receiversOf).
-export const inboxHandler = base.assemble({
+export const inboxDefinition = base.assemble({
   handlers: [handleServerDrop, handleSendRoomMsg, chat],
 });
 
-export type InboxClient = InferClient<typeof inboxHandler>;
+export type InboxClient = InferClient<typeof inboxDefinition>;

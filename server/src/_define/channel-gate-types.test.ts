@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { replay } from '~/replay/capability.ts';
@@ -9,7 +9,7 @@ import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 
-const base = define({ capabilities: [channels()] });
+const base = server({ capabilities: [channels()] });
 
 describe('channel check -> commit inference', () => {
   it('threads the check return type into commit (not any)', () => {
@@ -84,7 +84,7 @@ describe('channel handler ctx typing', () => {
 
 describe('channel gate surface typing', () => {
   it('omits channel-only handles from gate contexts but keeps channel membership reads', () => {
-    const gateBase = define({ capabilities: [channels()] });
+    const gateBase = server({ capabilities: [channels()] });
     gateBase.channel('gated', {
       check(ctx) {
         expectTypeOf(ctx.channel.members).toBeFunction();
@@ -98,7 +98,7 @@ describe('channel gate surface typing', () => {
   });
 
   it('omits channel-owned request methods from check, commit, and revalidate', () => {
-    const requestGateBase = define({
+    const requestGateBase = server({
       capabilities: [
         channels(),
         serverRequests({
@@ -174,7 +174,7 @@ describe('channel gate surface typing', () => {
   });
 
   it('keeps replay channel-scoped instead of exposing the root replay method', () => {
-    const replayBase = define({
+    const replayBase = server({
       capabilities: [channels(), replay.history()],
     });
     replayBase.channel('replay-gated', {

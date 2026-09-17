@@ -71,7 +71,7 @@ const pills = [
             <span class="font-mono text-xs text-toned">chat.server.ts</span>
           </div>
           <div class="p-6 font-mono text-xs sm:text-sm leading-loose overflow-x-auto">
-            <pre><code><span class="text-violet-400">const</span> base = <span class="text-amber-400">define</span>({
+            <pre><code><span class="text-violet-400">const</span> base = <span class="text-amber-400">server</span>({
   <span class="text-sky-400">env</span>: <span class="text-amber-400">t</span>&lt;<span class="text-sky-400">Env</span>&gt;(),
   <span class="text-sky-400">capabilities</span>: [
     <span class="text-amber-400">emits</span>({ <span class="text-sky-400">message</span>: <span class="text-amber-400">t</span>&lt;{ text: <span class="text-sky-400">string</span>; from: <span class="text-sky-400">string</span> }&gt;() }),
@@ -83,10 +83,10 @@ const pills = [
   <span class="text-sky-400">run</span>: (ctx, msg) => ctx.<span class="text-amber-400">broadcast</span>(<span class="text-emerald-400">'message'</span>, msg),
 })
 
-<span class="text-violet-400">export const</span> handler = base.<span class="text-amber-400">assemble</span>({ <span class="text-sky-400">handlers</span>: [handleSend] })
+<span class="text-violet-400">export const</span> definition = base.<span class="text-amber-400">assemble</span>({ <span class="text-sky-400">handlers</span>: [handleSend] })
 
 <span class="block -mx-6 border-l-2 border-emerald-500/70 bg-emerald-500/10 pl-[calc(1.5rem-2px)] pr-6"><span class="text-dimmed">// the whole client API — one line, no codegen</span>
-<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> handler&gt;</span></code></pre>
+<span class="text-violet-400">export type</span> <span class="text-sky-400">ChatSocket</span> = <span class="text-amber-400">InferClient</span>&lt;<span class="text-violet-400">typeof</span> definition&gt;</span></code></pre>
           </div>
         </div>
       </Motion>

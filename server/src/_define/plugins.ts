@@ -24,7 +24,7 @@ type HostCapabilityFactory = ((...args: any[]) => AnyCapability & {
 /** A plugin id must be lowercase `author:name`. */
 const PLUGIN_ID = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
-/** The primitive kinds a plugin's scoped handler may contribute. */
+/** The primitive kinds a plugin's scoped server definition may contribute. */
 const ALLOWED_PLUGIN_KINDS = new Set([
   'incoming',
   'request',
@@ -87,7 +87,7 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
       if (!factory) {
         throw new Error(
           `[wskit] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
-            'List the plugin in define({ capabilities: [...] }).',
+            'List the plugin in server({ capabilities: [...] }).',
         );
       }
 
@@ -119,12 +119,12 @@ function pluginSurfacePrimitive(): Primitive {
 }
 
 /**
- * The scoped-handler shape a plugin manifest accepts, carrying its own contract,
+ * The scoped server-definition shape a plugin manifest accepts, carrying its own contract,
  * ctx, and — when the scoped `assemble({ handlers, api })` declared one — its api
- * factory. `plugin(id, { handler })` reads the api off the handler, so the api is
+ * factory. `plugin(id, { definition })` reads the api off the definition, so the api is
  * authored in one place next to the handlers it wraps.
  */
-type ScopedHandler<
+type ScopedServerDefinition<
   TContract extends ServerContract,
   TScopedCtx = unknown,
   TApi = unknown,
@@ -139,11 +139,11 @@ export interface PluginManifest<
   TScopedCtx = unknown,
 > {
   /**
-   * The plugin's behavior — a scoped handler from
-   * `define({ scope: 'plugin' }).assemble({ handlers, api })`. Any `api` the host
+   * The plugin's behavior — a scoped server definition from
+   * `server({ scope: 'plugin' }).assemble({ handlers, api })`. Any `api` the host
    * reaches via `ctx.plugin(id)` is authored on that `assemble`, not here.
    */
-  readonly handler: ScopedHandler<TContract, TScopedCtx, TApi>;
+  readonly definition: ScopedServerDefinition<TContract, TScopedCtx, TApi>;
   /**
    * Host capability factories the host must list (e.g. `requests`, `rateLimit`).
    * A missing prerequisite is a build error. Only host capability factories are
@@ -200,7 +200,7 @@ export interface PluginCapability<
  *
  * ```ts
  * // server plugin
- * export const Presence = plugin('acme:presence', { handler, api });
+ * export const Presence = plugin('acme:presence', { definition, api });
  * export type PresenceWire = InferPluginClient<typeof Presence>;
  *
  * // client plugin
@@ -250,21 +250,21 @@ function assertSupported(id: string, primitive: Primitive): void {
 }
 
 /**
- * Wrap a scoped handler and a manifest into a capability you list in
- * `define({ capabilities: [...] })`. The plugin's events, requests, and emits
+ * Wrap a scoped server definition and a manifest into a capability you list in
+ * `server({ capabilities: [...] })`. The plugin's events, requests, and emits
  * are namespaced under `__<id>::`, and its `api` is reached from any host
- * handler as `ctx.plugin('<id>')`.
+ * event handler as `ctx.plugin('<id>')`.
  *
- * The behavior is authored as a real, independently-bootable handler with
- * `define({ scope: 'plugin' })`, so a plugin is tested like a tiny app.
+ * The behavior is authored as a real, independently-bootable scoped server definition with
+ * `server({ scope: 'plugin' })`, so a plugin is tested like a tiny app.
  *
  * @example
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@wskit/server';
  * import { plugin } from '@wskit/server/plugins';
  * import * as v from 'valibot';
  *
- * const h = define({
+ * const h = server({
  *   scope: 'plugin',
  *   capabilities: [emits({ 'user-online': t<{ id: string }>() })],
  * });
@@ -279,10 +279,10 @@ function assertSupported(id: string, primitive: Primitive): void {
  *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.connection.id }); } }),
  * });
  *
- * export const Presence = plugin('acme:presence', { handler: presence });
+ * export const Presence = plugin('acme:presence', { definition: presence });
  *
  * // register it like any other capability — the factory is invoked
- * define({ capabilities: [Presence()] });
+ * server({ capabilities: [Presence()] });
  * ```
  */
 export function plugin<
@@ -298,18 +298,18 @@ export function plugin<
     throw new Error(`[wskit] Plugin id '${id}' is invalid. Use lowercase 'author:name' format.`);
   }
 
-  if (!manifest.handler.__scoped) {
+  if (!manifest.definition.__scoped) {
     throw new Error(
-      `[wskit] plugin('${id}') handler must be built with define({ scope: 'plugin' }). ` +
-        'Author the plugin as a scoped handler, then pass its assemble() result here.',
+      `[wskit] plugin('${id}') definition must be built with server({ scope: 'plugin' }). ` +
+        'Author the plugin as a scoped server definition, then pass its assemble() result here.',
     );
   }
 
-  for (const primitive of manifest.handler.primitives) assertSupported(id, primitive);
+  for (const primitive of manifest.definition.primitives) assertSupported(id, primitive);
 
-  const namespaced = namespacePluginPrimitives(id, manifest.handler.primitives);
+  const namespaced = namespacePluginPrimitives(id, manifest.definition.primitives);
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
-  const apiFactory = (manifest.handler as { __apiFactory?: (ctx: unknown) => unknown })
+  const apiFactory = (manifest.definition as { __apiFactory?: (ctx: unknown) => unknown })
     .__apiFactory;
   if (apiFactory) primitives.push(pluginApiPrimitive(id, apiFactory));
 
@@ -329,7 +329,7 @@ export function plugin<
     .map((factory) => factory.__capabilityKind)
     .filter((kind): kind is string => typeof kind === 'string');
   const autoKinds =
-    (manifest.handler as { __hostDependencies?: readonly string[] }).__hostDependencies ?? [];
+    (manifest.definition as { __hostDependencies?: readonly string[] }).__hostDependencies ?? [];
   writable.__pluginRequiredKinds = [...new Set([...explicitKinds, ...autoKinds])];
 
   return () => ({ ...cap }) as typeof cap;

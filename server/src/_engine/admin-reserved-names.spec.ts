@@ -1,6 +1,6 @@
 import { WSKitConfigError } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { describe, expect, it } from 'vitest';
 import type { AsyncContextFactory } from '~/context.ts';
@@ -24,8 +24,8 @@ function passthroughAsyncContext(): AsyncContextFactory {
 }
 
 function engineWithApi(makeApi: (ctx: unknown) => object) {
-  const base = define({ capabilities: [] });
-  const handler = base.assemble({ handlers: [], api: makeApi as never });
+  const base = server({ capabilities: [] });
+  const definition = base.assemble({ handlers: [], api: makeApi as never });
   let created: unknown;
   const build = adapter<Record<string, never>, unknown>({
     id: 'probe',
@@ -44,7 +44,7 @@ function engineWithApi(makeApi: (ctx: unknown) => object) {
       return created;
     },
   });
-  build(handler as never, {});
+  build(definition as never, {});
 
   return created as { initialize(): Promise<void>; admin(): unknown };
 }

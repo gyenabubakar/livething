@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { define, emits, t, translator } from '@wskit/server';
+import { server as createServerDefinition, emits, t, translator } from '@wskit/server';
 import { CloseCodes, RejectUpgrade } from '@wskit/server/errors';
 import { scheduled } from '@wskit/server/scheduled';
 import Database from 'better-sqlite3';
@@ -35,16 +35,16 @@ interface TestService<TApi = unknown> {
   shutdown(): Promise<void>;
 }
 
-function createTestService<THandler extends ServerDefinition>(
-  handler: THandler,
+function createTestService<TDefinition extends ServerDefinition>(
+  definition: TDefinition,
   options: NodeServerEndpointOptions & { port: number },
-): TestService<NodeAdmin<ApiOf<THandler>>> {
+): TestService<NodeAdmin<ApiOf<TDefinition>>> {
   const httpServer = createServer((_request, response) => {
     response.statusCode = 404;
     response.end();
   });
   const wskit = setup();
-  const endpoint = wskit.bind(handler, options);
+  const endpoint = wskit.bind(definition, options);
   httpServer.on('upgrade', endpoint.upgrade);
   let shutdown: Promise<void> | undefined;
 
@@ -80,7 +80,7 @@ function createTestService<THandler extends ServerDefinition>(
 }
 
 function createHandler(state: IntegrationState) {
-  const base = define({
+  const base = createServerDefinition({
     upgrade(request) {
       state.upgradeRequest = request;
       const url = new URL(request.url);
@@ -205,7 +205,7 @@ function createHandler(state: IntegrationState) {
 }
 
 function createTranslatedHandler(state: IntegrationState) {
-  const base = define({
+  const base = createServerDefinition({
     translate: translator(() => ({
       inbound(raw) {
         const frame = JSON.parse(raw) as { data?: unknown; type?: string };
@@ -1024,7 +1024,7 @@ describe('Node server integration', () => {
     const startedUpgrade = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const handler = define({
+    const definition = createServerDefinition({
       async upgrade(request) {
         started();
         await new Promise<void>((resolve) =>
@@ -1036,7 +1036,7 @@ describe('Node server integration', () => {
     }).assemble({ handlers: [] });
     const webSocketServer = createFailingWebSocketServer();
 
-    const service = createTestService(handler, {
+    const service = createTestService(definition, {
       port: 0,
       webSocketServer: webSocketServer.server,
     });
@@ -1060,7 +1060,7 @@ describe('Node server integration', () => {
     const startedUpgrade = new Promise<void>((resolve) => {
       started = resolve;
     });
-    const handler = define({
+    const definition = createServerDefinition({
       async upgrade(request) {
         started();
         await new Promise<void>((resolve) => {
@@ -1074,7 +1074,7 @@ describe('Node server integration', () => {
     }).assemble({ handlers: [] });
     const webSocketServer = createFailingWebSocketServer();
 
-    const service = createTestService(handler, {
+    const service = createTestService(definition, {
       port: 0,
       webSocketServer: webSocketServer.server,
     });

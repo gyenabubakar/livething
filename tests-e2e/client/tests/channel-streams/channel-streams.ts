@@ -4,7 +4,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's channel-scoped stream() / resumeStream() against the
 // real `stream-durable-scoped` handler, typed by the same contract the server
-// implements (StreamDurableScopedClient = InferClient<handler>). The `rooms`
+// implements (StreamDurableScopedClient = InferClient<definition>). The `rooms`
 // channel exposes a resumable cursor stream (`paginate`) and a recorded stream
 // (`history`); this proves both flow through the channel handle and that a
 // resumable stream resumes from its cursor over the real wire.

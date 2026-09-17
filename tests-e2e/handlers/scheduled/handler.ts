@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { scheduled } from '@wskit/server/scheduled';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
@@ -8,7 +8,7 @@ import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())]),
@@ -367,7 +367,7 @@ const handleTriggerScheduleUnknownTask = base.on('trigger-schedule-unknown-task'
   },
 });
 
-export const scheduledHandler = base.assemble({
+export const scheduledDefinition = base.assemble({
   handlers: [
     handleScheduleCleanup,
     handleQueryCleanupHistory,
@@ -395,4 +395,4 @@ export const scheduledHandler = base.assemble({
   ],
 });
 
-export type ScheduledClient = InferClient<typeof scheduledHandler>;
+export type ScheduledClient = InferClient<typeof scheduledDefinition>;

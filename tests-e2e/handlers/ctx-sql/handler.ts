@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -15,7 +15,7 @@ function selectNotes(ctx: {
     .toArray();
 }
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -160,7 +160,7 @@ const handleConnectionsSnapshotProbe = base.on('connections-snapshot-probe', {
   },
 });
 
-export const ctxSqlHandler = base.assemble({
+export const ctxSqlDefinition = base.assemble({
   handlers: [
     handleSaveNote,
     handleGetNotes,
@@ -175,4 +175,4 @@ export const ctxSqlHandler = base.assemble({
   ],
 });
 
-export type CtxSqlClient = InferClient<typeof ctxSqlHandler>;
+export type CtxSqlClient = InferClient<typeof ctxSqlDefinition>;

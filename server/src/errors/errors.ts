@@ -56,10 +56,10 @@ export function Disconnect(code: number, reason: string) {
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { RejectUpgrade } from '@wskit/server/errors';
  *
- * define({
+ * server({
  *   async upgrade(req) {
  *     const user = await validateToken(req.headers.get('authorization'));
  *     if (!user) throw RejectUpgrade(4002, 'Invalid token');

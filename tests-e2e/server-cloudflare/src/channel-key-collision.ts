@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { channelKeyCollisionHandler } from '@wskit/tests-e2e-handlers/channel-key-collision';
+import { channelKeyCollisionDefinition } from '@wskit/tests-e2e-handlers/channel-key-collision';
 
-export class ChannelKeyCollisionServer extends bind(channelKeyCollisionHandler) {}
+export class ChannelKeyCollisionServer extends bind(channelKeyCollisionDefinition) {}

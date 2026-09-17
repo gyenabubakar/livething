@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { ctxTagsHandler } from '@wskit/tests-e2e-handlers/ctx-tags';
+import { ctxTagsDefinition } from '@wskit/tests-e2e-handlers/ctx-tags';
 
-export class CtxTagsServer extends bind(ctxTagsHandler) {}
+export class CtxTagsServer extends bind(ctxTagsDefinition) {}

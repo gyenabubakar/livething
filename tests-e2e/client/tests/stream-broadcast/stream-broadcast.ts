@@ -6,7 +6,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 // One context triggers a broadcast stream with socket.stream(); a peer context
 // listens with socket.onStream() and records every chunk via onChunk, the close
 // via onEnd, and a terminal generator error via onError — typed by the same
-// contract the server implements (StreamBroadcastClient = InferClient<handler>).
+// contract the server implements (StreamBroadcastClient = InferClient<definition>).
 // A channel handle from the dynamic 'rooms' family exercises the same surface
 // scoped to one room, proving channel-scoped broadcast streams.
 export function setup(): void {

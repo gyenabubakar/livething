@@ -267,10 +267,10 @@ type PluginsFragmentOf<TContract> =
  *
  * ```ts
  * import * as v from 'valibot';
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@wskit/server';
  *
  * // server.ts
- * const base = define({
+ * const base = server({
  *   capabilities: [emits({ 'chat-message': t<{ text: string }>() })],
  * });
  * const handleSend = base.on('send-message', {

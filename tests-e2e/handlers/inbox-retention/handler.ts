@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { inbox } from '@wskit/server/inbox';
@@ -16,7 +16,7 @@ import type { RoomMsg } from '../inbox/events.ts';
 // not replace another capability's scheduled work.
 const RETENTION_MS = 1_000;
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -109,8 +109,8 @@ export const handleRetentionProbe = base.on('probe-retention', {
   },
 });
 
-export const inboxRetentionHandler = base.assemble({
+export const inboxRetentionDefinition = base.assemble({
   handlers: [handleSendRoomMsg, handleSendCountMsg, handleRetentionProbe, chat, countChat],
 });
 
-export type InboxRetentionClient = InferClient<typeof inboxRetentionHandler>;
+export type InboxRetentionClient = InferClient<typeof inboxRetentionDefinition>;

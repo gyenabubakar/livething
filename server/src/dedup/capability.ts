@@ -14,10 +14,10 @@ type OptionsParameter = { cap?: number };
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { dedup } from '@wskit/server/dedup';
  *
- * const base = define({ capabilities: [dedup({ cap: 256 })] });
+ * const base = server({ capabilities: [dedup({ cap: 256 })] });
  * ```
  */
 export const dedup = defineHostCapability(CAPABILITY_KIND.dedup, (options?: OptionsParameter) =>

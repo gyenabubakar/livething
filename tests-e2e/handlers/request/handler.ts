@@ -1,11 +1,11 @@
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const requestContract = define({
+export const requestContract = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [clientRequests(), channels()],
 });
@@ -69,7 +69,7 @@ const handleGetChannelInfo = room.request('get-channel-info', {
   },
 });
 
-export const requestHandler = requestContract.assemble({
+export const requestDefinition = requestContract.assemble({
   handlers: [
     handleGetTime,
     handleNoResponse,
@@ -82,4 +82,4 @@ export const requestHandler = requestContract.assemble({
   ],
 });
 
-export type RequestClient = InferClient<typeof requestHandler>;
+export type RequestClient = InferClient<typeof requestDefinition>;

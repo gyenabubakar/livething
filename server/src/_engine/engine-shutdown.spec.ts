@@ -1,4 +1,4 @@
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { registerAlarmSource, rescheduleAlarm } from '~/_engine/alarm.ts';
 import { Engine } from '~/_engine/engine.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -24,9 +24,9 @@ function passthroughAsyncContext(): AsyncContextFactory {
 }
 
 function buildEngine(timers: TimerProvider): Engine {
-  const base = define({});
-  const handler = base.assemble({ handlers: [] });
-  return new Engine(handler, {
+  const base = server({});
+  const definition = base.assemble({ handlers: [] });
+  return new Engine(definition, {
     adapterId: 'test',
     storage: createTestStorage(),
 

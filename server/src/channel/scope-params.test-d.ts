@@ -4,7 +4,7 @@
  * inferred onto `ctx.channel.params`, typed from the `{name}` captures in the
  * pattern.
  */
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import type { ExtractParams } from '~/channel/channel.ts';
 
@@ -18,7 +18,7 @@ void _multi;
 const _none: ExtractParams<'lobby'> = {};
 void _none;
 
-const base = define({ capabilities: [channels()] });
+const base = server({ capabilities: [channels()] });
 
 const rooms = base.channel(['rooms', 'room:{id}']);
 rooms.on('ping', {

@@ -19,19 +19,19 @@ export type { Translator, TranslatorFactory } from './translation/translator.ts'
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
-export { define } from './_define/define.ts';
+export { server } from './_define/server.ts';
 export type {
   Base,
   CoreBase,
-  DefineConfig,
+  ServerConfig,
   IncomingHandlerValue,
   OnConfig,
   RequestConfig,
   RequestHandlerValue,
-  ScopedDefineConfig,
+  ScopedServerConfig,
   UpgradeFn,
   UpgradeReturn,
-} from './_define/define.ts';
+} from './_define/server.ts';
 export type { AppCtx } from './_define/app-ctx.ts';
 export type { Capability, Contribution } from './_define/capability.ts';
 export { emits } from './emits/emits.ts';

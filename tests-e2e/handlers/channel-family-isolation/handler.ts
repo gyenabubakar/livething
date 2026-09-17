@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -29,7 +29,7 @@ const PublicBroadcastFromTopPayload = v.object({ name: v.string(), text: v.strin
 const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
@@ -146,7 +146,7 @@ const handleSendInPrivate = privateRooms.on('send-in-private', {
   },
 });
 
-export const channelFamilyIsolationHandler = base.assemble({
+export const channelFamilyIsolationDefinition = base.assemble({
   handlers: [
     handlePublicMembers,
     handlePrivateMembers,
@@ -160,4 +160,4 @@ export const channelFamilyIsolationHandler = base.assemble({
   ],
 });
 
-export type ChannelFamilyIsolationClient = InferClient<typeof channelFamilyIsolationHandler>;
+export type ChannelFamilyIsolationClient = InferClient<typeof channelFamilyIsolationDefinition>;

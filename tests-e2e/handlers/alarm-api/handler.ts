@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { scheduled } from '@wskit/server/scheduled';
 import * as v from 'valibot';
 import type { ConnectionContext, InferClient } from '@wskit/server';
@@ -8,7 +8,7 @@ function assertNoConnectionAlarm(ctx: ConnectionContext) {
   ctx.setAlarm(Date.now());
 }
 
-const base = define({
+const base = server({
   capabilities: [scheduled({ 'alarm-api-task': null }), emits({ 'alarm-api-reply': t<{}>() })],
 });
 
@@ -36,7 +36,7 @@ base.scheduled('alarm-api-task', {
   },
 });
 
-export const alarmApiHandler = base.assemble({
+export const alarmApiDefinition = base.assemble({
   handlers: [alarmApiEvent],
   api: (ctx) => ({
     attemptPlatformAlarm() {
@@ -45,4 +45,4 @@ export const alarmApiHandler = base.assemble({
     },
   }),
 });
-export type AlarmApiClient = InferClient<typeof alarmApiHandler>;
+export type AlarmApiClient = InferClient<typeof alarmApiDefinition>;

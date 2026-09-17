@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { inboxHandler } from '@wskit/tests-e2e-handlers/inbox';
+import { inboxDefinition } from '@wskit/tests-e2e-handlers/inbox';
 
-export class InboxServer extends bind(inboxHandler) {}
+export class InboxServer extends bind(inboxDefinition) {}

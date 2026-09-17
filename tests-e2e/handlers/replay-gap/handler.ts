@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -14,7 +14,7 @@ import type { ChatMsg, RoomMsg } from './events.ts';
 // single newest row per store (`maxMessages: 1`), so one message published while
 // a client is offline evicts the row the client last held and bumps the eviction
 // watermark above its `lastKnownSeq` — the exact condition a `__gap__` reports.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -65,8 +65,8 @@ export const handleSendRoomMsg = gapRoom.on('send-room-msg', {
   },
 });
 
-export const replayGapHandler = base.assemble({
+export const replayGapDefinition = base.assemble({
   handlers: [handleSendMsg, handleServerDrop, handleSendRoomMsg],
 });
 
-export type ReplayGapClient = InferClient<typeof replayGapHandler>;
+export type ReplayGapClient = InferClient<typeof replayGapDefinition>;

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -13,7 +13,7 @@ import type { ConnectionRef } from '~/context.ts';
 
 describe('capability-owned, TS-gated ctx extensions', () => {
   it('omits every capability-owned field on a bare server', () => {
-    const base = define({});
+    const base = server({});
     base.on('x', {
       run(ctx) {
         // @ts-expect-error ctx.schedule needs the scheduled() capability
@@ -40,7 +40,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.request and the connection-handle request arm only with serverRequests()', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         serverRequests({
           'ask-permission': {
@@ -70,7 +70,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds broadcastRequest on every fan-out surface for every declared request', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         serverRequests({
           'ask-permission': {
@@ -113,7 +113,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('omits broadcastRequest on channel/tag handles without serverRequests()', () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     base.on('x', {
@@ -127,7 +127,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('always exposes ctx.connection(ref).send, typed to the emits catalog', () => {
-    const base = define({
+    const base = server({
       capabilities: [emits({ ping: t<{ n: number }>() })],
     });
     base.on('x', {
@@ -145,7 +145,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('exposes ctx.connections.get on a bare server with no capabilities', () => {
-    const base = define({});
+    const base = server({});
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.connections.get).toBeFunction();
@@ -155,7 +155,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.schedule / ctx.cancelScheduled only with scheduled()', () => {
-    const base = define({
+    const base = server({
       capabilities: [scheduled({ cleanup: null })],
     });
     base.on('x', {
@@ -167,7 +167,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.latency / ctx.quality only with keepalive()', () => {
-    const base = define({
+    const base = server({
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
     base.on('x', {
@@ -181,7 +181,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.tags only with tags()', () => {
-    const base = define({
+    const base = server({
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     base.on('x', {
@@ -192,7 +192,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('uses broadcast on every handle that can reach multiple connections', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         emits({ notice: t<{ text: string }>() }),
         tags((ephemeral) => [ephemeral('role', t<string>())]),
@@ -215,7 +215,7 @@ describe('capability-owned, TS-gated ctx extensions', () => {
   });
 
   it('adds ctx.channels only with channels()', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     base.on('x', {
       run(ctx) {
         expectTypeOf(ctx.channels.get).toBeFunction();

@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -10,7 +10,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), dedup(), sequence({ persist: true }), replay.history()],
 });
@@ -33,6 +33,8 @@ const handleSendBatch = rooms.on('send-batch', {
   },
 });
 
-export const replayFamilyKeyEqualsNameHandler = base.assemble({ handlers: [handleSendBatch] });
+export const replayFamilyKeyEqualsNameDefinition = base.assemble({ handlers: [handleSendBatch] });
 
-export type ReplayFamilyKeyEqualsNameClient = InferClient<typeof replayFamilyKeyEqualsNameHandler>;
+export type ReplayFamilyKeyEqualsNameClient = InferClient<
+  typeof replayFamilyKeyEqualsNameDefinition
+>;

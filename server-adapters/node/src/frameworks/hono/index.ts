@@ -19,10 +19,10 @@ export interface HonoEndpoint<TApi = unknown> {
 /** Shared Hono WebSocket transport and lifecycle. */
 export interface HonoSetup {
   readonly websocket: { server: WebSocketServer };
-  bind<THandler extends ServerDefinition>(
-    handler: THandler,
+  bind<TDefinition extends ServerDefinition>(
+    definition: TDefinition,
     options: NodeEndpointOptions,
-  ): HonoEndpoint<ApiOf<THandler>>;
+  ): HonoEndpoint<ApiOf<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -41,8 +41,8 @@ export function setup(setupOptions: HonoSetupOptions = {}): HonoSetup {
   return {
     websocket: { server },
 
-    bind(handler, endpointOptions) {
-      const endpoint = node.bind(handler, endpointOptions);
+    bind(definition, endpointOptions) {
+      const endpoint = node.bind(definition, endpointOptions);
       const connections = new WeakMap<object, NodeConnection>();
 
       async function route(

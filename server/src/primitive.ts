@@ -76,7 +76,7 @@ export interface Primitive<Tag extends string = string> {
   readonly __requires: RequiresManifest;
   /**
    * Capability identity tokens (see `CAPABILITY_KIND`) this primitive needs
-   * listed in the same `define({ capabilities })`. Resolved at `assemble()`:
+   * listed in the same `server({ capabilities })`. Resolved at `assemble()`:
    * a missing one is a build error on an app, and on a plugin a host-owned
    * requirement is auto-recorded as a host dependency. Empty by default.
    * @internal

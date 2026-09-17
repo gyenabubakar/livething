@@ -3,7 +3,7 @@ import type { RequestClient } from '@wskit/tests-e2e-handlers/request';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's request() against the real `request` handler, typed by
-// the same contract the server implements (RequestClient = InferClient<handler>).
+// the same contract the server implements (RequestClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

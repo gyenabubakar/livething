@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { streamBroadcastHandler } from '@wskit/tests-e2e-handlers/stream-broadcast';
+import { streamBroadcastDefinition } from '@wskit/tests-e2e-handlers/stream-broadcast';
 
-export class StreamBroadcastServer extends bind(streamBroadcastHandler) {}
+export class StreamBroadcastServer extends bind(streamBroadcastDefinition) {}

@@ -5,7 +5,7 @@ import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**
- * Define a platform adapter that wraps a wskit server definition and returns
+ * Create a platform adapter that wraps a WSKit server definition and returns
  * a platform-specific service.
  *
  * Implement the `setup` callback to wire your platform's WebSocket API into
@@ -14,13 +14,13 @@ import type { AdapterConfig } from './types.ts';
  */
 export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function server<TApi>(
-    handler: ServerDefinition<readonly Primitive[], ServerContract, unknown, TApi>,
+    definition: ServerDefinition<readonly Primitive[], ServerContract, unknown, TApi>,
     options: TOptions,
   ): TService {
     function createEngine(
       runtimeOptions: AdapterTypes.EngineRuntimeOptions,
     ): EngineModule.Engine<TApi> {
-      return new EngineModule.Engine(handler, {
+      return new EngineModule.Engine(definition, {
         adapterId: config.id,
         hibernation: config.hibernation,
         asyncContextFactory: config.asyncContextFactory,

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import * as v from 'valibot';
@@ -25,7 +25,7 @@ interface FakeSocket {
 }
 
 function hibernatingHandler(): AnyServerDefinition {
-  const base = define({ hibernation: { enabled: true } });
+  const base = server({ hibernation: { enabled: true } });
   return base.assemble({
     handlers: [base.on('tick', { input: TickInput, run() {} })],
   }) as AnyServerDefinition;
@@ -33,7 +33,7 @@ function hibernatingHandler(): AnyServerDefinition {
 
 async function makeEngine(): Promise<Engine> {
   let engine: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'bench',
     hibernation: {
       persist() {},
@@ -51,7 +51,7 @@ async function makeEngine(): Promise<Engine> {
       return {};
     },
   });
-  server(hibernatingHandler(), {} as never);
+  runAdapter(hibernatingHandler(), {} as never);
   await engine!.initialize();
 
   return engine!;

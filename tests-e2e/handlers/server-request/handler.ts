@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { serverRequests } from '@wskit/server/server-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -11,7 +11,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * round-trip, an invalid-response rejection, and a timeout — all over the real
  * wire.
  */
-export const serverRequestContract = define({
+export const serverRequestContract = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     serverRequests({
@@ -92,8 +92,8 @@ const handleTriggerUndeclared = serverRequestContract.on('trigger-undeclared', {
   },
 });
 
-export const serverRequestHandler = serverRequestContract.assemble({
+export const serverRequestDefinition = serverRequestContract.assemble({
   handlers: [handleTrigger, handleTriggerTimeout, handleTriggerAck, handleTriggerUndeclared],
 });
 
-export type ServerRequestClient = InferClient<typeof serverRequestHandler>;
+export type ServerRequestClient = InferClient<typeof serverRequestDefinition>;

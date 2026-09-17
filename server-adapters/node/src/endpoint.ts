@@ -163,9 +163,9 @@ const buildEndpoint = adapter<NodeEndpointOptions, NodeEndpointInternals<unknown
 });
 
 /** Creates one Node endpoint for a compiled WSKit server definition. */
-export function createNodeEndpoint<THandler extends ServerDefinition>(
-  handler: THandler,
+export function createNodeEndpoint<TDefinition extends ServerDefinition>(
+  definition: TDefinition,
   options: NodeEndpointOptions,
-): NodeEndpointInternals<ApiOf<THandler>> {
-  return buildEndpoint(handler, options) as unknown as NodeEndpointInternals<ApiOf<THandler>>;
+): NodeEndpointInternals<ApiOf<TDefinition>> {
+  return buildEndpoint(definition, options) as unknown as NodeEndpointInternals<ApiOf<TDefinition>>;
 }

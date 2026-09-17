@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -17,7 +17,7 @@ import type { RoomMsg } from './events.ts';
 // until `__received__` reaches the gap's `missedThrough` watermark. `inbox()`
 // consumes and acknowledges the gap even without `replay()`; `replay()` owns the
 // optional `onGap` callback that makes the loss visible to application code.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -101,7 +101,7 @@ export const handleTriggerStaleUnsubscribeOk = chat.on('trigger-stale-unsubscrib
 
 // `chat` carries the `inbox: true` client-contract flag, so it is passed to
 // `assemble` for `InferClient` to expose the inbox surface (receivers/receiversOf).
-export const inboxGapHandler = base.assemble({
+export const inboxGapDefinition = base.assemble({
   handlers: [
     handleServerDrop,
     handleReleaseRaceLeave,
@@ -111,4 +111,4 @@ export const inboxGapHandler = base.assemble({
   ],
 });
 
-export type InboxGapClient = InferClient<typeof inboxGapHandler>;
+export type InboxGapClient = InferClient<typeof inboxGapDefinition>;

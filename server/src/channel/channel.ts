@@ -78,10 +78,10 @@ export type ExtractParams<S extends string> = S extends `${string}{${infer Name}
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { channels } from '@wskit/server/channels';
  *
- * const base = define({ capabilities: [channels()] });
+ * const base = server({ capabilities: [channels()] });
  *
  * // A `[familyKey, pattern]` tuple declares a channel family that matches
  * // `room:<anything>` subscriptions. The family key ('rooms') is used in
@@ -135,7 +135,7 @@ export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
 
 /**
  * The TypeScript type returned by `channel()`. Holds the channel pattern and
- * the child primitives that define the channel's behaviour.
+ * the child primitives that server the channel's behaviour.
  */
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,
@@ -145,7 +145,7 @@ export interface ChannelPrimitive<
 > extends Primitive<'channel'> {
   /** The pattern this channel matches against subscription paths. */
   readonly pattern: TPattern;
-  /** The primitives that define this channel's behaviour. */
+  /** The primitives that server this channel's behaviour. */
   readonly primitives: TPrimitives;
   /**
    * The capability kinds this channel's own `capabilities` list declares

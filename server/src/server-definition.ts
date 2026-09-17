@@ -34,9 +34,9 @@ import type { TranslatorFactory } from '~/translation/translator.ts';
  *
  * @example
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@wskit/server';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [emits({ message: Message })],
  * });
  * const handleSend = base.on('send', { input: Send, run() {} });
@@ -108,7 +108,7 @@ export interface ServerContract {
  *
  * @template TPrimitives - The frozen tuple of all assembled primitives.
  * @template TContract - The client contract carried along with the built server.
- * @template TScopedCtx - The `ctx` type a scoped handler's own handlers receive.
+ * @template TScopedCtx - The `ctx` type a scoped server definition's own handlers receive.
  * @template TApi - The return type of the handler's `api` factory (the per-connection
  *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
  */
@@ -123,7 +123,7 @@ export interface ServerDefinition<
   /**
    * Type-only field — never set at runtime.
    *
-   * A scoped handler (`define({ scope: 'plugin' })`) brands its assembled
+   * A scoped server definition (`server({ scope: 'plugin' })`) brands its assembled
    * definition with the `ctx` type its own handlers receive. `plugin(...)`
    * reads this to type the `api` callback's `ctx` to the plugin's own scoped
    * surface. Absent
@@ -140,7 +140,7 @@ export interface ServerDefinition<
   readonly __api?: TApi;
   /** Runtime feature flags copied from the contract config for compile-time validation. */
   readonly __features?: ReadonlySet<string>;
-  /** The per-user connection cap from `define({ users: {...} })`, enforced on accept. */
+  /** The per-user connection cap from `server({ users: {...} })`, enforced on accept. */
   readonly __usersPolicy?: {
     readonly maxConnections?: number;
     readonly onExceed: 'replace' | 'reject';
@@ -161,7 +161,7 @@ export interface ServerDefinition<
  * The `api` type a handler was assembled with, or `unknown` when it had none.
  *
  * Adapters read this off the handler they are given so the service they return
- * carries the app's own admin methods — `bind(handler)` on Cloudflare uses it
+ * carries the app's own admin methods — `bind(definition)` on Cloudflare uses it
  * to type what `stub.admin()` resolves to.
  */
 export type ApiOf<TDefinition> =

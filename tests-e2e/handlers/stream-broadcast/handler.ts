@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -8,7 +8,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const BroadcastChunkSchema = t<{ index: number }>();
 const RoomBroadcastChunkSchema = t<{ index: number }>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [stream(), channels()],
 });
@@ -57,8 +57,8 @@ const handleStartRoomStream = room.stream('start-room-stream', {
   },
 });
 
-export const streamBroadcastHandler = base.assemble({
+export const streamBroadcastDefinition = base.assemble({
   handlers: [handleStartBroadcast, handleStartRoomBroadcast, handleStartRoomStream],
 });
 
-export type StreamBroadcastClient = InferClient<typeof streamBroadcastHandler>;
+export type StreamBroadcastClient = InferClient<typeof streamBroadcastDefinition>;

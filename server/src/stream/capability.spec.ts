@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ function streamPrimitive(primitives: readonly { __wskit: string }[]): any {
 
 describe('stream() capability', () => {
   it('registers a plain stream that boots', () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     const handleFeed = base.stream('feed', {
       input: v.object({ count: v.number() }),
       async *run(_ctx, input) {
@@ -26,7 +26,7 @@ describe('stream() capability', () => {
   });
 
   it('converts the nudge map into declared nudges', () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     const handle = base.stream('chat', {
       nudges: { cancel: null, 'speed-up': v.object({ factor: v.number() }) },
       async *run() {},
@@ -37,7 +37,7 @@ describe('stream() capability', () => {
   });
 
   it('feeds nudges to the generator through ctx.stream.nudges', async () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     let seen: string[] = [];
     const handle = base.stream('s', {
       nudges: { go: null },
@@ -56,7 +56,7 @@ describe('stream() capability', () => {
   });
 
   it('throws when base.stream() is used without the stream() capability', () => {
-    const base = define({});
+    const base = server({});
     const escapeHatch = base as unknown as { stream(event: string, config: any): unknown };
     expect(() => escapeHatch.stream('x', { async *run() {} })).toThrow(
       /base\.stream\(\) needs the stream\(\) capability/,
@@ -64,7 +64,7 @@ describe('stream() capability', () => {
   });
 
   it('throws when one event name is bound by both a stream and an on handler', () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     const asStream = base.stream('shared', { async *run() {} });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     expect(() => base.assemble({ handlers: [asStream, asEvent] })).toThrow(

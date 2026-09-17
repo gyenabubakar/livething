@@ -3,7 +3,7 @@ import type { StreamBasicClient } from '@wskit/tests-e2e-handlers/stream-basic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's stream() against the real `stream-basic` handler, typed
-// by the same contract the server implements (StreamBasicClient = InferClient<handler>).
+// by the same contract the server implements (StreamBasicClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

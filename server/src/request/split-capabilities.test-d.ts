@@ -1,12 +1,12 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { serverRequests } from '~/request/server-requests.ts';
 import * as v from 'valibot';
 
-const clientOnly = define({ capabilities: [clientRequests()] });
+const clientOnly = server({ capabilities: [clientRequests()] });
 clientOnly.request('save', {
   input: v.object({ value: v.string() }),
   run(_ctx, input) {
@@ -14,7 +14,7 @@ clientOnly.request('save', {
   },
 });
 
-const outbound = define({ capabilities: [channels(), serverRequests()] });
+const outbound = server({ capabilities: [channels(), serverRequests()] });
 const room = outbound.channel('room', {
   capabilities: [
     emits({ joined: t<{ id: string }>() }),
@@ -30,7 +30,7 @@ room.on('message', {
   },
 });
 
-const noOutbound = define({ capabilities: [channels()] });
+const noOutbound = server({ capabilities: [channels()] });
 // @ts-expect-error channel serverRequests needs a root serverRequests() runtime
 noOutbound.channel('room', {
   capabilities: [serverRequests({ confirm: { out: t<{}>(), in: v.object({ ok: v.boolean() }) } })],

@@ -20,7 +20,7 @@ interface UsernameUpgradeWithUserTag extends UsernameUpgrade {
 
 /**
  * Pull `username` from the query string and surface it as userId and meta.
- * Feeds `define()`'s `upgrade(request)`. For handlers that declare a `user`
+ * Feeds `server()`'s `upgrade(request)`. For handlers that declare a `user`
  * ephemeral tag group and want the tag attached on connect, use
  * {@link requireUsernameWithUserTag} instead.
  */

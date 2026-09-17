@@ -75,12 +75,12 @@ const REPLAY_KEY = Symbol('replay');
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { dedup } from '@wskit/server/dedup';
  * import { sequence } from '@wskit/server/sequence';
  * import { replay } from '@wskit/server/replay';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [
  *     dedup(),
  *     sequence({ persist: true }),

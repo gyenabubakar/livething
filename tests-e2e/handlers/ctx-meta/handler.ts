@@ -1,9 +1,9 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -37,8 +37,8 @@ const handleBroadcastIdentity = base.on('broadcast-identity', {
   },
 });
 
-export const ctxMetaHandler = base.assemble({
+export const ctxMetaDefinition = base.assemble({
   handlers: [handleWhoAmI, handleListMembers, handleBroadcastIdentity],
 });
 
-export type CtxMetaClient = InferClient<typeof ctxMetaHandler>;
+export type CtxMetaClient = InferClient<typeof ctxMetaDefinition>;

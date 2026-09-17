@@ -1,10 +1,10 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
@@ -78,7 +78,7 @@ const handleDoServerClose = base.on('do-server-close', {
   },
 });
 
-export const ctxSendHandler = base.assemble({
+export const ctxSendDefinition = base.assemble({
   handlers: [
     handleDoBroadcast,
     handleDoBroadcastExcludeSelf,
@@ -90,4 +90,4 @@ export const ctxSendHandler = base.assemble({
   ],
 });
 
-export type CtxSendClient = InferClient<typeof ctxSendHandler>;
+export type CtxSendClient = InferClient<typeof ctxSendDefinition>;

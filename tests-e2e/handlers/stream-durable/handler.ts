@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { server, t } from '@wskit/server';
 import { Disconnect, StreamAborted } from '@wskit/server/errors';
 import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -17,7 +17,7 @@ const NumberChunk = t<number>();
 const StopPayload = v.object({});
 const overflowGates = new Map<string, () => void>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [recordedStream(), resumableStream()],
 });
@@ -171,7 +171,7 @@ const handleServerDrop = base.on('server-drop', {
   },
 });
 
-export const streamDurableHandler = base.assemble({
+export const streamDurableDefinition = base.assemble({
   handlers: [
     handleCountTokens,
     handlePaginate,
@@ -186,4 +186,4 @@ export const streamDurableHandler = base.assemble({
   ],
 });
 
-export type StreamDurableClient = InferClient<typeof streamDurableHandler>;
+export type StreamDurableClient = InferClient<typeof streamDurableDefinition>;

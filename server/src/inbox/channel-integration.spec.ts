@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import { persistMembership } from '~/channel/membership.ts';
@@ -25,12 +25,12 @@ import {
 } from './receipts-storage.ts';
 
 function buildEngine(
-  handler: ServerDefinition,
+  definition: ServerDefinition,
   storage = createTestStorage(),
 ): { engine: Engine; getAlarm: () => number | null } {
   let captured: Engine | undefined;
   let alarm: number | null = null;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'inbox-channel-integration-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
@@ -52,7 +52,7 @@ function buildEngine(
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return { engine: captured, getAlarm: () => alarm };
@@ -60,13 +60,13 @@ function buildEngine(
 
 describe('inbox() on a channel — writes real per-member rows on broadcast', () => {
   it('writes an undelivered row for a member of a channel that lists inbox() in its own capabilities', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const chat = base.channel('chat', { capabilities: [inbox()] });
     const plain = base.channel('plain', {});
-    const handler = base.assemble({ handlers: [chat, plain] });
-    const { engine } = buildEngine(handler);
+    const definition = base.assemble({ handlers: [chat, plain] });
+    const { engine } = buildEngine(definition);
 
     await engine.initialize();
 
@@ -89,13 +89,13 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
   });
 
   it('writes no row for the same member on a channel that does not list inbox()', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const chat = base.channel('chat', { capabilities: [inbox()] });
     const plain = base.channel('plain', {});
-    const handler = base.assemble({ handlers: [chat, plain] });
-    const { engine } = buildEngine(handler);
+    const definition = base.assemble({ handlers: [chat, plain] });
+    const { engine } = buildEngine(definition);
 
     await engine.initialize();
 
@@ -117,7 +117,7 @@ describe('inbox() on a channel — writes real per-member rows on broadcast', ()
 
 describe('quiet inbox retention uses the shared durable alarm', () => {
   it('removes rows and gap watermarks for a scope removed by the next boot', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const firstChat = base.channel('chat', { capabilities: [inbox()] });
@@ -170,15 +170,15 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
   });
 
   it('reconciles a changed count cap on boot without creating an age alarm', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const firstChat = base.channel('chat', {
       capabilities: [inbox({ retention: { maxMessages: 3 } })],
     });
-    const firstHandler = base.assemble({ handlers: [firstChat] });
+    const firstDefinition = base.assemble({ handlers: [firstChat] });
     const storage = createTestStorage();
-    const first = buildEngine(firstHandler, storage);
+    const first = buildEngine(firstDefinition, storage);
 
     await first.engine.initialize();
 
@@ -200,8 +200,8 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
     const secondChat = base.channel('chat', {
       capabilities: [inbox({ retention: { maxMessages: 1 } })],
     });
-    const secondHandler = base.assemble({ handlers: [secondChat] });
-    const second = buildEngine(secondHandler, storage);
+    const secondDefinition = base.assemble({ handlers: [secondChat] });
+    const second = buildEngine(secondDefinition, storage);
     await second.engine.initialize();
 
     expect(loadUndeliveredRows(storage.sql, 'alice').map((row) => row.seq)).toEqual([2]);
@@ -211,7 +211,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
   it('expires rows after the age window, preserves the gap, and coexists with scheduled work', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {
-      const base = define({
+      const base = server({
         capabilities: [
           channels(),
           sequence({ persist: true }),
@@ -223,8 +223,8 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         capabilities: [inbox({ retention: { maxAgeMs: 20 } })],
       });
       base.scheduled('tick', { run() {} });
-      const handler = base.assemble({ handlers: [chat] });
-      const { engine, getAlarm } = buildEngine(handler);
+      const definition = base.assemble({ handlers: [chat] });
+      const { engine, getAlarm } = buildEngine(definition);
 
       await engine.initialize();
 
@@ -263,7 +263,7 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
   it('chooses the earliest deadline across static and dynamic inbox scopes', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {
-      const base = define({
+      const base = server({
         capabilities: [channels(), sequence({ persist: true }), dedup()],
       });
       const chat = base.channel('chat', {
@@ -273,8 +273,8 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
         membership: 'persistent',
         capabilities: [inbox({ retention: { maxAgeMs: 100 } })],
       });
-      const handler = base.assemble({ handlers: [chat, rooms] });
-      const { engine, getAlarm } = buildEngine(handler);
+      const definition = base.assemble({ handlers: [chat, rooms] });
+      const { engine, getAlarm } = buildEngine(definition);
 
       await engine.initialize();
 
@@ -329,10 +329,10 @@ describe('quiet inbox retention uses the shared durable alarm', () => {
 
 describe('a host missing sequence()/dedup() fails the build, naming what to add and where', () => {
   it('fails when a channel lists inbox() but the host is missing sequence() and dedup()', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const chat = base.channel('chat', { capabilities: [inbox()] });
     expect(() => base.assemble({ handlers: [chat] })).toThrow(
-      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to define({ capabilities: [...] }).',
+      '[wskit] The sequence() capability is required by inbox but is not listed. Add sequence() to server({ capabilities: [...] }).',
     );
   });
 
@@ -341,7 +341,7 @@ describe('a host missing sequence()/dedup() fails the build, naming what to add 
     // can even be built, so this throws earlier than resolveCapabilityRequirements
     // — but it proves the same thing: a non-plugin app still needs channels()
     // listed, with no plugin around to have satisfied the requirement for it.
-    const base = define({
+    const base = server({
       capabilities: [sequence({ persist: true }), dedup()],
     });
     const escapeHatch = base as unknown as { channel(name: string, config?: unknown): unknown };

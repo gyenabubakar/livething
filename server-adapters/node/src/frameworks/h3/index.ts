@@ -16,10 +16,10 @@ export interface H3Endpoint<TApi = unknown> {
 
 /** Shared lifecycle for H3 and CrossWS WebSocket routes. */
 export interface H3Setup {
-  bind<THandler extends ServerDefinition>(
-    handler: THandler,
+  bind<TDefinition extends ServerDefinition>(
+    definition: TDefinition,
     options: NodeEndpointOptions,
-  ): H3Endpoint<ApiOf<THandler>>;
+  ): H3Endpoint<ApiOf<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -30,8 +30,8 @@ export function setup(): H3Setup {
   const lifecycle = createUpgradeLifecycle();
 
   return {
-    bind(handler, options) {
-      const endpoint = node.bind(handler, options);
+    bind(definition, options) {
+      const endpoint = node.bind(definition, options);
       const connections = new WeakMap<WebSocketPeer, NodeConnection>();
 
       const route = defineWebSocketHandler(async (event) => {

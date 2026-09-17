@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
@@ -9,23 +9,23 @@ import * as v from 'valibot';
 import { expectTypeOf } from 'vitest';
 
 // @ts-expect-error — each capability may appear once in a capabilities array.
-define({ capabilities: [channels(), channels()] });
+server({ capabilities: [channels(), channels()] });
 
 // @ts-expect-error — event declarations belong in one emits(...) capability.
-define({ capabilities: [emits({ first: t<{}>() }), emits({ second: t<{}>() })] });
+server({ capabilities: [emits({ first: t<{}>() }), emits({ second: t<{}>() })] });
 
 const DuplicateError = error('duplicate', v.object({}));
 
 // @ts-expect-error — errors() also has one place in this capabilities array.
-define({ capabilities: [errors([DuplicateError]), errors([DuplicateError])] });
+server({ capabilities: [errors([DuplicateError]), errors([DuplicateError])] });
 
-define({
+server({
   scope: 'plugin',
   // @ts-expect-error — plugin-scoped capability lists follow the same rule.
   capabilities: [emits({ first: t<{}>() }), emits({ second: t<{}>() })],
 });
 
-const base = define({ capabilities: [channels(), serverRequests()] });
+const base = server({ capabilities: [channels(), serverRequests()] });
 
 // @ts-expect-error — a channel can list serverRequests() once.
 base.channel('duplicate', {
@@ -35,7 +35,7 @@ base.channel('duplicate', {
   ],
 });
 
-const requests = define({
+const requests = server({
   capabilities: [
     channels(),
     serverRequests({

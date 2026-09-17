@@ -30,7 +30,10 @@ export interface FixtureService<TEndpoint = unknown> {
   shutdown(): Promise<void>;
 }
 
-type FixtureBinding = (handler: ServerDefinition, options: NodeEndpointOptions) => FixtureService;
+type FixtureBinding = (
+  definition: ServerDefinition,
+  options: NodeEndpointOptions,
+) => FixtureService;
 
 let bindFixture: FixtureBinding | undefined;
 
@@ -38,9 +41,12 @@ export function configureFixtureBinding(binding: FixtureBinding): void {
   bindFixture = binding;
 }
 
-function bindNodeFixture(handler: ServerDefinition, options: NodeEndpointOptions): FixtureService {
+function bindNodeFixture(
+  definition: ServerDefinition,
+  options: NodeEndpointOptions,
+): FixtureService {
   const wskit = setup();
-  const endpoint = wskit.bind(handler, options);
+  const endpoint = wskit.bind(definition, options);
 
   return {
     endpoint,

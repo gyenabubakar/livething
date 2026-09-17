@@ -1,5 +1,5 @@
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { keepalive } from '~/keepalive/capability.ts';
@@ -50,7 +50,7 @@ type ServerOptions = {
 };
 
 function buildEngine(options: ServerOptions = {}): Engine {
-  const base = define({
+  const base = server({
     ...(options.hibernation ? { hibernation: { enabled: true } } : {}),
     capabilities: options.withKeepalive ? [keepalive(options.withKeepalive)] : [],
   });
@@ -59,10 +59,10 @@ function buildEngine(options: ServerOptions = {}): Engine {
   if (options.onPong) base.onPong(options.onPong);
 
   const noop = base.on('noop', { run() {} });
-  const handler = base.assemble({ handlers: [noop] });
+  const definition = base.assemble({ handlers: [noop] });
 
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: passthroughAsyncContext(),
     ...(options.hibernation
@@ -79,7 +79,7 @@ function buildEngine(options: ServerOptions = {}): Engine {
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
 
   return engine;
 }

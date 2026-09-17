@@ -1,6 +1,6 @@
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { writeConnectionRow } from '~/_engine/runtime/connection-store.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
@@ -51,7 +51,7 @@ function buildEngine(
   restore: (wsKey: unknown) => unknown = (wsKey) =>
     (wsKey as { deserializeAttachment(): unknown }).deserializeAttachment(),
 ): Engine {
-  const base = define({
+  const base = server({
     hibernation: { enabled: true },
     capabilities: [channels()],
   });
@@ -64,10 +64,10 @@ function buildEngine(
       ctx.channel.broadcast('room-message', { text: payload.text });
     },
   });
-  const handler = base.assemble({ handlers: [shout] });
+  const definition = base.assemble({ handlers: [shout] });
 
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     hibernation: {
       persist: () => {},
@@ -88,7 +88,7 @@ function buildEngine(
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
 
   return engine;
 }

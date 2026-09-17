@@ -1,4 +1,4 @@
-import { define, emits, errors, t, translator } from '@wskit/server';
+import { emits, errors, server, t, translator } from '@wskit/server';
 import { error } from '@wskit/server/errors';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import * as v from 'valibot';
@@ -43,7 +43,7 @@ const foreignProtocol = translator(() => {
   };
 });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   translate: foreignProtocol,
   capabilities: [
@@ -73,14 +73,16 @@ const serverError = base.on('server-error', {
   },
 });
 
-export const translationHandler = base.assemble({ handlers: [echo, outboundThrow, serverError] });
+export const translationDefinition = base.assemble({
+  handlers: [echo, outboundThrow, serverError],
+});
 
 const passThrough = translator(() => ({
   inbound: () => null,
   outbound: () => null,
 }));
 
-const passThroughBase = define({
+const passThroughBase = server({
   upgrade: (request) => requireUsername(request),
   translate: passThrough,
   capabilities: [emits({ heard: t<{ text: string }>() })],
@@ -93,7 +95,7 @@ const passThroughEcho = passThroughBase.on('echo', {
   },
 });
 
-export const translationPassThroughHandler = passThroughBase.assemble({
+export const translationPassThroughDefinition = passThroughBase.assemble({
   handlers: [passThroughEcho],
 });
 
@@ -104,7 +106,7 @@ const inboundOnly = translator(() => ({
   },
 }));
 
-const inboundOnlyBase = define({
+const inboundOnlyBase = server({
   upgrade: (request) => requireUsername(request),
   translate: inboundOnly,
   capabilities: [emits({ heard: t<{ text: string }>() })],
@@ -117,6 +119,6 @@ const inboundOnlyEcho = inboundOnlyBase.on('echo', {
   },
 });
 
-export const translationInboundOnlyHandler = inboundOnlyBase.assemble({
+export const translationInboundOnlyDefinition = inboundOnlyBase.assemble({
   handlers: [inboundOnlyEcho],
 });

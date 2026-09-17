@@ -20,16 +20,16 @@ export type EmitSlot<TDefs extends EmitDefs> = {
 
 /**
  * Declare the server→client, fire-and-forget events this server emits. List the
- * result in `define({ capabilities: [...] })`. Each key is an event name; each
+ * result in `server({ capabilities: [...] })`. Each key is an event name; each
  * value is the payload type, given as a `t<Shape>()` marker. Outgoing payloads
  * are server-produced and not validated on the way out — the type just flows
  * into `ctx.send` / `ctx.broadcast` and the generated client.
  *
  * @example
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@wskit/server';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [
  *     emits({
  *       message: t<{ text: string; from: string }>(),

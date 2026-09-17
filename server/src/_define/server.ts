@@ -52,7 +52,7 @@ import type { Validator } from '~/types.ts';
 import { assertUniqueCapabilityKinds } from './capability-checks.ts';
 import { resolveCapabilityRequirements } from './capability-requirements.ts';
 // Keep every value import off `./plugins.ts` — it is a package entry, so a
-// bundler keeps it whole and one binding drags the plugin runtime into apps
+// bundler retains it whole, and one binding would pull the plugin runtime into apps
 // that list no plugins. Type imports are free.
 import {
   assertNoChannelOnlyCapabilities,
@@ -81,19 +81,19 @@ import type {
 import type { BuildContract, InferInput } from './contract.ts';
 
 type OptsParameter = { reason: string; revoke?: boolean };
-type DefineRequestConfigParameter = {
+type ServerRequestConfigParameter = {
   input?: Validator;
   allowInterleaving?: boolean;
   rateLimit?: RateLimitConfig;
   run: (ctx: any, input: any) => unknown;
 };
-type DefineCParameter = {
+type ServerCParameter = {
   input?: Validator;
   allowInterleaving?: boolean;
-  run: DefineRequestConfigParameter['run'];
+  run: ServerRequestConfigParameter['run'];
 };
-type DefineConfigParameter = { run: (ctx: any, data?: unknown) => void | Promise<void> };
-type DefineAssembleConfigParameter = {
+type ServerConfigParameter = { run: (ctx: any, data?: unknown) => void | Promise<void> };
+type ServerAssembleConfigParameter = {
   handlers: readonly Contribution[];
   api?: (ctx: unknown) => unknown;
 };
@@ -135,13 +135,13 @@ type EphemeralGroupsOf<TCaps extends readonly AnyCapability[]> = keyof SlotOr<
   string;
 
 /**
- * The configuration passed to `define(...)`. Holds only bootstrap — the things
+ * The configuration passed to `server(...)`. Holds only bootstrap — the things
  * the runtime needs to exist and accept a connection. Every feature beyond this
  * is an entry in `capabilities`.
  */
-export interface DefineConfig<
+export interface ServerConfig<
   TMeta = unknown,
-  // Defaults to no capabilities, not to every capability. `define(...)` infers
+  // Defaults to no capabilities, not to every capability. `server(...)` infers
   // the real list from the config it is given; the default only applies when
   // this type is written out by hand, and a list of `AnyCapability` there would
   // widen every capability brand to `string` — making the ctx gating pass for
@@ -176,7 +176,7 @@ export interface DefineConfig<
  * A capability a plugin is allowed to list — every capability except a
  * host-owned one. Host-owned engines (`dedup`/`sequence`/`keepalive`/
  * `rateLimit`/`replay`) carry a `__hostOnly` marker, so listing one inside
- * `define({ scope: 'plugin' })` is a compile error. A plugin declares a
+ * `server({ scope: 'plugin' })` is a compile error. A plugin declares a
  * prerequisite on them instead.
  */
 export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
@@ -185,23 +185,23 @@ export type PluginSafeCapability = AnyCapability & { __hostOnly?: never };
  * A capability accepted at the host or plugin top level — every capability
  * except a channel-only one. Channel-only capabilities (`inbox()`,
  * `readReceipts()`) carry a `__channelOnly` marker, so listing one in
- * `define({ capabilities })` or `define({ scope: 'plugin', capabilities })` is
+ * `server({ capabilities })` or `server({ scope: 'plugin', capabilities })` is
  * a compile error — they only belong inside a channel's own `capabilities`.
  */
 export type TopLevelCapability = AnyCapability & { __channelOnly?: never };
 
 /**
- * The configuration for a **plugin's** scoped handler (`scope: 'plugin'`).
+ * The configuration for a **plugin's** scoped server definition (`scope: 'plugin'`).
  * Authored with the same builders as an app, but it declares only its own
  * namespaced slice and inherits the host's transport and global singletons. The
  * plugin cannot own host-level
  * capabilities (see `plugin(...)`).
  */
-export interface ScopedDefineConfig<
+export interface ScopedServerConfig<
   TMeta = unknown,
   TCaps extends readonly PluginSafeCapability[] = readonly PluginSafeCapability[],
 > {
-  /** Marks this as a plugin's scoped handler. */
+  /** Marks this as a plugin's scoped server definition. */
   readonly scope: 'plugin';
   /**
    * The plugin's upgrade gate. Runs before the app's upgrade in the inbound
@@ -227,7 +227,7 @@ type ScopedCapabilitiesOf<TConfig> = TConfig extends {
 
 /** Keeps excess-property checks when a scoped config is inferred through a generic. @internal */
 type NoExtraScopedConfigKeys<TConfig> = {
-  readonly [K in Exclude<keyof TConfig, keyof ScopedDefineConfig>]: never;
+  readonly [K in Exclude<keyof TConfig, keyof ScopedServerConfig>]: never;
 };
 
 /** The value `base.on(...)` returns — a handler primitive that also declares its contract slot. */
@@ -799,7 +799,7 @@ export type ChannelConfig<
   /** Whether membership survives a reconnect (default `'persistent'`). */
   readonly membership?: 'persistent' | 'ephemeral';
   /**
-   * Per-channel built-in replay opt-in/out, cascading from `define`. `true` is
+   * Per-channel built-in replay opt-in/out, cascading from `server`. `true` is
    * shorthand for history mode with defaults; `false` opts this channel out.
    */
   readonly replay?: boolean;
@@ -1531,7 +1531,7 @@ export interface InterceptMethods<TSlots, TMeta, TCaps extends readonly AnyCapab
 }
 
 /**
- * The builder returned by `define(...)`. Carries the methods every server has
+ * The builder returned by `server(...)`. Carries the methods every server has
  * (`on`, the lifecycle hooks, `intercept`, `assemble`) plus any methods the
  * listed capabilities grant through their brands.
  */
@@ -1625,11 +1625,11 @@ export interface CoreBase<
    * handlers. Scheduled task bodies, lifecycle hooks, the upgrade hook, the
    * intercept, and listed capabilities are folded in automatically.
    *
-   * A scoped plugin handler (`define({ scope: 'plugin' })`) may also pass `api` —
+   * A scoped plugin server definition (`server({ scope: 'plugin' })`) may also pass `api` —
    * the per-connection surface the host reaches via `ctx.plugin(id)`. Its `ctx`
    * is the plugin's own scoped ctx, the same one its handlers receive.
    *
-   * Capabilities belong in `define({ capabilities: [...] })`, not here — passing
+   * Capabilities belong in `server({ capabilities: [...] })`, not here — passing
    * one is a type error.
    */
   assemble<const THandlers extends readonly AssembleInput[], TApi = unknown>(config: {
@@ -1841,15 +1841,15 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
 }
 
 /**
- * Create a WSKit server. `define(...)` holds only bootstrap (`upgrade`,
+ * Create a WSKit server. `server(...)` holds only bootstrap (`upgrade`,
  * `hibernation`); every feature is a capability you list. It returns a `base`
  * builder whose methods are typed against your metadata and capabilities.
  *
  * ```ts
- * import { define, emits, t } from '@wskit/server';
+ * import { server, emits, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
- * const base = define({
+ * const base = server({
  *   async upgrade(request) {
  *     const username = new URL(request.url).searchParams.get('username');
  *     if (!username) throw RejectUpgrade(4001, 'Missing username');
@@ -1863,19 +1863,19 @@ function scopedUpgradePrimitive(handler: UpgradeHandler): Primitive {
  *   run(ctx, input) { ctx.send('welcome', { username: input.text }); },
  * });
  *
- * export const handler = base.assemble({ handlers: [handlePing] });
+ * export const serverDefinition = base.assemble({ handlers: [handlePing] });
  * ```
  */
-export function define<
+export function server<
   TMeta = unknown,
   const TCaps extends readonly (AnyCapability & TopLevelCapability)[] = readonly [],
->(config: DefineConfig<TMeta, TCaps>): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps>;
-export function define<
+>(config: ServerConfig<TMeta, TCaps>): Base<MergeSlots<SlotsOf<TCaps[number]>>, TMeta, TCaps>;
+export function server<
   TMeta = unknown,
-  const TConfig extends ScopedDefineConfig<
+  const TConfig extends ScopedServerConfig<
     TMeta,
     readonly (PluginSafeCapability & TopLevelCapability)[]
-  > = ScopedDefineConfig<TMeta, readonly (PluginSafeCapability & TopLevelCapability)[]>,
+  > = ScopedServerConfig<TMeta, readonly (PluginSafeCapability & TopLevelCapability)[]>,
 >(
   config: TConfig &
     NoExtraScopedConfigKeys<TConfig> & {
@@ -1888,8 +1888,8 @@ export function define<
   ScopedCapabilitiesOf<TConfig>,
   true
 >;
-export function define(config: any): any {
-  assertUniqueCapabilityKinds(config.capabilities ?? [], 'define({ capabilities: [...] })');
+export function server(config: any): any {
+  assertUniqueCapabilityKinds(config.capabilities ?? [], 'server({ capabilities: [...] })');
 
   const scoped = config.scope === 'plugin';
   const lifecyclePrimitives: Primitive[] = [];
@@ -2000,8 +2000,8 @@ export function define(config: any): any {
 
       return primitive;
     },
-    request(event: string, requestConfig: DefineRequestConfigParameter) {
-      type Build = (e: string, c: DefineCParameter) => Primitive;
+    request(event: string, requestConfig: ServerRequestConfigParameter) {
+      type Build = (e: string, c: ServerCParameter) => Primitive;
       let build: Build | undefined;
       for (const cap of config.capabilities ?? []) {
         const candidate = (cap as { __buildClientRequest?: Build }).__buildClientRequest;
@@ -2026,7 +2026,7 @@ export function define(config: any): any {
 
       return primitive;
     },
-    scheduled(taskId: string, config: DefineConfigParameter) {
+    scheduled(taskId: string, config: ServerConfigParameter) {
       if (scheduledBodies.has(taskId)) {
         throw new Error(
           `[wskit] Duplicate scheduled task '${taskId}' on this server. ` +
@@ -2153,7 +2153,7 @@ export function define(config: any): any {
 
       registerOnce('replay', build(hooks));
     },
-    assemble(assembleConfig: DefineAssembleConfigParameter) {
+    assemble(assembleConfig: ServerAssembleConfigParameter) {
       const items = assembleConfig.handlers;
       const api = assembleConfig.api;
       assertUniquePluginIds(config.capabilities ?? []);
@@ -2169,7 +2169,7 @@ export function define(config: any): any {
         if ((item as { __wskitCapability?: unknown }).__wskitCapability) {
           throw new Error(
             '[wskit] A capability was passed to assemble(). List capabilities in ' +
-              'define({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
+              'server({ capabilities: [...] }) and pass routed handler values or channel objects to assemble().',
           );
         }
 
@@ -2242,7 +2242,7 @@ export function define(config: any): any {
         .flatMap((p) => p.defs);
       collectUnique(declaredErrors, (def) => def.code, {
         kind: 'error code',
-        context: 'define({ capabilities: [...] })',
+        context: 'server({ capabilities: [...] })',
       });
 
       const builtinReplayCount = primitives.filter(
@@ -2315,7 +2315,7 @@ export function define(config: any): any {
         assertOptionalPositiveInteger(
           config.users.maxConnections,
           'maxConnections',
-          'define({ users })',
+          'server({ users })',
         );
       }
 
@@ -2325,7 +2325,7 @@ export function define(config: any): any {
         __features: Object.freeze(features) as ReadonlySet<string>,
         ...(config.translate ? { __translate: config.translate } : {}),
         ...(config.users ? { __usersPolicy: config.users } : {}),
-        // Read by plugin() on a scoped handler, by Engine.admin() on an app one.
+        // Read by plugin() on a scoped server definition, by Engine.admin() on an app one.
         ...(api ? { __apiFactory: api } : {}),
         ...(scoped
           ? { __scoped: true as const, __hostDependencies: Object.freeze(hostDependencies) }

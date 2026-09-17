@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -26,7 +26,7 @@ import type {
   RoomReplayEvents,
 } from './events.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -260,7 +260,7 @@ const handleGetRoomConfirmedCount = customRoom.on('get-room-confirmed-count', {
   },
 });
 
-export const replayCustomHandler = base.assemble({
+export const replayCustomDefinition = base.assemble({
   handlers: [
     handleAddNote,
     handleQueryBadReplayLog,
@@ -272,4 +272,4 @@ export const replayCustomHandler = base.assemble({
   ],
 });
 
-export type ReplayCustomClient = InferClient<typeof replayCustomHandler>;
+export type ReplayCustomClient = InferClient<typeof replayCustomDefinition>;

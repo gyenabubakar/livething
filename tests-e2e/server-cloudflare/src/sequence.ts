@@ -1,7 +1,7 @@
 import { bind } from '@wskit/server-cloudflare';
-import { sequenceHandler } from '@wskit/tests-e2e-handlers/sequence';
+import { sequenceDefinition } from '@wskit/tests-e2e-handlers/sequence';
 
-const Base = bind(sequenceHandler);
+const Base = bind(sequenceDefinition);
 
 /**
  * `bind()` only offers a graceful `shutdown()` that drains connections while

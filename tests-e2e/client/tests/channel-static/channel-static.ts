@@ -5,7 +5,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's channels() against the real `channel-static` handler,
 // typed by the same contract the server implements
-// (ChannelStaticClient = InferClient<handler>).
+// (ChannelStaticClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

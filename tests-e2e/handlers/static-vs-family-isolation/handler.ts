@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { sequence } from '@wskit/server/sequence';
@@ -34,7 +34,7 @@ const KickFamilyPayload = v.object({
 });
 const KickAckPayload = v.object({ where: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     dedup(),
@@ -118,7 +118,7 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const staticVsFamilyIsolationHandler = base.assemble({
+export const staticVsFamilyIsolationDefinition = base.assemble({
   handlers: [
     handleTagSelf,
     handleObserveStatic,
@@ -130,4 +130,4 @@ export const staticVsFamilyIsolationHandler = base.assemble({
   ],
 });
 
-export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationHandler>;
+export type StaticVsFamilyIsolationClient = InferClient<typeof staticVsFamilyIsolationDefinition>;

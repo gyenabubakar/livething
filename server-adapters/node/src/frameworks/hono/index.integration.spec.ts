@@ -1,7 +1,7 @@
 import { connect as connectTcp } from 'node:net';
 import { createAdaptorServer } from '@hono/node-server';
 import { client, connect } from '@wskit/client';
-import { define, emits, t } from '@wskit/server';
+import { server as createServerDefinition, emits, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +11,7 @@ import { setup } from './index.ts';
 let lastClientIp: string | null = null;
 let disconnects = 0;
 
-const handler = define({
+const handler = createServerDefinition({
   upgrade(request) {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
@@ -296,7 +296,7 @@ describe('Hono binding', () => {
   });
 
   it('reports the real outbound queue while a Hono client is slow', async () => {
-    const queued = define({
+    const queued = createServerDefinition({
       upgrade() {
         return { userId: 'slow-client' };
       },
@@ -319,10 +319,10 @@ describe('Hono binding', () => {
     const endpoint = wskit.bind(queued.assemble({ handlers: [fillQueue] }), {});
 
     app.get('/ws/slow-client', endpoint.upgrade);
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
-    servers.push(server);
+    const runningServer = await listen(app, wskit.websocket, () => wskit.shutdown());
+    servers.push(runningServer);
 
-    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/slow-client`);
+    const socket = new WebSocket(`ws://127.0.0.1:${runningServer.port}/ws/slow-client`);
     sockets.push(socket);
     await waitForOpen(socket);
 
@@ -357,7 +357,7 @@ describe('Hono binding', () => {
       release = resolve;
     });
 
-    const slowHandler = define({
+    const slowDefinition = createServerDefinition({
       async upgrade(request) {
         started();
         request.signal.addEventListener('abort', () => {
@@ -369,13 +369,13 @@ describe('Hono binding', () => {
     }).assemble({ handlers: [] });
     const app = new Hono();
     const wskit = setup();
-    const endpoint = wskit.bind(slowHandler, {});
+    const endpoint = wskit.bind(slowDefinition, {});
     app.get('/ws/slow', endpoint.upgrade);
 
-    const server = await listen(app, wskit.websocket, () => wskit.shutdown());
+    const runningServer = await listen(app, wskit.websocket, () => wskit.shutdown());
 
-    servers.push(server);
-    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws/slow`);
+    servers.push(runningServer);
+    const socket = new WebSocket(`ws://127.0.0.1:${runningServer.port}/ws/slow`);
     sockets.push(socket);
     socket.on('error', () => {});
     await startedUpgrade;
@@ -389,7 +389,7 @@ describe('Hono binding', () => {
     try {
       await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 100 });
       expect(stopped).toBe(false);
-      await expect(sendOpenUpgrade(server.port, '/ws/slow')).resolves.toBe('');
+      await expect(sendOpenUpgrade(runningServer.port, '/ws/slow')).resolves.toBe('');
     } finally {
       release();
     }

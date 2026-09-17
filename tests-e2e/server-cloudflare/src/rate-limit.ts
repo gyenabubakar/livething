@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { rateLimitHandler } from '@wskit/tests-e2e-handlers/rate-limit';
+import { rateLimitDefinition } from '@wskit/tests-e2e-handlers/rate-limit';
 
-export class RateLimitServer extends bind(rateLimitHandler) {}
+export class RateLimitServer extends bind(rateLimitDefinition) {}

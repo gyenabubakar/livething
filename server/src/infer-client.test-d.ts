@@ -6,7 +6,7 @@
  * persistent (gap 8).
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
@@ -23,7 +23,7 @@ import type { InferClient } from '~/infer-client.ts';
 // ---------------------------------------------------------------------------
 // Gap 6 — `serverRequests` on InferClient (top-level + channel-scoped).
 // ---------------------------------------------------------------------------
-const reqBase = define({
+const reqBase = server({
   capabilities: [
     serverRequests({
       ask: { out: t<{ a: string }>(), in: v.object({ ok: v.boolean() }) },
@@ -42,10 +42,10 @@ const reqChannel = reqBase.channel(['room', 'room:{id}'], {
     }),
   ],
 });
-const reqChannelHandler = reqChannel.on('ping', { run() {} });
+const reqChannelDefinition = reqChannel.on('ping', { run() {} });
 
 const reqDef = reqBase.assemble({
-  handlers: [reqBase.on('noop', { run() {} }), reqChannelHandler],
+  handlers: [reqBase.on('noop', { run() {} }), reqChannelDefinition],
 });
 type ReqClient = InferClient<typeof reqDef>;
 
@@ -71,11 +71,11 @@ expectTypeOf<ReqClient['channels']['room']['serverRequests']['vol']>().toEqualTy
 // ---------------------------------------------------------------------------
 // A selected channel handler is the exact client contract and runtime surface.
 // ---------------------------------------------------------------------------
-const selectedBase = define({ capabilities: [channels()] });
+const selectedBase = server({ capabilities: [channels()] });
 const selectedChannel = selectedBase.channel('selected', {});
-const selectedHandler = selectedChannel.on('selected-event', { run() {} });
+const selectedDefinition = selectedChannel.on('selected-event', { run() {} });
 selectedChannel.on('unselected-event', { run() {} });
-const selectedDef = selectedBase.assemble({ handlers: [selectedHandler] });
+const selectedDef = selectedBase.assemble({ handlers: [selectedDefinition] });
 type SelectedClient = InferClient<typeof selectedDef>;
 
 expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().toHaveProperty('selected-event');
@@ -86,7 +86,7 @@ expectTypeOf<SelectedClient['channels']['selected']['outgoing']>().not.toHavePro
 // ---------------------------------------------------------------------------
 // Gap 8 — stream `kind` discriminator.
 // ---------------------------------------------------------------------------
-const streamBase = define({
+const streamBase = server({
   capabilities: [emits({ noop: t<{}>() }), stream(), resumableStream(), recordedStream()],
 });
 
@@ -128,14 +128,14 @@ expectTypeOf<StreamClient['streams']['record']>().not.toHaveProperty('cursor');
 // Gap — a channel's own `capabilities` (`inbox()` / `readReceipts()`) must
 // produce the `inbox: true` / `readReceipts: true` flags InferClient exposes.
 // ---------------------------------------------------------------------------
-const flagsBase = define({
+const flagsBase = server({
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 
 const flaggedChannel = flagsBase.channel('flagged', {
   capabilities: [inbox(), readReceipts(), emits({ joined: t<{ id: string }>() })],
 });
-const flaggedChannelHandler = flaggedChannel.on('join', {
+const flaggedChannelDefinition = flaggedChannel.on('join', {
   input: v.object({ id: v.string() }),
   run() {},
 });
@@ -145,7 +145,7 @@ const plainChannel = flagsBase.channel('plain', {});
 // Passing a channel itself includes its configuration. This also includes the
 // plain channel, which has no handler value to pass.
 const flagsDef = flagsBase.assemble({
-  handlers: [flaggedChannel, plainChannel, flaggedChannelHandler],
+  handlers: [flaggedChannel, plainChannel, flaggedChannelDefinition],
 });
 type FlagsClient = InferClient<typeof flagsDef>;
 

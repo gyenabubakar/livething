@@ -1,4 +1,4 @@
-import { define, emits, errors, t } from '@wskit/server';
+import { emits, errors, server, t } from '@wskit/server';
 import { error } from '@wskit/server/errors';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -9,7 +9,7 @@ const Token = t<{ index: number }>();
 
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
@@ -85,7 +85,7 @@ const handleStartEmpty = base.stream('start-empty', {
   async *run() {},
 });
 
-export const streamBasicHandler = base.assemble({
+export const streamBasicDefinition = base.assemble({
   handlers: [
     handleStartTokens,
     handleStartBoom,
@@ -96,4 +96,4 @@ export const streamBasicHandler = base.assemble({
   ],
 });
 
-export type StreamBasicClient = InferClient<typeof streamBasicHandler>;
+export type StreamBasicClient = InferClient<typeof streamBasicDefinition>;

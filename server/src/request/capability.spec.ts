@@ -1,6 +1,6 @@
 import { WIRE_LIMITS } from '@wskit/core';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,7 +17,7 @@ function requestPrimitive(primitives: readonly { __wskit: string }[]): RequestPr
 
 describe('clientRequests() capability', () => {
   it('registers client-to-server handlers with clientRequests()', () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handler = base.request('save', { run: () => ({ ok: true }) });
     expect(
       compileHandlerDefinition(base.assemble({ handlers: [handler] })).requests.has('save'),
@@ -25,24 +25,24 @@ describe('clientRequests() capability', () => {
   });
 
   it('registers a request handler that boots and responds with the return value', async () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleGetTime = base.request('get-time', {
       input: v.object({}),
       run() {
         return { now: 'noon' };
       },
     });
-    const handler = base.assemble({ handlers: [handleGetTime] });
-    const compiled = compileHandlerDefinition(handler);
+    const definition = base.assemble({ handlers: [handleGetTime] });
+    const compiled = compileHandlerDefinition(definition);
     expect(compiled.requests.has('get-time')).toBe(true);
 
     const respond = vi.fn();
-    await requestPrimitive(handler.primitives).handler({ respond } as never, {});
+    await requestPrimitive(definition.primitives).handler({ respond } as never, {});
     expect(respond).toHaveBeenCalledWith({ now: 'noon' });
   });
 
   it('does not respond when the handler returns nothing', async () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleNoReply = base.request('no-reply', {
       run() {},
     });
@@ -55,7 +55,7 @@ describe('clientRequests() capability', () => {
   });
 
   it('responds with falsy non-null values', async () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleCount = base.request('count', {
       run() {
         return 0;
@@ -70,7 +70,7 @@ describe('clientRequests() capability', () => {
   });
 
   it('treats an explicit null as a void ack, not a response value', async () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const handleFind = base.request('find', {
       run() {
         return null;
@@ -87,7 +87,7 @@ describe('clientRequests() capability', () => {
   });
 
   it('throws when base.request is used without the clientRequests() capability', () => {
-    const base = define({});
+    const base = server({});
     const escapeHatch = base as unknown as {
       request(event: string, config: { run: () => unknown }): unknown;
     };

@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { rateLimit } from '@wskit/server/rate-limit';
@@ -9,7 +9,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const RoomMsgPayload = v.object({ text: v.string() });
 const EchoReqPayload = v.object({ text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     rateLimit({ windowMs: 60_000, max: 3 }),
@@ -122,7 +122,7 @@ const handleBeta = tightRoom.on('beta', {
   },
 });
 
-export const rateLimitHandler = base.assemble({
+export const rateLimitDefinition = base.assemble({
   handlers: [
     handleTick,
     handleExpensive,
@@ -136,4 +136,4 @@ export const rateLimitHandler = base.assemble({
   ],
 });
 
-export type RateLimitClient = InferClient<typeof rateLimitHandler>;
+export type RateLimitClient = InferClient<typeof rateLimitDefinition>;

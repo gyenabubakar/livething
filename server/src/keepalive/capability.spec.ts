@@ -1,15 +1,15 @@
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { describe, expect, it } from 'vitest';
 import { keepalive } from './capability.ts';
 
 describe('keepalive() capability', () => {
   it('adds the keepalive primitive and the keepalive feature flag', () => {
-    const base = define({
+    const base = server({
       capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
     });
-    const handler = base.assemble({ handlers: [] });
-    expect(handler.primitives.some((p) => p.__wskit === 'keepalive')).toBe(true);
-    expect(handler.__features?.has('keepalive')).toBe(true);
+    const definition = base.assemble({ handlers: [] });
+    expect(definition.primitives.some((p) => p.__wskit === 'keepalive')).toBe(true);
+    expect(definition.__features?.has('keepalive')).toBe(true);
   });
 
   it('rejects a ping interval that is not less than the idle timeout', () => {

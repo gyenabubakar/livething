@@ -4,7 +4,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's stream().cancel() against the real `stream-signal`
 // handler, typed by the same contract the server implements (StreamSignalClient
-// = InferClient<handler>). The generator yields one chunk then parks on a 60s
+// = InferClient<definition>). The generator yields one chunk then parks on a 60s
 // timer wired to ctx.stream.signal; a client cancel must fire the signal and
 // interrupt the parked work, proven by the `signal-fired` event.
 export function setup(): void {

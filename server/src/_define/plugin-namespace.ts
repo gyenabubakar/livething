@@ -203,7 +203,7 @@ function renamedServerRequests(
       .__serverRequests;
     if (!map || map.size === 0) continue;
 
-    // Build a fresh map; never mutate the carrier in `manifest.handler.primitives`
+    // Build a fresh map; never mutate the carrier in `manifest.definition.primitives`
     // (keeps namespacing idempotent and copy-don't-mutate like the other helpers).
     const next = new Map<string, ResolvedServerRequest>();
     for (const [key, value] of map) {

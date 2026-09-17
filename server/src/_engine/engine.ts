@@ -16,7 +16,7 @@ import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
 
 type OptionsParameter = { terminal?: boolean };
 
@@ -37,15 +37,15 @@ export class Engine<TApi = unknown> {
   readonly core: EngineCore;
 
   constructor(
-    handler: DefineServer.ServerDefinition<
+    definition: ServerTypes.ServerDefinition<
       readonly Primitive[],
-      DefineServer.ServerContract,
+      ServerTypes.ServerContract,
       unknown,
       TApi
     >,
     options: EngineAdapterTypes.EngineOptions,
   ) {
-    this.core = new EngineCore(handler, options);
+    this.core = new EngineCore(definition, options);
   }
 
   /** Set the stable platform instance id before accepting connections. */

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
 import { channels } from '~/channel/capability.ts';
@@ -28,9 +28,9 @@ function findPrimitive(primitives: readonly any[], wskit: string, event?: string
   return found;
 }
 
-/** A small presence-style plugin authored as a scoped handler. */
+/** A small presence-style plugin authored as a scoped server definition. */
 function buildPresence() {
-  const h = define({
+  const h = server({
     scope: 'plugin',
     capabilities: [
       emits({ 'user-online': t<{ id: string }>() }),
@@ -51,7 +51,7 @@ function buildPresence() {
     },
   });
   return plugin('acme:presence', {
-    handler: h.assemble({
+    definition: h.assemble({
       handlers: [heartbeat, whoIsHere],
       api: (ctx) => ({
         announce() {
@@ -62,7 +62,7 @@ function buildPresence() {
   });
 }
 
-describe('plugin() — scoped handler + manifest', () => {
+describe('plugin() — scoped server definition + manifest', () => {
   it('namespaces on / request / emits under __<id>::', () => {
     const { __primitives } = buildPresence()();
     expect(findPrimitive(__primitives, 'incoming', '__acme:presence::heartbeat')).toBeDefined();
@@ -87,14 +87,14 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('assembles into a host and compiles with the namespaced events', () => {
-    const base = define({ capabilities: [buildPresence()()] });
+    const base = server({ capabilities: [buildPresence()()] });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:presence::heartbeat')).toBe(true);
     expect(compiled.requests.has('__acme:presence::who-is-here')).toBe(true);
   });
 
   it('does not collide with a host event of the same short name', () => {
-    const base = define({ capabilities: [buildPresence()()] });
+    const base = server({ capabilities: [buildPresence()()] });
     const hostHeartbeat = base.on('heartbeat', { input: v.object({}), run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [hostHeartbeat] }));
     expect(compiled.incoming.has('heartbeat')).toBe(true);
@@ -102,23 +102,25 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws on an invalid plugin id', () => {
-    const h = define({ scope: 'plugin' });
-    expect(() => plugin('NotValid', { handler: h.assemble({ handlers: [] }) })).toThrow(
+    const h = server({ scope: 'plugin' });
+    expect(() => plugin('NotValid', { definition: h.assemble({ handlers: [] }) })).toThrow(
       /is invalid/,
     );
   });
 
-  it('throws when the handler was not built with scoped define', () => {
-    const h = define({});
-    expect(() => plugin('acme:presence', { handler: h.assemble({ handlers: [] }) as any })).toThrow(
-      /must be built with define\(\{ scope: 'plugin' \}\)/,
-    );
+  it('throws when the handler was not built with scoped server', () => {
+    const h = server({});
+    expect(() =>
+      plugin('acme:presence', { definition: h.assemble({ handlers: [] }) as any }),
+    ).toThrow(/must be built with server\(\{ scope: 'plugin' \}\)/);
   });
 
   it('reroutes a plugin connect hook into the plugin lifecycle registry', () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     h.onConnect(() => {});
-    const { __primitives } = plugin('acme:presence', { handler: h.assemble({ handlers: [] }) })();
+    const { __primitives } = plugin('acme:presence', {
+      definition: h.assemble({ handlers: [] }),
+    })();
     const connectPrimitive = findPrimitive(__primitives, 'onConnect');
     const registerPluginLifecycle = vi.fn();
 
@@ -131,32 +133,32 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('rejects a user-declared event in the reserved __<id>::<name> space', () => {
-    const base = define({});
+    const base = server({});
     expect(() => base.on('__acme:presence::heartbeat', { run() {} })).toThrow(/reserved/);
   });
 
   it('rejects a plugin short event name ending with __ before namespacing', () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     expect(() => h.on('heartbeat__', { run() {} })).toThrow(/reserved '__' suffix/);
   });
 
   it('lets two plugins coexist without their namespaced surfaces colliding', () => {
-    const a = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
-    const aHandler = a.on('tick', { input: v.object({}), run() {} });
-    const PluginA = plugin('acme:a', { handler: a.assemble({ handlers: [aHandler] }) });
+    const a = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const aDefinition = a.on('tick', { input: v.object({}), run() {} });
+    const PluginA = plugin('acme:a', { definition: a.assemble({ handlers: [aDefinition] }) });
 
-    const b = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
-    const bHandler = b.on('tick', { input: v.object({}), run() {} });
-    const PluginB = plugin('acme:b', { handler: b.assemble({ handlers: [bHandler] }) });
+    const b = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const bDefinition = b.on('tick', { input: v.object({}), run() {} });
+    const PluginB = plugin('acme:b', { definition: b.assemble({ handlers: [bDefinition] }) });
 
-    const base = define({ capabilities: [PluginA(), PluginB()] });
+    const base = server({ capabilities: [PluginA(), PluginB()] });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     expect(compiled.incoming.has('__acme:a::tick')).toBe(true);
     expect(compiled.incoming.has('__acme:b::tick')).toBe(true);
   });
 
   it('routes a namespaced frame to the plugin handler through real dispatch', async () => {
-    const base = define({ capabilities: [buildPresence()()] });
+    const base = server({ capabilities: [buildPresence()()] });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
 
     const send = vi.fn(() => true);
@@ -193,13 +195,13 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('passes assemble() when every dependsOn prerequisite is listed', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [rateLimit, keepalive],
     });
-    const base = define({
+    const base = server({
       capabilities: [
         rateLimit(),
         keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }),
@@ -210,75 +212,75 @@ describe('plugin() — scoped handler + manifest', () => {
   });
 
   it('throws at assemble() when the same plugin id is listed twice, even with no api or handlers', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
-    const P = plugin('acme:dup', { handler: h.assemble({ handlers: [] }) });
-    const base = define({ capabilities: [P(), P()] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const P = plugin('acme:dup', { definition: h.assemble({ handlers: [] }) });
+    const base = server({ capabilities: [P(), P()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
   it('throws at assemble() when two different plugins share an id', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
-    const First = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
-    const Second = plugin('acme:same', { handler: h.assemble({ handlers: [tick] }) });
-    const base = define({ capabilities: [First(), Second()] });
+    const First = plugin('acme:same', { definition: h.assemble({ handlers: [tick] }) });
+    const Second = plugin('acme:same', { definition: h.assemble({ handlers: [tick] }) });
+    const base = server({ capabilities: [First(), Second()] });
 
     expect(() => base.assemble({ handlers: [] })).toThrow(/listed more than once/);
   });
 
   it('throws at assemble() when a dependsOn prerequisite is missing', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [rateLimit, keepalive],
     });
-    const base = define({ capabilities: [rateLimit(), Dep()] });
+    const base = server({ capabilities: [rateLimit(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('does not satisfy a host dependency with a different host capability', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [rateLimit],
     });
     // dedup() is a host engine too, but a different one — it must NOT count as rateLimit().
-    const base = define({ capabilities: [dedup(), Dep()] });
+    const base = server({ capabilities: [dedup(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('satisfies a host dependency when that capability is listed', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [rateLimit],
     });
-    const base = define({ capabilities: [rateLimit(), Dep()] });
+    const base = server({ capabilities: [rateLimit(), Dep()] });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('throws the clean "does not list" error for a missing keepalive dependency without crashing', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [keepalive],
     });
-    const base = define({ capabilities: [Dep()] });
+    const base = server({ capabilities: [Dep()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('satisfies a keepalive dependency when keepalive(...) is listed', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() })] });
     const tick = h.on('tick', { input: v.object({}), run() {} });
     const Dep = plugin('acme:dep', {
-      handler: h.assemble({ handlers: [tick] }),
+      definition: h.assemble({ handlers: [tick] }),
       dependsOn: [keepalive],
     });
-    const base = define({
+    const base = server({
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 }), Dep()],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -287,12 +289,12 @@ describe('plugin() — scoped handler + manifest', () => {
 
 describe('plugin() — hook ownership', () => {
   function buildHookPlugin() {
-    const h = define({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() }), intercepts()] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ tick: t<{}>() }), intercepts()] });
     const beat = h.on('tick', { input: v.object({}), run() {} });
     h.intercept(() => {});
     h.onOutgoing(() => {});
 
-    return plugin('acme:obs', { handler: h.assemble({ handlers: [beat] }) });
+    return plugin('acme:obs', { definition: h.assemble({ handlers: [beat] }) });
   }
 
   it('stamps a plugin intercept and outgoing hook with its owner', () => {
@@ -308,7 +310,7 @@ describe('plugin() — hook ownership', () => {
 
 describe('plugin() — auto-derived host dependencies', () => {
   it("auto-derives host sequence/dedup dependencies from a plugin's own replay primitive", () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     const cap = h.assemble({ handlers: [replay({}) as any] }) as {
       __hostDependencies?: readonly string[];
     };
@@ -316,7 +318,7 @@ describe('plugin() — auto-derived host dependencies', () => {
   });
 
   it('auto-derives host sequence/dedup dependencies from a plugin replay primitive nested in a plugin channel', () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     const cap = h.assemble({ handlers: [channel('room', replay({})) as any] }) as {
       __hostDependencies?: readonly string[];
     };
@@ -324,20 +326,20 @@ describe('plugin() — auto-derived host dependencies', () => {
   });
 
   it('throws at the host assemble() when an auto-derived host dependency is not listed', () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     const Presence = plugin('acme:presence', {
-      handler: h.assemble({ handlers: [channel('room', replay({})) as any] }),
+      definition: h.assemble({ handlers: [channel('room', replay({})) as any] }),
     });
-    const base = define({ capabilities: [Presence()] });
+    const base = server({ capabilities: [Presence()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/the host does not list/);
   });
 
   it('passes the host assemble() once every auto-derived host dependency is listed', () => {
-    const h = define({ scope: 'plugin' });
+    const h = server({ scope: 'plugin' });
     const Presence = plugin('acme:presence', {
-      handler: h.assemble({ handlers: [channel('room', replay({})) as any] }),
+      definition: h.assemble({ handlers: [channel('room', replay({})) as any] }),
     });
-    const base = define({
+    const base = server({
       capabilities: [dedup(), sequence({ persist: true }), Presence()],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -347,14 +349,14 @@ describe('plugin() — auto-derived host dependencies', () => {
 describe("plugin() — a plugin's own capability satisfies its own nested primitive's requirement", () => {
   /** A plugin that owns its channel — lists channels() itself, puts inbox() on that channel. */
   function buildFeed() {
-    const h = define({ scope: 'plugin', capabilities: [channels()] });
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
     const room = h.channel('room', { capabilities: [inbox()] });
-    return plugin('acme:feed', { handler: h.assemble({ handlers: [room] }) });
+    return plugin('acme:feed', { definition: h.assemble({ handlers: [room] }) });
   }
 
   it('assembles cleanly on a host that does not list channels() — the plugin owns it', () => {
     const Feed = buildFeed();
-    const base = define({
+    const base = server({
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -362,7 +364,7 @@ describe("plugin() — a plugin's own capability satisfies its own nested primit
 
   it('still requires the host to provide sequence(), naming the plugin', () => {
     const Feed = buildFeed();
-    const base = define({ capabilities: [dedup(), Feed()] });
+    const base = server({ capabilities: [dedup(), Feed()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(
       "[wskit] plugin('acme:feed') needs the sequence() capability the host does not list.",
     );
@@ -370,7 +372,7 @@ describe("plugin() — a plugin's own capability satisfies its own nested primit
 
   it('still requires the host to provide dedup(), naming the plugin', () => {
     const Feed = buildFeed();
-    const base = define({ capabilities: [sequence({ persist: true }), Feed()] });
+    const base = server({ capabilities: [sequence({ persist: true }), Feed()] });
     expect(() => base.assemble({ handlers: [] })).toThrow(
       "[wskit] plugin('acme:feed') needs the dedup() capability the host does not list.",
     );
@@ -399,7 +401,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
     };
   }
 
-  /** A minimal ChannelRuntime driven off the real compiled channel families of an assembled define. */
+  /** A minimal ChannelRuntime driven off the real compiled channel families of an assembled server. */
   function createChannelTestRuntime(compiled: {
     channels: Map<any, any>;
     channelFamilies: Map<any, any>;
@@ -437,14 +439,14 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
   }
 
   function buildThreadFeed() {
-    const h = define({ scope: 'plugin', capabilities: [channels()] });
+    const h = server({ scope: 'plugin', capabilities: [channels()] });
     const thread = h.channel(['thread', 'thread:{id}'], {});
-    return plugin('acme:feed', { handler: h.assemble({ handlers: [thread] }) });
+    return plugin('acme:feed', { definition: h.assemble({ handlers: [thread] }) });
   }
 
   it('subscribes to a plugin-owned dynamic family by its namespaced family key and bare concrete name, capturing {id}', async () => {
     const Feed = buildThreadFeed();
-    const base = define({
+    const base = server({
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
@@ -484,7 +486,7 @@ describe("plugin() — a plugin's dynamic channel family stays subscribable and 
 
   it("keeps a plugin's dynamic family isolated from a host family sharing the same bare key/template", async () => {
     const Feed = buildThreadFeed();
-    const base = define({
+    const base = server({
       capabilities: [sequence({ persist: true }), dedup(), channels(), Feed()],
     });
     const hostThread = base.channel(['thread', 'thread:{id}'], {});

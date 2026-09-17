@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { keepalive } from '@wskit/server/keepalive';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -9,7 +9,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * app's own `onPong` runs — which is only non-null if keepalive measured the
  * round-trip first.
  */
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 10_000 }),
@@ -23,6 +23,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { latency: ctx.latency, quality: ctx.quality });
 });
 
-export const heartbeatKeepaliveHandler = base.assemble({ handlers: [] });
+export const heartbeatKeepaliveDefinition = base.assemble({ handlers: [] });
 
-export type HeartbeatKeepaliveClient = InferClient<typeof heartbeatKeepaliveHandler>;
+export type HeartbeatKeepaliveClient = InferClient<typeof heartbeatKeepaliveDefinition>;

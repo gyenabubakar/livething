@@ -1,11 +1,11 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     emits({
@@ -94,7 +94,7 @@ const handleSendToTaggedMember = room.on('send-to-tagged-member', {
   },
 });
 
-export const ctxChannelsHandler = base.assemble({
+export const ctxChannelsDefinition = base.assemble({
   handlers: [
     handleGetMembers,
     handleGetMemberId,
@@ -106,4 +106,4 @@ export const ctxChannelsHandler = base.assemble({
   ],
 });
 
-export type CtxChannelsClient = InferClient<typeof ctxChannelsHandler>;
+export type CtxChannelsClient = InferClient<typeof ctxChannelsDefinition>;

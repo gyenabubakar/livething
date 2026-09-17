@@ -1,4 +1,4 @@
-import { define, emits, errors, t } from '@wskit/server';
+import { emits, errors, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { error } from '@wskit/server/errors';
@@ -22,7 +22,7 @@ const PluginFailure = error('plugin-failure', v.object({ reason: v.string() }));
 // the `room` channel's `inbox()` capability requires `sequence({ persist: true })`
 // and `dedup()`, which the host must list; that requirement is auto-derived from
 // the plugin's own capabilities, so it needs no dependsOn entry here.
-const h = define({
+const h = server({
   scope: 'plugin',
   capabilities: [
     resumableStream(),
@@ -209,7 +209,7 @@ const feedRecorded = h.recordedStream('feed-recorded', {
 });
 
 export const Feed = plugin('e2e:feed', {
-  handler: h.assemble({
+  definition: h.assemble({
     handlers: [
       hello,
       echo,

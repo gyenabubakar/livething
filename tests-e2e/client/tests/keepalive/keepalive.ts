@@ -3,8 +3,8 @@ import type { KeepaliveClient } from '@wskit/tests-e2e-handlers/keepalive';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's keepalive() + quality() against the real `keepalive`
-// handler, typed by the same contract the server implements
-// (KeepaliveClient = InferClient<handler>). The handler pings every 1s and
+// server definition, typed by the same contract the server implements
+// (KeepaliveClient = InferClient<definition>). The server definition pings every 1s and
 // closes after 2s of silence.
 export function setup(): void {
   mount(`

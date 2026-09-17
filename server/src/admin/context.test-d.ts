@@ -1,12 +1,12 @@
 import { channels } from '~/channel/capability.ts';
-import { define, emits, t } from '~/index.ts';
+import { server, emits, t } from '~/index.ts';
 import { scheduled } from '~/scheduled/capability.ts';
 import { expectTypeOf } from 'vitest';
 import type { UnlistedAdminContextMember } from './context.ts';
 
 // A top-level (app) assemble types its api ctx as the connectionless admin ctx:
 // engine-wide ops are present, per-connection members are not.
-const app = define({
+const app = server({
   capabilities: [emits({ ping: t<{ n: number }>() })],
 });
 const go = app.on('go', { run() {} });
@@ -48,7 +48,7 @@ app.assemble({
 });
 
 // Listing the owning capability puts the gated members back, typed.
-const full = define({
+const full = server({
   capabilities: [
     emits({ ping: t<{ n: number }>() }),
     channels(),

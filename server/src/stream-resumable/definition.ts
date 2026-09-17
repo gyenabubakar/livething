@@ -75,7 +75,7 @@ interface ResumableStreamConfig<
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { resumableStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
@@ -83,7 +83,7 @@ interface ResumableStreamConfig<
  * const RowChunk = t<{ row: number }>();
  * const PaginateCursor = v.object({ idx: v.number() });
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [resumableStream()],
  * });
  *

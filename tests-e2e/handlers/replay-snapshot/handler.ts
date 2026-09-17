@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -35,7 +35,7 @@ function reduceSnapshot(
   };
 }
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -129,7 +129,7 @@ export const handleUpdateRoomDoc = snapshotRoom.on('update-room-doc', {
   },
 });
 
-export const replaySnapshotHandler = base.assemble({
+export const replaySnapshotDefinition = base.assemble({
   handlers: [
     handleUpdateDoc,
     handleDeleteDoc,
@@ -140,4 +140,4 @@ export const replaySnapshotHandler = base.assemble({
   ],
 });
 
-export type ReplaySnapshotClient = InferClient<typeof replaySnapshotHandler>;
+export type ReplaySnapshotClient = InferClient<typeof replaySnapshotDefinition>;

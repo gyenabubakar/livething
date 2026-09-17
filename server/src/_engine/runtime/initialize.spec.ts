@@ -14,9 +14,9 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ConnectionBusy, InternalError } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { beginAlarmDelivery, registerAlarmSource, rescheduleAlarm } from '~/_engine/alarm.ts';
 import { connectionRuntime } from '~/_engine/engine.deps.ts';
 import { tagRefIndexKey } from '~/_engine/runtime/tag-index.ts';
@@ -64,9 +64,9 @@ function makeFakeStorage(opts?: { initialized?: boolean }) {
   return { storage, calls };
 }
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'roundtrip-bench',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
@@ -85,13 +85,13 @@ function buildEngine(handler: ServerDefinition): Engine {
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return captured;
 }
 
-async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
+async function initWithFakeStorage(definition: ServerDefinition, warm = false) {
   const { storage, calls } = makeFakeStorage();
 
   if (warm) {
@@ -99,13 +99,13 @@ async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
     // exist, exactly as a previous boot would have left them. A second,
     // separate engine instance then wakes against the same storage — the
     // real shape of a warm boot after a restart.
-    const warmup = buildEngine(handler);
+    const warmup = buildEngine(definition);
     warmup.core.storage = storage as never;
     await warmup.initialize();
     calls.length = 0;
   }
 
-  const engine = buildEngine(handler);
+  const engine = buildEngine(definition);
   engine.core.storage = storage as never;
   await engine.initialize();
 
@@ -119,22 +119,22 @@ const NumChunk = t<{ n: number }>();
 const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();
 
-const tinyBase = define({
+const tinyBase = server({
   capabilities: [emits({ notify: EmptyOut })],
 });
-const tinyHandler = tinyBase.assemble({
+const tinyDefinition = tinyBase.assemble({
   handlers: [tinyBase.on('noop', { input: Empty, run() {} })],
 });
 
-const alarmBase = define({
+const alarmBase = server({
   capabilities: [scheduled({ noop: null })],
 });
 alarmBase.scheduled('noop', { run() {} });
-const alarmHandler = alarmBase.assemble({
+const alarmDefinition = alarmBase.assemble({
   handlers: [],
 });
 
-const mediumBase = define({
+const mediumBase = server({
   hibernation: { enabled: true },
   capabilities: [
     clientRequests(),
@@ -149,7 +149,7 @@ const mediumRooms = mediumBase.channel(['rooms', 'room:{id}'], {
   capabilities: [emits({ posted: TextOut })],
 });
 mediumRooms.on('post', { input: Text, run() {} });
-const mediumHandler = mediumBase.assemble({
+const mediumDefinition = mediumBase.assemble({
   handlers: [
     mediumBase.on('join', { input: Empty, run() {} }),
     mediumBase.on('leave', { input: Empty, run() {} }),
@@ -179,7 +179,7 @@ function channelEmits(prefix: string) {
   };
 }
 
-const heavyBase = define({
+const heavyBase = server({
   hibernation: { enabled: true },
   capabilities: [
     dedup(),
@@ -256,16 +256,16 @@ for (const n of [1, 2, 3, 4, 5]) {
   heavyHandlers.push(ch);
 }
 
-const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
+const heavyDefinition = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('engine.initialize — sql.exec round-trip budget', () => {
   it('tiny (no schema features): cold boot issues 0 exec calls', async () => {
-    const { execCount } = await initWithFakeStorage(tinyHandler);
+    const { execCount } = await initWithFakeStorage(tinyDefinition);
     expect(execCount).toBe(0);
   });
 
   it('medium (channels + hibernation): cold boot exec budget', async () => {
-    const { execCount, calls } = await initWithFakeStorage(mediumHandler);
+    const { execCount, calls } = await initWithFakeStorage(mediumDefinition);
     if (execCount !== 6) {
       // eslint-disable-next-line no-console
       console.log(
@@ -281,7 +281,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
   });
 
   it('medium: WARM boot re-runs the schema hooks and skips the marker write', async () => {
-    const { execCount, calls } = await initWithFakeStorage(mediumHandler, true);
+    const { execCount, calls } = await initWithFakeStorage(mediumDefinition, true);
     if (execCount !== 5) {
       // eslint-disable-next-line no-console
       console.log(
@@ -298,7 +298,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
   });
 
   it('heavy (channels + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
-    const { execCount, calls } = await initWithFakeStorage(heavyHandler);
+    const { execCount, calls } = await initWithFakeStorage(heavyDefinition);
     if (execCount !== 15) {
       // eslint-disable-next-line no-console
       console.log(
@@ -336,7 +336,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
   });
 
   it('heavy: WARM boot re-runs every schema hook', async () => {
-    const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
+    const { execCount, calls } = await initWithFakeStorage(heavyDefinition, true);
     if (execCount !== 13) {
       // eslint-disable-next-line no-console
       console.log(
@@ -368,7 +368,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 describe('engine.initialize — freshBoot only on a truly empty DB', () => {
   async function initAndGetEngine(opts?: { initialized?: boolean }) {
     const { storage } = makeFakeStorage(opts);
-    const engine = buildEngine(mediumHandler);
+    const engine = buildEngine(mediumDefinition);
     engine.core.storage = storage as never;
     await engine.initialize();
 
@@ -394,7 +394,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
     const timers = createTestTimers();
 
     try {
-      const first = buildEngine(alarmHandler);
+      const first = buildEngine(alarmDefinition);
       first.core.storage = storage;
       first.core.timers = timers;
       await first.initialize();
@@ -406,7 +406,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
       expect(await timers.getAlarm()).toBe(41_000);
       beginAlarmDelivery(first.core);
 
-      const restarted = buildEngine(alarmHandler);
+      const restarted = buildEngine(alarmDefinition);
       restarted.core.storage = storage;
       restarted.core.timers = timers;
       await restarted.initialize();
@@ -421,7 +421,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
   it('keeps an earlier source deadline when a failed hook requests a later retry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
 
     try {
       await engine.initialize();
@@ -443,7 +443,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
   it('backs off an overdue failed source instead of immediately rearming it', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(20_000);
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
 
     try {
       await engine.initialize();
@@ -464,7 +464,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
   it('does not rearm a consumed retry when a successful hook reschedules', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(30_000);
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
 
     try {
       await engine.initialize();
@@ -494,7 +494,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
   });
 
   it('runs every alarm hook, then schedules its own retry', async () => {
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
     await engine.initialize();
 
     const events: string[] = [];
@@ -517,7 +517,7 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
   });
 
   it('rejects when the retry deadline cannot be persisted', async () => {
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
     await engine.initialize();
 
     engine.core.hooks.alarm.push(async () => {
@@ -532,12 +532,12 @@ describe('engine.handleAlarm — shared source failure does not starve later hoo
 
 describe('engine declaredErrorCodes', () => {
   it('includes the internal-error fallback code', () => {
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
     expect(engine.core.declaredErrorCodes.has(InternalError.code)).toBe(true);
   });
 
   it('includes built-in connection-busy errors', () => {
-    const engine = buildEngine(tinyHandler);
+    const engine = buildEngine(tinyDefinition);
     expect(engine.core.declaredErrorCodes.has(ConnectionBusy.code)).toBe(true);
   });
 });
@@ -546,7 +546,7 @@ describe('revalidate requires a persistent channel', () => {
   const channelCapabilities = { capabilities: [emits({ said: TextOut })] };
 
   it("throws at boot when a `membership: 'ephemeral'` channel has a .revalidate() hook", async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels()],
     });
     const room = base.channel('room', {
@@ -554,21 +554,21 @@ describe('revalidate requires a persistent channel', () => {
       membership: 'ephemeral',
       revalidate() {},
     });
-    const handler = base.assemble({ handlers: [room] });
+    const definition = base.assemble({ handlers: [room] });
 
-    await expect(initWithFakeStorage(handler)).rejects.toThrow(
+    await expect(initWithFakeStorage(definition)).rejects.toThrow(
       /Channel "room" has a \.revalidate\(\) hook but is not persistent/,
     );
   });
 
   it('boots fine when a persistent channel has a .revalidate() hook', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels()],
     });
     const room = base.channel('room', { ...channelCapabilities, revalidate() {} });
-    const handler = base.assemble({ handlers: [room] });
+    const definition = base.assemble({ handlers: [room] });
 
-    await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
+    await expect(initWithFakeStorage(definition)).resolves.toBeDefined();
   });
 });
 
@@ -576,7 +576,7 @@ describe('inbox requires a persistent channel', () => {
   const channelOutgoing = { capabilities: [emits({ said: TextOut })] };
 
   it("throws at boot when a `membership: 'ephemeral'` channel has inbox()", async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const room = base.channel('room', {
@@ -584,21 +584,21 @@ describe('inbox requires a persistent channel', () => {
       membership: 'ephemeral',
       capabilities: [inbox()],
     });
-    const handler = base.assemble({ handlers: [room] });
+    const definition = base.assemble({ handlers: [room] });
 
-    await expect(initWithFakeStorage(handler)).rejects.toThrow(
+    await expect(initWithFakeStorage(definition)).rejects.toThrow(
       /Channel "room" has inbox\(\) but is not persistent/,
     );
   });
 
   it('boots fine when a persistent channel has inbox()', async () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const room = base.channel('room', { capabilities: [emits({ said: TextOut }), inbox()] });
-    const handler = base.assemble({ handlers: [room] });
+    const definition = base.assemble({ handlers: [room] });
 
-    await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
+    await expect(initWithFakeStorage(definition)).resolves.toBeDefined();
   });
 });
 
@@ -618,9 +618,9 @@ describe('tags() restores persistent tags on reconnect', () => {
   }
 
   /** A warm boot (initialized storage present) creates real tables and leaves `freshBoot` false. */
-  async function bootWarm(handler: ServerDefinition): Promise<Engine> {
+  async function bootWarm(definition: ServerDefinition): Promise<Engine> {
     const { storage } = makeFakeStorage({ initialized: true });
-    const engine = buildEngine(handler);
+    const engine = buildEngine(definition);
     engine.core.storage = storage as never;
     await engine.initialize();
 
@@ -628,13 +628,13 @@ describe('tags() restores persistent tags on reconnect', () => {
   }
 
   it('restores a persistent tag on reconnect even with no channels() capability', async () => {
-    const base = define({
+    const base = server({
       capabilities: [tags((_ephemeral, persistent) => [persistent('role', t<string>())])],
     });
-    const handler = base.assemble({
+    const definition = base.assemble({
       handlers: [base.on('noop', { input: v.object({}), run() {} })],
     });
-    const engine = await bootWarm(handler);
+    const engine = await bootWarm(definition);
 
     // A previous session already ran `ctx.tags.persistent('role').add('admin')` —
     // the row is durable, but no live connection carries it yet.
@@ -649,15 +649,15 @@ describe('tags() restores persistent tags on reconnect', () => {
   });
 
   it('restores exactly once when both tags() and channels() are listed', async () => {
-    const base = define({
+    const base = server({
       capabilities: [
         tags((_ephemeral, persistent) => [persistent('role', t<string>())]),
         channels(),
       ],
     });
     const room = base.channel('room', { capabilities: [emits({ said: t<{ text: string }>() })] });
-    const handler = base.assemble({ handlers: [room] });
-    const engine = await bootWarm(handler);
+    const definition = base.assemble({ handlers: [room] });
+    const engine = await bootWarm(definition);
 
     insertTag(engine.core.storage.sql, { userId: 'u-1', group: 'role', key: 'admin' });
     insertMembership(engine.core.storage.sql, {
@@ -703,19 +703,19 @@ describe('a capability added after storage was already initialized', () => {
   it("creates that capability's tables on the next boot against the same storage", async () => {
     const storage = createTestStorage();
 
-    const firstBase = define({
+    const firstBase = server({
       capabilities: [channels()],
     });
     const firstRoom = firstBase.channel('room', {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });
-    const firstHandler = firstBase.assemble({ handlers: [firstRoom] });
-    const firstEngine = buildEngine(firstHandler);
+    const firstDefinition = firstBase.assemble({ handlers: [firstRoom] });
+    const firstEngine = buildEngine(firstDefinition);
     firstEngine.core.storage = storage as never;
 
     await firstEngine.initialize();
 
-    const secondBase = define({
+    const secondBase = server({
       capabilities: [
         channels(),
         tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -724,8 +724,8 @@ describe('a capability added after storage was already initialized', () => {
     const secondRoom = secondBase.channel('room', {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });
-    const secondHandler = secondBase.assemble({ handlers: [secondRoom] });
-    const secondEngine = buildEngine(secondHandler);
+    const secondDefinition = secondBase.assemble({ handlers: [secondRoom] });
+    const secondEngine = buildEngine(secondDefinition);
     secondEngine.core.storage = storage as never;
 
     await secondEngine.initialize();

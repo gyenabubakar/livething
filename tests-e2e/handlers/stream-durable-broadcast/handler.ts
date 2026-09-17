@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { recordedStream, resumableStream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -10,7 +10,7 @@ const TokenChunk = t<{ token: string }>();
 const RowChunk = t<{ row: number }>();
 const AttemptChunk = t<{ attempt: number }>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), recordedStream(), resumableStream()],
 });
@@ -80,8 +80,8 @@ const handleFeedNudged = rooms.recordedStream('feed-nudged', {
   },
 });
 
-export const streamDurableBroadcastHandler = base.assemble({
+export const streamDurableBroadcastDefinition = base.assemble({
   handlers: [handleFeed, handlePaginate, handleAttemptBroadcast, handleFeedNudged],
 });
 
-export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastHandler>;
+export type StreamDurableBroadcastClient = InferClient<typeof streamDurableBroadcastDefinition>;

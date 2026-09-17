@@ -1,10 +1,10 @@
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import { clientRequests } from '@wskit/server/client-requests';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [clientRequests()],
 });
@@ -25,6 +25,6 @@ const handleDoRequest = base.request('do-request', {
   },
 });
 
-export const errorHookIsolationHandler = base.assemble({ handlers: [handleDoRequest] });
+export const errorHookIsolationDefinition = base.assemble({ handlers: [handleDoRequest] });
 
-export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationHandler>;
+export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationDefinition>;

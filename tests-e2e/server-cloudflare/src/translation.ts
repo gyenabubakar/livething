@@ -1,10 +1,10 @@
-import { define, emits, t, translator } from '@wskit/server';
+import { emits, server, t, translator } from '@wskit/server';
 import { bind } from '@wskit/server-cloudflare';
 import { requireUsername } from '@wskit/tests-e2e-handlers/_shared/upgrade';
 import {
-  translationHandler,
-  translationInboundOnlyHandler,
-  translationPassThroughHandler,
+  translationDefinition,
+  translationInboundOnlyDefinition,
+  translationPassThroughDefinition,
 } from '@wskit/tests-e2e-handlers/translation';
 import * as v from 'valibot';
 
@@ -41,7 +41,7 @@ const hibernationForeignProtocol = translator(() => {
   };
 });
 
-const hibernationBase = define({
+const hibernationBase = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsername(request),
   translate: hibernationForeignProtocol,
@@ -55,14 +55,14 @@ const hibernationEcho = hibernationBase.on('echo', {
   },
 });
 
-const translationHibernationHandler = hibernationBase.assemble({
+const translationHibernationDefinition = hibernationBase.assemble({
   handlers: [hibernationEcho],
 });
 
-export class TranslationServer extends bind(translationHandler) {}
+export class TranslationServer extends bind(translationDefinition) {}
 
-export class TranslationPassThroughServer extends bind(translationPassThroughHandler) {}
+export class TranslationPassThroughServer extends bind(translationPassThroughDefinition) {}
 
-export class TranslationInboundOnlyServer extends bind(translationInboundOnlyHandler) {}
+export class TranslationInboundOnlyServer extends bind(translationInboundOnlyDefinition) {}
 
-export class TranslationHibernationServer extends bind(translationHibernationHandler) {}
+export class TranslationHibernationServer extends bind(translationHibernationDefinition) {}

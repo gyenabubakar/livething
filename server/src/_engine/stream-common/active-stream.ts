@@ -72,7 +72,7 @@ export interface ActiveStreamHandle {
  * `iterator.next(value)` call.
  */
 export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHandle {
-  // Backstop for any authoring path the define-time factory checks don't cover
+  // Backstop for any authoring path the server-time factory checks don't cover
   // (e.g. a lower-level builder): a non-positive highWaterMark would make drain()
   // poll to its cap before resolving, so refuse it loudly at stream start.
   assertValidHighWaterMark(input.highWaterMark, `stream("${input.event}")`);

@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { scheduled } from './capability.ts';
@@ -18,17 +18,17 @@ function scheduledPrimitive(primitives: readonly { __wskit: string }[]): AnySche
 
 describe('scheduled() capability', () => {
   it('registers a declaration body into one bootable task', () => {
-    const base = define({ capabilities: [scheduled({ cleanup: null })] });
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
     base.scheduled('cleanup', { run() {} });
-    const handler = base.assemble({ handlers: [] });
-    const compiled = compileHandlerDefinition(handler);
+    const definition = base.assemble({ handlers: [] });
+    const compiled = compileHandlerDefinition(definition);
     expect(compiled.scheduled.has('cleanup')).toBe(true);
 
-    expect(scheduledPrimitive(handler.primitives).hasData).toBe(false);
+    expect(scheduledPrimitive(definition.primitives).hasData).toBe(false);
   });
 
   it('marks a task that declares typed data as carrying data', () => {
-    const base = define({
+    const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>(), retry: true } })],
     });
     base.scheduled('report', { run() {} });
@@ -38,7 +38,7 @@ describe('scheduled() capability', () => {
   });
 
   it('carries the recurring interval onto the task primitive', () => {
-    const base = define({
+    const base = server({
       capabilities: [scheduled({ heartbeat: { every: 30_000 } })],
     });
     base.scheduled('heartbeat', { run() {} });
@@ -47,12 +47,12 @@ describe('scheduled() capability', () => {
   });
 
   it('throws when a declared task has no body', () => {
-    const base = define({ capabilities: [scheduled({ cleanup: null })] });
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
     expect(() => base.assemble({ handlers: [] })).toThrow(/No body for scheduled task 'cleanup'/);
   });
 
   it('throws when the same task is registered twice', () => {
-    const base = define({ capabilities: [scheduled({ cleanup: null })] });
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
     base.scheduled('cleanup', { run() {} });
     expect(() => base.scheduled('cleanup', { run() {} })).toThrow(
       /Duplicate scheduled task 'cleanup'/,
@@ -60,7 +60,7 @@ describe('scheduled() capability', () => {
   });
 
   it('passes trusted data to the registered body at runtime', async () => {
-    const base = define({
+    const base = server({
       capabilities: [scheduled({ report: { data: t<{ userId: string }>() } })],
     });
     const run = vi.fn();
@@ -73,7 +73,7 @@ describe('scheduled() capability', () => {
   });
 
   it('runs a no-data task body with only the context', async () => {
-    const base = define({ capabilities: [scheduled({ cleanup: null })] });
+    const base = server({ capabilities: [scheduled({ cleanup: null })] });
     const run = vi.fn();
     base.scheduled('cleanup', { run });
     const primitive = scheduledPrimitive(base.assemble({ handlers: [] }).primitives);
@@ -84,7 +84,7 @@ describe('scheduled() capability', () => {
   });
 
   it('throws when a scheduled body has no matching declaration', () => {
-    const base = define({});
+    const base = server({});
     const escapeHatch = base as unknown as {
       scheduled(taskId: string, config: { run: () => void }): unknown;
     };

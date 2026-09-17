@@ -10,8 +10,8 @@ import { clientRequests } from '~/request/client-requests.ts';
 import { translator } from '~/translation/translator.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { define } from './define.ts';
 import { plugin } from './plugins.ts';
+import { server } from './server.ts';
 import type { AnyCapability } from './capability.ts';
 
 type DispatchRuntime = Parameters<typeof dispatchIncoming>[0];
@@ -20,7 +20,7 @@ type DispatchConnection = Parameters<typeof dispatchIncoming>[1];
 const NotFound = error('not-found', v.object({ id: v.string() }));
 
 function makeBase() {
-  return define({
+  return server({
     upgrade(request) {
       const username = new URL(request.url).searchParams.get('username') ?? 'anon';
       return { userId: username, meta: { username } };
@@ -29,15 +29,15 @@ function makeBase() {
   });
 }
 
-describe('define() send/receive core', () => {
+describe('server() send/receive core', () => {
   it('rejects a capability listed more than once', () => {
     const capabilities: AnyCapability[] = [channels(), channels()];
-    expect(() => define({ capabilities })).toThrow(/channels\(\) is listed more than once/);
+    expect(() => server({ capabilities })).toThrow(/channels\(\) is listed more than once/);
   });
 
   it('rejects a duplicate capability in a plugin-scoped definition', () => {
     const capabilities: AnyCapability[] = [emits({ first: t<{}>() }), emits({ second: t<{}>() })];
-    expect(() => define({ scope: 'plugin', capabilities })).toThrow(
+    expect(() => server({ scope: 'plugin', capabilities })).toThrow(
       /emits\(\) is listed more than once/,
     );
   });
@@ -56,14 +56,14 @@ describe('define() send/receive core', () => {
       ctx.send('welcome', { username: ctx.meta.username });
     });
 
-    const handler = base.assemble({ handlers: [handlePing] });
-    const compiled = compileHandlerDefinition(handler);
+    const definition = base.assemble({ handlers: [handlePing] });
+    const compiled = compileHandlerDefinition(definition);
 
     expect(compiled.incoming.has('echo')).toBe(true);
     expect(compiled.outgoing.has('welcome')).toBe(true);
-    expect(handler.primitives.some((p) => p.__wskit === 'onUpgrade')).toBe(true);
-    expect(handler.primitives.some((p) => p.__wskit === 'onConnect')).toBe(true);
-    expect(handler.primitives.some((p) => p.__wskit === 'errors')).toBe(true);
+    expect(definition.primitives.some((p) => p.__wskit === 'onUpgrade')).toBe(true);
+    expect(definition.primitives.some((p) => p.__wskit === 'onConnect')).toBe(true);
+    expect(definition.primitives.some((p) => p.__wskit === 'errors')).toBe(true);
   });
 
   it('accepts a handler with no input schema, typing the payload as unknown', () => {
@@ -78,7 +78,7 @@ describe('define() send/receive core', () => {
   });
 
   it('uses ordered work for on handlers and interleaved work for requests by default', () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const incoming = base.on('incoming', { run() {} });
     const request = base.request('request', { run() {} });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [incoming, request] }));
@@ -88,7 +88,7 @@ describe('define() send/receive core', () => {
   });
 
   it('only enables handlers passed to assemble at every scope', async () => {
-    const top = define({});
+    const top = server({});
     const runTop = vi.fn();
     const runTopHidden = vi.fn();
     const topActive = top.on('top-active', { run: runTop });
@@ -97,20 +97,20 @@ describe('define() send/receive core', () => {
     const topCompiled = compileHandlerDefinition(top.assemble({ handlers: [topActive] }));
     expect(topCompiled.incoming.has('top-hidden')).toBe(false);
 
-    const scoped = define({ scope: 'plugin' });
+    const scoped = server({ scope: 'plugin' });
     const runPlugin = vi.fn();
     const runPluginHidden = vi.fn();
     const pluginActive = scoped.on('plugin-active', { run: runPlugin });
     scoped.on('plugin-hidden', { run: runPluginHidden });
 
     const HiddenPlugin = plugin('acme:hidden', {
-      handler: scoped.assemble({ handlers: [pluginActive] }),
+      definition: scoped.assemble({ handlers: [pluginActive] }),
     });
-    const host = define({ capabilities: [HiddenPlugin()] });
+    const host = server({ capabilities: [HiddenPlugin()] });
     const pluginCompiled = compileHandlerDefinition(host.assemble({ handlers: [] }));
     expect(pluginCompiled.incoming.has('__acme:hidden::plugin-hidden')).toBe(false);
 
-    const channelBase = define({ capabilities: [channels()] });
+    const channelBase = server({ capabilities: [channels()] });
     const room = channelBase.channel('room', {});
     const runChannel = vi.fn();
     const runChannelHidden = vi.fn();
@@ -205,7 +205,7 @@ describe('define() send/receive core', () => {
   });
 
   it('adds every event declared by one emits capability to the outgoing surface', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         emits({
           welcome: t<{ username: string }>(),
@@ -219,22 +219,22 @@ describe('define() send/receive core', () => {
   });
 
   it('wires hibernation into a primitive and the feature set when enabled', () => {
-    const base = define({ hibernation: { enabled: true } });
-    const handler = base.assemble({ handlers: [] });
-    expect(handler.primitives.some((p) => p.__wskit === 'hibernation')).toBe(true);
-    expect(handler.__features?.has('hibernation')).toBe(true);
+    const base = server({ hibernation: { enabled: true } });
+    const definition = base.assemble({ handlers: [] });
+    expect(definition.primitives.some((p) => p.__wskit === 'hibernation')).toBe(true);
+    expect(definition.__features?.has('hibernation')).toBe(true);
   });
 
   it('omits hibernation when not enabled', () => {
-    const base = define({});
-    const handler = base.assemble({ handlers: [] });
-    expect(handler.primitives.some((p) => p.__wskit === 'hibernation')).toBe(false);
-    expect(handler.__features?.has('hibernation')).toBe(false);
+    const base = server({});
+    const definition = base.assemble({ handlers: [] });
+    expect(definition.primitives.some((p) => p.__wskit === 'hibernation')).toBe(false);
+    expect(definition.__features?.has('hibernation')).toBe(false);
   });
 
   it('retains one translator factory on the assembled server definition', () => {
     const translate = translator(() => ({ inbound: (raw) => raw }));
-    const base = define({ translate });
+    const base = server({ translate });
 
     expect(base.assemble({ handlers: [] }).__translate).toBe(translate);
   });
@@ -278,7 +278,7 @@ describe('define() send/receive core', () => {
   });
 
   it('throws when one event name is bound by both an on and a request handler', () => {
-    const base = define({ capabilities: [clientRequests()] });
+    const base = server({ capabilities: [clientRequests()] });
     const asEvent = base.on('shared', { input: v.object({}), run() {} });
     const asRequest = base.request('shared', { input: v.object({}), run() {} });
     expect(() => base.assemble({ handlers: [asEvent, asRequest] })).toThrow(
@@ -287,37 +287,37 @@ describe('define() send/receive core', () => {
   });
 });
 
-describe('define({ users }) maxConnections validation', () => {
+describe('server({ users }) maxConnections validation', () => {
   it('rejects maxConnections: 0', () => {
-    const base = define({
+    const base = server({
       users: { maxConnections: 0, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
   });
 
   it('rejects a negative maxConnections', () => {
-    const base = define({
+    const base = server({
       users: { maxConnections: -1, onExceed: 'reject' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
   });
 
   it('rejects a non-integer maxConnections', () => {
-    const base = define({
+    const base = server({
       users: { maxConnections: 2.5, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).toThrow(/maxConnections/);
   });
 
   it('accepts a positive integer maxConnections', () => {
-    const base = define({
+    const base = server({
       users: { maxConnections: 3, onExceed: 'replace' },
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 
   it('accepts users config with maxConnections omitted', () => {
-    const base = define({
+    const base = server({
       users: { onExceed: 'reject' },
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();

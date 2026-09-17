@@ -1,11 +1,11 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [dedup(), channels(), emits({ echoed: t<{ text: string }>() })],
 });
@@ -21,6 +21,6 @@ const room = base.channel('room', {
   capabilities: [emits({})],
 });
 
-export const dedupHandler = base.assemble({ handlers: [handleDoEcho, room] });
+export const dedupDefinition = base.assemble({ handlers: [handleDoEcho, room] });
 
-export type DedupClient = InferClient<typeof dedupHandler>;
+export type DedupClient = InferClient<typeof dedupDefinition>;

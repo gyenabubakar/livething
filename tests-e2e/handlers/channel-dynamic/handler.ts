@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { ValidationFailed } from '@wskit/server/errors';
 import * as v from 'valibot';
@@ -9,7 +9,7 @@ const SendMessagePayload = v.object({ text: v.string() });
 
 const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -143,7 +143,7 @@ const protoProbe = base.channel(['proto-probe', 'proto:{id}'], {
   },
 });
 
-export const channelDynamicHandler = base.assemble({
+export const channelDynamicDefinition = base.assemble({
   handlers: [
     handleTopOnlyAction,
     handleTriggerServerSubscribeDynamic,
@@ -155,4 +155,4 @@ export const channelDynamicHandler = base.assemble({
   ],
 });
 
-export type ChannelDynamicClient = InferClient<typeof channelDynamicHandler>;
+export type ChannelDynamicClient = InferClient<typeof channelDynamicDefinition>;

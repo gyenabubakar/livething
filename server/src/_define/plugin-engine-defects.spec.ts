@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitError } from '@wskit/core';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { emits } from '~/emits/emits.ts';
 import { errors } from '~/errors/capability.ts';
@@ -34,7 +34,7 @@ function findPrimitive(primitives: readonly any[], wskit: string, event: string)
 
 describe('plugin engine defect — a plugin can emit its own declared event', () => {
   it('sends a scoped emits() event out on the wire as __<id>::<name>', () => {
-    const h = define({
+    const h = server({
       scope: 'plugin',
       capabilities: [emits({ 'own-event': t<{ ok: boolean }>() })],
     });
@@ -44,8 +44,8 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
         ctx.send('own-event', { ok: true });
       },
     });
-    const base = define({
-      capabilities: [plugin('e2e:drizzle', { handler: h.assemble({ handlers: [beat] }) })()],
+    const base = server({
+      capabilities: [plugin('e2e:drizzle', { definition: h.assemble({ handlers: [beat] }) })()],
     });
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
 
@@ -69,7 +69,7 @@ describe('plugin engine defect — a plugin can emit its own declared event', ()
   });
 
   it('still rejects a genuinely undeclared __x__ event', () => {
-    const base = define({});
+    const base = server({});
     const compiled = compileHandlerDefinition(base.assemble({ handlers: [] }));
     const connection = { id: 'c', meta: {}, descriptor: { send() {} } } as any;
 
@@ -87,7 +87,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
   const Denied = error('denied', v.object({ reason: v.string() }));
 
   function buildAuthPlugin() {
-    const h = define({
+    const h = server({
       scope: 'plugin',
       capabilities: [emits({ done: t<{}>() }), errors([Denied])],
     });
@@ -112,7 +112,7 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
     });
 
     return plugin('acme:auth', {
-      handler: h.assemble({ handlers: [sync, asyncDeny, undeclared] }),
+      definition: h.assemble({ handlers: [sync, asyncDeny, undeclared] }),
     })();
   }
 
@@ -175,10 +175,10 @@ describe('plugin engine defect — a plugin can throw its own declared typed err
   });
 
   it('does not wrap handlers when the plugin declares no errors', () => {
-    const h = define({ scope: 'plugin', capabilities: [emits({ done: t<{}>() })] });
+    const h = server({ scope: 'plugin', capabilities: [emits({ done: t<{}>() })] });
     const original = vi.fn();
     const go = h.on('go', { input: v.object({}), run: original });
-    const { __primitives } = plugin('acme:plain', { handler: h.assemble({ handlers: [go] }) })();
+    const { __primitives } = plugin('acme:plain', { definition: h.assemble({ handlers: [go] }) })();
     const incoming = findPrimitive(__primitives, 'incoming', '__acme:plain::go');
 
     incoming.handler({ id: 'c1' }, {});

@@ -6,7 +6,7 @@
  * for every brand simultaneously.
  */
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { lastSeen } from '~/last-seen/capability.ts';
@@ -23,7 +23,7 @@ import type { AnyCapability } from '~/_define/capability.ts';
 // ---------------------------------------------------------------------------
 
 declare const widenedCaps: AnyCapability[];
-const base = define({ capabilities: widenedCaps });
+const base = server({ capabilities: widenedCaps });
 
 // channels() cannot be confirmed listed either, once the array has widened —
 // every gate closes together, so `base.channel` itself is gone, not just its
@@ -59,19 +59,19 @@ base.on('ping', {
 // exactly what it lists.
 // ---------------------------------------------------------------------------
 
-const rateLimitBase = define({
+const rateLimitBase = server({
   capabilities: [channels(), rateLimit({ max: 5 })],
 });
 rateLimitBase.channel('room', { rateLimit: { enabled: true, max: 5 } });
 
-const requestsBase = define({
+const requestsBase = server({
   capabilities: [channels(), serverRequests()],
 });
 requestsBase.channel('room2', {
   capabilities: [serverRequests({ ask: { out: t<{}>(), in: v.object({}) } })],
 });
 
-const channelsBase = define({
+const channelsBase = server({
   capabilities: [channels()],
 });
 channelsBase.on('ping', {
@@ -81,7 +81,7 @@ channelsBase.on('ping', {
   },
 });
 
-const scheduledBase = define({
+const scheduledBase = server({
   capabilities: [scheduled({ task: null })],
 });
 scheduledBase.on('ping', {
@@ -91,7 +91,7 @@ scheduledBase.on('ping', {
   },
 });
 
-const keepaliveBase = define({
+const keepaliveBase = server({
   capabilities: [keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 60_000 })],
 });
 keepaliveBase.on('ping', {
@@ -101,7 +101,7 @@ keepaliveBase.on('ping', {
   },
 });
 
-const lastSeenBase = define({
+const lastSeenBase = server({
   capabilities: [lastSeen()],
 });
 lastSeenBase.on('ping', {
@@ -111,7 +111,7 @@ lastSeenBase.on('ping', {
   },
 });
 
-const replayBase = define({
+const replayBase = server({
   capabilities: [replay.history()],
 });
 replayBase.on('ping', {

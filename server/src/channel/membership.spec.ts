@@ -1,5 +1,5 @@
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { channels } from '~/channel/capability.ts';
 import {
@@ -248,11 +248,11 @@ describe('durable membership is the channel default', () => {
 
   /** Build and initialize a real engine, exposing its core's real SQLite storage. */
   async function buildEngine(
-    handler: ServerDefinition,
+    definition: ServerDefinition,
   ): Promise<{ engine: Engine; sql: SQLProvider }> {
     const sql = createTestSql();
     let engine!: Engine;
-    const server = adapter({
+    const runAdapter = adapter({
       id: 'test',
       asyncContextFactory: passthroughAsyncContext(),
       setup(createEngine) {
@@ -269,7 +269,7 @@ describe('durable membership is the channel default', () => {
         return {};
       },
     });
-    server(handler, {} as never);
+    runAdapter(definition, {} as never);
     await engine.initialize();
 
     return { engine, sql };
@@ -278,7 +278,7 @@ describe('durable membership is the channel default', () => {
   function makeHandler(
     channelConfig: { membership?: 'persistent' | 'ephemeral' } = {},
   ): ServerDefinition {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const room = base.channel('room', channelConfig);
     const noop = room.on('noop', { run() {} });
     return base.assemble({ handlers: [noop] });

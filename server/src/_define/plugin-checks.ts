@@ -43,7 +43,7 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
       const name = capabilityDisplayName(kind);
       throw new Error(
         `[wskit] plugin('${pluginCap.__pluginId}') needs the ${name} capability the host does not ` +
-          `list. Add ${name} to define({ capabilities: [...] }) — a plugin declares prerequisites ` +
+          `list. Add ${name} to server({ capabilities: [...] }) — a plugin declares prerequisites ` +
           'instead of owning host engines.',
       );
     }
@@ -51,8 +51,8 @@ export function assertPluginDependencies(capabilities: readonly AnyCapability[])
 }
 
 /**
- * Backstop the compile gate on `DefineConfig.capabilities` /
- * `ScopedDefineConfig.capabilities`: a channel-only capability (`inbox()`,
+ * Backstop the compile gate on `ServerConfig.capabilities` /
+ * `ScopedServerConfig.capabilities`: a channel-only capability (`inbox()`,
  * `readReceipts()`) listed at the host or plugin top level throws a clear
  * build error. Covers the dynamic case where a capability array is built at
  * runtime and the `__channelOnly` brand never fires at the call site.
@@ -65,7 +65,7 @@ export function assertNoChannelOnlyCapabilities(capabilities: readonly AnyCapabi
     const name = capabilityDisplayName(kind);
     throw new Error(
       `[wskit] ${name} is channel-only. List it in a channel's own \`capabilities\` array — ` +
-        `base.channel(name, { capabilities: [${name}] }) — not in define({ capabilities: [...] }).`,
+        `base.channel(name, { capabilities: [${name}] }) — not in server({ capabilities: [...] }).`,
     );
   }
 }

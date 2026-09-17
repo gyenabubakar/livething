@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -18,7 +18,7 @@ import type { RoomMsg } from './events.ts';
 // `plain` has no inbox config at all, so its handle's `.inbox()` must return
 // `null`. `lastSeen()` rides along so `backlog()` fills each member's
 // `lastSeenAt` instead of omitting the field.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -114,7 +114,7 @@ export const handleAskBacklog = base.on('ask-backlog', {
 
 // Both channels carry the `inbox: true` / no-flag client-contract shape needed
 // for `InferClient` to type the receipts surface only where it applies.
-export const inboxHandleHandler = base.assemble({
+export const inboxHandleDefinition = base.assemble({
   handlers: [
     handleServerDrop,
     handleSendRoomMsg,
@@ -126,4 +126,4 @@ export const inboxHandleHandler = base.assemble({
   ],
 });
 
-export type InboxHandleClient = InferClient<typeof inboxHandleHandler>;
+export type InboxHandleClient = InferClient<typeof inboxHandleDefinition>;

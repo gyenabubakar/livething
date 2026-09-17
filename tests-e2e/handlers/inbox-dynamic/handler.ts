@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -19,7 +19,7 @@ import type { RoomMsg, TopMsg } from './events.ts';
 // concrete (family, name) pair the member joined, not the family alone. The
 // host's top-level `replay.history()` events keep their own sequence
 // numbers, independent of a room's per-member inbox seq.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -75,8 +75,8 @@ export const handleSendRoomMsg = rooms.on('send-room-msg', {
 // `rooms` carries the `inbox: true` / `readReceipts: true` client-contract
 // flags, so it is passed to `assemble` for `InferClient` to expose the
 // inbox/readReceipts surface for the family.
-export const inboxDynamicHandler = base.assemble({
+export const inboxDynamicDefinition = base.assemble({
   handlers: [handleServerDrop, handleSendTopMsg, handleAddFavorite, handleSendRoomMsg, rooms],
 });
 
-export type InboxDynamicClient = InferClient<typeof inboxDynamicHandler>;
+export type InboxDynamicClient = InferClient<typeof inboxDynamicDefinition>;

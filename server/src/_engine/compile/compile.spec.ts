@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WIRE_LIMITS } from '@wskit/core';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { clientRequests } from '~/request/client-requests.ts';
@@ -34,7 +34,7 @@ function serverDef(
 
 describe('boot-time cross-primitive collision guard', () => {
   it('rejects the same event used as both stream and resumableStream at top level', () => {
-    const base = define({
+    const base = server({
       capabilities: [stream(), resumableStream()],
     });
     const asStream = base.stream('feed', { async *run() {} });
@@ -45,7 +45,7 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the same event used as both resumableStream and recordedStream', () => {
-    const base = define({
+    const base = server({
       capabilities: [resumableStream(), recordedStream()],
     });
     const asResumable = base.resumableStream('feed', { async *run() {} });
@@ -56,7 +56,7 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the same event used as incoming + recordedStream', () => {
-    const base = define({ capabilities: [recordedStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const asIncoming = base.on('feed', { run() {} });
     const asRecorded = base.recordedStream('feed', { async *run() {} });
     expect(() => compileHandlerDefinition(serverDef([asIncoming, asRecorded]))).toThrow(
@@ -65,7 +65,7 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the collision inside a channel scope', () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), stream(), recordedStream()],
     });
     const rooms = base.channel('rooms', {});
@@ -77,7 +77,7 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the collision inside a channel-family scope', () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), stream(), resumableStream()],
     });
     const rooms = base.channel(['rooms', 'room:{id}'], {});
@@ -89,7 +89,7 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('allows the same event in different scopes', () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), stream(), recordedStream()],
     });
     const topFeed = base.stream('feed', { async *run() {} });
@@ -103,7 +103,7 @@ describe('boot-time cross-primitive collision guard', () => {
 
 describe('static and family channel scope guard', () => {
   it('rejects a family pattern that claims a static channel name', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const staticChannel = base.channel('alpha', {});
     const family = base.channel(['rooms', 'alpha'], {});
 
@@ -115,28 +115,28 @@ describe('static and family channel scope guard', () => {
 
 describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel('@chat', {})] })),
     ).toThrow(/channel name '@chat' starts with a reserved prefix character/);
   });
 
   it('rejects a channel name starting with #', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel('#chat', {})] })),
     ).toThrow(/channel name '#chat' starts with a reserved prefix character/);
   });
 
   it('rejects a channel name containing ::', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel('chat::rooms', {})] })),
     ).toThrow(/channel name 'chat::rooms' contains '::'/);
   });
 
   it('rejects a channel family key starting with @', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(
         base.assemble({ handlers: [base.channel(['@rooms', 'room:{id}'], {})] }),
@@ -145,7 +145,7 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a top-level event name containing ::', () => {
-    const base = define({});
+    const base = server({});
     expect(() =>
       compileHandlerDefinition(
         base.assemble({ handlers: [base.on('send::message', { run() {} })] }),
@@ -154,19 +154,19 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a top-level event name ending with __', () => {
-    const base = define({});
+    const base = server({});
     expect(() => base.on('message__', { run() {} })).toThrow(/reserved '__' suffix/);
   });
 
   it('rejects request and emit names ending with __', () => {
-    const requestBase = define({ capabilities: [clientRequests()] });
+    const requestBase = server({ capabilities: [clientRequests()] });
     expect(() => requestBase.request('ask__', { run() {} })).toThrow(/reserved '__' suffix/);
     expect(() => serverRequests({ answer__: { out: t<{}>() } })).toThrow(/reserved '__' suffix/);
     expect(() => emits({ update__: t<{}>() })).toThrow(/reserved '__' suffix/);
   });
 
   it('rejects channel outgoing requests and scheduled task ids ending with __', () => {
-    const base = define({ capabilities: [channels(), serverRequests()] });
+    const base = server({ capabilities: [channels(), serverRequests()] });
     expect(() =>
       base.channel('room', { capabilities: [serverRequests({ answer__: { out: t<{}>() } })] }),
     ).toThrow(/reserved '__' suffix/);
@@ -175,7 +175,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects a declared event name longer than the wire limit', () => {
     const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
-    const base = define({});
+    const base = server({});
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.on(tooLong, { run() {} })] })),
     ).toThrow(/the wire protocol limit\s+is 128/);
@@ -183,14 +183,14 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects a declared channel name longer than the wire limit', () => {
     const tooLong = 'c'.repeat(WIRE_LIMITS.channel + 1);
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel(tooLong, {})] })),
     ).toThrow(/channel name is \d+ characters; the wire protocol limit is 256/);
   });
 
   it('rejects an event name containing :: inside a channel', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const chat = base.channel('chat', {});
     const send = chat.on('send::message', { run() {} });
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [send] }))).toThrow(
@@ -199,7 +199,7 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a stream event name containing ::', () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     expect(() =>
       compileHandlerDefinition(
         base.assemble({ handlers: [base.stream('count::up', { async *run() {} })] }),
@@ -208,7 +208,7 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('allows ordinary names with @, #, and : at non-start positions', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const chat = base.channel('chat@v1', {});
     const handle = base.on('user:created', { run() {} });
     expect(() =>
@@ -218,7 +218,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('allows a dynamic family key at the channelFamily wire limit', () => {
     const key = 'k'.repeat(WIRE_LIMITS.channelFamily);
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
     ).not.toThrow();
@@ -226,7 +226,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects a dynamic family key one over the channelFamily wire limit', () => {
     const key = 'k'.repeat(WIRE_LIMITS.channelFamily + 1);
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel([key, 'room:{id}'], {})] })),
     ).toThrow(/channel name is \d+ characters; the wire protocol limit is 128/);
@@ -234,7 +234,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('allows a static channel name up to the larger channel wire limit', () => {
     const name = 'c'.repeat(WIRE_LIMITS.channel);
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     expect(() =>
       compileHandlerDefinition(base.assemble({ handlers: [base.channel(name, {})] })),
     ).not.toThrow();
@@ -242,7 +242,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects an ephemeral stream nudge name over the wire limit', () => {
     const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     const handle = base.stream('feed', {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
@@ -254,7 +254,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects a resumable stream nudge name over the wire limit', () => {
     const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
-    const base = define({ capabilities: [resumableStream()] });
+    const base = server({ capabilities: [resumableStream()] });
     const handle = base.resumableStream('feed', {
       nudges: { [tooLong]: v.object({}) },
       async *run() {},
@@ -266,7 +266,7 @@ describe('scope and event name syntax — reserved characters', () => {
 
   it('rejects a recorded stream nudge name over the wire limit', () => {
     const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
-    const base = define({ capabilities: [recordedStream()] });
+    const base = server({ capabilities: [recordedStream()] });
     const handle = base.recordedStream('feed', {
       maxChunks: 10,
       nudges: { [tooLong]: v.object({}) },
@@ -287,7 +287,7 @@ describe('boot-time same-kind duplicate guard', () => {
   // so the server refuses to start.
 
   it('rejects two incoming declarations with the same event name at top level', () => {
-    const base = define({});
+    const base = server({});
     const first = base.on('same', { run() {} });
     const second = base.on('same', { run() {} });
     expect(() => compileHandlerDefinition(serverDef([first, second]))).toThrow(
@@ -296,7 +296,7 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('rejects two channel declarations with the same name', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const roomA = base.channel('room', {});
     roomA.on('msg', { run() {} });
     const roomB = base.channel('room', {});
@@ -308,7 +308,7 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
-    const base = define({ capabilities: [channels()] });
+    const base = server({ capabilities: [channels()] });
     const room = base.channel('room', {});
     const first = room.on('msg', { run() {} });
     const second = room.on('msg', { run() {} });

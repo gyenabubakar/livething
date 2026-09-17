@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -12,7 +12,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // This fixture proves that.
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels()],
 });
@@ -45,8 +45,8 @@ const handleBroadcastB = base.on('broadcast-b', {
   },
 });
 
-export const channelKeyCollisionHandler = base.assemble({
+export const channelKeyCollisionDefinition = base.assemble({
   handlers: [handleBroadcastA, handleBroadcastB, rooms, roomsPrivate],
 });
 
-export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionHandler>;
+export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionDefinition>;

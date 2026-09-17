@@ -16,7 +16,7 @@ import {
   handleTokens,
 } from './group.ts';
 
-export const groupFullSurfaceHandler = base.assemble({
+export const groupFullSurfaceDefinition = base.assemble({
   handlers: [
     handleChat,
     handleBang,
@@ -34,4 +34,4 @@ export const groupFullSurfaceHandler = base.assemble({
   ],
 });
 
-export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceHandler>;
+export type GroupFullSurfaceClient = InferClient<typeof groupFullSurfaceDefinition>;

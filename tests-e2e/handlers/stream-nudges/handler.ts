@@ -1,4 +1,4 @@
-import { define, emits, errors, t } from '@wskit/server';
+import { emits, errors, server, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
 import { error } from '@wskit/server/errors';
 import { intercepts } from '@wskit/server/intercepts';
@@ -15,7 +15,7 @@ const overflowGates = new Map<string, () => void>();
 // intercept used to terminate the stream and hang the nudge() Promise).
 export const NudgeRejected = error('nudge-rejected');
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     dedup(),
@@ -110,8 +110,8 @@ const handleStartNudgeStream = base.stream('start-nudge-stream', {
   },
 });
 
-export const streamNudgesHandler = base.assemble({
+export const streamNudgesDefinition = base.assemble({
   handlers: [handlePause, handleReleaseOverflow, handleStartNudgeStream],
 });
 
-export type StreamNudgesClient = InferClient<typeof streamNudgesHandler>;
+export type StreamNudgesClient = InferClient<typeof streamNudgesDefinition>;

@@ -4,7 +4,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's stream().nudge() against the real `stream-nudges`
 // handler, typed by the same contract the server implements
-// (StreamNudgesClient = InferClient<handler>).
+// (StreamNudgesClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

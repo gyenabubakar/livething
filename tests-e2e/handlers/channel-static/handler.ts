@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { stream } from '@wskit/server/streams';
 import { tags } from '@wskit/server/tags';
@@ -12,7 +12,7 @@ const ChannelTokenPayload = t<{ index: number }>();
 const TagSelfPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
@@ -149,7 +149,7 @@ const handleRoom2SendMessage = room2.on('send-message', {
   },
 });
 
-export const channelStaticHandler = base.assemble({
+export const channelStaticDefinition = base.assemble({
   handlers: [
     handleTagSelf,
     handleKickByTag,
@@ -161,4 +161,4 @@ export const channelStaticHandler = base.assemble({
   ],
 });
 
-export type ChannelStaticClient = InferClient<typeof channelStaticHandler>;
+export type ChannelStaticClient = InferClient<typeof channelStaticDefinition>;

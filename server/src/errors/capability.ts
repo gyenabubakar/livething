@@ -13,17 +13,17 @@ type ErrorsSlot<TDefs extends readonly ErrorDef<string, any>[]> = { errors: Erro
 /**
  * Declare the typed errors this server can throw, so they appear in the
  * generated client and can be matched there. List the result in
- * `define({ capabilities: [...] })`. Build each error with the `error(...)`
+ * `server({ capabilities: [...] })`. Build each error with the `error(...)`
  * factory.
  *
  * @example
  * ```ts
- * import { define, errors, error, t } from '@wskit/server';
+ * import { server, errors, error, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [errors([NotFound])],
  * });
  *

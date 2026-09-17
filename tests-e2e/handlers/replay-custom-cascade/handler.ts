@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -10,7 +10,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Note = v.object({ text: v.string() });
 const SendNote = v.object({ text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [dedup(), sequence({ persist: true }), channels(), replay.custom()],
 });
@@ -104,8 +104,8 @@ const handleRoomSendNote = room.on('send-note', {
   },
 });
 
-export const replayCustomCascadeHandler = base.assemble({
+export const replayCustomCascadeDefinition = base.assemble({
   handlers: [handleLobbySendNote, handleRoomSendNote],
 });
 
-export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeHandler>;
+export type ReplayCustomCascadeClient = InferClient<typeof replayCustomCascadeDefinition>;

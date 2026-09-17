@@ -1,11 +1,11 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import { scheduled } from './capability.ts';
 
 function makeBase() {
-  return define({
+  return server({
     capabilities: [
       scheduled({
         cleanup: null,

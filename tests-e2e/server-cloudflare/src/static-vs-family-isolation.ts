@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { staticVsFamilyIsolationHandler } from '@wskit/tests-e2e-handlers/static-vs-family-isolation';
+import { staticVsFamilyIsolationDefinition } from '@wskit/tests-e2e-handlers/static-vs-family-isolation';
 
-export class StaticVsFamilyIsolationServer extends bind(staticVsFamilyIsolationHandler) {}
+export class StaticVsFamilyIsolationServer extends bind(staticVsFamilyIsolationDefinition) {}

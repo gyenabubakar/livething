@@ -67,10 +67,10 @@ export interface NodePrepareOptions {
 
 /** Shared lifecycle for Node host integrations. */
 export interface NodeBinding {
-  bind<THandler extends ServerDefinition>(
-    handler: THandler,
+  bind<TDefinition extends ServerDefinition>(
+    definition: TDefinition,
     options: NodeEndpointOptions,
-  ): NodeBindingEndpoint<ApiOf<THandler>>;
+  ): NodeBindingEndpoint<ApiOf<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -87,10 +87,10 @@ export function binding(): NodeBinding {
   let shutdownPromise: Promise<void> | undefined;
 
   return {
-    bind(handler, options) {
+    bind(definition, options) {
       if (shutdownPromise) throw new Error('[wskit] Node binding is shutting down');
 
-      const endpoint = createNodeEndpoint(handler, options);
+      const endpoint = createNodeEndpoint(definition, options);
       endpoints.add(endpoint);
       return createBindingEndpoint(endpoint);
     },

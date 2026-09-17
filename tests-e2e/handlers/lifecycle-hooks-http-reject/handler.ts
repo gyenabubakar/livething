@@ -1,14 +1,14 @@
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 
-const base = define({
+const base = server({
   upgrade: () => {
     throw RejectUpgrade(403, 'Forbidden HTTP upgrade');
   },
   capabilities: [],
 });
 
-export const rejectHttpHandler = base.assemble({ handlers: [] });
+export const rejectHttpDefinition = base.assemble({ handlers: [] });
 
-export type LifecycleHooksHttpRejectClient = InferClient<typeof rejectHttpHandler>;
+export type LifecycleHooksHttpRejectClient = InferClient<typeof rejectHttpDefinition>;

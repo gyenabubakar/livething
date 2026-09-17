@@ -1,11 +1,11 @@
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { describe, expect, it } from 'vitest';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import { EngineCore } from './core.ts';
 
-const handler = define({}).assemble({ handlers: [] });
+const definition = server({}).assemble({ handlers: [] });
 
 function validOptions(): EngineAdapterTypes.EngineOptions {
   return {
@@ -35,13 +35,13 @@ function validOptions(): EngineAdapterTypes.EngineOptions {
 
 describe('EngineCore constructor — adapter option guards', () => {
   it('builds cleanly when every required option is provided', () => {
-    expect(() => new EngineCore(handler, validOptions())).not.toThrow();
+    expect(() => new EngineCore(definition, validOptions())).not.toThrow();
   });
 
   it('throws naming the adapter when storage is missing', () => {
     const options = validOptions();
     options.storage = undefined as never;
-    expect(() => new EngineCore(handler, options)).toThrow(
+    expect(() => new EngineCore(definition, options)).toThrow(
       '[wskit] Adapter "test-adapter" did not provide storage.',
     );
   });
@@ -49,7 +49,7 @@ describe('EngineCore constructor — adapter option guards', () => {
   it('throws naming the adapter when timers is missing', () => {
     const options = validOptions();
     options.timers = undefined as never;
-    expect(() => new EngineCore(handler, options)).toThrow(
+    expect(() => new EngineCore(definition, options)).toThrow(
       '[wskit] Adapter "test-adapter" did not provide timers.',
     );
   });

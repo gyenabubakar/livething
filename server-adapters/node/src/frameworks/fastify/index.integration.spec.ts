@@ -1,7 +1,7 @@
 import { connect as connectTcp } from 'node:net';
 import websocket from '@fastify/websocket';
 import { client, connect } from '@wskit/client';
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +12,7 @@ import type { NodeEndpointOptions } from '../../binding.ts';
 
 let lastClientIp: string | null = null;
 
-const handler = define({
+const handler = server({
   upgrade(request) {
     const pathname = new URL(request.url).pathname;
     if (pathname.endsWith('/http-reject')) throw RejectUpgrade(401, 'No token');
@@ -200,7 +200,7 @@ describe('Fastify binding', () => {
       release = resolve;
     });
 
-    const slowHandler = define({
+    const slowDefinition = server({
       async upgrade(request) {
         started();
         request.signal.addEventListener('abort', () => {
@@ -210,7 +210,7 @@ describe('Fastify binding', () => {
         return { userId: 'slow' };
       },
     }).assemble({ handlers: [] });
-    const app = await createApp({}, slowHandler);
+    const app = await createApp({}, slowDefinition);
 
     apps.push(app);
     const socket = new WebSocket(`ws://127.0.0.1:${app.port}/ws/slow`);

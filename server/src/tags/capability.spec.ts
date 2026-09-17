@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -20,7 +20,7 @@ function tagGroupsPrimitive(
 
 describe('tags() capability', () => {
   it('registers an ephemeral group with its name and validator', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         tags((ephemeral) => [
           ephemeral('role', t<string>()),
@@ -28,8 +28,8 @@ describe('tags() capability', () => {
         ]),
       ],
     });
-    const handler = base.assemble({ handlers: [] });
-    const primitive = tagGroupsPrimitive(handler.primitives, 'ephemeral');
+    const definition = base.assemble({ handlers: [] });
+    const primitive = tagGroupsPrimitive(definition.primitives, 'ephemeral');
     expect(primitive.groups.map((g) => g.name)).toEqual(['role', 'color']);
     expect(primitive.groups.find((g) => g.name === 'role')?.schema).toBeUndefined();
 
@@ -37,14 +37,14 @@ describe('tags() capability', () => {
   });
 
   it('boots through the engine and registers the declared groups', () => {
-    const base = define({
+    const base = server({
       capabilities: [tags((ephemeral) => [ephemeral('role', t<string>())])],
     });
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).not.toThrow();
   });
 
   it('emits no ephemeral primitive when only persistent groups are declared', () => {
-    const base = define({
+    const base = server({
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     const { primitives } = base.assemble({ handlers: [] });
@@ -56,7 +56,7 @@ describe('tags() capability', () => {
   });
 
   it('seeds initial ephemeral tags from the upgrade sugar', async () => {
-    const base = define({
+    const base = server({
       upgrade() {
         return { userId: 'alice', tags: { ephemeral: { role: 'admin' } } };
       },
@@ -74,7 +74,7 @@ describe('tags() capability', () => {
   });
 
   it('omits tags from the upgrade result when none are seeded', async () => {
-    const base = define({
+    const base = server({
       upgrade() {
         return { userId: 'alice' };
       },
@@ -90,7 +90,7 @@ describe('tags() capability', () => {
   });
 
   it('allows persistent groups', () => {
-    const base = define({
+    const base = server({
       capabilities: [tags((_ephemeral, persistent) => [persistent('favorite', t<string>())])],
     });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
@@ -98,7 +98,7 @@ describe('tags() capability', () => {
 
   it('throws when the same group name is declared twice in one kind', () => {
     expect(() =>
-      define({
+      server({
         capabilities: [tags((ephemeral) => [ephemeral('role'), ephemeral('role')])],
       }),
     ).toThrow(/'role' declared twice/);

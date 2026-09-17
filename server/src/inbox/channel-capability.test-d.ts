@@ -3,17 +3,17 @@
  * capabilities: they belong in a channel's own `capabilities` list, and
  * `readReceipts()` needs `inbox()` listed on that SAME channel.
  */
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { inbox, readReceipts } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 import { expectTypeOf } from 'vitest';
 import type { ChannelOnlyCapability } from '~/_define/capability.ts';
-import type { ChannelCtx } from '~/_define/define.ts';
+import type { ChannelCtx } from '~/_define/server.ts';
 import type { InferClient } from '~/infer-client.ts';
 
-const base = define({
+const base = server({
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 
@@ -32,8 +32,8 @@ const withBoth = base.channel('with-both', { capabilities: [inbox(), readReceipt
 // A channel with neither is fine too — no channel-only capabilities at all.
 const withNeither = base.channel('with-neither', {});
 
-const handler = base.assemble({ handlers: [withInbox, withBoth, withNeither] });
-type Client = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [withInbox, withBoth, withNeither] });
+type Client = InferClient<typeof definition>;
 
 // A channel with `inbox()` exposes the `inbox: true` client-contract flag.
 expectTypeOf<Client['channels']['with-inbox']['inbox']>().toEqualTypeOf<true>();

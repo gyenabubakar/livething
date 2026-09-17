@@ -36,7 +36,7 @@ const repoRoot = resolve(here, '..');
 // @wskit/server — every feature is its own bundle entry.
 //
 // Not every capability has a detectable engine here. `intercept` is deliberately
-// absent: the intercept primitive is core infrastructure (define, channels,
+// absent: the intercept primitive is core infrastructure (server, channels,
 // requests and rate-limit all use it internally), so it is present in every
 // server and is not a tree-shakeable per-feature engine. Plain (ephemeral)
 // streams likewise carry no durable marker — there is nothing to persist.
@@ -79,8 +79,8 @@ const SERVER_ENGINES = {
 function serverScenarios(f) {
   return [
     {
-      name: 'minimal server (define + emits)',
-      source: importNamed(f('index.js'), 'define', 'emits'),
+      name: 'minimal server (server + emits)',
+      source: importNamed(f('index.js'), 'server', 'emits'),
       owns: null,
       alsoPulls: [],
     },

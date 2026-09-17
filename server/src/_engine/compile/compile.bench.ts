@@ -10,7 +10,7 @@
  */
 
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
@@ -31,14 +31,14 @@ const NumChunk = t<{ n: number }>();
 const EmptyOut = t<Record<string, never>>();
 const TextOut = t<{ text: string }>();
 
-const tinyBase = define({
+const tinyBase = server({
   capabilities: [emits({ notify: EmptyOut })],
 });
-const tinyHandler = tinyBase.assemble({
+const tinyDefinition = tinyBase.assemble({
   handlers: [tinyBase.on('noop', { input: Empty, run() {} })],
 });
 
-const mediumBase = define({
+const mediumBase = server({
   hibernation: { enabled: true },
   capabilities: [
     clientRequests(),
@@ -53,7 +53,7 @@ const rooms = mediumBase.channel(['rooms', 'room:{id}'], {
   capabilities: [emits({ posted: TextOut })],
 });
 const handleRoomPost = rooms.on('post', { input: Text, run() {} });
-const mediumHandler = mediumBase.assemble({
+const mediumDefinition = mediumBase.assemble({
   handlers: [
     mediumBase.on('join', { input: Empty, run() {} }),
     mediumBase.on('leave', { input: Empty, run() {} }),
@@ -83,7 +83,7 @@ function channelEmits(prefix: string) {
   };
 }
 
-const heavyBase = define({
+const heavyBase = server({
   hibernation: { enabled: true },
   capabilities: [
     dedup(),
@@ -162,18 +162,18 @@ for (const n of [1, 2, 3, 4, 5]) {
   );
 }
 
-const heavyHandler = heavyBase.assemble({ handlers: [...heavyHandlers] });
+const heavyDefinition = heavyBase.assemble({ handlers: [...heavyHandlers] });
 
 describe('compileHandlerDefinition', () => {
   bench('tiny  (1 incoming, 1 outgoing)', () => {
-    compileHandlerDefinition(tinyHandler);
+    compileHandlerDefinition(tinyDefinition);
   });
 
   bench('medium (~10 events, 2 channels)', () => {
-    compileHandlerDefinition(mediumHandler);
+    compileHandlerDefinition(mediumDefinition);
   });
 
   bench('heavy (~50 events, 10 channels)', () => {
-    compileHandlerDefinition(heavyHandler);
+    compileHandlerDefinition(heavyDefinition);
   });
 });

@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { Disconnect } from '@wskit/server/errors';
@@ -17,7 +17,7 @@ import type { RoomMsg } from './events.ts';
 // inbox fans out `__received__` and readReceipts fans out `__read__`. The
 // `cursor-answer` emit surfaces the authoritative server view, independent of
 // the live fan-out.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -70,7 +70,7 @@ export const handleAskCursor = chat.on('ask-cursor', {
 // The channel object `chat` carries the `inbox: true` / `readReceipts: true`
 // client-contract flags, so it is passed to `assemble` for `InferClient` to
 // expose receiversOf (inbox) and markAsRead/readersOf (readReceipts).
-export const receiptsHandler = base.assemble({
+export const receiptsDefinition = base.assemble({
   handlers: [handleServerDrop, handleSendRoomMsg, handleAskCursor, chat],
   api: (ctx) => ({
     seedStaleReceipt() {
@@ -116,4 +116,4 @@ export const receiptsHandler = base.assemble({
   }),
 });
 
-export type ReceiptsClient = InferClient<typeof receiptsHandler>;
+export type ReceiptsClient = InferClient<typeof receiptsDefinition>;

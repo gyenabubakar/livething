@@ -1,11 +1,11 @@
 /* oxlint-disable no-unused-vars */
 
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import * as Binding from './binding.ts';
 
-const handler = define({}).assemble({ handlers: [] });
+const definition = server({}).assemble({ handlers: [] });
 const node = Binding.binding();
-const endpoint = node.bind(handler, {});
+const endpoint = node.bind(definition, {});
 await endpoint.ready();
 const upgrade = await endpoint.prepare(new Request('https://example.test/socket'));
 

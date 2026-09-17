@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { Disconnect } from '@wskit/server/errors';
@@ -13,7 +13,7 @@ const SessionEndedPayload = v.object({ channel: v.string(), username: v.string()
 const TrueLeavePayload = v.object({ channel: v.string(), username: v.string() });
 const RemoveMemberPayload = v.object({ identity: v.string() });
 
-const base = define({
+const base = server({
   // Default path requires a username (existing tests). Connecting with `?anon`
   // takes the anonymous path (empty identity) so anonymous-skips-membership and
   // anonymous-replay-gate behavior can be exercised.
@@ -167,7 +167,7 @@ const capacityRoom = base.channel('capacity-room', {
   },
 });
 
-export const persistenceHandler = base.assemble({
+export const persistenceDefinition = base.assemble({
   handlers: [
     handleRemoveMember,
     handleBan,
@@ -181,4 +181,4 @@ export const persistenceHandler = base.assemble({
   ],
 });
 
-export type PersistenceClient = InferClient<typeof persistenceHandler>;
+export type PersistenceClient = InferClient<typeof persistenceDefinition>;

@@ -46,7 +46,7 @@ function neededBy(primitives: readonly Primitive[], kind: string): string {
  * top-level primitive only has the top-level list.
  *
  * On an app a required capability that is not listed anywhere reachable is a
- * build error. On a plugin's scoped handler (`define({ scope: 'plugin' })`) a
+ * build error. On a plugin's scoped server definition (`server({ scope: 'plugin' })`) a
  * required capability that the plugin cannot own (a host-owned engine) is not
  * an error — it is returned as a host dependency, so the plugin can declare it
  * implicitly and the host must provide it. A plugin missing a capability it
@@ -100,10 +100,10 @@ export function resolveCapabilityRequirements(
           if (CHANNEL_ONLY_CAPABILITY_KINDS.has(kind)) {
             where = "this channel's capabilities";
           } else if (HOST_ONLY_CAPABILITY_KINDS.has(kind)) {
-            where = 'define({ capabilities: [...] })';
+            where = 'server({ capabilities: [...] })';
           } else {
             where = channelLocal
-              ? `this channel's capabilities, or to define({ capabilities: [...] })`
+              ? `this channel's capabilities, or to server({ capabilities: [...] })`
               : 'capabilities';
           }
 

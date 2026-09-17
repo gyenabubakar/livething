@@ -1,7 +1,7 @@
 import { CloseCodes } from '@wskit/core';
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import {
   ensureDurableStreamSchema,
@@ -55,11 +55,11 @@ function passthroughAsyncContext(): AsyncContextFactory {
 
 /** Build and initialize a real engine, exposing its core's real SQLite storage. */
 async function buildEngine(
-  handler: ServerDefinition,
+  definition: ServerDefinition,
 ): Promise<{ engine: Engine; sql: SQLProvider }> {
   const sql = createTestSql();
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: passthroughAsyncContext(),
     setup(createEngine) {
@@ -76,7 +76,7 @@ async function buildEngine(
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
   await engine.initialize();
 
   return { engine, sql };
@@ -110,7 +110,7 @@ function fakeConnectionWithThrowingClose(id: string, userId: string): RuntimeCon
 }
 
 function withChannelsAndTags(): ServerDefinition {
-  const base = define({
+  const base = server({
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -122,7 +122,7 @@ function withChannelsAndTags(): ServerDefinition {
 }
 
 function withEveryOwningCapability(): ServerDefinition {
-  const base = define({
+  const base = server({
     capabilities: [
       channels(),
       tags((_ephemeral, persistent) => [persistent('favorite', t<string>())]),
@@ -292,9 +292,9 @@ describe('admin().purgeUser()', () => {
   });
 
   it("with neither channels() nor tags() listed, closes only the purged user's sockets and touches no storage", async () => {
-    const base = define({ capabilities: [] });
-    const handler = base.assemble({ handlers: [] });
-    const { engine, sql } = await buildEngine(handler);
+    const base = server({ capabilities: [] });
+    const definition = base.assemble({ handlers: [] });
+    const { engine, sql } = await buildEngine(definition);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
 
@@ -359,11 +359,11 @@ describe('admin().purgeUser() — one cleanup step throws', () => {
 
 describe('admin().purgeUser() — durable-stream schema never created before purge', () => {
   it('succeeds when resumableStream() is listed but no stream has ever been started', async () => {
-    const base = define({
+    const base = server({
       capabilities: [resumableStream()],
     });
-    const handler = base.assemble({ handlers: [] });
-    const { engine } = await buildEngine(handler);
+    const definition = base.assemble({ handlers: [] });
+    const { engine } = await buildEngine(definition);
     const connection = fakeConnection('conn-1', 'alice');
     engine.core.connections.set(connection.id, connection);
 

@@ -4,7 +4,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's stream() against the real `stream-backpressure`
 // handler, typed by the same contract the server implements
-// (StreamBackpressureClient = InferClient<handler>). The generator awaits
+// (StreamBackpressureClient = InferClient<definition>). The generator awaits
 // ctx.stream.drain() after every yield; on Cloudflare drain is a no-op, so the
 // stream must still deliver every chunk and end cleanly — never hang on drain.
 export function setup(): void {

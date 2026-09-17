@@ -4,7 +4,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's serverRequests() against the real `server-request`
 // handler, typed by the same contract the server implements
-// (ServerRequestClient = InferClient<handler>). The server asks the client a
+// (ServerRequestClient = InferClient<definition>). The server asks the client a
 // declared server→client request; the client answers with onRequest(), and the
 // server reports the outcome back as an event.
 export function setup(): void {

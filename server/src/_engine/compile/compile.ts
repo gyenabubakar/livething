@@ -2,7 +2,7 @@
 import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
@@ -170,7 +170,7 @@ function visitCompiledPrimitives(
  * actually executes.
  */
 export function compileHandlerDefinition(
-  handler: DefineServer.ServerDefinition,
+  definition: ServerTypes.ServerDefinition,
 ): EngineCompileTypes.CompiledServer {
   const compiled: EngineCompileTypes.CompiledServer = {
     outgoing: new Map(),
@@ -185,12 +185,12 @@ export function compileHandlerDefinition(
     scheduled: new Map(),
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
-    usersPolicy: handler.__usersPolicy,
+    usersPolicy: definition.__usersPolicy,
   };
 
-  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, handler.primitives);
-  collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
-  validateReplayDependencies(handler.primitives);
+  const validateChannelsDisjoint = visitCompiledPrimitives(compiled, definition.primitives);
+  collectReplayClaimedScopes(definition.primitives, compiled.replayClaimedChannelKeys);
+  validateReplayDependencies(definition.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   const declaredPluginEvents = collectPluginEventNames(compiled);
 

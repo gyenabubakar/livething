@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -8,7 +8,7 @@ function serializeTags(tags: readonly { group: string; key: string }[]): string 
   return tags.map((t) => `${t.group}:${t.key}`).join(',');
 }
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     tags((ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())]),
@@ -64,7 +64,7 @@ const handleGetByTag = base.on('get-by-tag', {
   },
 });
 
-export const ctxTagsHandler = base.assemble({
+export const ctxTagsDefinition = base.assemble({
   handlers: [
     handleTagSelf,
     handleUntagSelf,
@@ -74,4 +74,4 @@ export const ctxTagsHandler = base.assemble({
   ],
 });
 
-export type CtxTagsClient = InferClient<typeof ctxTagsHandler>;
+export type CtxTagsClient = InferClient<typeof ctxTagsDefinition>;

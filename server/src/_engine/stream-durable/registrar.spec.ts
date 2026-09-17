@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
 import { resumableStream } from '~/stream-resumable/capability.ts';
@@ -9,9 +9,9 @@ import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { ensureDurableStreamSchema, insertStream, readStream } from './storage.ts';
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'stream-durable-registrar-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
@@ -25,7 +25,7 @@ function buildEngine(handler: ServerDefinition): Engine {
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return captured;
@@ -33,9 +33,9 @@ function buildEngine(handler: ServerDefinition): Engine {
 
 describe('durable-stream registrar — purgeUser', () => {
   it('registers a purgeUser hook', async () => {
-    const base = define({ capabilities: [resumableStream()] });
-    const handler = base.assemble({ handlers: [] });
-    const engine = buildEngine(handler);
+    const base = server({ capabilities: [resumableStream()] });
+    const definition = base.assemble({ handlers: [] });
+    const engine = buildEngine(definition);
 
     await engine.initialize();
 
@@ -43,9 +43,9 @@ describe('durable-stream registrar — purgeUser', () => {
   });
 
   it("running the hook deletes the purged user's stream rows, leaving another user's rows intact", async () => {
-    const base = define({ capabilities: [resumableStream()] });
-    const handler = base.assemble({ handlers: [] });
-    const engine = buildEngine(handler);
+    const base = server({ capabilities: [resumableStream()] });
+    const definition = base.assemble({ handlers: [] });
+    const engine = buildEngine(definition);
 
     await engine.initialize();
 
@@ -75,9 +75,9 @@ describe('durable-stream registrar — purgeUser', () => {
   });
 
   it('forwards purgeUser options through to purgeStreamsByUser', async () => {
-    const base = define({ capabilities: [resumableStream()] });
-    const handler = base.assemble({ handlers: [] });
-    const engine = buildEngine(handler);
+    const base = server({ capabilities: [resumableStream()] });
+    const definition = base.assemble({ handlers: [] });
+    const engine = buildEngine(definition);
 
     await engine.initialize();
 
@@ -111,9 +111,9 @@ describe('durable-stream registrar — purgeUser', () => {
 
 describe('durable-stream registrar — boot schema', () => {
   it('creates the durable-stream tables at boot, before any stream is ever started', async () => {
-    const base = define({ capabilities: [resumableStream()] });
-    const handler = base.assemble({ handlers: [] });
-    const engine = buildEngine(handler);
+    const base = server({ capabilities: [resumableStream()] });
+    const definition = base.assemble({ handlers: [] });
+    const engine = buildEngine(definition);
 
     await engine.initialize();
 

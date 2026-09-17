@@ -53,7 +53,7 @@ export interface RateLimitCapability extends Capability<
   'rateLimit',
   typeof CAPABILITY_KIND.rateLimit
 > {
-  /** Host-owned: rejected inside a plugin's `define({ scope: 'plugin' })`. @internal */
+  /** Host-owned: rejected inside a plugin's `server({ scope: 'plugin' })`. @internal */
   readonly __hostOnly: true;
   /** The global rule, or `undefined` when only per-handler limits apply. @internal */
   readonly __rateLimit: RateLimitConfig | undefined;
@@ -79,10 +79,10 @@ export interface RateLimitCapability extends Capability<
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { rateLimit } from '@wskit/server/rate-limit';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [rateLimit({ windowMs: 60_000, max: 100 })],
  * });
  * ```

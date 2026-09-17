@@ -5,7 +5,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's intercept() against the real `intercept` handler, typed
 // by the same contract the server implements (InterceptClient =
-// InferClient<handler>). The client sends `echo` and the server replies with
+// InferClient<definition>). The client sends `echo` and the server replies with
 // `echoed` carrying { text: `top:<sent>` } — that reply is the INCOMING frame
 // the client-side intercepts transform before on('echoed') sees it. The sent
 // text selects which behaviour fires, so each test stays independent.

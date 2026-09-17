@@ -5,7 +5,7 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 // Drives @wskit/client's channels() against the real `channel-dynamic` handler,
 // exercising the dynamic-family surface: socket.channel(scope, name) and the
 // socket.channel.scope(scope) handle, typed by the same contract the server
-// implements (ChannelDynamicClient = InferClient<handler>).
+// implements (ChannelDynamicClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

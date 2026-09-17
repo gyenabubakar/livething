@@ -1,7 +1,7 @@
 import { bind } from '@wskit/server-cloudflare';
-import { receiptsHandler } from '@wskit/tests-e2e-handlers/receipts';
+import { receiptsDefinition } from '@wskit/tests-e2e-handlers/receipts';
 
-const Base = bind(receiptsHandler);
+const Base = bind(receiptsDefinition);
 
 export class ReceiptsServer extends Base {
   #ctx: DurableObjectState;

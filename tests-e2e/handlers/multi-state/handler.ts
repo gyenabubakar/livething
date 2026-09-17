@@ -4,7 +4,7 @@
  * that wrote one row per add. Post-A the writes batch into one row at the
  * end of the handler invocation.
  */
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -12,7 +12,7 @@ import { requireUsernameWithUserTag } from '../_shared/upgrade.ts';
 
 const TagBatchPayload = v.object({});
 
-const base = define({
+const base = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
@@ -54,8 +54,8 @@ const handleRemoveFiveTags = base.on('remove-five-tags', {
   },
 });
 
-export const multiStateHandler = base.assemble({
+export const multiStateDefinition = base.assemble({
   handlers: [handleAddFiveTags, handleRemoveFiveTags],
 });
 
-export type MultiStateClient = InferClient<typeof multiStateHandler>;
+export type MultiStateClient = InferClient<typeof multiStateDefinition>;

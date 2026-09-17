@@ -1,7 +1,7 @@
 import { bind } from '@wskit/server-cloudflare';
-import { persistenceHandler } from '@wskit/tests-e2e-handlers/persistence';
+import { persistenceDefinition } from '@wskit/tests-e2e-handlers/persistence';
 
-const Base = bind(persistenceHandler);
+const Base = bind(persistenceDefinition);
 
 /**
  * Test-only `restart()`: `ctx.abort()` discards the in-memory instance while

@@ -1,5 +1,5 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { recordedStream } from '~/stream-recorded/capability.ts';
@@ -14,7 +14,7 @@ import { describe, expectTypeOf, it } from 'vitest';
  */
 describe('ctx.stream.signal type', () => {
   it('is an AbortSignal in a plain stream run', () => {
-    const base = define({ capabilities: [stream()] });
+    const base = server({ capabilities: [stream()] });
     base.stream('feed', {
       input: v.object({}),
       async *run(ctx) {
@@ -25,7 +25,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a resumable stream run (alongside cursor)', () => {
-    const base = define({
+    const base = server({
       capabilities: [resumableStream()],
     });
     base.resumableStream('paginate', {
@@ -40,7 +40,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a recorded stream run', () => {
-    const base = define({
+    const base = server({
       capabilities: [recordedStream()],
     });
     base.recordedStream('tokens', {
@@ -53,7 +53,7 @@ describe('ctx.stream.signal type', () => {
   });
 
   it('is an AbortSignal in a channel-scoped stream run', () => {
-    const base = define({ capabilities: [channels(), stream()] });
+    const base = server({ capabilities: [channels(), stream()] });
     const room = base.channel(['rooms', 'rooms:{id}'], {
       capabilities: [emits({ said: t<{ text: string }>() })],
     });

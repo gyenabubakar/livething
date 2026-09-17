@@ -1,14 +1,14 @@
 /* oxlint-disable no-unused-vars */
 
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import { expectTypeOf } from 'vitest';
 import * as Adapter from './index.ts';
 import type { NodeWebSocketServer, Platform } from './index.ts';
 
 void Adapter.setup;
 
-const base = define({});
-const handler = base.assemble({
+const base = server({});
+const definition = base.assemble({
   handlers: [],
   api: () => ({
     archiveRoom(room: string): Promise<number> {
@@ -18,7 +18,7 @@ const handler = base.assemble({
 });
 
 const wskit = Adapter.setup();
-const endpoint = wskit.bind(handler, {});
+const endpoint = wskit.bind(definition, {});
 const admin = await endpoint.admin();
 const upgrade = endpoint.upgrade;
 await wskit.ready();

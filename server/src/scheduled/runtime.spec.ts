@@ -1,5 +1,5 @@
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { scheduleTask } from '~/_engine/scheduling.ts';
 import { createTestKV, createTestSql } from '~/_test/sql.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -19,11 +19,11 @@ import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from '
 
 /** Build and initialize a real engine, exposing its core's real SQLite storage. */
 async function buildEngine(
-  handler: ServerDefinition,
+  definition: ServerDefinition,
 ): Promise<{ engine: Engine; sql: SQLProvider }> {
   const sql = createTestSql();
   let engine!: Engine;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'test',
     asyncContextFactory: <TStore>() => {
       let current: TStore | undefined;
@@ -54,7 +54,7 @@ async function buildEngine(
       return {};
     },
   });
-  server(handler, {} as never);
+  runAdapter(definition, {} as never);
   await engine.initialize();
 
   return { engine, sql };
@@ -647,7 +647,7 @@ describe('scheduled/runtime — through the real engine', () => {
   it('keeps the running task recoverable in storage across a nested ctx.schedule() call', async () => {
     const rowsDuringHandler: unknown[][] = [];
 
-    const base = define({
+    const base = server({
       capabilities: [scheduled({ processRefund: { retry: false }, sendReceipt: null })],
     });
     base.scheduled('processRefund', {

@@ -1,4 +1,4 @@
-import { define, emits, localKey, t } from '@wskit/server';
+import { emits, localKey, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { intercepts } from '@wskit/server/intercepts';
@@ -12,7 +12,7 @@ export const TopKey = localKey<{ tag: string }>('top');
 export const NsKey = localKey<{ tag: string }>('ns');
 export const ChannelKey = localKey<{ tag: string }>('channel');
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ echoed: t<{ text: string }>() }),
@@ -72,8 +72,8 @@ const handleRoomLookup = room.request('lookup', {
   },
 });
 
-export const ctxLocalsHandler = base.assemble({
+export const ctxLocalsDefinition = base.assemble({
   handlers: [handleEcho, handleLookup, handleRoomEcho, handleRoomLookup],
 });
 
-export type CtxLocalsClient = InferClient<typeof ctxLocalsHandler>;
+export type CtxLocalsClient = InferClient<typeof ctxLocalsDefinition>;

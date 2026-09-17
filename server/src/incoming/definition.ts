@@ -20,10 +20,10 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
- * const base = define({});
+ * const base = server({});
  *
  * const handleSend = base.on('send-msg', {
  *   input: v.object({ text: v.string() }),

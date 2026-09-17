@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { dedup } from '@wskit/server/dedup';
@@ -32,7 +32,7 @@ import type { ChatMsg, Cursor, ReplayGuardError, RoomMsg } from './events.ts';
 // `plugin-msg` broadcast rides out namespaced as `__e2e:replay::plugin-msg`,
 // and the host's top-level replay stores and re-delivers it like any other
 // outgoing frame. This is the proof that app-level replay covers plugin events.
-const pluginBase = define({
+const pluginBase = server({
   scope: 'plugin',
   capabilities: [emits({ 'plugin-msg': PluginMsg })],
 });
@@ -49,10 +49,10 @@ const handlePluginPingAll = pluginBase.on('ping-all', {
 });
 
 export const ReplayPlugin = plugin('e2e:replay', {
-  handler: pluginBase.assemble({ handlers: [handlePluginPingAll] }),
+  definition: pluginBase.assemble({ handlers: [handlePluginPingAll] }),
 });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({
@@ -249,7 +249,7 @@ export const handleOptoutSendRoomMsg = optoutRoom.on('send-room-msg', {
   },
 });
 
-export const replayHandler = base.assemble({
+export const replayDefinition = base.assemble({
   handlers: [
     handleSendMsg,
     handleSendCursor,
@@ -267,4 +267,4 @@ export const replayHandler = base.assemble({
   ],
 });
 
-export type ReplayClient = InferClient<typeof replayHandler>;
+export type ReplayClient = InferClient<typeof replayDefinition>;

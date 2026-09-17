@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { plugin } from '@wskit/server/plugins';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -8,7 +8,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * plugin's `onPing` / `onPong` fire over the wire. Its markers ride under the
  * plugin's own namespace.
  */
-const probe = define({
+const probe = server({
   scope: 'plugin',
   capabilities: [
     emits({
@@ -26,7 +26,7 @@ probe.onPong((ctx) => {
   ctx.send('plugin-pong-seen', { connectionId: ctx.connection.id });
 });
 
-const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble({ handlers: [] }) });
+const HeartbeatProbe = plugin('e2e:heartbeat', { definition: probe.assemble({ handlers: [] }) });
 
 /**
  * A server with no `keepalive()`. It proves the heartbeat hooks are free: the
@@ -34,7 +34,7 @@ const HeartbeatProbe = plugin('e2e:heartbeat', { handler: probe.assemble({ handl
  * still fire with no capability listed. It never sends a ping of its own. The
  * listed plugin observes the same frames.
  */
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     HeartbeatProbe(),
@@ -53,6 +53,6 @@ base.onPong((ctx) => {
   ctx.send('pong-seen', { connectionId: ctx.connection.id });
 });
 
-export const heartbeatHandler = base.assemble({ handlers: [] });
+export const heartbeatDefinition = base.assemble({ handlers: [] });
 
-export type HeartbeatClient = InferClient<typeof heartbeatHandler>;
+export type HeartbeatClient = InferClient<typeof heartbeatDefinition>;

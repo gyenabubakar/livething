@@ -2,7 +2,7 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * Phantom carrier that tells `define()` and `base.assemble()` which slots of
+ * Phantom carrier that tells `server()` and `base.assemble()` which slots of
  * the client contract a value contributes.
  *
  * Both capabilities (the things you list in `capabilities`) and handlers (the
@@ -21,7 +21,7 @@ export interface Contribution<TSlots = {}> {
 
 /**
  * A capability is an opt-in feature you list in
- * `define({ capabilities: [...] })`. Listing one is what pulls its engine code
+ * `server({ capabilities: [...] })`. Listing one is what pulls its engine code
  * into the bundle, so a server only ships the features it actually uses.
  *
  * You never build a capability by hand — call a capability factory such as
@@ -119,7 +119,7 @@ export function withCapabilityKind<TFactory extends (...args: any[]) => AnyCapab
 /**
  * A capability the **host** owns and a plugin can never list — the global
  * engines (`dedup`, `sequence`, `keepalive`, `rateLimit`, `replay`). It
- * carries a `__hostOnly` marker so `define({ scope: 'plugin' })` rejects it
+ * carries a `__hostOnly` marker so `server({ scope: 'plugin' })` rejects it
  * at compile time; a plugin declares a prerequisite on it instead.
  */
 export type HostCapability<TSlots = {}, TFeature extends string = never> = Capability<
@@ -144,7 +144,7 @@ export function hostCapability<TSlots = {}, TFeature extends string = never>(
 /**
  * A capability that only makes sense inside a channel's own `capabilities`
  * list — `inbox()` and `readReceipts()`. It carries a `__channelOnly` marker so
- * `define({ capabilities })` and `define({ scope: 'plugin', capabilities })`
+ * `server({ capabilities })` and `server({ scope: 'plugin', capabilities })`
  * reject it at compile time; a channel declares it as a prerequisite the same
  * way a plugin declares a host-owned one.
  */

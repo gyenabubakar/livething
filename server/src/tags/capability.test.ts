@@ -1,13 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { tags } from './capability.ts';
 
-const base = define({
+const base = server({
   capabilities: [
     tags((ephemeral, persistent) => [
       ephemeral('role', t<string>()),
@@ -36,7 +36,7 @@ describe('tags typing', () => {
   });
 
   it('gates the upgrade ephemeral-tag sugar to declared ephemeral group names', () => {
-    define({
+    server({
       upgrade() {
         return { userId: 'a', tags: { ephemeral: { role: 'admin' } } };
       },
@@ -44,7 +44,7 @@ describe('tags typing', () => {
     });
 
     // @ts-expect-error 'nope' is not a declared ephemeral group
-    define({
+    server({
       upgrade() {
         return { userId: 'a', tags: { ephemeral: { nope: 'x' } } };
       },
@@ -53,7 +53,7 @@ describe('tags typing', () => {
   });
 
   it('rejects ctx.tags group names when no tags() capability is listed', () => {
-    const plain = define({});
+    const plain = server({});
     plain.on('act', {
       run(ctx) {
         // @ts-expect-error no tag groups declared
@@ -63,8 +63,8 @@ describe('tags typing', () => {
   });
 
   it('keeps tags out of the client contract', () => {
-    const handler = base.assemble({ handlers: [base.on('act', { run() {} })] });
-    type C = InferClient<typeof handler>;
+    const definition = base.assemble({ handlers: [base.on('act', { run() {} })] });
+    type C = InferClient<typeof definition>;
     expectTypeOf<keyof C>().not.toEqualTypeOf<'ephemeralTags' | 'persistentTags'>();
     // @ts-expect-error tags are server-only and never appear on the client contract
     type _Leak = C['ephemeralTags'];

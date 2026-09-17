@@ -43,11 +43,11 @@ function buildDurableSweep(): Primitive {
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * const base = define({ capabilities: [recordedStream()] });
+ * const base = server({ capabilities: [recordedStream()] });
  *
  * export const handleTokens = base.recordedStream('tokens', {
  *   input: v.object({}),

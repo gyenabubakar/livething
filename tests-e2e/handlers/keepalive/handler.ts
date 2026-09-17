@@ -1,9 +1,9 @@
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import { keepalive } from '@wskit/server/keepalive';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     // Ping every 1s, close after 2s of silence. The ping lands with a ~1s margin
@@ -13,6 +13,6 @@ const base = define({
   ],
 });
 
-export const keepaliveHandler = base.assemble({ handlers: [] });
+export const keepaliveDefinition = base.assemble({ handlers: [] });
 
-export type KeepaliveClient = InferClient<typeof keepaliveHandler>;
+export type KeepaliveClient = InferClient<typeof keepaliveDefinition>;

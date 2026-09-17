@@ -6,12 +6,12 @@ import { clientRequests } from '~/request/client-requests.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
-import { define } from './define.ts';
+import { server } from './server.ts';
 
 const NotFound = error('not-found', v.object({ id: v.string() }));
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
-const base = define({
+const base = server({
   upgrade: () => ({ userId: 'x', meta: { username: 'x' } }),
   capabilities: [
     emits({
@@ -39,10 +39,10 @@ const handleAnything = base.on('anything', {
   run() {},
 });
 
-const handler = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
-type C = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [handleEcho, handleAnything, handleGetTime] });
+type C = InferClient<typeof definition>;
 
-describe('InferClient for define()', () => {
+describe('InferClient for server()', () => {
   it('maps each emits capability to a client incoming event', () => {
     expectTypeOf<C['incoming']['welcome']>().toEqualTypeOf<{ username: string }>();
     expectTypeOf<C['incoming']['goodbye']>().toEqualTypeOf<{ username: string }>();
@@ -77,7 +77,7 @@ describe('InferClient for define()', () => {
   });
 
   it('rejects a builder method whose capability was not listed', () => {
-    const bare = define({});
+    const bare = server({});
     // `clientRequests()` is not in capabilities, so `base.request` does not exist.
     // @ts-expect-error base.request requires the clientRequests() capability
     bare.request;

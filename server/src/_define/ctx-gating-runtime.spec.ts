@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server as createServerDefinition } from '~/_define/server.ts';
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/contexts.ts';
 import { keepalive } from '~/keepalive/capability.ts';
 import { scheduled } from '~/scheduled/capability.ts';
@@ -25,9 +25,9 @@ function makeStorage() {
   return { sql, kv: { get() {}, put() {}, delete() {}, list: () => [] } } as any;
 }
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'ctx-gating-runtime',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
@@ -42,7 +42,7 @@ function buildEngine(handler: ServerDefinition): Engine {
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return captured;
@@ -88,7 +88,7 @@ async function captureCtx(server: ProbeServer): Promise<any> {
 
 describe('capability-owned ctx surfaces — runtime gating', () => {
   it('a bare server exposes none of the gated surfaces', async () => {
-    const ctx = await captureCtx(probeServer(define({})));
+    const ctx = await captureCtx(probeServer(createServerDefinition({})));
     expect('schedule' in ctx).toBe(false);
     expect('cancelScheduled' in ctx).toBe(false);
     expect('latency' in ctx).toBe(false);
@@ -101,7 +101,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('ctx.matches / ctx.unsafeCast work on a server without intercepts()', async () => {
-    const ctx = await captureCtx(probeServer(define({})));
+    const ctx = await captureCtx(probeServer(createServerDefinition({})));
 
     const frame = {
       event: 'probe',
@@ -117,7 +117,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('scheduled() adds ctx.schedule / ctx.cancelScheduled that call through', async () => {
-    const base = define({ capabilities: [scheduled({ cleanup: null })] });
+    const base = createServerDefinition({ capabilities: [scheduled({ cleanup: null })] });
     base.scheduled('cleanup', { run() {} });
     const ctx = await captureCtx(probeServer(base));
 
@@ -129,7 +129,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('keepalive() adds live ctx.latency / ctx.quality', async () => {
-    const base = define({
+    const base = createServerDefinition({
       capabilities: [keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 2_000 })],
     });
     const ctx = await captureCtx(probeServer(base));
@@ -147,13 +147,13 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('listing a plugin adds ctx.plugin; it resolves the api and throws for unknown ids', async () => {
-    const ph = define({ scope: 'plugin', capabilities: [] });
+    const ph = createServerDefinition({ scope: 'plugin', capabilities: [] });
     const beat = ph.on('beat', { input: v.object({}), run() {} });
     const Presence = plugin('acme:presence', {
-      handler: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
+      definition: ph.assemble({ handlers: [beat], api: () => ({ tag: 'presence-api' }) }),
     });
 
-    const base = define({ capabilities: [Presence()] });
+    const base = createServerDefinition({ capabilities: [Presence()] });
     const ctx = await captureCtx(probeServer(base));
 
     expect('plugin' in ctx).toBe(true);
@@ -163,7 +163,7 @@ describe('capability-owned ctx surfaces — runtime gating', () => {
   });
 
   it('a stream-sweep-only server (recordedStream, no scheduled()) has no ctx.schedule', async () => {
-    const base = define({
+    const base = createServerDefinition({
       capabilities: [recordedStream()],
     });
     const ctx = await captureCtx(probeServer(base));

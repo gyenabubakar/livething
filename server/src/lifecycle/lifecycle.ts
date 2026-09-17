@@ -265,7 +265,7 @@ export const onError = Object.assign(
 
 /**
  * Creates an `onUpgrade` lifecycle primitive. Prefer the `upgrade` option on
- * `define(...)` — this factory is used internally by `assemble(...)`.
+ * `server(...)` — this factory is used internally by `assemble(...)`.
  */
 export const onUpgrade = Object.assign(
   makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (

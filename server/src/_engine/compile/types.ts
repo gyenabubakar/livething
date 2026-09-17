@@ -123,7 +123,7 @@ export interface CompiledServer {
    */
   replayClaimedChannelKeys: Set<string>;
 
-  /** Per-user connection cap from `define({ users: {...} })`, or `undefined` for unlimited. */
+  /** Per-user connection cap from `server({ users: {...} })`, or `undefined` for unlimited. */
   usersPolicy?: UsersPolicy;
 }
 

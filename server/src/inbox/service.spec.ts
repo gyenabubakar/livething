@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
-import { define } from '~/_define/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
+import { server } from '~/_define/server.ts';
 import { purgeUser } from '~/_engine/runtime/purge-user.ts';
 import { createTestStorage } from '~/_test/sql.ts';
 import { createTestTimers } from '~/_test/timers.ts';
@@ -20,9 +20,9 @@ import {
   loadUndeliveredRows,
 } from './storage.ts';
 
-function buildEngine(handler: ServerDefinition, storage = createTestStorage()): Engine {
+function buildEngine(definition: ServerDefinition, storage = createTestStorage()): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'inbox-service-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
@@ -36,28 +36,28 @@ function buildEngine(handler: ServerDefinition, storage = createTestStorage()): 
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return captured;
 }
 
 function buildInboxEngine(storage = createTestStorage()): Engine {
-  const base = define({
+  const base = server({
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', { capabilities: [inbox()] });
-  const handler = base.assemble({ handlers: [chat] });
-  return buildEngine(handler, storage);
+  const definition = base.assemble({ handlers: [chat] });
+  return buildEngine(definition, storage);
 }
 
 function buildChannelsOnlyEngine(): Engine {
-  const base = define({
+  const base = server({
     capabilities: [channels(), sequence({ persist: true }), dedup()],
   });
   const chat = base.channel('chat', {});
-  const handler = base.assemble({ handlers: [chat] });
-  return buildEngine(handler);
+  const definition = base.assemble({ handlers: [chat] });
+  return buildEngine(definition);
 }
 
 describe('inbox runtime install', () => {
@@ -142,7 +142,7 @@ describe('inbox runtime install', () => {
     });
     const engine = buildEngine(
       (() => {
-        const base = define({
+        const base = server({
           capabilities: [channels(), sequence({ persist: true }), dedup()],
         });
         return base.assemble({ handlers: [base.channel('chat', { capabilities: [inbox()] })] });
@@ -207,7 +207,7 @@ describe('inbox runtime install', () => {
         }
       },
     });
-    const base = define({
+    const base = server({
       capabilities: [channels(), sequence({ persist: true }), dedup()],
     });
     const engine = buildEngine(

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
 import { intercepts } from '~/intercept/capability.ts';
 import { localKey } from '~/local-key/local-key.ts';
@@ -10,7 +10,7 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
 
 describe('ctx.sendReplay gating', () => {
   it('omits ctx.sendReplay without a replay capability', () => {
-    const base = define({ capabilities: [emits({ msg: t<{ text: string }>() })] });
+    const base = server({ capabilities: [emits({ msg: t<{ text: string }>() })] });
     base.on('x', {
       run(ctx) {
         // @ts-expect-error ctx.sendReplay needs a replay capability
@@ -20,7 +20,7 @@ describe('ctx.sendReplay gating', () => {
   });
 
   it('adds ctx.sendReplay with replay.history()', () => {
-    const base = define({
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.history()],
     });
     base.on('x', {
@@ -33,7 +33,7 @@ describe('ctx.sendReplay gating', () => {
   });
 
   it('adds ctx.sendReplay with replay.custom()', () => {
-    const base = define({
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), replay.custom()],
     });
     base.on('x', {
@@ -44,7 +44,7 @@ describe('ctx.sendReplay gating', () => {
   });
 
   it('adds ctx.sendReplay with replay.snapshot(), typed to the emits catalog', () => {
-    const base = define({
+    const base = server({
       capabilities: [
         emits({ msg: t<{ text: string }>() }),
         replay.snapshot({ snapshotKey: () => 'k' }),
@@ -62,7 +62,7 @@ describe('ctx.sendReplay gating', () => {
 
 describe('ctx.matches / ctx.unsafeCast typing', () => {
   it('narrows a frame payload to a declared event input (not any)', () => {
-    const base = define({
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() }), intercepts()],
     });
     base.intercept((ctx, frame: InterceptFrame) => {
@@ -75,7 +75,7 @@ describe('ctx.matches / ctx.unsafeCast typing', () => {
   });
 
   it('are typed on ctx without intercepts() — they are core', () => {
-    const base = define({
+    const base = server({
       capabilities: [emits({ msg: t<{ text: string }>() })],
     });
     base.on('x', {

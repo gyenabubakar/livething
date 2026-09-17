@@ -3,7 +3,7 @@ import type { DedupClient } from '@wskit/tests-e2e-handlers/dedup';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's dedup() against the real `dedup` handler, typed by the
-// same contract the server implements (DedupClient = InferClient<handler>). The
+// same contract the server implements (DedupClient = InferClient<definition>). The
 // handler echoes `do-echo` back as `echoed`, and the server stamps every
 // outgoing frame with its own fresh messageId, so dedup() sees a distinct id per
 // echo and must let each one through.

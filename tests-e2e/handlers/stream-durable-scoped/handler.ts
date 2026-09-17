@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { recordedStream, resumableStream, stream } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -12,7 +12,7 @@ const PausePayload = v.object({ at: v.number() });
 const TokenChunk = t<{ token: string }>();
 const StopPayload = v.object({});
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels(), stream(), resumableStream(), recordedStream()],
 });
@@ -163,7 +163,7 @@ const handleHistoryNudged = rooms.recordedStream('history-nudged', {
   },
 });
 
-export const streamDurableScopedHandler = base.assemble({
+export const streamDurableScopedDefinition = base.assemble({
   handlers: [
     handleStartConcurrent,
     handleShortWindow,
@@ -178,4 +178,4 @@ export const streamDurableScopedHandler = base.assemble({
   ],
 });
 
-export type StreamDurableScopedClient = InferClient<typeof streamDurableScopedHandler>;
+export type StreamDurableScopedClient = InferClient<typeof streamDurableScopedDefinition>;

@@ -39,10 +39,10 @@ const interceptRuntimePrimitive = definePrimitive({
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { intercepts } from '@wskit/server/intercepts';
  *
- * const base = define({ capabilities: [intercepts()] });
+ * const base = server({ capabilities: [intercepts()] });
  *
  * base.intercept((ctx, frame) => {
  *   if (frame.kind === 'incoming') console.log(frame.event);

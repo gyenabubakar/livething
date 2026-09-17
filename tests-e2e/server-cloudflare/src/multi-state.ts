@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { multiStateHandler } from '@wskit/tests-e2e-handlers/multi-state';
+import { multiStateDefinition } from '@wskit/tests-e2e-handlers/multi-state';
 
-export class MultiStateServer extends bind(multiStateHandler) {}
+export class MultiStateServer extends bind(multiStateDefinition) {}

@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { server, emits, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { dedup } from '@wskit/server/dedup';
@@ -23,7 +23,7 @@ export const RoomMsgPayload = v.object({ text: v.string(), from: v.string() });
 
 export const BadPayload = v.object({ ok: v.literal(true) });
 
-export const base = define({
+export const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     sequence({ persist: true }),

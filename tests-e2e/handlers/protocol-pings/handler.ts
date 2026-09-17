@@ -1,12 +1,12 @@
-import { define } from '@wskit/server';
+import { server } from '@wskit/server';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [],
 });
 
-export const protocolPingsHandler = base.assemble({ handlers: [] });
+export const protocolPingsDefinition = base.assemble({ handlers: [] });
 
-export type ProtocolPingsClient = InferClient<typeof protocolPingsHandler>;
+export type ProtocolPingsClient = InferClient<typeof protocolPingsDefinition>;

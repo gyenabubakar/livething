@@ -1,4 +1,4 @@
-import { define, errors } from '@wskit/server';
+import { errors, server } from '@wskit/server';
 import { error, WSKitError } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -13,7 +13,7 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [errors([NotFound, Forbidden, SimpleError, BigIntDetail])],
 });
@@ -58,7 +58,7 @@ const handleTriggerBigint = base.on('trigger-bigint', {
   },
 });
 
-export const errorsFactoryHandler = base.assemble({
+export const errorsFactoryDefinition = base.assemble({
   handlers: [
     handleTriggerNotFound,
     handleTriggerForbidden,
@@ -68,4 +68,4 @@ export const errorsFactoryHandler = base.assemble({
   ],
 });
 
-export type ErrorsFactoryClient = InferClient<typeof errorsFactoryHandler>;
+export type ErrorsFactoryClient = InferClient<typeof errorsFactoryDefinition>;

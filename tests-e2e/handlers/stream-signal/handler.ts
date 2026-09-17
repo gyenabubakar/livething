@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -6,7 +6,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const Tick = t<{ index: number }>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     stream(),
@@ -68,6 +68,6 @@ const handleSlowSignal = base.stream('slow-signal', {
   },
 });
 
-export const streamSignalHandler = base.assemble({ handlers: [handleSlowSignal] });
+export const streamSignalDefinition = base.assemble({ handlers: [handleSlowSignal] });
 
-export type StreamSignalClient = InferClient<typeof streamSignalHandler>;
+export type StreamSignalClient = InferClient<typeof streamSignalDefinition>;

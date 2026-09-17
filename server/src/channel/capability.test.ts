@@ -1,12 +1,12 @@
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { emits } from '~/emits/emits.ts';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 import { channels } from './capability.ts';
 
-const base = define({ capabilities: [channels()] });
+const base = server({ capabilities: [channels()] });
 
 const lobby = base.channel('lobby', {
   capabilities: [emits({ joined: t<{ id: string }>() })],
@@ -19,8 +19,8 @@ const room = base.channel(['rooms', 'rooms:{id}'], {
 });
 const handleSay = room.on('say', { input: v.object({ text: v.string() }), run() {} });
 
-const handler = base.assemble({ handlers: [handleChat, handleSay] });
-type C = InferClient<typeof handler>;
+const definition = base.assemble({ handlers: [handleChat, handleSay] });
+type C = InferClient<typeof definition>;
 
 describe('channel typing', () => {
   it('flips channel emits to client incoming and channel handlers to client outgoing', () => {

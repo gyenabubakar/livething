@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { adapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/adapter.ts';
 import { t } from '~/_api/definitions.ts';
-import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
 import { channelRuntime, dispatchRuntime } from '~/_engine/engine.deps.ts';
 import { processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createTestStorage } from '~/_test/sql.ts';
@@ -22,9 +22,9 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { inbox, readReceipts } from './capability.ts';
 
-function buildEngine(handler: ServerDefinition): Engine {
+function buildEngine(definition: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const server = adapter({
+  const runAdapter = adapter({
     id: 'inbox-subscribe-gate-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
@@ -38,7 +38,7 @@ function buildEngine(handler: ServerDefinition): Engine {
       return {};
     },
   });
-  server(handler, undefined as never);
+  runAdapter(definition, undefined as never);
   if (!captured) throw new Error('engine not captured');
 
   return captured;
@@ -91,7 +91,7 @@ function buildHandler() {
     normal: Record<string, unknown> | undefined;
   } = { gate: undefined, normal: undefined };
 
-  const base = define({
+  const base = server({
     capabilities: [
       channels(),
       sequence({ persist: true }),
@@ -156,9 +156,9 @@ function buildHandler() {
     record('subscribe', ctx);
   });
 
-  const handler = base.assemble({ handlers: [chat] });
+  const definition = base.assemble({ handlers: [chat] });
 
-  return { handler, sightings, handles };
+  return { definition, sightings, handles };
 }
 
 function buildDynamicHandler() {
@@ -175,7 +175,7 @@ function buildDynamicHandler() {
   } = { gate: undefined, normal: undefined };
   const state = { sightings, handles };
 
-  const base = define({
+  const base = server({
     capabilities: [
       channels(),
       sequence({ persist: true }),
@@ -207,7 +207,7 @@ function buildDynamicHandler() {
   });
 
   return {
-    handler: base.assemble({ handlers: [rooms] }),
+    definition: base.assemble({ handlers: [rooms] }),
     sightings,
     handles,
   };
@@ -256,8 +256,8 @@ function recordDynamic(
 
 describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe lifecycle', () => {
   it('are undefined inside check, commit, and revalidate on a channel with inbox() and readReceipts()', async () => {
-    const { handler, sightings, handles } = buildHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -346,8 +346,8 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('are present inside subscribe on that same channel', async () => {
-    const { handler, sightings, handles } = buildHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -383,8 +383,8 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('keeps the same gate boundary for dynamic channel families', async () => {
-    const { handler, sightings, handles } = buildDynamicHandler();
-    const engine = buildEngine(handler);
+    const { definition, sightings, handles } = buildDynamicHandler();
+    const engine = buildEngine(definition);
     await engine.initialize();
 
     const core = engine.core;
@@ -462,7 +462,7 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
   });
 
   it('keeps the gate boundary for a plugin channel regardless of capability order', async () => {
-    const pluginBase = define({
+    const pluginBase = server({
       scope: 'plugin',
       capabilities: [
         channels(),
@@ -528,8 +528,10 @@ describe('ctx.channel.inbox / ctx.channel.readReceipts across the subscribe life
       recordPlugin('subscribe', ctx);
     });
 
-    const Feed = plugin('acme:gate-feed', { handler: pluginBase.assemble({ handlers: [room] }) });
-    const host = define({
+    const Feed = plugin('acme:gate-feed', {
+      definition: pluginBase.assemble({ handlers: [room] }),
+    });
+    const host = server({
       capabilities: [sequence({ persist: true }), dedup(), Feed()],
     });
     const engine = buildEngine(host.assemble({ handlers: [] }));

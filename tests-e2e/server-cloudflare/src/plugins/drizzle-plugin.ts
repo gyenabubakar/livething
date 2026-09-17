@@ -1,4 +1,4 @@
-import { define, emits, error, errors, t } from '@wskit/server';
+import { emits, error, errors, server, t } from '@wskit/server';
 import { intercepts } from '@wskit/server/intercepts';
 import { plugin } from '@wskit/server/plugins';
 import { scheduled } from '@wskit/server/scheduled';
@@ -77,7 +77,7 @@ function getState(platform: Platform): DoState {
   return state;
 }
 
-const h = define({
+const h = server({
   scope: 'plugin',
   capabilities: [
     emits({
@@ -305,7 +305,7 @@ h.scheduled('drizzle-task-with-data', {
 });
 
 export const Drizzle = plugin('e2e:drizzle', {
-  handler: h.assemble({
+  definition: h.assemble({
     handlers: [
       triggerDenied,
       triggerError,

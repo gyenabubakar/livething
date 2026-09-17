@@ -1,4 +1,4 @@
-import { define, t } from '@wskit/server';
+import { server, t } from '@wskit/server';
 import { stream } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -6,7 +6,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const Tick = t<{ index: number }>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [stream()],
 });
@@ -18,7 +18,7 @@ const base = define({
  * the stream runs to completion at full speed. On Cloudflare the platform does
  * not expose buffer fullness, so drain is a no-op (resolves immediately) — the
  * stream must still complete and deliver every chunk. The override
- * `highWaterMark` proves the option threads through define → compile → runtime.
+ * `highWaterMark` proves the option threads through server → compile → runtime.
  */
 const handleDrainFeed = base.stream('drain-feed', {
   input: v.object({ count: v.number() }),
@@ -34,6 +34,6 @@ const handleDrainFeed = base.stream('drain-feed', {
   },
 });
 
-export const streamBackpressureHandler = base.assemble({ handlers: [handleDrainFeed] });
+export const streamBackpressureDefinition = base.assemble({ handlers: [handleDrainFeed] });
 
-export type StreamBackpressureClient = InferClient<typeof streamBackpressureHandler>;
+export type StreamBackpressureClient = InferClient<typeof streamBackpressureDefinition>;

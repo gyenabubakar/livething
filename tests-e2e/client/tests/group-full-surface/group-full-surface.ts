@@ -4,7 +4,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives a broad smoke across @wskit/client primitives against the real
 // `group-full-surface` handler, typed by the same contract the server
-// implements (GroupFullSurfaceClient = InferClient<handler>).
+// implements (GroupFullSurfaceClient = InferClient<definition>).
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>

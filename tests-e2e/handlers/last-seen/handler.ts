@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { lastSeen } from '@wskit/server/last-seen';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -9,7 +9,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 // default `track: 'connection'`); no channel is needed to observe it. One
 // connection can query ANY identity's standing, including one it does not own,
 // so a still-connected member can answer for one that has since disconnected.
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     lastSeen(),
@@ -43,8 +43,8 @@ export const handleAskLastSeenMany = base.on('ask-last-seen-many', {
   },
 });
 
-export const lastSeenHandler = base.assemble({
+export const lastSeenDefinition = base.assemble({
   handlers: [handleAskLastSeen, handleAskLastSeenMany],
 });
 
-export type LastSeenClient = InferClient<typeof lastSeenHandler>;
+export type LastSeenClient = InferClient<typeof lastSeenDefinition>;

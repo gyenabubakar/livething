@@ -7,7 +7,7 @@ import { collectUnique, validateValue } from './utils.ts';
 
 describe('collectUnique', () => {
   const outgoingWhere = { kind: 'outgoing', context: 'plugin("x")' };
-  const errorWhere = { kind: 'error', context: 'define({ capabilities: [...] })' };
+  const errorWhere = { kind: 'error', context: 'server({ capabilities: [...] })' };
 
   it('returns the input untouched when all keys are unique', () => {
     const items = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];

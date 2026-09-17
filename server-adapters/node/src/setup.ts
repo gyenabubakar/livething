@@ -21,10 +21,10 @@ export interface NodeEndpointBinding<TApi = unknown> {
 
 /** Shared lifecycle for Node endpoints bound by one application. */
 export interface NodeSetup {
-  bind<THandler extends ServerDefinition>(
-    handler: THandler,
+  bind<TDefinition extends ServerDefinition>(
+    definition: TDefinition,
     options: NodeServerEndpointOptions,
-  ): NodeEndpointBinding<ApiOf<THandler>>;
+  ): NodeEndpointBinding<ApiOf<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -38,10 +38,10 @@ export function setup(): NodeSetup {
   let shuttingDown = false;
 
   return {
-    bind(handler, options) {
+    bind(definition, options) {
       if (shuttingDown) throw new Error('[wskit] Node binding is shutting down');
 
-      const endpoint = node.bind(handler, options);
+      const endpoint = node.bind(definition, options);
       const webSocketServer = options.webSocketServer ?? new WebSocketServer({ noServer: true });
       const handleUpgrade = createNodeUpgradeHandler({ endpoint, webSocketServer });
 

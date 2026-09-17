@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { server, emits, t } from '@wskit/server';
 import { dedup } from '@wskit/server/dedup';
 import { sequence } from '@wskit/server/sequence';
 import { stream } from '@wskit/server/streams';
@@ -54,7 +54,7 @@ export function createPluginsHandler<
 
   const drizzleCapability = drizzle();
 
-  const base = define({
+  const base = server({
     upgrade: (request) => requireUsername(request),
     capabilities: [
       stream(),

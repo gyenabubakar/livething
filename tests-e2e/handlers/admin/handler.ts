@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { scheduled } from '@wskit/server/scheduled';
 import { resumableStream } from '@wskit/server/streams';
@@ -6,7 +6,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: requireUsername,
   capabilities: [
     channels(),
@@ -49,7 +49,7 @@ base.scheduled('admin-announce', {
  * `purgeUser` needs no capability of its own — it wipes whatever durable state
  * the listed capabilities own.
  */
-export const adminHandler = base.assemble({
+export const adminDefinition = base.assemble({
   handlers: [noop, handleJoinLobby, lobby],
   api: (ctx) => ({
     announce(text: string) {
@@ -149,4 +149,4 @@ export const adminHandler = base.assemble({
   }),
 });
 
-export type AdminClient = InferClient<typeof adminHandler>;
+export type AdminClient = InferClient<typeof adminDefinition>;

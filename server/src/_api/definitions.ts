@@ -59,7 +59,7 @@ export { error } from '@wskit/core';
  *
  * @example
  * ```ts
- * define({ capabilities: [emits({ 'chat-message': t<{ text: string }>() })] });
+ * server({ capabilities: [emits({ 'chat-message': t<{ text: string }>() })] });
  * ```
  */
 export function t<T>(): TypeMarker<T> {

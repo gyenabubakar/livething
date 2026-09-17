@@ -1,7 +1,7 @@
 import { bind } from '@wskit/server-cloudflare';
-import { scheduledHandler } from '@wskit/tests-e2e-handlers/scheduled';
+import { scheduledDefinition } from '@wskit/tests-e2e-handlers/scheduled';
 
-const Base = bind(scheduledHandler);
+const Base = bind(scheduledDefinition);
 
 /**
  * Test-only `restart()`: `ctx.abort()` discards the in-memory instance while

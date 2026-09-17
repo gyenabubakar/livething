@@ -1,4 +1,4 @@
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
@@ -14,19 +14,19 @@ function replayReady() {
 
 describe('replay capabilities', () => {
   it('installs built-in history replay with the replay feature flag', () => {
-    const base = define({
+    const base = server({
       capabilities: [...replayReady(), replay.history({ retention: { maxAgeMs: 60_000 } })],
     });
-    const handler = base.assemble({ handlers: [] });
-    const primitive = handler.primitives.find((p) => p.__wskit === 'replay') as unknown as
+    const definition = base.assemble({ handlers: [] });
+    const primitive = definition.primitives.find((p) => p.__wskit === 'replay') as unknown as
       | ReplayPrimitive
       | undefined;
     expect(primitive?.options.type).toBe('history');
-    expect(handler.__features?.has('replay')).toBe(true);
+    expect(definition.__features?.has('replay')).toBe(true);
   });
 
   it('installs built-in snapshot replay', () => {
-    const base = define({
+    const base = server({
       capabilities: [...replayReady(), replay.snapshot({})],
     });
     const primitive = base
@@ -36,19 +36,19 @@ describe('replay capabilities', () => {
   });
 
   it('refuses to boot built-in replay without dedup and persistent sequence', () => {
-    const base = define({ capabilities: [replay.history()] });
+    const base = server({ capabilities: [replay.history()] });
     expect(() => compileHandlerDefinition(base.assemble({ handlers: [] }))).toThrow(/replay/);
   });
 
   it('registers a custom replay strategy with replay.custom() and base.replay()', () => {
-    const base = define({ capabilities: [replay.custom()] });
+    const base = server({ capabilities: [replay.custom()] });
     base.replay({ replay() {} });
-    const handler = base.assemble({ handlers: [] });
-    expect(handler.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
+    const definition = base.assemble({ handlers: [] });
+    expect(definition.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
   });
 
   it('throws when base.replay() is used without the replay.custom() capability', () => {
-    const base = define({});
+    const base = server({});
     const escapeHatch = base as unknown as { replay(hooks: { replay(): void }): void };
     expect(() => escapeHatch.replay({ replay() {} })).toThrow(
       /base\.replay\(\) needs the replay\.custom\(\) capability/,
@@ -56,27 +56,27 @@ describe('replay capabilities', () => {
   });
 
   it('throws when base.replay() is registered twice', () => {
-    const base = define({ capabilities: [replay.custom()] });
+    const base = server({ capabilities: [replay.custom()] });
     base.replay({ replay() {} });
     expect(() => base.replay({ replay() {} })).toThrow(/Duplicate replay hook/);
   });
 
   it('throws when replay.custom() is listed more than once', () => {
     expect(() =>
-      define({ capabilities: [replay.custom(), replay.custom()] as AnyCapability[] }),
+      server({ capabilities: [replay.custom(), replay.custom()] as AnyCapability[] }),
     ).toThrow(/replay\.custom\(\) is listed more than once/);
   });
 
   it('throws when more than one built-in replay strategy is listed', () => {
     expect(() =>
-      define({
+      server({
         capabilities: [...replayReady(), replay.history(), replay.snapshot()] as AnyCapability[],
       }),
     ).toThrow(/more than once/);
   });
 
   it('throws when built-in history replay and custom base.replay() are both configured', () => {
-    const base = define({
+    const base = server({
       capabilities: [...replayReady(), replay.history(), replay.custom()],
     });
     base.replay({ replay() {} });
@@ -84,7 +84,7 @@ describe('replay capabilities', () => {
   });
 
   it('throws when built-in snapshot replay and custom base.replay() are both configured', () => {
-    const base = define({
+    const base = server({
       capabilities: [...replayReady(), replay.snapshot(), replay.custom()],
     });
     base.replay({ replay() {} });

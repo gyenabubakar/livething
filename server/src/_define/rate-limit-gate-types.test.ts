@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-unused-expressions */
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { rateLimit } from '~/rate-limit/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
@@ -8,7 +8,7 @@ import { describe, it } from 'vitest';
 
 describe('rateLimit override is gated on the rateLimit() capability', () => {
   it('rejects a per-handler rateLimit override when rateLimit() is not listed', () => {
-    const base = define({ capabilities: [channels(), clientRequests()] });
+    const base = server({ capabilities: [channels(), clientRequests()] });
 
     base.on('ping', {
       input: v.object({}),
@@ -38,7 +38,7 @@ describe('rateLimit override is gated on the rateLimit() capability', () => {
   });
 
   it('accepts a rateLimit override when rateLimit() is listed', () => {
-    const base = define({
+    const base = server({
       capabilities: [channels(), clientRequests(), rateLimit({ max: 100 })],
     });
 

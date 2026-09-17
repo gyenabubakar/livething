@@ -1,6 +1,6 @@
 /**
  * The stream capabilities, grouped under one import path. List the ones you use
- * in `define({ capabilities: [...] })` to enable the matching `base.stream`,
+ * in `server({ capabilities: [...] })` to enable the matching `base.stream`,
  * `base.resumableStream`, and `base.recordedStream` builders.
  */
 export { stream } from './stream/capability.ts';

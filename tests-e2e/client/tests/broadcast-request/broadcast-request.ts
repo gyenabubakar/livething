@@ -4,7 +4,7 @@ import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client's serverRequests() against the real `broadcast-request`
 // handler, typed by the same contract the server implements
-// (BroadcastRequestClient = InferClient<handler>). Members join the `lobby`
+// (BroadcastRequestClient = InferClient<definition>). Members join the `lobby`
 // channel; the server fans a broadcast request out to every member and resolves
 // with the first valid answer plus the answerer's identity. Each page answers
 // per its own mode so a spec can pit a valid answerer against a silent/invalid

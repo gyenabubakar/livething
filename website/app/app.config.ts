@@ -8,7 +8,7 @@ export default defineAppConfig({
   seo: {
     titleTemplate: '%s - WSKit',
     title: 'WSKit',
-    description: 'A typed WebSocket framework for TypeScript. Define your contract once on the server and the client inherits the exact types — events, requests, channels, and streams, end to end.',
+    description: 'A typed WebSocket framework for TypeScript. Call server() once and the client inherits the exact types — events, requests, channels, and streams, end to end.',
   },
   assistant: {
     icons: {
@@ -20,7 +20,7 @@ export default defineAppConfig({
         items: [
           'What is WSKit?',
           'How do I install WSKit?',
-          'How do I define a typed contract?',
+          'How do I create a typed contract?',
         ],
       },
       {

@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { serverRequests } from '@wskit/server/server-requests';
 import * as v from 'valibot';
@@ -12,7 +12,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
  * connection answered first over the real wire. A `trigger-timeout` exercises
  * the "nobody volunteered" path.
  */
-export const broadcastRequestContract = define({
+export const broadcastRequestContract = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -67,8 +67,8 @@ const handleTriggerTimeout = broadcastRequestContract.on('trigger-timeout', {
   },
 });
 
-export const broadcastRequestHandler = broadcastRequestContract.assemble({
+export const broadcastRequestDefinition = broadcastRequestContract.assemble({
   handlers: [lobby, handleTrigger, handleTriggerTimeout],
 });
 
-export type BroadcastRequestClient = InferClient<typeof broadcastRequestHandler>;
+export type BroadcastRequestClient = InferClient<typeof broadcastRequestDefinition>;

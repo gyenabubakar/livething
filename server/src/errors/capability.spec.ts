@@ -1,5 +1,5 @@
-import { define } from '~/_define/define.ts';
 import { plugin } from '~/_define/plugins.ts';
+import { server } from '~/_define/server.ts';
 import { errors } from '~/errors/capability.ts';
 import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';
@@ -21,16 +21,16 @@ describe('errors() duplicate error-code build guard', () => {
 
   it('rejects errors() when it is listed more than once', () => {
     const capabilities: AnyCapability[] = [errors([NotFound]), errors([Forbidden])];
-    expect(() => define({ capabilities })).toThrow(/errors\(\) is listed more than once/);
+    expect(() => server({ capabilities })).toThrow(/errors\(\) is listed more than once/);
   });
 
   it('does not false-positive across plugin and host code boundaries', () => {
-    const h = define({ scope: 'plugin', capabilities: [errors([NotFound])] });
-    const Denied = plugin('acme:denied', { handler: h.assemble({ handlers: [] }) });
+    const h = server({ scope: 'plugin', capabilities: [errors([NotFound])] });
+    const Denied = plugin('acme:denied', { definition: h.assemble({ handlers: [] }) });
 
     // host declares its own 'not-found' while the plugin namespaces its code to
     // '__acme:denied::not-found' — distinct wire codes, so no collision.
-    const base = define({ capabilities: [errors([NotFound]), Denied()] });
+    const base = server({ capabilities: [errors([NotFound]), Denied()] });
     expect(() => base.assemble({ handlers: [] })).not.toThrow();
   });
 });

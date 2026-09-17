@@ -34,13 +34,13 @@ export type ReadReceiptsCapability = ChannelOnlyCapability<
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { channels } from '@wskit/server/channels';
  * import { sequence } from '@wskit/server/sequence';
  * import { dedup } from '@wskit/server/dedup';
  * import { inbox } from '@wskit/server/inbox';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [channels(), sequence({ persist: true }), dedup()],
  * });
  *

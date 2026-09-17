@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { clientRequests } from '@wskit/server/client-requests';
 import { Block } from '@wskit/server/errors';
@@ -8,7 +8,7 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ echoed: t<{ text: string }>() }),
@@ -152,7 +152,7 @@ const handleRoomsEcho = rooms.on('echo', {
   },
 });
 
-export const interceptHandler = base.assemble({
+export const interceptDefinition = base.assemble({
   handlers: [
     handleEcho,
     handleInterceptReq,
@@ -163,4 +163,4 @@ export const interceptHandler = base.assemble({
   ],
 });
 
-export type InterceptClient = InferClient<typeof interceptHandler>;
+export type InterceptClient = InferClient<typeof interceptDefinition>;

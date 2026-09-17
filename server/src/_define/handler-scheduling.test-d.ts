@@ -1,10 +1,10 @@
 /* oxlint-disable no-unused-vars */
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { clientRequests } from '~/request/client-requests.ts';
 import { recordedStream, resumableStream, stream } from '~/streams.ts';
 
-const base = define({
+const base = server({
   capabilities: [channels(), clientRequests(), stream(), resumableStream(), recordedStream()],
 });
 

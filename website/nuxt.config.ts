@@ -106,7 +106,7 @@ export default defineNuxtConfig({
     domain: siteUrl,
     title: 'WSKit',
     description:
-      'A typed, end-to-end WebSocket framework for TypeScript: define one contract and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
+      'A typed, end-to-end WebSocket framework for TypeScript: call server() once and get an inferred client and server, with channels, streams, requests, presence, and reliability built in.',
     full: {
       title: 'WSKit — full documentation',
       description: 'Every WSKit documentation page concatenated into one file.',
@@ -135,7 +135,7 @@ export default defineNuxtConfig({
       {
         title: 'Server',
         description:
-          'The @wskit/server package: define, capabilities, handlers, channels, streams, and adapters.',
+          'The @wskit/server package: server(), capabilities, event handlers, channels, streams, and adapters.',
         contentCollection: 'docs',
         contentFilters: [{ field: 'path', operator: 'LIKE', value: '/server/%' }],
       },

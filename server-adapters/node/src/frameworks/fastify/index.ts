@@ -23,10 +23,10 @@ export interface FastifyEndpoint<TApi = unknown> {
 
 /** Shared lifecycle for Fastify WebSocket routes. */
 export interface FastifySetup {
-  bind<THandler extends ServerDefinition>(
-    handler: THandler,
+  bind<TDefinition extends ServerDefinition>(
+    definition: TDefinition,
     options: NodeEndpointOptions,
-  ): FastifyEndpoint<ApiOf<THandler>>;
+  ): FastifyEndpoint<ApiOf<TDefinition>>;
   ready(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -37,8 +37,8 @@ export function setup(): FastifySetup {
   const lifecycle = createUpgradeLifecycle();
 
   return {
-    bind(handler, options) {
-      const endpoint = node.bind(handler, options);
+    bind(definition, options) {
+      const endpoint = node.bind(definition, options);
       const upgrades = new WeakMap<IncomingMessage, NodeUpgrade>();
 
       const route: FastifyWebSocketRoute = {

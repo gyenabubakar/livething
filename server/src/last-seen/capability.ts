@@ -14,10 +14,10 @@ export type { LastSeenOptions, LastSeenTrack } from '~/last-seen/types.ts';
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { lastSeen } from '@wskit/server/last-seen';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [lastSeen({ track: 'activity' })],
  * });
  * ```

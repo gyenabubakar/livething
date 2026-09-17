@@ -1,18 +1,18 @@
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { describe, expect, it } from 'vitest';
 import { sequence } from './capability.ts';
 import type { SequencePrimitive } from './sequence.ts';
 
 describe('sequence() capability', () => {
   it('adds the sequence primitive and the sequence feature flag', () => {
-    const base = define({ capabilities: [sequence()] });
-    const handler = base.assemble({ handlers: [] });
-    expect(handler.primitives.some((p) => p.__wskit === 'sequence')).toBe(true);
-    expect(handler.__features?.has('sequence')).toBe(true);
+    const base = server({ capabilities: [sequence()] });
+    const definition = base.assemble({ handlers: [] });
+    expect(definition.primitives.some((p) => p.__wskit === 'sequence')).toBe(true);
+    expect(definition.__features?.has('sequence')).toBe(true);
   });
 
   it('carries the persist option onto the primitive', () => {
-    const base = define({
+    const base = server({
       capabilities: [sequence({ persist: true, batchSize: 5 })],
     });
     const primitive = base

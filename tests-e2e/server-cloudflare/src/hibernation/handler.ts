@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { stream } from '@wskit/server/streams';
 import { tags } from '@wskit/server/tags';
@@ -17,7 +17,7 @@ const ProbeConnPayload = v.object({});
 const StartSlowStreamPayload = v.object({});
 const SlowChunk = t<{ index: number }>();
 
-const base = define({
+const base = server({
   hibernation: { enabled: true },
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
@@ -133,7 +133,7 @@ const handleBroadcastToRoom = room.on('broadcast-to-room', {
   },
 });
 
-export const hibernationHandler = base.assemble({
+export const hibernationDefinition = base.assemble({
   handlers: [
     handleSaveNote,
     handleGetNotes,
@@ -146,4 +146,4 @@ export const hibernationHandler = base.assemble({
   ],
 });
 
-export type HibernationClient = InferClient<typeof hibernationHandler>;
+export type HibernationClient = InferClient<typeof hibernationDefinition>;

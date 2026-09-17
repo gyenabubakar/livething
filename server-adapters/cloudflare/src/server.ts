@@ -371,10 +371,10 @@ function requestWithClientIp(request: Request): Request {
  * Object id:
  *
  * ```ts
- * export class Room extends bind(handler) {}
+ * export class Room extends bind(serverDefinition) {}
  * ```
  *
- * Use a class declaration rather than `export const Room = bind(handler)`.
+ * Use a class declaration rather than `export const Room = bind(serverDefinition)`.
  * `wrangler types` writes `DurableObjectNamespace<import("./worker").Room>`,
  * which needs a **type** of that name; a `const` exports only a value, so the
  * binding falls back to `any` and every `stub.…()` call goes unchecked.
@@ -390,9 +390,9 @@ function requestWithClientIp(request: Request): Request {
  * ```ts
  * // src/worker.ts
  * import { bind } from '@wskit/server-cloudflare';
- * import { handler } from './handler';
+ * import { serverDefinition } from './server-definition';
  *
- * export class GameRoom extends bind(handler) {}
+ * export class GameRoom extends bind(serverDefinition) {}
  *
  * export default {
  *   async fetch(request, env) {
@@ -402,12 +402,12 @@ function requestWithClientIp(request: Request): Request {
  * };
  * ```
  */
-export function bind<THandler extends ServerDefinition>(
-  handler: THandler,
-): CloudflareDurableObjectClass<unknown, ApiOf<THandler>, MetaOf<THandler>> {
-  return buildBind(handler, undefined) as unknown as CloudflareDurableObjectClass<
+export function bind<TDefinition extends ServerDefinition>(
+  definition: TDefinition,
+): CloudflareDurableObjectClass<unknown, ApiOf<TDefinition>, MetaOf<TDefinition>> {
+  return buildBind(definition, undefined) as unknown as CloudflareDurableObjectClass<
     unknown,
-    ApiOf<THandler>,
-    MetaOf<THandler>
+    ApiOf<TDefinition>,
+    MetaOf<TDefinition>
   >;
 }

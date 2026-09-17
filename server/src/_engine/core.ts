@@ -27,7 +27,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
-import type * as DefineServer from '~/server-definition.ts';
+import type * as ServerTypes from '~/server-definition.ts';
 import type { TranslatorFactory } from '~/translation/translator.ts';
 import type { Validator } from '~/types.ts';
 
@@ -230,7 +230,7 @@ export class EngineCore {
    */
   asyncContext: EngineAsyncContext;
 
-  constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+  constructor(definition: ServerTypes.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     if (options.storage === undefined) {
       throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide storage.`);
     }
@@ -254,10 +254,12 @@ export class EngineCore {
     }
 
     this.options = options;
-    this.primitives = handler.primitives;
-    this.adminApiFactory = (handler as { __apiFactory?: (ctx: unknown) => unknown }).__apiFactory;
-    this.translatorFactory = handler.__translate;
-    this.compiled = EngineCompile.compileHandlerDefinition(handler);
+    this.primitives = definition.primitives;
+    this.adminApiFactory = (
+      definition as { __apiFactory?: (ctx: unknown) => unknown }
+    ).__apiFactory;
+    this.translatorFactory = definition.__translate;
+    this.compiled = EngineCompile.compileHandlerDefinition(definition);
 
     this.storage = options.storage;
     this.timers = options.timers;

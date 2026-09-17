@@ -1,12 +1,12 @@
 import { t } from '~/_api/index.ts';
-import { define } from '~/_define/define.ts';
+import { server } from '~/_define/server.ts';
 import { channels } from '~/channel/capability.ts';
 import { dedup } from '~/dedup/capability.ts';
 import { emits } from '~/emits/emits.ts';
 import { inbox } from '~/inbox/capability.ts';
 import { sequence } from '~/sequence/capability.ts';
 
-const base = define({
+const base = server({
   capabilities: [channels(), sequence({ persist: true }), dedup()],
 });
 

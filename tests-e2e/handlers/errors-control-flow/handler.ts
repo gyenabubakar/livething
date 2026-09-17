@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import {
   Block,
@@ -16,7 +16,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const StreamToken = t<{ index: number }>();
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     channels(),
@@ -122,7 +122,7 @@ const handleChatAlwaysDefer = chat.on('chat-always-defer', {
   },
 });
 
-export const errorsControlFlowHandler = base.assemble({
+export const errorsControlFlowDefinition = base.assemble({
   handlers: [
     handleDoEcho,
     handleBlockTest,
@@ -135,4 +135,4 @@ export const errorsControlFlowHandler = base.assemble({
   ],
 });
 
-export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;
+export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowDefinition>;

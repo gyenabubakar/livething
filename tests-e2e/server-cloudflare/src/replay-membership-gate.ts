@@ -1,4 +1,4 @@
 import { bind } from '@wskit/server-cloudflare';
-import { replayMembershipGateHandler } from '@wskit/tests-e2e-handlers/replay-membership-gate';
+import { replayMembershipGateDefinition } from '@wskit/tests-e2e-handlers/replay-membership-gate';
 
-export class ReplayMembershipGateServer extends bind(replayMembershipGateHandler) {}
+export class ReplayMembershipGateServer extends bind(replayMembershipGateDefinition) {}

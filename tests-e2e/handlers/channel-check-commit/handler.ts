@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { Disconnect } from '@wskit/server/errors';
 import * as v from 'valibot';
@@ -14,7 +14,7 @@ const TOKEN_ROLES: Record<string, 'member' | 'vip' | 'banned'> = {
 
 const SendPayload = v.object({ text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [channels()],
 });
@@ -128,8 +128,8 @@ const handleServerDrop = base.on('server-drop', {
   },
 });
 
-export const channelCheckCommitHandler = base.assemble({
+export const channelCheckCommitDefinition = base.assemble({
   handlers: [handleRoomSend, checkOnly, commitOnly, asyncCommit, nonceRoom, handleServerDrop],
 });
 
-export type ChannelCheckCommitClient = InferClient<typeof channelCheckCommitHandler>;
+export type ChannelCheckCommitClient = InferClient<typeof channelCheckCommitDefinition>;

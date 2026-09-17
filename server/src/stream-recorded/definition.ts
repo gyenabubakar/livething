@@ -60,14 +60,14 @@ interface RecordedStreamConfig<
  *
  * @example
  * ```ts
- * import { define, t } from '@wskit/server';
+ * import { server, t } from '@wskit/server';
  * import { StreamAborted } from '@wskit/server/errors';
  * import { recordedStream } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
  * const TokenChunk = t<{ idx: number }>();
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [recordedStream()],
  * });
  *

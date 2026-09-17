@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { tags } from '@wskit/server/tags';
 import * as v from 'valibot';
@@ -16,7 +16,7 @@ const CountByPayload = v.object({ group: v.string(), key: v.string() });
 const KickByPayload = v.object({ group: v.string(), key: v.string(), reason: v.string() });
 const GroupStatsPayload = v.object({ key: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsernameWithUserTag(request),
   capabilities: [
     channels(),
@@ -134,7 +134,7 @@ const handleSendInRoom = room.on('send-in-room', {
   },
 });
 
-export const typedTagsHandler = base.assemble({
+export const typedTagsDefinition = base.assemble({
   handlers: [
     handleAddTag,
     handleRemoveTag,
@@ -147,4 +147,4 @@ export const typedTagsHandler = base.assemble({
   ],
 });
 
-export type TypedTagsClient = InferClient<typeof typedTagsHandler>;
+export type TypedTagsClient = InferClient<typeof typedTagsDefinition>;

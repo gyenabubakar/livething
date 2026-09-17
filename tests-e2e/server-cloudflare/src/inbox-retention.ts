@@ -1,7 +1,7 @@
 import { bind } from '@wskit/server-cloudflare';
-import { inboxRetentionHandler } from '@wskit/tests-e2e-handlers/inbox-retention';
+import { inboxRetentionDefinition } from '@wskit/tests-e2e-handlers/inbox-retention';
 
-const Base = bind(inboxRetentionHandler);
+const Base = bind(inboxRetentionDefinition);
 
 export class InboxRetentionServer extends Base {
   #ctx: DurableObjectState;

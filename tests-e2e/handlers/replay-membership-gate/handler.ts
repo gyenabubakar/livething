@@ -1,4 +1,4 @@
-import { define, emits, t } from '@wskit/server';
+import { emits, server, t } from '@wskit/server';
 import { channels } from '@wskit/server/channels';
 import { dedup } from '@wskit/server/dedup';
 import { replay } from '@wskit/server/replay';
@@ -12,7 +12,7 @@ const TopBeacon = v.object({ text: v.string() });
 const SendSecret = v.object({ text: v.string() });
 const SendBeacon = v.object({ text: v.string() });
 
-const base = define({
+const base = server({
   upgrade: (request) => requireUsername(request),
   capabilities: [
     emits({ 'top-beacon': t<v.InferOutput<typeof TopBeacon>>() }),
@@ -47,8 +47,8 @@ privateChannel.replay({
   },
 });
 
-export const replayMembershipGateHandler = base.assemble({
+export const replayMembershipGateDefinition = base.assemble({
   handlers: [handleSendBeacon, handleSendSecret],
 });
 
-export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateHandler>;
+export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateDefinition>;

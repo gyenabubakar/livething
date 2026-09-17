@@ -98,10 +98,10 @@ const landingItems = [
     to: '/server/overview',
     children: [
       {
-        label: 'define()',
+        label: 'server()',
         icon: 'i-ph-brackets-curly-duotone',
         description: 'The builder and assemble',
-        to: '/server/define/overview'
+        to: '/server/server/overview'
       },
       {
         label: 'Adapters',

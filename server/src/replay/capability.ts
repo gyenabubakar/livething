@@ -35,7 +35,7 @@ export interface CustomReplayHooks {
 
 /** A `replay.custom()` capability, carrying the builder that turns hooks into a primitive. */
 export interface ReplayCustomCapability extends Capability<{}, never, 'replay-custom'> {
-  /** Host-owned: rejected inside a plugin's `define({ scope: 'plugin' })`. @internal */
+  /** Host-owned: rejected inside a plugin's `server({ scope: 'plugin' })`. @internal */
   readonly __hostOnly: true;
   /** Build the custom-replay primitive from `base.replay(...)` hooks. @internal */
   readonly __buildCustomReplay: (hooks: CustomReplayHooks) => Primitive;
@@ -49,12 +49,12 @@ export interface ReplayCustomCapability extends Capability<{}, never, 'replay-cu
  *
  * @example
  * ```ts
- * import { define } from '@wskit/server';
+ * import { server } from '@wskit/server';
  * import { replay } from '@wskit/server/replay';
  * import { dedup } from '@wskit/server/dedup';
  * import { sequence } from '@wskit/server/sequence';
  *
- * const base = define({
+ * const base = server({
  *   capabilities: [
  *     dedup(),
  *     sequence({ persist: true }),
@@ -121,10 +121,10 @@ function attachBuiltinReplayBuilder(cap: HostCapability<{}, 'replay'>): void {
  *
  * @example
  * ```ts
- * import { define } from '@wskit/server';
+ * import { server } from '@wskit/server';
  * import { replay } from '@wskit/server/replay';
  *
- * const base = define({ capabilities: [replay.custom()] });
+ * const base = server({ capabilities: [replay.custom()] });
  *
  * base.replay({
  *   beforeSend(ctx, msg) {
