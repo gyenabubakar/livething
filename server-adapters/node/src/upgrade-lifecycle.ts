@@ -31,17 +31,24 @@ export function createUpgradeLifecycle(): UpgradeLifecycle {
 
       const abort = createNodeUpgradeAbort(request);
       aborts.add(abort);
+      let resolveResult!: (value: T | undefined) => void;
+      let rejectResult!: (reason: unknown) => void;
+      const result = new Promise<T | undefined>((resolve, reject) => {
+        resolveResult = resolve;
+        rejectResult = reject;
+      });
 
-      let task: Promise<T>;
-      try {
-        task = prepare(abort.signal);
-      } catch (error) {
-        task = Promise.reject(error);
-      }
-
-      const result = task.then((value) => (abort.signal.aborted ? undefined : value));
       pending.add(result);
       void result.then(cleanup, cleanup);
+
+      try {
+        Promise.resolve(prepare(abort.signal)).then(
+          (value) => resolveResult(abort.signal.aborted ? undefined : value),
+          rejectResult,
+        );
+      } catch (error) {
+        rejectResult(error);
+      }
 
       function cleanup(): void {
         pending.delete(result);

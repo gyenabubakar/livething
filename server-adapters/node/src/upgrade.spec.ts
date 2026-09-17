@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { CloseCodes } from '@wskit/server/errors';
@@ -28,10 +29,7 @@ function incomingRequest(
   });
 }
 
-function fakeWebSocketServer(webSocket: {
-  close: ReturnType<typeof vi.fn>;
-  on: ReturnType<typeof vi.fn>;
-}): NodeWebSocketServer {
+function fakeWebSocketServer(webSocket: unknown): NodeWebSocketServer {
   return {
     handleUpgrade: vi.fn((...args: Parameters<NodeWebSocketServer['handleUpgrade']>) => {
       args[3](webSocket as never, incomingRequest());
@@ -86,6 +84,43 @@ describe('createNodeUpgradeHandler', () => {
     expect(endpoint.prepareNode).toHaveBeenCalledWith(request, { signal: expect.any(AbortSignal) });
     expect(upgrade.accept).toHaveBeenCalledOnce();
     expect(webSocket.on).toHaveBeenCalledTimes(3);
+  });
+
+  it('forwards text, binary, close, and error events from an accepted socket', async () => {
+    const connection: NodeConnection = {
+      message: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      error: vi.fn(async () => {}),
+    };
+
+    const endpoint = fakeEndpoint(acceptedUpgrade(connection));
+    const webSocket = Object.assign(new EventEmitter(), {
+      bufferedAmount: 0,
+      close: vi.fn(),
+      send: vi.fn(),
+    });
+
+    createNodeUpgradeHandler({ endpoint, webSocketServer: fakeWebSocketServer(webSocket) })(
+      incomingRequest(),
+      fakeSocket(),
+      Buffer.alloc(0),
+    );
+
+    await vi.waitFor(() => expect(webSocket.listenerCount('message')).toBe(1));
+    webSocket.emit('message', Buffer.from('hello'), false);
+    webSocket.emit('message', Buffer.from([1]), true);
+    webSocket.emit('close', 1001, Buffer.from('going away'));
+    const error = new Error('socket failed');
+
+    webSocket.emit('error', error);
+
+    expect(connection.message).toHaveBeenCalledWith('hello');
+    expect(webSocket.close).toHaveBeenCalledWith(
+      1003,
+      '[wskit] binary frames are not supported yet',
+    );
+    expect(connection.close).toHaveBeenCalledWith(1001, 'going away');
+    expect(connection.error).toHaveBeenCalledWith(error);
   });
 
   it('writes a prepared HTTP response without starting a WebSocket handshake', async () => {

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage } from 'node:http';
 import { createUpgradeLifecycle } from './upgrade-lifecycle.ts';
 
@@ -11,6 +11,30 @@ function createRequest(): { request: IncomingMessage; socket: EventEmitter } {
 }
 
 describe('upgrade lifecycle', () => {
+  it('waits for preparation that starts shutdown synchronously', async () => {
+    const lifecycle = createUpgradeLifecycle();
+    const { request } = createRequest();
+    const shutdown = vi.fn(async () => {});
+    let release!: (value: string) => void;
+    let stopping!: Promise<void>;
+
+    const preparation = lifecycle.prepare(request, () => {
+      stopping = lifecycle.shutdown(shutdown);
+      return new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(shutdown).not.toHaveBeenCalled();
+
+    release('accepted');
+    await expect(preparation).resolves.toBeUndefined();
+    await stopping;
+    expect(shutdown).toHaveBeenCalledOnce();
+  });
+
   it('cancels preparation when the socket already ended', async () => {
     const lifecycle = createUpgradeLifecycle();
     const { request, socket } = createRequest();

@@ -145,7 +145,7 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     strategy:
-      fail-fast: true
+      fail-fast: false
       # One job per implemented adapter (cf/node; deno/bun to come), run
       # concurrently so calendar time is the slowest suite, not their sum.
       matrix:
