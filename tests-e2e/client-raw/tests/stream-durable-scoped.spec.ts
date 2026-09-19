@@ -119,9 +119,8 @@ test.describe('stream-durable scoped (channel)', () => {
       .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.row as number);
 
-    // Resumable is live: the generator continues from the LATEST saved cursor,
-    // so the resumed socket never re-receives the rows it already had (1, 2) and
-    // the rows it does get are a contiguous tail ending at the final row 10.
+    // The client confirmed rows 1 and 2, so the resumed socket does not receive
+    // them again. It gets the contiguous tail through row 10.
     expect(resumedRows.length).toBeGreaterThan(0);
     expect(resumedRows).not.toContain(1);
     expect(resumedRows).not.toContain(2);
@@ -273,14 +272,10 @@ test.describe('stream-durable scoped (channel)', () => {
     expect(rowsAfter).toBeLessThan(20);
   });
 
-  // A pause nudge makes the generator return, so the stream's durable row goes
-  // to `ended`. Resuming an ended stream replays `__streamEnd__` and never
-  // re-runs the generator — so a stream a nudge paused before the drop stays
-  // paused (ended) after the reconnect. The stream stays paused because it
-  // ended, not because any buffered nudge is persisted: nudges live only in the
-  // in-memory buffer of a running generator, and an unconsumed one does not
-  // survive a drop.
-  test('a resumable stream a pause nudge ended stays ended after reconnect+resume — resume replays the end, no re-run', async ({
+  // A pause nudge ends this generator attempt. A reconnect must still start a
+  // new attempt from the last row this client confirmed, because the browser
+  // may have missed items before it saw the old end frame.
+  test('an ended resumable stream restarts from the client-confirmed row on resume', async ({
     page,
   }, testInfo) => {
     const room = `sds-${testInfo.testId}-${Date.now()}`;
@@ -319,7 +314,12 @@ test.describe('stream-durable scoped (channel)', () => {
 
     const rowsBeforeDrop = (await frames(page, a)).filter(
       (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
-    ).length;
+    );
+    const rowSeqs = rowsBeforeDrop
+      .map((f) => f.__wskit?.seq)
+      .filter((seq): seq is number => typeof seq === 'number');
+    expect(rowSeqs).not.toHaveLength(0);
+    const lastKnownSeq = Math.max(...rowSeqs);
 
     await closeSocket(page, a);
     await page.waitForTimeout(150);
@@ -332,11 +332,10 @@ test.describe('stream-durable scoped (channel)', () => {
 
     await send(page, b, {
       event: '__resumeStream__',
-      payload: { lastKnownSeq: 0 },
+      payload: { lastKnownSeq },
       __wskit: { channel: 'rooms', streamId },
     });
 
-    // Resuming the ended stream replays the end frame rather than re-running.
     await waitForFrame(page, b, {
       match: (f) =>
         f.event === '__streamEnd__' &&
@@ -344,15 +343,13 @@ test.describe('stream-durable scoped (channel)', () => {
         f.__wskit?.channel === 'rooms',
     });
 
-    // Give a full generator cadence (150ms/row) a chance to emit — it must not.
-    await page.waitForTimeout(600);
-    const rowsAfterResume = (await frames(page, b)).filter(
-      (f) => f.event === 'paused-feed' && typeof f.payload.row === 'number',
-    ).length;
+    const rowsAfterResume = (await frames(page, b))
+      .filter((f) => f.event === 'paused-feed' && typeof f.payload.row === 'number')
+      .map((f) => f.payload.row as number);
 
-    // The resumed socket receives no new rows: the generator did not re-run.
-    expect(rowsAfterResume).toBe(0);
-    // And the stream never sneaks past where the pause stopped it.
-    expect(rowsBeforeDrop).toBeLessThan(20);
+    expect(rowsAfterResume).toEqual(
+      Array.from({ length: 20 - lastKnownSeq }, (_, i) => lastKnownSeq + i + 1),
+    );
+    expect(rowsBeforeDrop.length).toBeLessThan(20);
   });
 });

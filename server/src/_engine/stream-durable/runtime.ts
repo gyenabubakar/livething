@@ -103,6 +103,11 @@ export interface DurableStreamRuntime {
   /** SQLite handle. */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+    transaction<T>(
+      fn: (sql: {
+        exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+      }) => T,
+    ): T;
   };
 
   handleRuntimeError(connection: RuntimeConnection, opts: OptsParameter3): Promise<void>;
@@ -134,7 +139,7 @@ export interface DurableStreamRuntimeDef {
 
   readonly retentionAfterEndMs?: number;
 
-  /** Validator for the saved cursor (resumable streams only). */
+  /** Validator for a restored checkpoint cursor (resumable streams only). */
   readonly cursor?: unknown;
 
   /** Disconnect policy — drives whether the generator survives the drop. */
@@ -442,7 +447,7 @@ export async function resumeDurableStream(
   // point it at the new connection and replay buffered chunks.
   if (!isPeerSubscriber && row.status === 'active') {
     const live = runtime.activeStreams.get(streamId);
-    if (live && live.detached) {
+    if (live && live.detached && row.kind !== 'resumable') {
       const detachedStream = live;
       const previousConnection = detachedStream.connection;
       const previousConnectionId = detachedStream.connectionId;
@@ -575,7 +580,7 @@ export async function resumeDurableStream(
     }
   }
 
-  if (row.status === 'ended') {
+  if (row.status === 'ended' && row.kind === 'recorded') {
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
@@ -599,8 +604,28 @@ export async function resumeDurableStream(
     return;
   }
 
-  const startSeq = row.lastSeq;
-  const cursorRaw = row.cursor;
+  const checkpoint = runtime.sql.transaction((sql) => {
+    const restoredCheckpoint = Storage.readCursorCheckpointAtOrBefore(sql, {
+      userId: storageUserId,
+      streamId,
+      seq: lastKnownSeq,
+    });
+    Storage.deleteCursorCheckpointsAfter(sql, {
+      userId: storageUserId,
+      streamId,
+      seq: lastKnownSeq,
+    });
+    Storage.rewindResumableStream(sql, {
+      userId: storageUserId,
+      streamId,
+      lastSeq: restoredCheckpoint?.seq ?? 0,
+      now: Date.now(),
+    });
+    return restoredCheckpoint;
+  });
+
+  const startSeq = checkpoint?.seq ?? 0;
+  const cursorRaw = checkpoint?.cursor ?? null;
 
   let cursor: unknown = null;
   if (cursorRaw) {
@@ -638,13 +663,6 @@ export async function resumeDurableStream(
   });
 
   if (connection.closing) return;
-
-  runtime.sql.exec(
-    "UPDATE __wskit_streams SET status = 'active', last_activity_at = ? WHERE user_id = ? AND stream_id = ?",
-    Date.now(),
-    storageUserId,
-    streamId,
-  );
 
   await runGenerator(runtime, connection, {
     scope,
@@ -684,6 +702,31 @@ interface RunGeneratorOptions {
   initialCursor: unknown;
   attempt: number;
   startSeq: number;
+}
+
+interface ResumableCheckpointOptions {
+  def: DurableStreamRuntimeDef;
+  userId: string;
+  streamId: string;
+  seq: number;
+  cursorValue: unknown;
+  now: number;
+}
+
+function appendResumableCursorCheckpoint(
+  runtime: DurableStreamRuntime,
+  opts: ResumableCheckpointOptions,
+): void {
+  const { def, userId, streamId, seq, cursorValue, now } = opts;
+  if (def.kind !== 'resumable' || cursorValue === undefined) return;
+
+  Storage.appendCursorCheckpoint(runtime.sql, {
+    userId,
+    streamId,
+    seq,
+    cursor: serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`),
+    now,
+  });
 }
 
 async function runGenerator(
@@ -795,10 +838,15 @@ async function runGenerator(
       const now = Date.now();
 
       const recordsChunks = def.kind === 'recorded';
-      const serializedCursor =
-        def.kind === 'resumable' && cursorValue !== undefined
-          ? serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`)
-          : undefined;
+      appendResumableCursorCheckpoint(runtime, {
+        def,
+        userId,
+        streamId,
+        seq,
+        cursorValue,
+        now,
+      });
+
       if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
           userId,
@@ -842,17 +890,6 @@ async function runGenerator(
       }
 
       function persistDelivery(): void {
-        if (def.kind === 'resumable' && cursorValue !== undefined) {
-          Storage.updateCursor(runtime.sql, {
-            userId,
-            streamId,
-            cursor: serializedCursor!,
-            lastSeq: seq,
-            now,
-          });
-          return;
-        }
-
         Storage.updateLastSeq(runtime.sql, { userId, streamId, lastSeq: seq, now });
       }
 

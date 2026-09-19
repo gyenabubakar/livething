@@ -2,9 +2,10 @@
 import { StreamIdCollision } from '@wskit/core';
 
 /**
- * Storage layer for durable streams. Two tables keyed by
- * `(user_id, stream_id)`: `__wskit_streams` (one row per stream) and
- * `__wskit_stream_chunks` (recorded streams only, ON DELETE CASCADE).
+ * Storage layer for durable streams. `__wskit_streams` has one row per stream.
+ * `__wskit_stream_chunks` stores recorded-stream payloads and
+ * `__wskit_stream_checkpoints` stores resumable-stream cursors. Both child
+ * tables cascade when their stream row is deleted.
  */
 
 const CREATE_STREAMS_TABLE_SQL = `
@@ -15,7 +16,6 @@ const CREATE_STREAMS_TABLE_SQL = `
     payload                   TEXT NOT NULL,
     kind                      TEXT NOT NULL,
     status                    TEXT NOT NULL DEFAULT 'active',
-    cursor                    TEXT,
     last_seq                  INTEGER NOT NULL DEFAULT 0,
     channel_key               TEXT,
     channel_family             TEXT,
@@ -53,6 +53,18 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
   )
 `;
 
+const CREATE_STREAM_CHECKPOINTS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __wskit_stream_checkpoints (
+    user_id      TEXT NOT NULL,
+    stream_id    TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    cursor       TEXT NOT NULL,
+    saved_at     INTEGER NOT NULL,
+    PRIMARY KEY (user_id, stream_id, seq),
+    FOREIGN KEY (user_id, stream_id) REFERENCES __wskit_streams (user_id, stream_id) ON DELETE CASCADE
+  )
+`;
+
 // One row per subscriber of a broadcast stream: how far a resume has caught
 // them up, and when they opted out (null while subscribed).
 const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
@@ -84,7 +96,6 @@ export interface DurableStreamRow {
   kind: DurableStreamKind;
   status: DurableStreamStatus;
 
-  cursor: string | null;
   lastSeq: number;
 
   channelKey: string | null;
@@ -118,6 +129,15 @@ export interface DurableStreamChunkRow {
   metadata?: Record<string, unknown>;
 }
 
+/** One cursor checkpoint from `__wskit_stream_checkpoints`. */
+export interface DurableStreamCursorCheckpointRow {
+  userId: string;
+  streamId: string;
+  seq: number;
+  cursor: string;
+  savedAt: number;
+}
+
 interface SqlExec {
   exec(
     query: string,
@@ -138,7 +158,7 @@ interface SubscriberRef {
   subscriberUserId: string;
 }
 
-// All four statements (the PRAGMA + three CREATEs) bundled into one round
+// All statements (the PRAGMA + table/index CREATEs) bundled into one round
 // trip. The PRAGMA is repeated every boot anyway since SQLite resets it
 // per-connection, so it stays at the front of the bundle.
 // @__PURE__ lets the bundler drop this when unused; see channel/storage.ts.
@@ -147,6 +167,7 @@ const DURABLE_STREAM_SCHEMA_SQL = /* @__PURE__ */ [
   CREATE_STREAMS_TABLE_SQL,
   CREATE_STREAMS_STATUS_INDEX_SQL,
   CREATE_STREAM_CHUNKS_TABLE_SQL,
+  CREATE_STREAM_CHECKPOINTS_TABLE_SQL,
   CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
 ].join(';\n');
 
@@ -163,7 +184,6 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     payload: row.payload as string,
     kind: row.kind as DurableStreamKind,
     status: row.status as DurableStreamStatus,
-    cursor: (row.cursor as string | null) ?? null,
     lastSeq: Number(row.last_seq ?? 0),
     channelKey: (row.channel_key as string | null) ?? null,
     channelFamily: (row.channel_family as string | null) ?? null,
@@ -265,22 +285,6 @@ export function readStream(
   return rows.length > 0 ? rowToStream(rows[0]!) : null;
 }
 
-/** Persist the latest cursor + last_seq + activity timestamp for a resumable stream. */
-export function updateCursor(
-  sql: SqlExec,
-  opts: StreamRef & { cursor: string; lastSeq: number; now: number },
-): void {
-  const { userId, streamId, cursor, lastSeq, now } = opts;
-  sql.exec(
-    'UPDATE __wskit_streams SET cursor = ?, last_seq = ?, last_activity_at = ? WHERE user_id = ? AND stream_id = ?',
-    cursor,
-    lastSeq,
-    now,
-    userId,
-    streamId,
-  );
-}
-
 /** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
 export function updateLastSeq(
   sql: SqlExec,
@@ -293,6 +297,22 @@ export function updateLastSeq(
     now,
     userId,
     streamId,
+  );
+}
+
+/** Rewind a resumable stream to the cursor the reconnecting client confirmed. */
+export function rewindResumableStream(
+  sql: SqlExec,
+  opts: StreamRef & { lastSeq: number; now: number },
+): void {
+  sql.exec(
+    `UPDATE __wskit_streams
+     SET last_seq = ?, status = 'active', last_activity_at = ?
+     WHERE user_id = ? AND stream_id = ?`,
+    opts.lastSeq,
+    opts.now,
+    opts.userId,
+    opts.streamId,
   );
 }
 
@@ -409,6 +429,70 @@ export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: n
     userId,
     streamId,
     keepNewest,
+  );
+}
+
+/** Inputs accepted by `appendCursorCheckpoint`. */
+export interface AppendCursorCheckpointInput {
+  userId: string;
+  streamId: string;
+  seq: number;
+  cursor: string;
+  now: number;
+}
+
+/** Save the cursor that can restart a resumable stream after `seq`. */
+export function appendCursorCheckpoint(sql: SqlExec, input: AppendCursorCheckpointInput): void {
+  sql.exec(
+    `INSERT INTO __wskit_stream_checkpoints (user_id, stream_id, seq, cursor, saved_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    input.userId,
+    input.streamId,
+    input.seq,
+    input.cursor,
+    input.now,
+  );
+}
+
+/** Read the newest resumable cursor checkpoint at or before a client sequence. */
+export function readCursorCheckpointAtOrBefore(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number },
+): DurableStreamCursorCheckpointRow | null {
+  const row = sql
+    .exec(
+      `SELECT * FROM __wskit_stream_checkpoints
+       WHERE user_id = ? AND stream_id = ? AND seq <= ?
+       ORDER BY seq DESC
+       LIMIT 1`,
+      opts.userId,
+      opts.streamId,
+      opts.seq,
+    )
+    .toArray()[0];
+
+  if (!row) return null;
+
+  return {
+    userId: row.user_id as string,
+    streamId: row.stream_id as string,
+    seq: Number(row.seq),
+    cursor: row.cursor as string,
+    savedAt: Number(row.saved_at),
+  };
+}
+
+/** Remove checkpoints for chunks the client did not confirm receiving. */
+export function deleteCursorCheckpointsAfter(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number },
+): void {
+  sql.exec(
+    `DELETE FROM __wskit_stream_checkpoints
+     WHERE user_id = ? AND stream_id = ? AND seq > ?`,
+    opts.userId,
+    opts.streamId,
+    opts.seq,
   );
 }
 

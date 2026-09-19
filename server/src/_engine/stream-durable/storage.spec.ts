@@ -53,6 +53,49 @@ describe('durable-stream/storage', () => {
     expect(chunks.map((c) => c.seq)).toEqual([3, 4, 5]);
   });
 
+  it('keeps the resumable cursor checkpoint the client confirmed and drops later attempts', () => {
+    Storage.insertStream(sql, {
+      userId: 'u-1',
+      streamId: 's-checkpoints',
+      event: 'paginate',
+      payload: '{}',
+      kind: 'resumable',
+      now: 1_000,
+    });
+
+    for (let seq = 1; seq <= 4; seq += 1) {
+      Storage.appendCursorCheckpoint(sql, {
+        userId: 'u-1',
+        streamId: 's-checkpoints',
+        seq,
+        cursor: JSON.stringify({ page: seq + 1 }),
+        now: 1_000 + seq,
+      });
+    }
+
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, {
+        userId: 'u-1',
+        streamId: 's-checkpoints',
+        seq: 3,
+      }),
+    ).toMatchObject({ seq: 3, cursor: JSON.stringify({ page: 4 }) });
+
+    Storage.deleteCursorCheckpointsAfter(sql, {
+      userId: 'u-1',
+      streamId: 's-checkpoints',
+      seq: 3,
+    });
+
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, {
+        userId: 'u-1',
+        streamId: 's-checkpoints',
+        seq: 99,
+      }),
+    ).toMatchObject({ seq: 3, cursor: JSON.stringify({ page: 4 }) });
+  });
+
   it('markSuspended only flips active → suspended', () => {
     Storage.insertStream(sql, {
       userId: 'u-1',
@@ -100,9 +143,20 @@ describe('durable-stream/storage', () => {
       payload: '{}',
       now: 1_001,
     });
+    Storage.appendCursorCheckpoint(sql, {
+      userId: 'u-1',
+      streamId: 's-1',
+      seq: 1,
+      cursor: JSON.stringify({ page: 2 }),
+      now: 1_001,
+    });
     Storage.deleteStream(sql, 'u-1', 's-1');
     expect(Storage.readStream(sql, 'u-1', 's-1')).toBeNull();
+
     expect(Storage.readChunksSince(sql, { userId: 'u-1', streamId: 's-1', since: 0 })).toEqual([]);
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u-1', streamId: 's-1', seq: 1 }),
+    ).toBeNull();
   });
 
   it('findExpiredSuspended returns rows past their max_age_ms', () => {

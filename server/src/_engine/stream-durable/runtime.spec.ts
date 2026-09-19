@@ -182,7 +182,7 @@ describe('durable stream runtime', () => {
     expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('suspended');
   });
 
-  it('does not advance a resumable cursor when its chunk is rejected', async () => {
+  it('saves a resumable checkpoint before a chunk is handed to the socket', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -202,8 +202,10 @@ describe('durable stream runtime', () => {
     });
 
     const row = Storage.readStream(sql, 'u1', 'gen-1')!;
-    expect(row.cursor).toBeNull();
     expect(row.lastSeq).toBe(0);
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u1', streamId: 'gen-1', seq: 1 }),
+    ).toMatchObject({ seq: 1, cursor: JSON.stringify({ idx: 1 }) });
   });
 
   it('does not send a resumable chunk when its cursor cannot be serialized', async () => {
@@ -619,11 +621,12 @@ describe('durable stream runtime', () => {
       kind: 'resumable',
       now: Date.now(),
     });
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-cursor', lastSeq: 4, now: Date.now() });
+    Storage.appendCursorCheckpoint(sql, {
       userId: 'u1',
       streamId: 's-cursor',
+      seq: 4,
       cursor: JSON.stringify({ idx: 4 }),
-      lastSeq: 4,
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-cursor', now: Date.now() });
@@ -652,6 +655,197 @@ describe('durable stream runtime', () => {
     expect(sent[1]).toMatchObject({ i: 6 });
   });
 
+  it('resumeDurableStream — restarts from the last cursor the client confirms receiving', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 's-confirmed-cursor',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    for (let seq = 1; seq <= 4; seq += 1) {
+      Storage.appendCursorCheckpoint(sql, {
+        userId: 'u1',
+        streamId: 's-confirmed-cursor',
+        seq,
+        cursor: JSON.stringify({ idx: seq }),
+        now: Date.now(),
+      });
+    }
+
+    Storage.updateLastSeq(sql, {
+      userId: 'u1',
+      streamId: 's-confirmed-cursor',
+      lastSeq: 4,
+      now: Date.now(),
+    });
+    Storage.markSuspended(sql, {
+      userId: 'u1',
+      streamId: 's-confirmed-cursor',
+      now: Date.now(),
+    });
+
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          generator: async function* (ctx: any) {
+            const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+            for (let i = startAt + 1; i <= 5; i += 1) {
+              yield ctx.stream.withCursor({ i }, { idx: i });
+            }
+          },
+        }),
+      }),
+      row: Storage.readStream(sql, 'u1', 's-confirmed-cursor'),
+      streamId: 's-confirmed-cursor',
+      lastKnownSeq: 3,
+    });
+
+    const sent = pipelineSends.filter((m) => m.event === 'e').map((m) => m.payload);
+    expect(sent).toEqual([{ i: 4 }, { i: 5 }]);
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, {
+        userId: 'u1',
+        streamId: 's-confirmed-cursor',
+        seq: 99,
+      }),
+    ).toMatchObject({ seq: 5, cursor: JSON.stringify({ idx: 5 }) });
+  });
+
+  it('resumeDurableStream — re-runs an ended resumable stream for chunks the client missed', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 's-ended-checkpoint',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    for (let seq = 1; seq <= 4; seq += 1) {
+      Storage.appendCursorCheckpoint(sql, {
+        userId: 'u1',
+        streamId: 's-ended-checkpoint',
+        seq,
+        cursor: JSON.stringify({ idx: seq }),
+        now: Date.now(),
+      });
+    }
+
+    Storage.updateLastSeq(sql, {
+      userId: 'u1',
+      streamId: 's-ended-checkpoint',
+      lastSeq: 4,
+      now: Date.now(),
+    });
+    Storage.markEnded(sql, { userId: 'u1', streamId: 's-ended-checkpoint', now: Date.now() });
+
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          generator: async function* (ctx: any) {
+            const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+            for (let i = startAt + 1; i <= 4; i += 1) {
+              yield ctx.stream.withCursor({ i }, { idx: i });
+            }
+          },
+        }),
+      }),
+      row: Storage.readStream(sql, 'u1', 's-ended-checkpoint'),
+      streamId: 's-ended-checkpoint',
+      lastKnownSeq: 3,
+    });
+
+    expect(pipelineSends.filter((m) => m.event === 'e').map((m) => m.payload)).toEqual([{ i: 4 }]);
+    expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(1);
+  });
+
+  it('resumeDurableStream — replaces a detached resumable generator from the confirmed checkpoint', async () => {
+    const sql = createTestSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const previousConnection = createConnection('c-previous');
+    const connection = createConnection('c-resumed');
+
+    Storage.insertStream(sql, {
+      userId: 'u1',
+      streamId: 's-detached-checkpoint',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    for (let seq = 1; seq <= 4; seq += 1) {
+      Storage.appendCursorCheckpoint(sql, {
+        userId: 'u1',
+        streamId: 's-detached-checkpoint',
+        seq,
+        cursor: JSON.stringify({ idx: seq }),
+        now: Date.now(),
+      });
+    }
+
+    Storage.updateLastSeq(sql, {
+      userId: 'u1',
+      streamId: 's-detached-checkpoint',
+      lastSeq: 4,
+      now: Date.now(),
+    });
+
+    const detachedGenerator = (async function* () {
+      yield await new Promise<never>(() => {});
+    })();
+    const detached = {
+      id: 's-detached-checkpoint',
+      connectionId: previousConnection.id,
+      event: 'e',
+      generator: detachedGenerator,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+      detached: true,
+      connection: previousConnection,
+      scope: {},
+      abortController: new AbortController(),
+    } as ActiveStream;
+    runtime.activeStreams.set(detached.id, detached);
+
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          onDisconnect: 'keep-running',
+          generator: async function* (ctx: any) {
+            const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+            yield ctx.stream.withCursor({ i: startAt + 1 }, { idx: startAt + 1 });
+          },
+        }),
+      }),
+      row: Storage.readStream(sql, 'u1', 's-detached-checkpoint'),
+      streamId: 's-detached-checkpoint',
+      lastKnownSeq: 3,
+    });
+
+    expect(detached.closed).toBe(true);
+    expect(detached.connection).toBe(previousConnection);
+    expect(pipelineSends.filter((m) => m.event === 'e').map((m) => m.payload)).toEqual([{ i: 4 }]);
+  });
+
   it('resumeDurableStream — resumed run continues seq from row.lastSeq, not from 1', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -666,11 +860,12 @@ describe('durable stream runtime', () => {
       kind: 'resumable',
       now: Date.now(),
     });
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-seq', lastSeq: 3, now: Date.now() });
+    Storage.appendCursorCheckpoint(sql, {
       userId: 'u1',
       streamId: 's-seq',
+      seq: 3,
       cursor: JSON.stringify({ idx: 3 }),
-      lastSeq: 3,
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-seq', now: Date.now() });
@@ -775,11 +970,12 @@ describe('durable stream runtime', () => {
       kind: 'resumable',
       now: Date.now(),
     });
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-valid', lastSeq: 7, now: Date.now() });
+    Storage.appendCursorCheckpoint(sql, {
       userId: 'u1',
       streamId: 's-valid',
+      seq: 7,
       cursor: JSON.stringify({ idx: 7 }),
-      lastSeq: 7,
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-valid', now: Date.now() });
@@ -828,11 +1024,12 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
     // Stamp a cursor shape the validator will reject (idx is a string).
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, { userId: 'u1', streamId: 's-bad', lastSeq: 4, now: Date.now() });
+    Storage.appendCursorCheckpoint(sql, {
       userId: 'u1',
       streamId: 's-bad',
+      seq: 4,
       cursor: JSON.stringify({ idx: 'oops' }),
-      lastSeq: 4,
       now: Date.now(),
     });
     Storage.markSuspended(sql, { userId: 'u1', streamId: 's-bad', now: Date.now() });
@@ -1170,7 +1367,13 @@ describe('durable stream runtime', () => {
     const row = Storage.readStream(sql, '__bcast:top__', 'gen-1')!;
     expect(row).not.toBeNull();
     expect(row.broadcast).toBe(true);
-    expect(JSON.parse(row.cursor!)).toEqual({ idx: 3 });
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, {
+        userId: '__bcast:top__',
+        streamId: 'gen-1',
+        seq: 99,
+      }),
+    ).toMatchObject({ seq: 3, cursor: JSON.stringify({ idx: 3 }) });
     expect(
       Storage.readChunksSince(sql, { userId: '__bcast:top__', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(0);
@@ -1197,12 +1400,12 @@ describe('durable stream runtime', () => {
       wskit: undefined,
     });
 
-    // The cursor should still be on row 1 — a reconnect picks the stream up
-    // from the cursor, so moving it to row 2 would skip a row nobody received.
-    expect(JSON.parse(Storage.readStream(sql, 'u1', 'gen-1')!.cursor!)).toEqual({ idx: 1 });
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u1', streamId: 'gen-1', seq: 99 }),
+    ).toMatchObject({ seq: 1, cursor: JSON.stringify({ idx: 1 }) });
   });
 
-  it('resumableStream — a plain yield (no withCursor) advances lastSeq but leaves the cursor null', async () => {
+  it('resumableStream — a plain yield advances lastSeq without creating a checkpoint', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime } = createRuntime(sql);
@@ -1226,8 +1429,10 @@ describe('durable stream runtime', () => {
 
     const row = Storage.readStream(sql, 'u1', 'gen-1')!;
     expect(seenCursors[0]).toBeNull();
-    expect(row.cursor).toBeNull();
     expect(row.lastSeq).toBe(3);
+    expect(
+      Storage.readCursorCheckpointAtOrBefore(sql, { userId: 'u1', streamId: 'gen-1', seq: 99 }),
+    ).toBeNull();
     expect(
       Storage.readChunksSince(sql, { userId: 'u1', streamId: 'gen-1', since: 0 }),
     ).toHaveLength(0);
@@ -1250,10 +1455,9 @@ describe('durable stream runtime', () => {
       creatorUserId: 'u-creator',
       maxChunks: 10,
     });
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, {
       userId: '__bcast:top__',
       streamId: 's-b',
-      cursor: JSON.stringify({ idx: 2 }),
       lastSeq: 2,
       now: Date.now(),
     });
@@ -1374,7 +1578,7 @@ describe('durable stream runtime', () => {
     expect(peerSeqs).toEqual([3, 4]);
   });
 
-  it('broadcast resumableStream — creator resume is live: continues from the latest cursor, no replay, no chunk storage', async () => {
+  it('broadcast resumableStream — creator restarts from its confirmed checkpoint with no payload buffer', async () => {
     const sql = createTestSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
@@ -1392,11 +1596,24 @@ describe('durable stream runtime', () => {
       creatorUserId: 'u-creator',
       maxChunks: 10,
     });
-    Storage.updateCursor(sql, {
+    Storage.updateLastSeq(sql, {
       userId: '__bcast:top__',
       streamId: 's-bc',
-      cursor: JSON.stringify({ idx: 5 }),
       lastSeq: 5,
+      now: Date.now(),
+    });
+    Storage.appendCursorCheckpoint(sql, {
+      userId: '__bcast:top__',
+      streamId: 's-bc',
+      seq: 3,
+      cursor: JSON.stringify({ idx: 3 }),
+      now: Date.now(),
+    });
+    Storage.appendCursorCheckpoint(sql, {
+      userId: '__bcast:top__',
+      streamId: 's-bc',
+      seq: 5,
+      cursor: JSON.stringify({ idx: 5 }),
       now: Date.now(),
     });
 
@@ -1430,7 +1647,7 @@ describe('durable stream runtime', () => {
     const produced = pipelineSends
       .filter((p) => p.event === 'e')
       .map((p) => (p.routing as { seq: number }).seq);
-    expect(produced).toEqual([6]);
+    expect(produced).toEqual([4]);
 
     const buffered = Storage.readChunksSince(sql, {
       userId: '__bcast:top__',
